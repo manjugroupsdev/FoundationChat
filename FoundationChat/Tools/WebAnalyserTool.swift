@@ -2,11 +2,14 @@ import Foundation
 import FoundationModels
 import SwiftSoup
 
+@available(iOS 26.0, macOS 26.0, visionOS 26.0, *)
 struct WebAnalyserTool: Tool {
   let name: String = "WebAnalyser"
   let description: String =
     "Analyse a website and return the content in a structured way, like page title, description and summary"
   private let session = URLSession.shared
+
+  typealias Output = GeneratedContent
 
   @Generable
   struct Arguments {
@@ -14,9 +17,9 @@ struct WebAnalyserTool: Tool {
     let url: String
   }
 
-  func call(arguments: Arguments) async throws -> ToolOutput {
+  func call(arguments: Arguments) async throws -> GeneratedContent {
     guard let url = URL(string: arguments.url) else {
-      return ToolOutput("Invalid URL provided: \(arguments.url)")
+      return GeneratedContent("Invalid URL provided: \(arguments.url)")
     }
     let (data, _) = try await session.data(from: url)
     let html = String(data: data, encoding: .utf8)!
@@ -24,9 +27,8 @@ struct WebAnalyserTool: Tool {
     let title = try soup.title()
     let thumbnail = try soup.select("meta[property='og:image']").attr("content")
     let description = try soup.select("meta[name='description']").attr("content")
-    return ToolOutput(
-      GeneratedContent(
-        WebPageMetadata(
-          title: title, thumbnail: thumbnail, description: description)))
+    return GeneratedContent(
+      WebPageMetadata(
+        title: title, thumbnail: thumbnail, description: description))
   }
 }

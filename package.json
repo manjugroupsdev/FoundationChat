@@ -1,0 +1,26 @@
+{
+  "name": "foundationchat",
+  "version": "1.0.0",
+  "description": "A SwiftUI chat application built with Apple's Foundation Models framework, showcasing on-device AI capabilities with persistent conversation storage.",
+  "main": "index.js",
+  "scripts": {
+    "test": "echo \"Error: no test specified\" && exit 1"
+  },
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/manjugroupsdev/FoundationChat.git"
+  },
+  "keywords": [],
+  "author": "",
+  "license": "ISC",
+  "type": "commonjs",
+  "bugs": {
+    "url": "https://github.com/manjugroupsdev/FoundationChat/issues"
+  },
+  "homepage": "https://github.com/manjugroupsdev/FoundationChat#readme",
+  "dependencies": {
+    "@stackframe/stack": "^2.8.77",
+    "convex": "^1.33.1",
+    "jose": "^5.10.0"
+  }
+}

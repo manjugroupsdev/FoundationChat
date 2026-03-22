@@ -7,6 +7,7 @@
 	objects = {
 
 /* Begin PBXBuildFile section */
+		B147C6162F67CBEF00BAF7B2 /* ConvexMobile in Frameworks */ = {isa = PBXBuildFile; productRef = B147C6152F67CBEF00BAF7B2 /* ConvexMobile */; };
 		E91E57882E0C3BC90091F669 /* AppIcon.icon in Resources */ = {isa = PBXBuildFile; fileRef = E91E57872E0C3BC90091F669 /* AppIcon.icon */; };
 		E91E57CD2E0D1CB50091F669 /* SwiftSoup in Frameworks */ = {isa = PBXBuildFile; productRef = E91E57CC2E0D1CB50091F669 /* SwiftSoup */; };
 /* End PBXBuildFile section */
@@ -30,6 +31,7 @@
 			buildActionMask = 2147483647;
 			files = (
 				E91E57CD2E0D1CB50091F669 /* SwiftSoup in Frameworks */,
+				B147C6162F67CBEF00BAF7B2 /* ConvexMobile in Frameworks */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
@@ -74,6 +76,7 @@
 			name = FoundationChat;
 			packageProductDependencies = (
 				E91E57CC2E0D1CB50091F669 /* SwiftSoup */,
+				B147C6152F67CBEF00BAF7B2 /* ConvexMobile */,
 			);
 			productName = FoundationChat;
 			productReference = E91E56BD2E0BD67D0091F669 /* FoundationChat.app */;
@@ -105,6 +108,7 @@
 			minimizedProjectReferenceProxies = 1;
 			packageReferences = (
 				E91E57CB2E0D1CB50091F669 /* XCRemoteSwiftPackageReference "SwiftSoup" */,
+				B147C6142F67CBEF00BAF7B2 /* XCRemoteSwiftPackageReference "convex-swift" */,
 			);
 			preferredProjectObjectVersion = 77;
 			productRefGroup = E91E56BE2E0BD67D0091F669 /* Products */;
@@ -257,20 +261,41 @@
 		E91E56C92E0BD67E0091F669 /* Debug */ = {
 			isa = XCBuildConfiguration;
 			buildSettings = {
+				APS_ENVIRONMENT = development;
 				ASSETCATALOG_COMPILER_APPICON_NAME = AppIcon;
 				ASSETCATALOG_COMPILER_GLOBAL_ACCENT_COLOR_NAME = AccentColor;
+				CODE_SIGN_ENTITLEMENTS = FoundationChat/FoundationChat.entitlements;
 				CODE_SIGN_STYLE = Automatic;
-				CURRENT_PROJECT_VERSION = 1;
-				DEVELOPMENT_TEAM = Z6P74P6T99;
+				CURRENT_PROJECT_VERSION = 2;
+				DEVELOPMENT_TEAM = WLMZ5G3G5G;
 				ENABLE_APP_SANDBOX = YES;
 				ENABLE_HARDENED_RUNTIME = YES;
+				ENABLE_INCOMING_NETWORK_CONNECTIONS = YES;
+				ENABLE_OUTGOING_NETWORK_CONNECTIONS = YES;
 				ENABLE_PREVIEWS = YES;
+				ENABLE_RESOURCE_ACCESS_AUDIO_INPUT = NO;
+				ENABLE_RESOURCE_ACCESS_BLUETOOTH = NO;
+				ENABLE_RESOURCE_ACCESS_CALENDARS = NO;
+				ENABLE_RESOURCE_ACCESS_CAMERA = NO;
+				ENABLE_RESOURCE_ACCESS_CONTACTS = NO;
+				ENABLE_RESOURCE_ACCESS_LOCATION = YES;
+				ENABLE_RESOURCE_ACCESS_PRINTING = NO;
+				ENABLE_RESOURCE_ACCESS_USB = NO;
 				ENABLE_USER_SELECTED_FILES = readonly;
 				GENERATE_INFOPLIST_FILE = YES;
+				INFOPLIST_KEY_CFBundleDisplayName = "M-Chat";
+				INFOPLIST_KEY_CONVEX_URL = "https://industrious-bullfrog-820.convex.cloud";
+				INFOPLIST_KEY_LSApplicationCategoryType = "public.app-category.productivity";
+				INFOPLIST_KEY_NEXT_PUBLIC_STACK_API_URL = "https://api.manjuauth.aivida.in";
+				INFOPLIST_KEY_NEXT_PUBLIC_STACK_PROJECT_ID = "d680fa85-f908-4cf7-9541-0401ab1340b2";
+				INFOPLIST_KEY_NEXT_PUBLIC_STACK_PUBLISHABLE_CLIENT_KEY = pck_18m9221t81ptja3yf1jek80wr5j9310w697he77ghnyp8;
+				INFOPLIST_KEY_NSLocationAlwaysAndWhenInUseUsageDescription = "M-Chat uses your location to share your position with your team.";
+				INFOPLIST_KEY_NSLocationWhenInUseUsageDescription = "M-Chat uses your location to share your position with your team.";
 				"INFOPLIST_KEY_UIApplicationSceneManifest_Generation[sdk=iphoneos*]" = YES;
 				"INFOPLIST_KEY_UIApplicationSceneManifest_Generation[sdk=iphonesimulator*]" = YES;
 				"INFOPLIST_KEY_UIApplicationSupportsIndirectInputEvents[sdk=iphoneos*]" = YES;
 				"INFOPLIST_KEY_UIApplicationSupportsIndirectInputEvents[sdk=iphonesimulator*]" = YES;
+				INFOPLIST_KEY_UIBackgroundModes = location;
 				"INFOPLIST_KEY_UILaunchScreen_Generation[sdk=iphoneos*]" = YES;
 				"INFOPLIST_KEY_UILaunchScreen_Generation[sdk=iphonesimulator*]" = YES;
 				"INFOPLIST_KEY_UIStatusBarStyle[sdk=iphoneos*]" = UIStatusBarStyleDefault;
@@ -281,18 +306,19 @@
 				LD_RUNPATH_SEARCH_PATHS = "@executable_path/Frameworks";
 				"LD_RUNPATH_SEARCH_PATHS[sdk=macosx*]" = "@executable_path/../Frameworks";
 				MACOSX_DEPLOYMENT_TARGET = 15.5;
-				MARKETING_VERSION = 1.0;
-				PRODUCT_BUNDLE_IDENTIFIER = com.dimillian.FoundationChat;
+				MARKETING_VERSION = 1.6;
+				PRODUCT_BUNDLE_IDENTIFIER = com.manju.chat;
 				PRODUCT_NAME = "$(TARGET_NAME)";
 				REGISTER_APP_GROUPS = YES;
 				SDKROOT = auto;
 				STRING_CATALOG_GENERATE_SYMBOLS = YES;
-				SUPPORTED_PLATFORMS = "iphoneos iphonesimulator macosx xros xrsimulator";
+				SUPPORTED_PLATFORMS = "iphoneos iphonesimulator";
+				SUPPORTS_MACCATALYST = NO;
 				SWIFT_DEFAULT_ACTOR_ISOLATION = MainActor;
 				SWIFT_EMIT_LOC_STRINGS = YES;
 				SWIFT_UPCOMING_FEATURE_MEMBER_IMPORT_VISIBILITY = YES;
 				SWIFT_VERSION = 5.0;
-				TARGETED_DEVICE_FAMILY = "1,2,7";
+				TARGETED_DEVICE_FAMILY = 1;
 				XROS_DEPLOYMENT_TARGET = 26.0;
 			};
 			name = Debug;
@@ -300,20 +326,41 @@
 		E91E56CA2E0BD67E0091F669 /* Release */ = {
 			isa = XCBuildConfiguration;
 			buildSettings = {
+				APS_ENVIRONMENT = production;
 				ASSETCATALOG_COMPILER_APPICON_NAME = AppIcon;
 				ASSETCATALOG_COMPILER_GLOBAL_ACCENT_COLOR_NAME = AccentColor;
+				CODE_SIGN_ENTITLEMENTS = FoundationChat/FoundationChat.entitlements;
 				CODE_SIGN_STYLE = Automatic;
-				CURRENT_PROJECT_VERSION = 1;
-				DEVELOPMENT_TEAM = Z6P74P6T99;
+				CURRENT_PROJECT_VERSION = 2;
+				DEVELOPMENT_TEAM = WLMZ5G3G5G;
 				ENABLE_APP_SANDBOX = YES;
 				ENABLE_HARDENED_RUNTIME = YES;
+				ENABLE_INCOMING_NETWORK_CONNECTIONS = YES;
+				ENABLE_OUTGOING_NETWORK_CONNECTIONS = YES;
 				ENABLE_PREVIEWS = YES;
+				ENABLE_RESOURCE_ACCESS_AUDIO_INPUT = NO;
+				ENABLE_RESOURCE_ACCESS_BLUETOOTH = NO;
+				ENABLE_RESOURCE_ACCESS_CALENDARS = NO;
+				ENABLE_RESOURCE_ACCESS_CAMERA = NO;
+				ENABLE_RESOURCE_ACCESS_CONTACTS = NO;
+				ENABLE_RESOURCE_ACCESS_LOCATION = YES;
+				ENABLE_RESOURCE_ACCESS_PRINTING = NO;
+				ENABLE_RESOURCE_ACCESS_USB = NO;
 				ENABLE_USER_SELECTED_FILES = readonly;
 				GENERATE_INFOPLIST_FILE = YES;
+				INFOPLIST_KEY_CFBundleDisplayName = "M-Chat";
+				INFOPLIST_KEY_CONVEX_URL = "https://industrious-bullfrog-820.convex.cloud";
+				INFOPLIST_KEY_LSApplicationCategoryType = "public.app-category.productivity";
+				INFOPLIST_KEY_NEXT_PUBLIC_STACK_API_URL = "https://api.manjuauth.aivida.in";
+				INFOPLIST_KEY_NEXT_PUBLIC_STACK_PROJECT_ID = "d680fa85-f908-4cf7-9541-0401ab1340b2";
+				INFOPLIST_KEY_NEXT_PUBLIC_STACK_PUBLISHABLE_CLIENT_KEY = pck_18m9221t81ptja3yf1jek80wr5j9310w697he77ghnyp8;
+				INFOPLIST_KEY_NSLocationAlwaysAndWhenInUseUsageDescription = "M-Chat uses your location to share your position with your team.";
+				INFOPLIST_KEY_NSLocationWhenInUseUsageDescription = "M-Chat uses your location to share your position with your team.";
 				"INFOPLIST_KEY_UIApplicationSceneManifest_Generation[sdk=iphoneos*]" = YES;
 				"INFOPLIST_KEY_UIApplicationSceneManifest_Generation[sdk=iphonesimulator*]" = YES;
 				"INFOPLIST_KEY_UIApplicationSupportsIndirectInputEvents[sdk=iphoneos*]" = YES;
 				"INFOPLIST_KEY_UIApplicationSupportsIndirectInputEvents[sdk=iphonesimulator*]" = YES;
+				INFOPLIST_KEY_UIBackgroundModes = location;
 				"INFOPLIST_KEY_UILaunchScreen_Generation[sdk=iphoneos*]" = YES;
 				"INFOPLIST_KEY_UILaunchScreen_Generation[sdk=iphonesimulator*]" = YES;
 				"INFOPLIST_KEY_UIStatusBarStyle[sdk=iphoneos*]" = UIStatusBarStyleDefault;
@@ -324,18 +371,19 @@
 				LD_RUNPATH_SEARCH_PATHS = "@executable_path/Frameworks";
 				"LD_RUNPATH_SEARCH_PATHS[sdk=macosx*]" = "@executable_path/../Frameworks";
 				MACOSX_DEPLOYMENT_TARGET = 15.5;
-				MARKETING_VERSION = 1.0;
-				PRODUCT_BUNDLE_IDENTIFIER = com.dimillian.FoundationChat;
+				MARKETING_VERSION = 1.6;
+				PRODUCT_BUNDLE_IDENTIFIER = com.manju.chat;
 				PRODUCT_NAME = "$(TARGET_NAME)";
 				REGISTER_APP_GROUPS = YES;
 				SDKROOT = auto;
 				STRING_CATALOG_GENERATE_SYMBOLS = YES;
-				SUPPORTED_PLATFORMS = "iphoneos iphonesimulator macosx xros xrsimulator";
+				SUPPORTED_PLATFORMS = "iphoneos iphonesimulator";
+				SUPPORTS_MACCATALYST = NO;
 				SWIFT_DEFAULT_ACTOR_ISOLATION = MainActor;
 				SWIFT_EMIT_LOC_STRINGS = YES;
 				SWIFT_UPCOMING_FEATURE_MEMBER_IMPORT_VISIBILITY = YES;
 				SWIFT_VERSION = 5.0;
-				TARGETED_DEVICE_FAMILY = "1,2,7";
+				TARGETED_DEVICE_FAMILY = 1;
 				XROS_DEPLOYMENT_TARGET = 26.0;
 			};
 			name = Release;
@@ -364,6 +412,14 @@
 /* End XCConfigurationList section */
 
 /* Begin XCRemoteSwiftPackageReference section */
+		B147C6142F67CBEF00BAF7B2 /* XCRemoteSwiftPackageReference "convex-swift" */ = {
+			isa = XCRemoteSwiftPackageReference;
+			repositoryURL = "https://github.com/get-convex/convex-swift";
+			requirement = {
+				kind = upToNextMajorVersion;
+				minimumVersion = 0.8.1;
+			};
+		};
 		E91E57CB2E0D1CB50091F669 /* XCRemoteSwiftPackageReference "SwiftSoup" */ = {
 			isa = XCRemoteSwiftPackageReference;
 			repositoryURL = "https://github.com/scinfu/SwiftSoup";
@@ -375,6 +431,11 @@
 /* End XCRemoteSwiftPackageReference section */
 
 /* Begin XCSwiftPackageProductDependency section */
+		B147C6152F67CBEF00BAF7B2 /* ConvexMobile */ = {
+			isa = XCSwiftPackageProductDependency;
+			package = B147C6142F67CBEF00BAF7B2 /* XCRemoteSwiftPackageReference "convex-swift" */;
+			productName = ConvexMobile;
+		};
 		E91E57CC2E0D1CB50091F669 /* SwiftSoup */ = {
 			isa = XCSwiftPackageProductDependency;
 			package = E91E57CB2E0D1CB50091F669 /* XCRemoteSwiftPackageReference "SwiftSoup" */;

@@ -17,6 +17,20 @@ class ChatEngine {
     }
   }
 
+  var availabilityMessage: String? {
+    switch model.availability {
+    case .available:
+      return nil
+    case .unavailable(.deviceNotEligible):
+      return "This device does not support Apple Intelligence."
+    case .unavailable(.appleIntelligenceNotEnabled):
+      return "Apple Intelligence is turned off. Enable it in Settings > Apple Intelligence & Siri."
+    case .unavailable(.modelNotReady):
+      return
+        "Apple Intelligence model assets are not ready yet. Keep the device on Wi-Fi and power, then wait for the download to finish in Settings > Apple Intelligence & Siri."
+    }
+  }
+
   var conversationHistory: String {
     conversation.sortedMessages.map {
       "Role: \($0.role.rawValue)\nContent: \($0.content)"
