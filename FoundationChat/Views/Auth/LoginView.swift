@@ -178,7 +178,7 @@ private struct SignInSheet: View {
   }
 
   private var otpField: some View {
-    TextField("6-digit code", text: $otpCode)
+    TextField("4-digit code", text: $otpCode)
       .keyboardType(.numberPad)
       .textContentType(.oneTimeCode)
       .focused($focusedField, equals: .otp)

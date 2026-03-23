@@ -99,29 +99,47 @@ struct HRDashboardView: View {
                 .font(.caption.weight(.semibold))
                 .foregroundStyle(.secondary)
 
-            LazyVGrid(columns: [GridItem(.flexible()), GridItem(.flexible())], spacing: 12) {
+            LazyVGrid(columns: [GridItem(.flexible()), GridItem(.flexible()), GridItem(.flexible())], spacing: 12) {
                 NavigationLink {
                     AttendanceListView()
                 } label: {
-                    QuickActionCard(icon: "clock.fill", title: "My Attendance", color: .blue)
+                    QuickActionCard(icon: "clock.fill", title: "Attendance", color: .blue)
                 }
 
                 NavigationLink {
                     PermissionListView()
                 } label: {
-                    QuickActionCard(icon: "calendar.badge.clock", title: "Request Leave", color: .green)
+                    QuickActionCard(icon: "calendar.badge.clock", title: "Permission", color: .green)
                 }
 
                 NavigationLink {
                     CallFollowUpListView()
                 } label: {
-                    QuickActionCard(icon: "phone.fill", title: "Call Follow Up", color: .cyan)
+                    QuickActionCard(icon: "phone.fill", title: "Call Log", color: .cyan)
                 }
 
                 NavigationLink {
                     SiteVisitListView()
                 } label: {
                     QuickActionCard(icon: "building.2.fill", title: "Site Visits", color: .orange)
+                }
+
+                NavigationLink {
+                    GPSRecordingView()
+                } label: {
+                    QuickActionCard(icon: "location.fill", title: "Start Trip", color: .red)
+                }
+
+                NavigationLink {
+                    GPSTripListView()
+                } label: {
+                    QuickActionCard(icon: "map.fill", title: "Trip History", color: .indigo)
+                }
+
+                NavigationLink {
+                    TravelLogView()
+                } label: {
+                    QuickActionCard(icon: "car.fill", title: "Travel Log", color: .purple)
                 }
             }
         }

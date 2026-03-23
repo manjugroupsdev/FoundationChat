@@ -109,6 +109,9 @@ final class AuthStore {
       currentSession = storedSession
       status = .signedIn
 
+      // Load stored MMS session
+      HRAPIService.shared.loadStoredMMSSession()
+
       let response: OtpSessionResponse = try await convexClient.mutation(
         "auth:restoreSession",
         with: ["sessionToken": storedSession.sessionToken]
@@ -151,29 +154,16 @@ final class AuthStore {
     }
 
     do {
-      let generatedOTP = Self.otpForPhoneNumber(trimmedPhoneNumber)
-      let challengeResponse: ClientOtpChallengeResponse = try await convexClient.mutation(
-        "auth:requestOtpFromClient",
-        with: [
-          "phoneNumber": trimmedPhoneNumber,
-          "otp": generatedOTP,
-        ]
-      )
+      // Send OTP via MMS only — single SMS to user
+      let digits = trimmedPhoneNumber.filter(\.isNumber)
+      let mobileNumber = digits.count > 10 ? String(digits.suffix(10)) : digits
 
-      do {
-        try await sendOTPViaAirtel(
-          phoneNumber: challengeResponse.phoneNumber,
-          otp: generatedOTP
-        )
-      } catch {
-        let _: LogoutResponse? = try? await convexClient.mutation(
-          "auth:cancelOtpRequest",
-          with: ["challengeId": challengeResponse.challengeId]
-        )
-        throw error
+      let mmsResult = try await HRAPIService.shared.mmsOtpSend(mobileNumber: mobileNumber)
+      guard mmsResult.sent == true else {
+        throw AuthStoreError.smsDeliveryFailed(mmsResult.message ?? "Failed to send OTP")
       }
 
-      return challengeResponse.phoneNumber
+      return trimmedPhoneNumber
     } catch {
       errorMessage = error.localizedDescription
       throw error
@@ -202,23 +192,72 @@ final class AuthStore {
     }
 
     do {
-      let response: OtpSessionResponse = try await convexClient.action(
+      // Step 1: Verify OTP with MMS
+      let digits = trimmedPhoneNumber.filter(\.isNumber)
+      let mobileNumber = digits.count > 10 ? String(digits.suffix(10)) : digits
+
+      let mmsResult = try await HRAPIService.shared.mmsOtpVerify(
+        mobileNumber: mobileNumber,
+        otp: trimmedCode
+      )
+
+      guard mmsResult.verified == true, let mmsUserId = mmsResult.userId, mmsUserId > 0 else {
+        errorMessage = mmsResult.message ?? "Invalid OTP"
+        return
+      }
+
+      // Store MMS session for HR features
+      HRAPIService.shared.setMMSSession(from: mmsResult)
+
+      // Step 2: Auto-create Convex session (silent — no SMS, no user interaction)
+      // Retry up to 3 times to handle cooldown
+      let convexOTP = Self.otpForPhoneNumber(trimmedPhoneNumber)
+      var convexSessionCreated = false
+
+      for attempt in 0..<3 {
+        do {
+          if attempt > 0 {
+            try await Task.sleep(for: .seconds(2))
+          }
+          let _: ClientOtpChallengeResponse = try await convexClient.mutation(
+            "auth:requestOtpFromClient",
+            with: [
+              "phoneNumber": trimmedPhoneNumber,
+              "otp": convexOTP,
+            ]
+          )
+          convexSessionCreated = true
+          break
+        } catch {
+          let msg = error.localizedDescription
+          if msg.contains("wait") || msg.contains("cooldown") {
+            // Cooldown — wait and retry
+            try? await Task.sleep(for: .seconds(5))
+            continue
+          }
+          // Other error — skip Convex challenge, try verify directly
+          convexSessionCreated = true
+          break
+        }
+      }
+
+      let convexResponse: OtpSessionResponse = try await convexClient.action(
         "auth:verifyOtp",
         with: [
           "phoneNumber": trimmedPhoneNumber,
-          "otp": trimmedCode,
+          "otp": convexOTP,
         ]
       )
 
       let session = OtpSession(
-        sessionToken: response.sessionToken,
-        phoneNumber: response.phoneNumber,
-        stackUserId: response.stackUserId,
-        expiresAt: response.expiresAt
+        sessionToken: convexResponse.sessionToken,
+        phoneNumber: convexResponse.phoneNumber,
+        stackUserId: convexResponse.stackUserId,
+        expiresAt: convexResponse.expiresAt
       )
 
       currentSession = session
-      viewer = response.identity
+      viewer = convexResponse.identity
       try tokenStore.save(session)
       _ = try await ensureCurrentUserInConvex()
       status = .signedIn
@@ -233,6 +272,7 @@ final class AuthStore {
   func logout() async {
     await unregisterPushTokenIfPossible()
     await clearSession()
+    HRAPIService.shared.clearMMSSession()
     status = .signedOut
   }
 
@@ -1305,6 +1345,7 @@ final class AuthStore {
     guard token.count > 12 else { return token }
     return "\(token.prefix(8))...\(token.suffix(4))"
   }
+
 
   private func clearSession() async {
     if let sessionToken = currentSession?.sessionToken {

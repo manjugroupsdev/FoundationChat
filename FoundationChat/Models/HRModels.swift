@@ -213,3 +213,175 @@ struct DayAttendanceSummary: Identifiable {
     let hours: Double?
     let date: Date
 }
+
+// MARK: - GPS Tracking Models
+
+struct APIGPSTrip: Decodable, Identifiable, Equatable {
+    let siteVisitGPSId: Int
+    let refNo: String?
+    let purpose: String?
+    let remarks: String?
+    let startingDateAndTime: Date?
+    let endingDateAndTime: Date?
+    let isApproved: Bool?
+    let userId: Int?
+    let userName: String?
+    let roleId: Int?
+    let startingLocation: String?
+    let endingLocation: String?
+    let noOfLocation: Int?
+    let noOfImages: Int?
+    let totalDuration: String?
+    let createdDateAndTime: Date?
+
+    var id: Int { siteVisitGPSId }
+    var displayName: String { userName ?? "Unknown" }
+
+    var startCoordinate: (lat: Double, lng: Double)? {
+        parseCoordinate(startingLocation)
+    }
+
+    var endCoordinate: (lat: Double, lng: Double)? {
+        parseCoordinate(endingLocation)
+    }
+
+    private func parseCoordinate(_ str: String?) -> (lat: Double, lng: Double)? {
+        guard let str, !str.isEmpty else { return nil }
+        let parts = str.split(separator: ",").map { $0.trimmingCharacters(in: .whitespaces) }
+        guard parts.count == 2, let lat = Double(parts[0]), let lng = Double(parts[1]) else { return nil }
+        return (lat, lng)
+    }
+}
+
+struct APIGPSTripDetail: Decodable {
+    let siteVisitGPSId: Int
+    let refNo: String?
+    let userName: String?
+    let purpose: String?
+    let startingDateAndTime: Date?
+    let endingDateAndTime: Date?
+    let totalDuration: String?
+    let waypoints: [APIWaypoint]
+}
+
+struct APIWaypoint: Decodable, Identifiable, Equatable {
+    let latitude: Double
+    let longitude: Double
+    let isManuallyCaptured: Bool?
+    let description: String?
+
+    var id: String { "\(latitude),\(longitude)" }
+}
+
+struct APIGPSDayMap: Decodable {
+    let date: String?
+    let users: [APIGPSDayUser]
+    let waypoints: [APIGPSDayWaypoint]
+    let segments: [APIGPSSegment]
+}
+
+struct APIGPSDayUser: Decodable, Identifiable, Equatable {
+    let userId: Int
+    let userName: String?
+    let recordCount: Int?
+    let totalPoints: Int?
+    let totalDuration: String?
+    let firstStart: Date?
+    let lastEnd: Date?
+    let purposes: String?
+
+    var id: Int { userId }
+    var displayName: String { userName ?? "User \(userId)" }
+}
+
+struct APIGPSDayWaypoint: Decodable, Identifiable, Equatable {
+    let lat: Double
+    let lng: Double
+    let manual: Bool?
+    let time: Date?
+    let gpsId: Int?
+
+    var id: String { "\(lat),\(lng),\(gpsId ?? 0)" }
+}
+
+struct APIGPSSegment: Decodable, Identifiable, Equatable {
+    let gpsId: Int
+    let purpose: String?
+    let startTime: Date?
+    let endTime: Date?
+
+    var id: Int { gpsId }
+}
+
+struct APITravelLog: Decodable, Identifiable, Equatable {
+    let siteVisitDate: Date?
+    let nameOfProject: String?
+    let clientName: String?
+    let pickupLocation: String?
+    let pickupTime: String?
+    let driverName: String?
+    let driverContactNumber: String?
+    let vehicleNumber: String?
+    let openingKM: Double?
+    let closingKM: Double?
+    let totalKM: Double?
+    let siteIncharge: String?
+    let hodName: String?
+
+    var id: String {
+        "\(siteVisitDate?.timeIntervalSince1970 ?? 0)_\(clientName ?? "")_\(nameOfProject ?? "")"
+    }
+}
+
+// MARK: - GPS Write Models
+
+struct GPSSessionStartResult: Decodable {
+    let siteVisitGPSId: Int
+    let refNo: String?
+}
+
+struct GPSWaypointPostResult: Decodable {
+    let savedCount: Int
+}
+
+struct GPSSessionEndResult: Decodable {
+    let totalWaypoints: Int?
+    let totalDistanceKm: Double?
+    let totalDuration: String?
+}
+
+struct GPSPhotoUploadResult: Decodable {
+    let imageId: Int?
+    let imagePath: String?
+}
+
+// MARK: - MMS Auth Models
+
+struct MMSOtpSendResult: Decodable {
+    let sent: Bool?
+    let message: String?
+}
+
+struct MMSOtpVerifyResult: Decodable {
+    let verified: Bool?
+    let userId: Int?
+    let userName: String?
+    let fullName: String?
+    let roleId: Int?
+    let roleName: String?
+    let isAdmin: Bool?
+    let branchId: Int?
+    let message: String?
+}
+
+// MARK: - MMS User Session
+
+struct MMSUserSession: Codable {
+    let userId: Int
+    let userName: String
+    let fullName: String
+    let roleId: Int
+    let roleName: String
+    let isAdmin: Bool
+    let branchId: Int
+}
