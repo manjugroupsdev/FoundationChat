@@ -4,6 +4,28 @@ import SwiftUI
 import UIKit
 import UserNotifications
 
+// MARK: - QA debug auth bypass (KOS-25)
+//
+// Debug builds support a QA stub-auth gate enabled via the launch arg
+// `-FCQAStubAuth 1` (read as `UserDefaults.standard.bool(forKey: "FCQAStubAuth")`).
+// When set, `restoreSessionIfNeeded()` short-circuits to a deterministic
+// `qa-stub-user` `OtpSession` so simulator smoke runs land in the
+// authenticated tab tree without hitting
+// `https://convex-http.aivida.in/api/auth/{send,verify}-otp`.
+//
+// Constraints:
+// - Wrapped in `#if DEBUG`; not compiled into Release archives.
+// - Opt-in only; never default-on.
+// - Stub session is NOT persisted to `KeychainTokenStore` (prevents the
+//   fake token bleeding into a subsequent real run).
+// - Any code path that calls `requireToken()` (message send, push register,
+//   notifications, HR endpoints) will hit the API with the literal
+//   `"FCQA_STUB_TOKEN"` and the server will reject it. That is expected:
+//   this gate is for UI tile/flow shell smoke, not authenticated network
+//   exercise. Disable the launch arg for real-auth runs.
+//
+// Enable from QA: `xcrun simctl launch booted <bundle-id> -FCQAStubAuth 1`.
+
 /// Lightweight identity view that existing views read via `authStore.viewer`.
 struct ConvexViewerIdentity: Sendable, Equatable {
   let subject: String
@@ -61,6 +83,14 @@ final class AuthStore {
     didAttemptRestore = true
     status = .loading
     errorMessage = nil
+
+    #if DEBUG
+    if let stub = Self.qaStubSessionIfRequested() {
+      applySession(stub)
+      status = .signedIn
+      return
+    }
+    #endif
 
     do {
       guard let stored = try tokenStore.load() else {
@@ -662,6 +692,29 @@ final class AuthStore {
     if digits.count > 10 { return String(digits.suffix(10)) }
     return digits
   }
+
+  #if DEBUG
+  /// Deterministic stub session for QA simulator smoke. See file header (KOS-25).
+  /// Returns `nil` unless launched with `-FCQAStubAuth 1`.
+  private static func qaStubSessionIfRequested() -> OtpSession? {
+    guard UserDefaults.standard.bool(forKey: "FCQAStubAuth") else { return nil }
+    let user = AuthUser(
+      _id: "qa-stub-user",
+      employeeId: "QA-STUB",
+      name: "QA Stub",
+      phone: "9999999999",
+      email: "qa-stub@example.local",
+      role: "staff",
+      roleLevel: 0,
+      isAdmin: false,
+      designation: "QA Automation",
+      department: "QA",
+      status: "active",
+      photo: nil
+    )
+    return OtpSession(token: "FCQA_STUB_TOKEN", user: user)
+  }
+  #endif
 }
 
 // MARK: - Errors
