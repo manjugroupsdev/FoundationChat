@@ -15,11 +15,28 @@ struct ConversationDetailView: View {
   @State private var messagesSubscription: AnyCancellable?
   @State private var conversationStatusSubscription: AnyCancellable?
   @State private var lastMarkedSeenAt: Date?
+  @State private var pollingTask: Task<Void, Never>?
+  @State private var lastPollTimestamp: Double = 0
   @State private var isAttachmentOptionsPresented = false
   @State private var isPhotoPickerPresented = false
   @State private var selectedPhotoItem: PhotosPickerItem?
   @State private var isFileImporterPresented = false
+  @State private var activeDetailSheet: ActiveDetailSheet?
   @FocusState var isInputFocused: Bool
+
+  enum ActiveDetailSheet: Identifiable {
+    case media
+    case search
+    case info
+
+    var id: String {
+      switch self {
+      case .media: return "media"
+      case .search: return "search"
+      case .info: return "info"
+      }
+    }
+  }
 
   private var conversationTitle: String {
     if let participantDisplayName = conversation.participantDisplayName,
@@ -75,6 +92,7 @@ struct ConversationDetailView: View {
       isInputFocused = true
       startMessagesSubscription()
       startConversationStatusSubscription()
+      startPolling()
       withAnimation {
         scrollPosition.scrollTo(edge: .bottom)
       }
@@ -84,6 +102,8 @@ struct ConversationDetailView: View {
       messagesSubscription = nil
       conversationStatusSubscription?.cancel()
       conversationStatusSubscription = nil
+      pollingTask?.cancel()
+      pollingTask = nil
     }
     .onChange(of: conversation.remoteConversationID) { _, _ in
       lastMarkedSeenAt = nil
@@ -95,6 +115,34 @@ struct ConversationDetailView: View {
     .navigationTitle(conversationTitle)
     .navigationBarTitleDisplayMode(.inline)
     .toolbar {
+      ToolbarItem(placement: .topBarTrailing) {
+        Menu {
+          Button {
+            isInputFocused = false
+            activeDetailSheet = .search
+          } label: {
+            Label("Search Messages", systemImage: "magnifyingglass")
+          }
+
+          Button {
+            isInputFocused = false
+            activeDetailSheet = .media
+          } label: {
+            Label("Media, Files & Links", systemImage: "photo.on.rectangle")
+          }
+
+          Button {
+            isInputFocused = false
+            activeDetailSheet = .info
+          } label: {
+            Label("Conversation Info", systemImage: "info.circle")
+          }
+        } label: {
+          Image(systemName: "ellipsis.circle")
+        }
+        .disabled(conversation.remoteConversationID == nil)
+      }
+
       ConversationDetailInputView(
         newMessage: $newMessage,
         isGenerating: $isGenerating,
@@ -110,6 +158,9 @@ struct ConversationDetailView: View {
           isGenerating = false
         }
       )
+    }
+    .sheet(item: $activeDetailSheet) { sheet in
+      conversationDetailSheet(for: sheet)
     }
     .sheet(isPresented: $isAttachmentOptionsPresented) {
       AttachmentOptionsSheet(
@@ -156,6 +207,40 @@ struct ConversationDetailView: View {
       }
     }
     .toolbar(.hidden, for: .tabBar)
+  }
+
+  @ViewBuilder
+  private func conversationDetailSheet(for sheet: ActiveDetailSheet) -> some View {
+    if let remoteID = conversation.remoteConversationID {
+      NavigationStack {
+        switch sheet {
+        case .media:
+          ConversationMediaView(conversationID: remoteID, title: conversationTitle)
+            .toolbar {
+              ToolbarItem(placement: .topBarTrailing) {
+                Button("Done") { activeDetailSheet = nil }
+              }
+            }
+        case .search:
+          ConversationSearchView(conversationID: remoteID, title: conversationTitle)
+            .toolbar {
+              ToolbarItem(placement: .topBarTrailing) {
+                Button("Done") { activeDetailSheet = nil }
+              }
+            }
+        case .info:
+          ConversationInfoView(
+            source: .conversation(id: remoteID),
+            initialDisplayName: conversationTitle
+          )
+          .toolbar {
+            ToolbarItem(placement: .topBarTrailing) {
+              Button("Done") { activeDetailSheet = nil }
+            }
+          }
+        }
+      }
+    }
   }
 
   private func shouldShowTimestamp(at index: Int, in messages: [Message]) -> Bool {
@@ -474,6 +559,31 @@ extension ConversationDetailView {
       Task { @MainActor in
         try? await Task.sleep(for: .seconds(1))
         startMessagesSubscription()
+      }
+    }
+  }
+
+  @MainActor
+  private func startPolling() {
+    guard let remoteConversationID = conversation.remoteConversationID else { return }
+    pollingTask?.cancel()
+    pollingTask = Task {
+      // Wait for initial load to complete before polling
+      try? await Task.sleep(for: .seconds(3))
+      while !Task.isCancelled {
+        do {
+          let newMessages = try await authStore.pollMessages(conversationId: remoteConversationID, after: lastPollTimestamp)
+          if !newMessages.isEmpty {
+            applyRemoteMessages(newMessages)
+            if let last = newMessages.last?._creationTime {
+              lastPollTimestamp = last
+            }
+            try? modelContext.save()
+          }
+        } catch {
+          // Ignore polling errors silently
+        }
+        try? await Task.sleep(for: .seconds(3))
       }
     }
   }
