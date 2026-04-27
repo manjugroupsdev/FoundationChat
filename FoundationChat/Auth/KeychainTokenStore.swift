@@ -2,7 +2,7 @@ import Foundation
 import Security
 
 struct KeychainTokenStore {
-  private let service = "com.manjugroups.foundationchat.otp-session"
+  private let service = "com.manjugroups.foundationchat.otp-session-v2"
   private let account = "default"
   private let encoder = JSONEncoder()
   private let decoder = JSONDecoder()

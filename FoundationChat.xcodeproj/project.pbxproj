@@ -266,7 +266,7 @@
 				ASSETCATALOG_COMPILER_GLOBAL_ACCENT_COLOR_NAME = AccentColor;
 				CODE_SIGN_ENTITLEMENTS = FoundationChat/FoundationChat.entitlements;
 				CODE_SIGN_STYLE = Automatic;
-				CURRENT_PROJECT_VERSION = 3;
+				CURRENT_PROJECT_VERSION = 7;
 				DEVELOPMENT_TEAM = WLMZ5G3G5G;
 				ENABLE_APP_SANDBOX = YES;
 				ENABLE_HARDENED_RUNTIME = YES;
@@ -289,6 +289,7 @@
 				INFOPLIST_KEY_NEXT_PUBLIC_STACK_API_URL = "https://api.manjuauth.aivida.in";
 				INFOPLIST_KEY_NEXT_PUBLIC_STACK_PROJECT_ID = "d680fa85-f908-4cf7-9541-0401ab1340b2";
 				INFOPLIST_KEY_NEXT_PUBLIC_STACK_PUBLISHABLE_CLIENT_KEY = pck_18m9221t81ptja3yf1jek80wr5j9310w697he77ghnyp8;
+				INFOPLIST_KEY_NSCameraUsageDescription = "M-Chat needs camera access to take attendance selfie photos.";
 				INFOPLIST_KEY_NSLocationAlwaysAndWhenInUseUsageDescription = "M-Chat uses your location to share your position with your team.";
 				INFOPLIST_KEY_NSLocationWhenInUseUsageDescription = "M-Chat uses your location to share your position with your team.";
 				"INFOPLIST_KEY_UIApplicationSceneManifest_Generation[sdk=iphoneos*]" = YES;
@@ -306,7 +307,7 @@
 				LD_RUNPATH_SEARCH_PATHS = "@executable_path/Frameworks";
 				"LD_RUNPATH_SEARCH_PATHS[sdk=macosx*]" = "@executable_path/../Frameworks";
 				MACOSX_DEPLOYMENT_TARGET = 15.5;
-				MARKETING_VERSION = 1.7;
+				MARKETING_VERSION = 1.91;
 				PRODUCT_BUNDLE_IDENTIFIER = com.manju.chat;
 				PRODUCT_NAME = "$(TARGET_NAME)";
 				REGISTER_APP_GROUPS = YES;
@@ -331,7 +332,7 @@
 				ASSETCATALOG_COMPILER_GLOBAL_ACCENT_COLOR_NAME = AccentColor;
 				CODE_SIGN_ENTITLEMENTS = FoundationChat/FoundationChat.entitlements;
 				CODE_SIGN_STYLE = Automatic;
-				CURRENT_PROJECT_VERSION = 3;
+				CURRENT_PROJECT_VERSION = 7;
 				DEVELOPMENT_TEAM = WLMZ5G3G5G;
 				ENABLE_APP_SANDBOX = YES;
 				ENABLE_HARDENED_RUNTIME = YES;
@@ -354,6 +355,7 @@
 				INFOPLIST_KEY_NEXT_PUBLIC_STACK_API_URL = "https://api.manjuauth.aivida.in";
 				INFOPLIST_KEY_NEXT_PUBLIC_STACK_PROJECT_ID = "d680fa85-f908-4cf7-9541-0401ab1340b2";
 				INFOPLIST_KEY_NEXT_PUBLIC_STACK_PUBLISHABLE_CLIENT_KEY = pck_18m9221t81ptja3yf1jek80wr5j9310w697he77ghnyp8;
+				INFOPLIST_KEY_NSCameraUsageDescription = "M-Chat needs camera access to take attendance selfie photos.";
 				INFOPLIST_KEY_NSLocationAlwaysAndWhenInUseUsageDescription = "M-Chat uses your location to share your position with your team.";
 				INFOPLIST_KEY_NSLocationWhenInUseUsageDescription = "M-Chat uses your location to share your position with your team.";
 				"INFOPLIST_KEY_UIApplicationSceneManifest_Generation[sdk=iphoneos*]" = YES;
@@ -371,7 +373,7 @@
 				LD_RUNPATH_SEARCH_PATHS = "@executable_path/Frameworks";
 				"LD_RUNPATH_SEARCH_PATHS[sdk=macosx*]" = "@executable_path/../Frameworks";
 				MACOSX_DEPLOYMENT_TARGET = 15.5;
-				MARKETING_VERSION = 1.7;
+				MARKETING_VERSION = 1.91;
 				PRODUCT_BUNDLE_IDENTIFIER = com.manju.chat;
 				PRODUCT_NAME = "$(TARGET_NAME)";
 				REGISTER_APP_GROUPS = YES;

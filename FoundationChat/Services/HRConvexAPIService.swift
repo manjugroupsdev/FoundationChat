@@ -296,6 +296,113 @@ enum HRConvexAPIService {
         return wrapper.visits ?? []
     }
 
+    // MARK: - Staff Directory
+
+    private struct StaffPaginatedResponse: Decodable {
+        let success: Bool
+        let page: [ConvexStaffListItem]?
+        let isDone: Bool?
+        let continueCursor: String?
+        let error: String?
+    }
+
+    private struct StaffListResponse: Decodable {
+        let success: Bool
+        let staff: [ConvexStaffListItem]?
+        let results: [ConvexStaffListItem]?
+        let error: String?
+    }
+
+    private struct StaffDetailResponse: Decodable {
+        let success: Bool
+        let staff: ConvexStaffDetail?
+        let error: String?
+    }
+
+    private struct StaffCountResponse: Decodable {
+        let success: Bool
+        let count: Int?
+        let error: String?
+    }
+
+    /// `GET /api/hr/staff/paginated` — cursor-paginated directory.
+    static func getStaffPaginated(
+        token: String,
+        numItems: Int = 25,
+        cursor: String? = nil,
+        status: String? = nil
+    ) async throws -> ConvexStaffPaginatedPage {
+        var params: [String] = ["numItems=\(numItems)"]
+        if let cursor, !cursor.isEmpty {
+            if let encoded = cursor.addingPercentEncoding(withAllowedCharacters: .urlQueryAllowed) {
+                params.append("cursor=\(encoded)")
+            }
+        }
+        if let status, !status.isEmpty {
+            params.append("status=\(status)")
+        }
+        let path = "/api/hr/staff/paginated?" + params.joined(separator: "&")
+        let data = try await get(path: path, token: token)
+        let wrapper = try decode(StaffPaginatedResponse.self, from: data)
+        if !wrapper.success, let err = wrapper.error {
+            throw HRConvexAPIError.server(err)
+        }
+        return ConvexStaffPaginatedPage(
+            page: wrapper.page ?? [],
+            isDone: wrapper.isDone ?? true,
+            continueCursor: wrapper.continueCursor
+        )
+    }
+
+    /// `GET /api/hr/staff/search?query=…` — server-side search.
+    static func searchStaff(token: String, query: String) async throws -> [ConvexStaffListItem] {
+        guard let encoded = query.addingPercentEncoding(withAllowedCharacters: .urlQueryAllowed) else {
+            throw HRConvexAPIError.badURL
+        }
+        let data = try await get(path: "/api/hr/staff/search?query=\(encoded)", token: token)
+        let wrapper = try decode(StaffListResponse.self, from: data)
+        if !wrapper.success, let err = wrapper.error {
+            throw HRConvexAPIError.server(err)
+        }
+        return wrapper.staff ?? wrapper.results ?? []
+    }
+
+    /// `GET /api/hr/staff` — full directory (unpaginated).
+    static func listAllStaff(token: String) async throws -> [ConvexStaffListItem] {
+        let data = try await get(path: "/api/hr/staff", token: token)
+        let wrapper = try decode(StaffListResponse.self, from: data)
+        if !wrapper.success, let err = wrapper.error {
+            throw HRConvexAPIError.server(err)
+        }
+        return wrapper.staff ?? wrapper.results ?? []
+    }
+
+    /// `GET /api/hr/staff/count` — total active staff count.
+    static func getStaffCount(token: String) async throws -> Int {
+        let data = try await get(path: "/api/hr/staff/count", token: token)
+        let wrapper = try decode(StaffCountResponse.self, from: data)
+        if !wrapper.success, let err = wrapper.error {
+            throw HRConvexAPIError.server(err)
+        }
+        return wrapper.count ?? 0
+    }
+
+    /// `GET /api/hr/staff/get?id=…` — single staff record with full profile.
+    static func getStaffDetail(token: String, id: String) async throws -> ConvexStaffDetail {
+        guard let encoded = id.addingPercentEncoding(withAllowedCharacters: .urlQueryAllowed) else {
+            throw HRConvexAPIError.badURL
+        }
+        let data = try await get(path: "/api/hr/staff/get?id=\(encoded)", token: token)
+        let wrapper = try decode(StaffDetailResponse.self, from: data)
+        if !wrapper.success, let err = wrapper.error {
+            throw HRConvexAPIError.server(err)
+        }
+        guard let staff = wrapper.staff else {
+            throw HRConvexAPIError.unexpected("Staff not found")
+        }
+        return staff
+    }
+
     // MARK: - Storage (file upload)
 
     private struct GenerateUploadURLResponse: Decodable {
@@ -349,6 +456,37 @@ enum HRConvexAPIService {
     static func uploadPhoto(token: String, imageData: Data) async throws -> String {
         let uploadURL = try await generateUploadURL(token: token)
         return try await uploadFile(uploadURL: uploadURL, data: imageData)
+    }
+
+    // MARK: - Staff profile (self)
+
+    private struct UpdateMyProfileResponse: Decodable {
+        let success: Bool
+        let staff: AuthUser?
+        let user: AuthUser?
+        let error: String?
+    }
+
+    /// `POST /api/staff/me/update` — update own profile. Mirrors Android `updateMyProfile`.
+    /// Returns the refreshed `AuthUser` snapshot when the server includes one.
+    static func updateMyProfile(
+        token: String,
+        name: String?,
+        email: String?,
+        phone: String?,
+        photoStorageId: String?
+    ) async throws -> AuthUser? {
+        var body: [String: Any] = [:]
+        if let name { body["name"] = name }
+        if let email { body["email"] = email }
+        if let phone { body["phone"] = phone }
+        if let photoStorageId { body["photo"] = photoStorageId }
+        let data = try await post(path: "/api/staff/me/update", token: token, jsonBody: body)
+        let wrapper = try decode(UpdateMyProfileResponse.self, from: data)
+        guard wrapper.success else {
+            throw HRConvexAPIError.server(wrapper.error ?? "Failed to update profile")
+        }
+        return wrapper.staff ?? wrapper.user
     }
 
     // MARK: - Shared response types

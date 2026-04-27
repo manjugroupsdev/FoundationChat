@@ -181,19 +181,18 @@ struct ChannelsTabView: View {
     if let existing = channels.first(where: { $0.id == channelID }) {
       return existing
     }
-    let now = Date().timeIntervalSince1970 * 1000
     return ChannelSummary(
-      id: channelID,
+      _id: channelID,
       name: "Channel",
+      slug: nil,
       description: nil,
+      type: "public",
+      createdBy: nil,
+      isArchived: false,
       memberCount: 0,
-      lastMessageContent: nil,
-      lastMessageAt: now,
-      createdByStackUserId: "",
-      myRole: "member",
-      canManage: false,
-      createdAt: now,
-      updatedAt: now
+      role: "member",
+      muted: false,
+      unreadCount: 0
     )
   }
 
@@ -217,6 +216,8 @@ struct ChannelChatView: View {
   @State private var isInviteSheetPresented = false
   @State private var isSendingMessage = false
   @State private var messagesSubscription: AnyCancellable?
+  @State private var pollingTask: Task<Void, Never>?
+  @State private var lastPollTimestamp: Double = 0
   @FocusState private var isInputFocused: Bool
 
   var body: some View {
@@ -294,13 +295,50 @@ struct ChannelChatView: View {
     }
     .onAppear {
       startMessagesSubscription()
+      startPolling()
       isInputFocused = true
     }
     .onDisappear {
       messagesSubscription?.cancel()
       messagesSubscription = nil
+      pollingTask?.cancel()
+      pollingTask = nil
     }
     .toolbar(.hidden, for: .tabBar)
+  }
+
+  @MainActor
+  private func startPolling() {
+    pollingTask?.cancel()
+    pollingTask = Task {
+      try? await Task.sleep(for: .seconds(3))
+      while !Task.isCancelled {
+        do {
+          let newMessages = try await authStore.pollMessages(channelId: channel.id, after: lastPollTimestamp)
+          if !newMessages.isEmpty {
+            let mapped: [ChannelChatMessage] = newMessages.map { msg in
+              ChannelChatMessage(
+                _id: msg._id, channelId: msg.channelId, senderId: msg.senderId,
+                senderName: msg.senderName, body: msg.body, isEdited: msg.isEdited,
+                isDeleted: msg.isDeleted, replyCount: msg.replyCount,
+                lastReplyAt: msg.lastReplyAt, parentMessageId: msg.parentMessageId,
+                _creationTime: msg._creationTime
+              )
+            }
+            for msg in mapped where !messages.contains(where: { $0.id == msg.id }) {
+              messages.append(msg)
+            }
+            messages.sort(by: { $0.createdAt < $1.createdAt })
+            if let last = newMessages.last?._creationTime {
+              lastPollTimestamp = last
+            }
+          }
+        } catch {
+          // Ignore polling errors
+        }
+        try? await Task.sleep(for: .seconds(3))
+      }
+    }
   }
 
   @MainActor
@@ -356,7 +394,7 @@ private struct ChannelMessageRow: View {
   var body: some View {
     VStack(alignment: isMine ? .trailing : .leading, spacing: 4) {
       if !isMine {
-        Text(message.senderName)
+        Text(message.senderName ?? "Unknown")
           .font(.caption.weight(.semibold))
           .foregroundStyle(.secondary)
       }

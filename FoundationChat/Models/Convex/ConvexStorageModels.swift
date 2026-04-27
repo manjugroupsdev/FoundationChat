@@ -84,12 +84,63 @@ struct UpsertNotificationPrefResult: Decodable, Sendable {
     let saved: Bool
 }
 
-struct TypingUser: Decodable, Identifiable, Equatable, Sendable {
-    let stackUserId: String
-    let name: String?
+// MARK: - App Notifications
 
-    var id: String { stackUserId }
-    var displayName: String { name ?? stackUserId }
+struct AppNotification: Decodable, Identifiable, Equatable, Sendable {
+    let _id: String
+    let type: String?
+    let title: String?
+    let message: String?
+    let read: Bool?
+    let referenceId: String?
+    let referenceType: String?
+    let createdAt: String?
+
+    var id: String { _id }
+
+    var isUnread: Bool { read != true }
+
+    var icon: String {
+        switch type {
+        case "chat-dm": return "message.fill"
+        case "chat-mention": return "at"
+        case "leave-request": return "calendar.badge.plus"
+        case "leave-approved": return "checkmark.circle.fill"
+        case "leave-rejected": return "xmark.circle.fill"
+        case "permission-request": return "clock.badge.questionmark"
+        case "permission-approved": return "checkmark.circle.fill"
+        case "permission-rejected": return "xmark.circle.fill"
+        default: return "bell.fill"
+        }
+    }
+
+    var iconColor: String {
+        switch type {
+        case "leave-approved", "permission-approved": return "green"
+        case "leave-rejected", "permission-rejected": return "red"
+        case "chat-dm", "chat-mention": return "blue"
+        default: return "orange"
+        }
+    }
+
+    var createdDate: Date? {
+        guard let createdAt else { return nil }
+        let formatter = ISO8601DateFormatter()
+        formatter.formatOptions = [.withInternetDateTime, .withFractionalSeconds]
+        return formatter.date(from: createdAt)
+    }
+}
+
+struct TypingUser: Decodable, Identifiable, Equatable, Sendable {
+    let staffId: String
+    let staffName: String?
+    let expiresAt: Double?
+
+    // Compat
+    var id: String { staffId }
+    var stackUserId: String { staffId }
+    var name: String? { staffName }
+    var displayName: String { staffName ?? staffId }
 }
 
 struct TypingResult: Decodable, Sendable {
@@ -98,9 +149,11 @@ struct TypingResult: Decodable, Sendable {
 }
 
 struct EditMessageResult: Decodable, Sendable {
-    let edited: Bool
+    let edited: Bool?
+    init(edited: Bool? = true) { self.edited = edited }
 }
 
 struct DeleteMessageResult: Decodable, Sendable {
-    let deleted: Bool
+    let deleted: Bool?
+    init(deleted: Bool? = true) { self.deleted = deleted }
 }

@@ -31,12 +31,24 @@ struct AuthRootView: View {
     }
     .task {
       await authStore.restoreSessionIfNeeded()
+      if authStore.status == .signedIn {
+        authStore.requestNotificationPermissions()
+      }
     }
     .onReceive(NotificationCenter.default.publisher(for: .didRegisterForRemoteNotificationsToken)) {
       notification in
       guard let apnsToken = notification.object as? String else { return }
       Task {
         await authStore.handleAPNSToken(apnsToken)
+      }
+    }
+    .onChange(of: authStore.status) { _, newStatus in
+      if newStatus == .signedIn {
+        authStore.requestNotificationPermissions()
+        // Re-register token if we have one
+        if let existingToken = authStore.lastKnownAPNSToken {
+          Task { await authStore.handleAPNSToken(existingToken) }
+        }
       }
     }
   }

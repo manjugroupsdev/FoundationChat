@@ -1,6 +1,6 @@
 import SwiftUI
 import Combine
-import ConvexMobile
+
 
 struct UpdatesFeedView: View {
     @Environment(AuthStore.self) private var authStore

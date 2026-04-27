@@ -1,6 +1,6 @@
 import SwiftUI
 import Combine
-import ConvexMobile
+
 
 struct PostDetailView: View {
     let postId: String

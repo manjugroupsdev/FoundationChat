@@ -5,6 +5,7 @@ import PhotosUI
 
 struct GPSRecordingView: View {
     @Environment(\.dismiss) private var dismiss
+    @Environment(AuthStore.self) private var authStore
     @State private var tracker: LocationTracker?
     @State private var purpose = ""
     @State private var remarks = ""
@@ -21,6 +22,8 @@ struct GPSRecordingView: View {
     @State private var routeCoordinates: [CLLocationCoordinate2D] = []
     @State private var showMarkLocationAlert = false
     @State private var markLocationDescription = ""
+    @State private var showConsentSheet = false
+    @State private var consentManager = GeoTrackConsentManager.shared
 
     private var isTripActive: Bool { tracker?.isTripActive ?? false }
 
@@ -46,6 +49,17 @@ struct GPSRecordingView: View {
                 markLocationDescription = ""
             }
             Button("Cancel", role: .cancel) { markLocationDescription = "" }
+        }
+        .sheet(isPresented: $showConsentSheet) {
+            GeoTrackConsentView(
+                onConsent: {
+                    // Consent given — start the trip automatically
+                    Task { await startTrip() }
+                },
+                onDecline: {
+                    errorMessage = "Location tracking requires your consent."
+                }
+            )
         }
     }
 
@@ -195,10 +209,21 @@ struct GPSRecordingView: View {
     }
 
     private func startTrip() async {
+        // Show consent screen if user hasn't decided yet
+        guard !consentManager.needsConsent else {
+            showConsentSheet = true
+            return
+        }
+        // User declined — surface the error instead of silently failing
+        guard consentManager.hasConsented else {
+            errorMessage = "Location tracking requires your consent. You can enable it in Settings."
+            return
+        }
+
         isStarting = true
         errorMessage = nil
 
-        guard HRAPIService.shared.isMmsLoggedIn else {
+        guard authStore.currentSession != nil else {
             errorMessage = "Please log in again to use GPS tracking."
             isStarting = false
             return

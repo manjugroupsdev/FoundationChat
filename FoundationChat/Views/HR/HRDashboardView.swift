@@ -2,12 +2,18 @@ import Combine
 import SwiftUI
 
 struct HRDashboardView: View {
-    @State private var todayCheckIn: Date? = nil
-    @State private var todayCheckOut: Date? = nil
+    @Environment(AuthStore.self) private var authStore
+    @State private var todayAttendance: ConvexTodayAttendance?
     @State private var isLoading = false
     @State private var weekSummary: [DayAttendanceSummary] = []
     @State private var timer = Timer.publish(every: 1, on: .main, in: .common).autoconnect()
     @State private var elapsedText = "--:--:--"
+    @State private var errorMessage: String?
+    @State private var showPunchIn = false
+    @State private var showPunchOut = false
+
+    private var hasPunchedIn: Bool { todayAttendance?.hasPunchedIn == true }
+    private var isOpen: Bool { todayAttendance?.isOpen == true }
 
     var body: some View {
         NavigationStack {
@@ -23,6 +29,16 @@ struct HRDashboardView: View {
             .task {
                 loadDashboard()
             }
+            .sheet(isPresented: $showPunchIn) {
+                PunchFlowView(mode: .punchIn) {
+                    loadDashboard()
+                }
+            }
+            .sheet(isPresented: $showPunchOut) {
+                PunchFlowView(mode: .punchOut) {
+                    loadDashboard()
+                }
+            }
         }
     }
 
@@ -33,8 +49,8 @@ struct HRDashboardView: View {
                     Text("Today")
                         .font(.subheadline)
                         .foregroundStyle(.secondary)
-                    if let checkIn = todayCheckIn {
-                        Text("Checked in at \(checkIn, format: .dateTime.hour().minute())")
+                    if let punchIn = todayAttendance?.punchInDate {
+                        Text("Checked in at \(punchIn, format: .dateTime.hour().minute())")
                             .font(.headline)
                     } else {
                         Text("Not checked in")
@@ -43,7 +59,7 @@ struct HRDashboardView: View {
                     }
                 }
                 Spacer()
-                if todayCheckIn != nil && todayCheckOut == nil {
+                if isOpen {
                     VStack {
                         Text(elapsedText)
                             .font(.system(.title3, design: .monospaced).weight(.semibold))
@@ -62,9 +78,15 @@ struct HRDashboardView: View {
                 }
             }
 
-            if todayCheckIn == nil {
+            if let errorMessage {
+                Text(errorMessage)
+                    .font(.caption)
+                    .foregroundStyle(.red)
+            }
+
+            if !hasPunchedIn {
                 Button {
-                    clockIn()
+                    showPunchIn = true
                 } label: {
                     Label("Clock In", systemImage: "play.circle.fill")
                         .font(.headline)
@@ -73,9 +95,9 @@ struct HRDashboardView: View {
                 }
                 .buttonStyle(.borderedProminent)
                 .tint(.green)
-            } else if todayCheckOut == nil {
+            } else if isOpen {
                 Button {
-                    clockOut()
+                    showPunchOut = true
                 } label: {
                     Label("Clock Out", systemImage: "stop.circle.fill")
                         .font(.headline)
@@ -101,27 +123,33 @@ struct HRDashboardView: View {
 
             LazyVGrid(columns: [GridItem(.flexible()), GridItem(.flexible()), GridItem(.flexible())], spacing: 12) {
                 NavigationLink {
-                    AttendanceListView()
+                    ConvexAttendanceListView()
                 } label: {
                     QuickActionCard(icon: "clock.fill", title: "Attendance", color: .blue)
                 }
 
                 NavigationLink {
-                    PermissionListView()
+                    TasksListView()
+                } label: {
+                    QuickActionCard(icon: "checklist", title: "Tasks", color: .indigo)
+                }
+
+                NavigationLink {
+                    LeavesListView()
+                } label: {
+                    QuickActionCard(icon: "calendar.badge.minus", title: "Leaves", color: .purple)
+                }
+
+                NavigationLink {
+                    ConvexPermissionListView()
                 } label: {
                     QuickActionCard(icon: "calendar.badge.clock", title: "Permission", color: .green)
                 }
 
                 NavigationLink {
-                    CallFollowUpListView()
+                    LeaveApprovalsView()
                 } label: {
-                    QuickActionCard(icon: "phone.fill", title: "Call Log", color: .cyan)
-                }
-
-                NavigationLink {
-                    SiteVisitListView()
-                } label: {
-                    QuickActionCard(icon: "building.2.fill", title: "Site Visits", color: .orange)
+                    QuickActionCard(icon: "checkmark.circle.fill", title: "Approvals", color: .teal)
                 }
 
                 NavigationLink {
@@ -131,15 +159,33 @@ struct HRDashboardView: View {
                 }
 
                 NavigationLink {
-                    GPSTripListView()
+                    GeoTrackTodayVisitsView()
                 } label: {
-                    QuickActionCard(icon: "map.fill", title: "Trip History", color: .indigo)
+                    QuickActionCard(icon: "calendar.badge.clock", title: "My Visits", color: .teal)
                 }
 
                 NavigationLink {
-                    TravelLogView()
+                    GeoTrackAssignedPlacesView()
                 } label: {
-                    QuickActionCard(icon: "car.fill", title: "Travel Log", color: .purple)
+                    QuickActionCard(icon: "building.2.fill", title: "My Places", color: .mint)
+                }
+
+                NavigationLink {
+                    GeoTrackStatsView()
+                } label: {
+                    QuickActionCard(icon: "chart.bar.fill", title: "GPS Stats", color: .indigo)
+                }
+
+                NavigationLink {
+                    GeoTrackLiveStatusView()
+                } label: {
+                    QuickActionCard(icon: "dot.radiowaves.left.and.right", title: "Live Status", color: .red)
+                }
+
+                NavigationLink {
+                    StaffListView()
+                } label: {
+                    QuickActionCard(icon: "person.2.fill", title: "Staff", color: .pink)
                 }
             }
         }
@@ -158,8 +204,8 @@ struct HRDashboardView: View {
     }
 
     private func updateElapsed() {
-        guard let checkIn = todayCheckIn, todayCheckOut == nil else { return }
-        let interval = Date().timeIntervalSince(checkIn)
+        guard let punchIn = todayAttendance?.punchInDate, isOpen else { return }
+        let interval = Date().timeIntervalSince(punchIn)
         let h = Int(interval / 3600)
         let m = Int((interval.truncatingRemainder(dividingBy: 3600)) / 60)
         let s = Int(interval.truncatingRemainder(dividingBy: 60))
@@ -167,42 +213,20 @@ struct HRDashboardView: View {
     }
 
     private func calculateTodayHours() -> String? {
-        guard let checkIn = todayCheckIn, let checkOut = todayCheckOut else { return nil }
-        let interval = checkOut.timeIntervalSince(checkIn)
-        let h = Int(interval / 3600)
-        let m = Int((interval.truncatingRemainder(dividingBy: 3600)) / 60)
+        guard let mins = todayAttendance?.cumulativeMinutes ?? todayAttendance?.totalMinutes, mins > 0 else { return nil }
+        let h = mins / 60
+        let m = mins % 60
         return String(format: "%02d:%02d", h, m)
     }
 
-    private func clockIn() {
-        todayCheckIn = Date()
-        // TODO: Call API endpoint
-    }
-
-    private func clockOut() {
-        todayCheckOut = Date()
-        // TODO: Call API endpoint
-    }
-
     private func loadDashboard() {
+        guard let token = authStore.currentSession?.token else { return }
         Task {
             do {
-                let df = DateFormatter()
-                df.dateFormat = "yyyy-MM-dd"
-                let todayStr = df.string(from: Date())
-
-                // Try to load today's mobile attendance
-                let todayRecords: [APIMobileAttendance] = try await HRAPIService.shared.fetchMobileAttendance(
-                    limit: 1,
-                    fromDate: todayStr,
-                    toDate: todayStr
-                )
-                if let today = todayRecords.first {
-                    todayCheckIn = today.inDateAndTime
-                    todayCheckOut = today.outDateAndTime
-                }
+                let today = try await HRConvexAPIService.getTodayAttendance(token: token)
+                todayAttendance = today
             } catch {
-                // Fall back to no data — user can still clock in manually
+                // Fall back — user can still clock in
             }
 
             // Generate week summary

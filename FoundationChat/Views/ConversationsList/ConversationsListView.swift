@@ -318,7 +318,13 @@ struct ConversationsListView: View {
       localConversation.otherParticipantLastReadAt = remoteConversation.otherParticipantLastReadDate
 
       if let lastMessage = remoteConversation.lastMessage {
-        upsertMessage(lastMessage, into: localConversation)
+        let asChatMessage = ConvexChatMessage(
+          _id: lastMessage._id, channelId: nil, conversationId: remoteConversation.id,
+          senderId: nil, senderName: lastMessage.senderName, body: lastMessage.body,
+          isEdited: false, isDeleted: false, replyCount: 0, lastReplyAt: nil,
+          parentMessageId: nil, _creationTime: lastMessage._creationTime, attachments: nil
+        )
+        upsertMessage(asChatMessage, into: localConversation)
       }
     }
 

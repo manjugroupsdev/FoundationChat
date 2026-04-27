@@ -1,5 +1,12 @@
 import SwiftUI
 
+struct DayAttendanceSummary: Identifiable {
+    let id = UUID()
+    let day: String
+    let hours: Double?
+    let date: Date
+}
+
 struct WeeklyAttendanceChart: View {
     let summary: [DayAttendanceSummary]
     private let targetHours: Double = 9.0
