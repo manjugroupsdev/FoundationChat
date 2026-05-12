@@ -65,3 +65,12 @@ buildServer.json
 
 node_modules/
 .env.local
+
+# Xcode build output
+build/
+
+# Claude Code session data
+.claude/
+
+# Unfinished test targets
+FoundationChatTests/
