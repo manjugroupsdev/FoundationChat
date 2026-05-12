@@ -19,8 +19,7 @@ struct ConversationsListView: View {
 
   enum ChatFilter: String, CaseIterable, Identifiable {
     case all
-    case unread
-    case favourites
+    case direct
     case channels
 
     var id: String { rawValue }
@@ -29,10 +28,8 @@ struct ConversationsListView: View {
       switch self {
       case .all:
         return "All"
-      case .unread:
-        return "Unread"
-      case .favourites:
-        return "Favourites"
+      case .direct:
+        return "Direct"
       case .channels:
         return "Channels"
       }
@@ -60,12 +57,8 @@ struct ConversationsListView: View {
 
     return sorted.filter { conversation in
       switch selectedFilter {
-      case .all:
+      case .all, .direct:
         break
-      case .unread:
-        guard conversation.unreadCountValue > 0 else { return false }
-      case .favourites:
-        guard conversation.isFavorite else { return false }
       case .channels:
         return false
       }
@@ -165,7 +158,7 @@ struct ConversationsListView: View {
         conversationsSubscription?.cancel()
         conversationsSubscription = nil
       }
-      .navigationTitle("Chats")
+      .navigationTitle("Chat")
       .navigationBarTitleDisplayMode(.inline)
       .toolbar {
         ToolbarItem(placement: .navigationBarTrailing) {
@@ -178,7 +171,7 @@ struct ConversationsListView: View {
               }
 
               Button {
-                selectedTab = .channels
+                selectedFilter = .channels
               } label: {
                 Label("Open Channels", systemImage: "person.3.fill")
               }
@@ -210,7 +203,7 @@ struct ConversationsListView: View {
       .sheet(isPresented: $isCreateChannelSheetPresented) {
         CreateChannelSheet {
           await loadChannels(search: searchText)
-          selectedTab = .channels
+          selectedFilter = .channels
         }
       }
       .task(id: searchText) {
@@ -495,7 +488,7 @@ private struct ChannelSummaryRow: View {
   }
 }
 
-private struct ProfileAvatarView: View {
+struct ProfileAvatarView: View {
   let label: String?
 
   private var initials: String {

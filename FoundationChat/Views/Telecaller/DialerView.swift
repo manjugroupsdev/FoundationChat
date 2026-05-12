@@ -1,16 +1,22 @@
 import SwiftUI
 import UIKit
 
-/// Telecaller dialer: 4×3 keypad, editable Station number persisted to defaults,
-/// Call button hands off to the device phone app via `tel:` URL.
+/// Telecaller dialer: 4×3 keypad, editable Station number persisted to defaults.
+/// Tapping Call routes through the Doocti PBX bridge so the agent's deskphone
+/// rings first; falls back to the device dialer (`tel:`) if the bridge is
+/// unreachable.
 ///
 /// Mirrors the Android `DialerFragment` behaviour. Station defaults key matches
-/// Android: `dialer.station`.
+/// Android: `dialer.station`. Default station mirrors Android: `6369487527`.
 struct DialerView: View {
-    @AppStorage("dialer.station") private var station: String = ""
+    private static let defaultStation = "6369487527"
+
+    @AppStorage("dialer.station") private var station: String = DialerView.defaultStation
     @State private var dialed: String = ""
     @State private var isEditingStation: Bool = false
     @State private var callError: String?
+    @State private var statusMessage: String?
+    @State private var isCalling: Bool = false
 
     private let keys: [[DialerKey]] = [
         [.digit("1"), .digit("2", subtitle: "ABC"), .digit("3", subtitle: "DEF")],
@@ -37,6 +43,17 @@ struct DialerView: View {
             Button("OK", role: .cancel) { callError = nil }
         } message: {
             Text(callError ?? "")
+        }
+        .overlay(alignment: .bottom) {
+            if let statusMessage {
+                Text(statusMessage)
+                    .font(.footnote.weight(.medium))
+                    .padding(.horizontal, 14)
+                    .padding(.vertical, 8)
+                    .background(.regularMaterial, in: Capsule())
+                    .padding(.bottom, 12)
+                    .transition(.opacity)
+            }
         }
     }
 
@@ -110,14 +127,22 @@ struct DialerView: View {
             Button {
                 placeCall()
             } label: {
-                Image(systemName: "phone.fill")
-                    .font(.title.weight(.semibold))
-                    .foregroundStyle(.white)
-                    .frame(width: 72, height: 72)
-                    .background(Circle().fill(callEnabled ? Color.green : Color.green.opacity(0.4)))
+                Group {
+                    if isCalling {
+                        ProgressView()
+                            .progressViewStyle(.circular)
+                            .tint(.white)
+                    } else {
+                        Image(systemName: "phone.fill")
+                            .font(.title.weight(.semibold))
+                            .foregroundStyle(.white)
+                    }
+                }
+                .frame(width: 72, height: 72)
+                .background(Circle().fill((callEnabled && !isCalling) ? Color.green : Color.green.opacity(0.4)))
             }
             .buttonStyle(.plain)
-            .disabled(!callEnabled)
+            .disabled(!callEnabled || isCalling)
             .accessibilityLabel("Call")
 
             Button {
@@ -158,20 +183,36 @@ struct DialerView: View {
 
     private func placeCall() {
         let number = sanitizedNumberForCall
-        guard !number.isEmpty else { return }
-        // tel: URLs only accept digits, +, *, #. Encode safely.
-        let allowed = CharacterSet(charactersIn: "0123456789+*#")
-        let encoded = number.unicodeScalars.filter { allowed.contains($0) }.map(String.init).joined()
-        guard let url = URL(string: "tel:\(encoded)") else {
-            callError = "Invalid number"
+        let digits = number.filter(\.isNumber)
+        guard digits.count >= 10 else {
+            callError = "Enter a valid phone number (min 10 digits)"
             return
         }
-        let app = UIApplication.shared
-        guard app.canOpenURL(url) else {
-            callError = "This device cannot place phone calls."
-            return
+        guard !isCalling else { return }
+        isCalling = true
+        statusMessage = "Placing call…"
+        let stationNumber = station.filter(\.isNumber).isEmpty
+            ? Self.defaultStation
+            : station.filter(\.isNumber)
+        Task {
+            defer { isCalling = false }
+            do {
+                _ = try await TelecallerConvexAPIService.dialDoocti(
+                    phoneNumber: digits,
+                    station: stationNumber
+                )
+                await MainActor.run {
+                    statusMessage = "Call placed — your phone will ring shortly"
+                }
+                try? await Task.sleep(nanoseconds: 3_000_000_000)
+                await MainActor.run { statusMessage = nil }
+            } catch {
+                await MainActor.run {
+                    statusMessage = nil
+                    callError = "Call failed: \(error.localizedDescription)"
+                }
+            }
         }
-        app.open(url, options: [:], completionHandler: nil)
     }
 
     private func formattedPreview(_ value: String) -> String {

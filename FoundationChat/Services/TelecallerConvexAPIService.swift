@@ -4,6 +4,11 @@ import Foundation
 enum TelecallerConvexAPIService {
     private static let baseURL = AppConfig.baseURL
 
+    /// Doocti click-to-call bridge endpoint. Lives on the MMS admin host
+    /// (Next.js), not Convex — must be called with the absolute URL.
+    /// Mirrors `DOOCTI_URL` in the Android `DialerFragment` / `MyLeadsFragment`.
+    private static let dooctiURL = "https://mms.aivida.in/api/doocti-call"
+
     struct LeadsPage: Sendable, Equatable {
         let leads: [ConvexLead]
         let nextCursor: String?
@@ -18,6 +23,27 @@ enum TelecallerConvexAPIService {
         let nextCursor: String?
         let hasMore: Bool?
         let error: String?
+    }
+
+    struct DialResult: Sendable, Equatable {
+        let ok: Bool
+        let stage: String?
+        let error: String?
+        let status: Int?
+    }
+
+    private struct DialDooctiRequest: Encodable {
+        let phone_number: String
+        let station: String?
+        let cli_number: String?
+        let agent: String?
+    }
+
+    private struct DialDooctiResponse: Decodable {
+        let ok: Bool?
+        let error: String?
+        let stage: String?
+        let status: Int?
     }
 
     /// Fetch leads assigned to the current user.
@@ -44,6 +70,41 @@ enum TelecallerConvexAPIService {
         let leads = wrapper.leads ?? []
         let hasMore = wrapper.hasMore ?? (wrapper.nextCursor != nil)
         return LeadsPage(leads: leads, nextCursor: wrapper.nextCursor, total: wrapper.total, hasMore: hasMore)
+    }
+
+    /// Place a Doocti click-to-call. Returns once the bridge has accepted
+    /// the request — the user's phone then rings shortly after.
+    static func dialDoocti(
+        phoneNumber: String,
+        station: String?,
+        cliNumber: String? = nil,
+        agent: String? = nil
+    ) async throws -> DialResult {
+        guard let url = URL(string: dooctiURL) else { throw TelecallerAPIError.badURL }
+        let body = DialDooctiRequest(
+            phone_number: phoneNumber,
+            station: station?.isEmpty == false ? station : nil,
+            cli_number: cliNumber?.isEmpty == false ? cliNumber : nil,
+            agent: agent?.isEmpty == false ? agent : nil
+        )
+        var request = URLRequest(url: url)
+        request.httpMethod = "POST"
+        request.setValue("application/json", forHTTPHeaderField: "Content-Type")
+        request.httpBody = try JSONEncoder().encode(body)
+        let (data, response) = try await URLSession.shared.data(for: request)
+        let status = (response as? HTTPURLResponse)?.statusCode
+        let decoded = try? JSONDecoder().decode(DialDooctiResponse.self, from: data)
+        let ok = decoded?.ok ?? ((status ?? 500) < 400)
+        if !ok {
+            let message = decoded?.error ?? decoded?.stage ?? "Call bridge failed"
+            throw TelecallerAPIError.server(message)
+        }
+        return DialResult(
+            ok: ok,
+            stage: decoded?.stage,
+            error: decoded?.error,
+            status: decoded?.status ?? status
+        )
     }
 
     // MARK: - HTTP

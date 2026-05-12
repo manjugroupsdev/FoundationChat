@@ -1,24 +1,38 @@
 import SwiftUI
 
 enum AppTab: Hashable {
+    case home
+    case hr
     case chats
-    case files
+    case apps
+    /// Legacy values retained so navigation routes that originally targeted
+    /// these tabs still compile. Channel deep-links land on the unified Chat
+    /// tab; updates and files have been consolidated into Home / Chat / Apps.
     case channels
     case updates
-    case apps
-    case hr
+    case files
 }
 
 struct MainTabView: View {
     @Environment(AuthStore.self) private var authStore
-    @State private var selectedTab: AppTab = .chats
+    @State private var selectedTab: AppTab = .home
     @State private var openConversationIDFromPush: String?
     @State private var openChannelIDFromPush: String?
-    @State private var unreadNotificationCount: Int = 0
-    @State private var badgePollingTask: Task<Void, Never>?
 
     var body: some View {
         TabView(selection: $selectedTab) {
+            HomeView()
+                .tabItem {
+                    Label("Home", systemImage: "house.fill")
+                }
+                .tag(AppTab.home)
+
+            HRDashboardView()
+                .tabItem {
+                    Label("HR", systemImage: "briefcase.fill")
+                }
+                .tag(AppTab.hr)
+
             ConversationsListView(
                 selectedTab: $selectedTab,
                 openConversationID: openConversationIDFromPush
@@ -26,42 +40,15 @@ struct MainTabView: View {
                 openConversationIDFromPush = nil
             }
             .tabItem {
-                Label("Chats", systemImage: "message.fill")
+                Label("Chat", systemImage: "message.fill")
             }
             .tag(AppTab.chats)
-
-            FilesTabView()
-                .tabItem {
-                    Label("Files", systemImage: "folder.fill")
-                }
-                .tag(AppTab.files)
-
-            ChannelsTabView(openChannelID: openChannelIDFromPush) {
-                openChannelIDFromPush = nil
-            }
-            .tabItem {
-                Label("Channels", systemImage: "person.3.fill")
-            }
-            .tag(AppTab.channels)
-
-            NotificationsListView()
-                .tabItem {
-                    Label("Notifications", systemImage: "bell.fill")
-                }
-                .tag(AppTab.updates)
-                .badge(unreadNotificationCount)
 
             AppLibraryView()
                 .tabItem {
                     Label("Apps", systemImage: "square.grid.2x2.fill")
                 }
                 .tag(AppTab.apps)
-
-            HRDashboardView()
-                .tabItem {
-                    Label("HR", systemImage: "briefcase.fill")
-                }
-                .tag(AppTab.hr)
         }
         .onReceive(NotificationCenter.default.publisher(for: .didReceivePushNavigationRoute)) { notification in
             guard let route = notification.object as? PushNavigationRoute else { return }
@@ -73,10 +60,6 @@ struct MainTabView: View {
             }) {
                 applyPushRoute(pending)
             }
-            startBadgePolling()
-        }
-        .onDisappear {
-            badgePollingTask?.cancel()
         }
     }
 
@@ -88,26 +71,11 @@ struct MainTabView: View {
             openConversationIDFromPush = conversationID
         case .channelMessage:
             guard let channelID = route.channelId else { return }
-            selectedTab = .channels
+            selectedTab = .chats
             openChannelIDFromPush = channelID
         case .leaveRequest, .leaveApproved, .leaveRejected,
              .permissionRequest, .permissionApproved, .permissionRejected:
             selectedTab = .hr
-        }
-    }
-
-    private func startBadgePolling() {
-        badgePollingTask?.cancel()
-        badgePollingTask = Task {
-            while !Task.isCancelled {
-                do {
-                    let count = try await authStore.fetchUnreadNotificationCount()
-                    unreadNotificationCount = count
-                } catch {
-                    // Ignore badge polling errors
-                }
-                try? await Task.sleep(for: .seconds(30))
-            }
         }
     }
 }

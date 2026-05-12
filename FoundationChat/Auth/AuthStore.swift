@@ -685,6 +685,11 @@ final class AuthStore {
       phone: user.phone,
       photo: user.photo
     )
+    // Wire the geotrack singleton so any view (Home, HR dashboard, trips) can
+    // call its endpoints without re-binding the token each time.
+    GeoTrackAPIService.shared.tokenProvider = { [weak self] in
+      self?.currentSession?.token
+    }
   }
 
   private static func extractDigits(_ input: String) -> String {

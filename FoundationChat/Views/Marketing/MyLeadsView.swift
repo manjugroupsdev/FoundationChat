@@ -6,6 +6,8 @@ import UIKit
 struct MyLeadsView: View {
     @Environment(AuthStore.self) private var authStore
 
+    @AppStorage("dialer.station") private var station: String = "6369487527"
+
     @State private var mode: LeadMode = .all
     @State private var leads: [ConvexLead] = []
     @State private var nextCursor: String?
@@ -14,6 +16,8 @@ struct MyLeadsView: View {
     @State private var isLoadingMore: Bool = false
     @State private var errorMessage: String?
     @State private var search: String = ""
+    @State private var dialingPhone: String?
+    @State private var statusMessage: String?
 
     private let pageSize = 50
 
@@ -76,6 +80,17 @@ struct MyLeadsView: View {
         .overlay {
             if isLoading && leads.isEmpty {
                 ProgressView()
+            }
+        }
+        .overlay(alignment: .bottom) {
+            if let statusMessage {
+                Text(statusMessage)
+                    .font(.footnote.weight(.medium))
+                    .padding(.horizontal, 14)
+                    .padding(.vertical, 8)
+                    .background(.regularMaterial, in: Capsule())
+                    .padding(.bottom, 12)
+                    .transition(.opacity)
             }
         }
         .alert("Error", isPresented: Binding(
@@ -158,11 +173,34 @@ struct MyLeadsView: View {
     }
 
     private func call(_ phone: String) {
-        let allowed = CharacterSet(charactersIn: "0123456789+*#")
-        let encoded = phone.unicodeScalars.filter { allowed.contains($0) }.map(String.init).joined()
-        guard !encoded.isEmpty, let url = URL(string: "tel:\(encoded)") else { return }
-        let app = UIApplication.shared
-        if app.canOpenURL(url) { app.open(url) }
+        let digits = phone.filter(\.isNumber)
+        guard digits.count >= 10 else {
+            errorMessage = "Lead phone is too short to dial"
+            return
+        }
+        guard dialingPhone == nil else { return }
+        dialingPhone = digits
+        statusMessage = "Placing call…"
+        let stationNumber = station.filter(\.isNumber).isEmpty ? "6369487527" : station.filter(\.isNumber)
+        Task {
+            defer {
+                Task { @MainActor in dialingPhone = nil }
+            }
+            do {
+                _ = try await TelecallerConvexAPIService.dialDoocti(
+                    phoneNumber: digits,
+                    station: stationNumber
+                )
+                await MainActor.run { statusMessage = "Call placed — your phone will ring shortly" }
+                try? await Task.sleep(nanoseconds: 3_000_000_000)
+                await MainActor.run { statusMessage = nil }
+            } catch {
+                await MainActor.run {
+                    statusMessage = nil
+                    errorMessage = "Call failed: \(error.localizedDescription)"
+                }
+            }
+        }
     }
 }
 
