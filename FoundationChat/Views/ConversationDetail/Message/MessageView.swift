@@ -29,7 +29,11 @@ struct MessageView: View {
   }
 
   private var bubbleColor: Color {
-    isOutgoing ? .blue : Color(uiColor: .systemGray5)
+    isOutgoing ? Color(red: 0.05, green: 0.38, blue: 0.79) : .white
+  }
+
+  private var textColor: Color {
+    isOutgoing ? .white : Color.black.opacity(0.92)
   }
 
   private var hasTextContent: Bool {
@@ -48,9 +52,9 @@ struct MessageView: View {
   var body: some View {
     HStack {
       if isOutgoing {
-        Spacer(minLength: 56)
+        Spacer(minLength: 48)
       }
-      VStack(alignment: isOutgoing ? .trailing : .leading, spacing: 4) {
+      VStack(alignment: isOutgoing ? .trailing : .leading, spacing: 6) {
         if shouldRenderImageWithoutBubble {
           MessageAttachementView(message: message, isOutgoing: isOutgoing)
         } else {
@@ -59,19 +63,19 @@ struct MessageView: View {
             MessageAttachementView(message: message, isOutgoing: isOutgoing)
           }
           .padding(.horizontal, 14)
-          .padding(.vertical, 10)
+          .padding(.top, 10)
+          .padding(.bottom, 12)
           .background(bubbleColor)
-          .clipShape(
-            UnevenRoundedRectangle(
-              cornerRadii: .init(
-                topLeading: 22,
-                bottomLeading: isOutgoing ? 22 : 6,
-                bottomTrailing: isOutgoing ? 6 : 22,
-                topTrailing: 22
-              ),
-              style: .continuous
-            )
+          .clipShape(RoundedRectangle(cornerRadius: 16, style: .continuous))
+          .overlay(alignment: isOutgoing ? .bottomTrailing : .bottomLeading) {
+            BubbleTail(isOutgoing: isOutgoing)
+              .offset(x: isOutgoing ? 8 : -8, y: 2)
+          }
+          .overlay(
+            RoundedRectangle(cornerRadius: 16, style: .continuous)
+              .stroke(Color.black.opacity(isOutgoing ? 0.04 : 0.06), lineWidth: 1)
           )
+          .shadow(color: .black.opacity(0.04), radius: 8, y: 2)
         }
 
         if let deliveryStatusText {
@@ -79,12 +83,22 @@ struct MessageView: View {
             .padding(.trailing, 6)
         }
       }
-      .padding(.horizontal, 12)
-      .animation(.bouncy, value: message.content)
+      .padding(.horizontal, 16)
       if !isOutgoing {
-        Spacer(minLength: 56)
+        Spacer(minLength: 48)
       }
     }
+  }
+}
+
+private struct BubbleTail: View {
+  let isOutgoing: Bool
+
+  var body: some View {
+    RoundedRectangle(cornerRadius: 4, style: .continuous)
+      .fill(isOutgoing ? Color(red: 0.05, green: 0.38, blue: 0.79) : .white)
+      .frame(width: 14, height: 14)
+      .rotationEffect(.degrees(45))
   }
 }
 
@@ -93,8 +107,8 @@ private struct MessageDeliveryStatusView: View {
 
   var body: some View {
     Text(text)
-      .font(.system(size: 10, weight: .semibold))
-      .foregroundStyle(.secondary)
+      .font(.system(size: 11, weight: .medium))
+      .foregroundStyle(Color.black.opacity(0.38))
   }
 }
 

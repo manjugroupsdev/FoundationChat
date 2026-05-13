@@ -40,6 +40,7 @@ struct ConvexConversationParticipant: Decodable, Equatable, Sendable {
 struct ConvexConversationLastMessage: Decodable, Equatable, Sendable {
   let _id: String
   let body: String?
+  let senderId: String?
   let senderName: String?
   let _creationTime: Double?
 }
@@ -49,6 +50,9 @@ struct ConvexConversationSummary: Decodable, Identifiable, Equatable, Sendable {
   let type: String?
   let displayName: String?
   let lastMessageAt: Double?
+  let lastMessagePreview: String?
+  let lastMessageSenderId: String?
+  let lastReadTime: Double?
   let participants: [ConvexConversationParticipant]?
   let lastMessage: ConvexConversationLastMessage?
   let unreadCount: Int?
@@ -85,13 +89,40 @@ struct StartDirectConversationResult: Decodable, Sendable {
 // MARK: - Messages
 
 struct MessageAttachment: Decodable, Identifiable, Equatable, Sendable {
-  let _id: String
+  let _id: String?
+  let messageId: String?
   let fileName: String?
   let fileType: String?
   let fileSize: Int?
+  let storageId: String?
   let url: String?
 
-  var id: String { _id }
+  var id: String { _id ?? messageId ?? storageId ?? fileName ?? UUID().uuidString }
+
+  init(
+    _id: String? = nil,
+    messageId: String? = nil,
+    fileName: String? = nil,
+    fileType: String? = nil,
+    fileSize: Int? = nil,
+    storageId: String? = nil,
+    url: String? = nil
+  ) {
+    self._id = _id
+    self.messageId = messageId
+    self.fileName = fileName
+    self.fileType = fileType
+    self.fileSize = fileSize
+    self.storageId = storageId
+    self.url = url
+  }
+}
+
+struct MessageMention: Decodable, Identifiable, Equatable, Sendable {
+  let mentionType: String?
+  let mentionedStaffId: String?
+
+  var id: String { "\(mentionType ?? "staff"):\(mentionedStaffId ?? "")" }
 }
 
 enum ConvexChatRole: String, Codable, Sendable {
@@ -130,6 +161,8 @@ struct ConvexChatMessage: Decodable, Identifiable, Equatable, Sendable {
   let parentMessageId: String?
   let _creationTime: Double?
   let attachments: [MessageAttachment]?
+  let reactions: [MessageReactionInfo]?
+  let mentions: [MessageMention]?
 
   // Compat
   var id: String { _id }
@@ -143,7 +176,7 @@ struct ConvexChatMessage: Decodable, Identifiable, Equatable, Sendable {
 
   // Attachment compat — flatten first attachment or nil
   var attachmentType: String? { attachments?.first?.fileType }
-  var attachmentStorageId: String? { nil }
+  var attachmentStorageId: String? { attachments?.first?.storageId }
   var attachmentFileName: String? { attachments?.first?.fileName }
   var attachmentMimeType: String? { attachments?.first?.fileType }
   var attachmentTitle: String? { nil }
@@ -152,7 +185,84 @@ struct ConvexChatMessage: Decodable, Identifiable, Equatable, Sendable {
   var attachmentUrl: String? { attachments?.first?.url }
 
   var timestamp: Date {
-    Date(timeIntervalSince1970: (_creationTime ?? 0) / 1000)
+    let raw = _creationTime ?? 0
+    return Date(timeIntervalSince1970: raw > 10_000_000_000 ? raw / 1000 : raw)
+  }
+
+  private enum CodingKeys: String, CodingKey {
+    case _id
+    case messageId
+    case channelId
+    case conversationId
+    case senderId
+    case senderName
+    case body
+    case isEdited
+    case isDeleted
+    case replyCount
+    case lastReplyAt
+    case parentMessageId
+    case _creationTime
+    case sentAt
+    case attachments
+    case reactions
+    case mentions
+  }
+
+  init(
+    _id: String,
+    channelId: String? = nil,
+    conversationId: String? = nil,
+    senderId: String? = nil,
+    senderName: String? = nil,
+    body: String? = nil,
+    isEdited: Bool? = nil,
+    isDeleted: Bool? = nil,
+    replyCount: Int? = nil,
+    lastReplyAt: Double? = nil,
+    parentMessageId: String? = nil,
+    _creationTime: Double? = nil,
+    attachments: [MessageAttachment]? = nil,
+    reactions: [MessageReactionInfo]? = nil,
+    mentions: [MessageMention]? = nil
+  ) {
+    self._id = _id
+    self.channelId = channelId
+    self.conversationId = conversationId
+    self.senderId = senderId
+    self.senderName = senderName
+    self.body = body
+    self.isEdited = isEdited
+    self.isDeleted = isDeleted
+    self.replyCount = replyCount
+    self.lastReplyAt = lastReplyAt
+    self.parentMessageId = parentMessageId
+    self._creationTime = _creationTime
+    self.attachments = attachments
+    self.reactions = reactions
+    self.mentions = mentions
+  }
+
+  init(from decoder: Decoder) throws {
+    let container = try decoder.container(keyedBy: CodingKeys.self)
+    _id = try container.decodeIfPresent(String.self, forKey: ._id)
+      ?? container.decodeIfPresent(String.self, forKey: .messageId)
+      ?? UUID().uuidString
+    channelId = try container.decodeIfPresent(String.self, forKey: .channelId)
+    conversationId = try container.decodeIfPresent(String.self, forKey: .conversationId)
+    senderId = try container.decodeIfPresent(String.self, forKey: .senderId)
+    senderName = try container.decodeIfPresent(String.self, forKey: .senderName)
+    body = try container.decodeIfPresent(String.self, forKey: .body)
+    isEdited = try container.decodeIfPresent(Bool.self, forKey: .isEdited)
+    isDeleted = try container.decodeIfPresent(Bool.self, forKey: .isDeleted)
+    replyCount = try container.decodeIfPresent(Int.self, forKey: .replyCount)
+    lastReplyAt = try container.decodeIfPresent(Double.self, forKey: .lastReplyAt)
+    parentMessageId = try container.decodeIfPresent(String.self, forKey: .parentMessageId)
+    _creationTime = try container.decodeIfPresent(Double.self, forKey: ._creationTime)
+      ?? container.decodeIfPresent(Double.self, forKey: .sentAt)
+    attachments = try container.decodeIfPresent([MessageAttachment].self, forKey: .attachments)
+    reactions = try container.decodeIfPresent([MessageReactionInfo].self, forKey: .reactions)
+    mentions = try container.decodeIfPresent([MessageMention].self, forKey: .mentions)
   }
 }
 
@@ -209,17 +319,78 @@ struct ChannelSummary: Decodable, Identifiable, Equatable, Sendable {
   let role: String?
   let muted: Bool?
   let unreadCount: Int?
+  let lastMessagePreview: String?
+  let lastMessageAtRaw: Double?
+  let lastMessageSenderId: String?
+  let mentionCount: Int?
+  let joined: Bool?
 
   // Compat
   var id: String { _id }
-  var lastMessageContent: String? { nil }
-  var lastMessageAt: Double { 0 }
+  var lastMessageContent: String? { lastMessagePreview }
+  var lastMessageAt: Double { lastMessageAtRaw ?? 0 }
   var createdByStackUserId: String { createdBy ?? "" }
   var myRole: String { role ?? "member" }
   var canManage: Bool { role == "admin" || role == "owner" }
+  var unreadCountValue: Int { unreadCount ?? 0 }
   var createdAt: Double { 0 }
   var updatedAt: Double { 0 }
   var lastMessageDate: Date { Date(timeIntervalSince1970: lastMessageAt / 1000) }
+
+  private enum CodingKeys: String, CodingKey {
+    case _id
+    case name
+    case slug
+    case description
+    case type
+    case createdBy
+    case isArchived
+    case memberCount
+    case role
+    case muted
+    case unreadCount
+    case lastMessagePreview
+    case lastMessageAtRaw = "lastMessageAt"
+    case lastMessageSenderId
+    case mentionCount
+    case joined
+  }
+
+  init(
+    _id: String,
+    name: String,
+    slug: String? = nil,
+    description: String? = nil,
+    type: String? = nil,
+    createdBy: String? = nil,
+    isArchived: Bool? = nil,
+    memberCount: Int? = nil,
+    role: String? = nil,
+    muted: Bool? = nil,
+    unreadCount: Int? = nil,
+    lastMessagePreview: String? = nil,
+    lastMessageAtRaw: Double? = nil,
+    lastMessageSenderId: String? = nil,
+    mentionCount: Int? = nil,
+    joined: Bool? = nil
+  ) {
+    self._id = _id
+    self.name = name
+    self.slug = slug
+    self.description = description
+    self.type = type
+    self.createdBy = createdBy
+    self.isArchived = isArchived
+    self.memberCount = memberCount
+    self.role = role
+    self.muted = muted
+    self.unreadCount = unreadCount
+    self.lastMessagePreview = lastMessagePreview
+    self.lastMessageAtRaw = lastMessageAtRaw
+    self.lastMessageSenderId = lastMessageSenderId
+    self.mentionCount = mentionCount
+    self.joined = joined
+  }
 }
 
 struct ChannelMember: Decodable, Identifiable, Equatable, Sendable {

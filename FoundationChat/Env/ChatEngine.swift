@@ -1,3 +1,4 @@
+import Observation
 import SwiftUI
 
 /// Placeholder – FoundationModels (on-device AI) has been removed.

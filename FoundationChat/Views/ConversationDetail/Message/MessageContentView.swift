@@ -7,9 +7,9 @@ struct MessageContentView: View {
   var body: some View {
     if !message.content.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
       Text(message.content)
-        .foregroundStyle(isOutgoing ? .white : .primary)
-        .font(.system(size: 18))
-        .contentTransition(.interpolate)
+        .foregroundStyle(isOutgoing ? .white : Color.black.opacity(0.92))
+        .font(.system(size: 15.8, weight: .regular))
+        .lineSpacing(2)
     }
   }
 }

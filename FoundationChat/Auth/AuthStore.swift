@@ -273,6 +273,12 @@ final class AuthStore {
 
   func fetchChannels(search: String = "") async throws -> [ChannelSummary] {
     let t = try requireToken()
+    let trimmed = search.trimmingCharacters(in: .whitespacesAndNewlines)
+
+    if !trimmed.isEmpty {
+      return try await ChatAPIService.searchChannels(token: t, query: trimmed)
+    }
+
     // Merge "my channels" + public channels (de-duped) so users see everything available.
     async let myChannels = ChatAPIService.listMyChannels(token: t)
     async let publicChannels = ChatAPIService.listPublicChannels(token: t)
@@ -285,11 +291,6 @@ final class AuthStore {
     }
     for ch in try await publicChannels {
       if seen.insert(ch.id).inserted { merged.append(ch) }
-    }
-
-    if !search.isEmpty {
-      let lowered = search.lowercased()
-      merged = merged.filter { $0.name.lowercased().contains(lowered) }
     }
 
     return merged
@@ -327,15 +328,42 @@ final class AuthStore {
 
   @discardableResult
   func inviteMember(channelID: String, memberStackUserID: String) async throws -> InviteChannelMemberResult {
-    // Join channel on behalf — use join endpoint
     let t = try requireToken()
-    try await ChatAPIService.joinChannel(token: t, channelId: channelID)
+    try await ChatAPIService.addChannelMember(
+      token: t,
+      channelId: channelID,
+      memberStackUserId: memberStackUserID
+    )
     return InviteChannelMemberResult(channelId: channelID, memberStackUserId: memberStackUserID, invited: true)
+  }
+
+  func removeMember(channelID: String, memberStackUserID: String) async throws {
+    let t = try requireToken()
+    try await ChatAPIService.removeChannelMember(
+      token: t,
+      channelId: channelID,
+      memberStackUserId: memberStackUserID
+    )
+  }
+
+  func setChannelMemberRole(channelID: String, memberStackUserID: String, role: String) async throws {
+    let t = try requireToken()
+    try await ChatAPIService.setChannelRole(
+      token: t,
+      channelId: channelID,
+      memberStackUserId: memberStackUserID,
+      role: role
+    )
   }
 
   func updateChannelDescription(channelId: String, description: String) async throws {
     let t = try requireToken()
     try await ChatAPIService.updateChannel(token: t, channelId: channelId, description: description)
+  }
+
+  func archiveChannel(channelID: String) async throws {
+    let t = try requireToken()
+    try await ChatAPIService.archiveChannel(token: t, channelId: channelID)
   }
 
   func subscribeChannelMessages(channelID: String) throws -> AnyPublisher<[ChannelChatMessage]?, Never> {
@@ -437,7 +465,30 @@ final class AuthStore {
   }
 
   func deleteConversation(conversationID: String) async throws {
-    // Not in current API
+    try await hideConversation(conversationID: conversationID)
+  }
+
+  func addConversationMember(conversationID: String, memberStackUserID: String) async throws {
+    let t = try requireToken()
+    try await ChatAPIService.addConversationMember(
+      token: t,
+      conversationId: conversationID,
+      memberStackUserId: memberStackUserID
+    )
+  }
+
+  func removeConversationMember(conversationID: String, memberStackUserID: String) async throws {
+    let t = try requireToken()
+    try await ChatAPIService.removeConversationMember(
+      token: t,
+      conversationId: conversationID,
+      memberStackUserId: memberStackUserID
+    )
+  }
+
+  func hideConversation(conversationID: String) async throws {
+    let t = try requireToken()
+    try await ChatAPIService.hideConversation(token: t, conversationId: conversationID)
   }
 
   func markConversationSeen(conversationID: String, readAt: Date = Date()) async throws {
@@ -455,6 +506,21 @@ final class AuthStore {
     return try await ChatAPIService.searchMessages(
       token: t, query: query, conversationId: conversationID, channelId: channelID, limit: limit
     )
+  }
+
+  func fetchMessage(messageID: String) async throws -> ConvexChatMessage {
+    let t = try requireToken()
+    return try await ChatAPIService.getMessage(token: t, messageId: messageID)
+  }
+
+  func fetchReplies(parentMessageID: String) async throws -> [ConvexChatMessage] {
+    let t = try requireToken()
+    return try await ChatAPIService.listReplies(token: t, parentMessageId: parentMessageID)
+  }
+
+  func fetchUnreadSummary() async throws -> ChatAPIService.UnreadSummary {
+    let t = try requireToken()
+    return try await ChatAPIService.getUnreadSummary(token: t)
   }
 
   func fetchConversationAttachments(
@@ -484,19 +550,20 @@ final class AuthStore {
   }
 
   func toggleConversationMute(conversationID: String, muted: Bool) async throws {
-    // Backend mute endpoint not wired in current API; surface via notification preferences if needed.
-    _ = try await upsertNotificationPreference(
-      targetType: "conversation",
-      targetId: conversationID,
-      level: muted ? .none : .all
+    let t = try requireToken()
+    try await ChatAPIService.setConversationMute(
+      token: t,
+      conversationId: conversationID,
+      muted: muted
     )
   }
 
   func toggleChannelMute(channelID: String, muted: Bool) async throws {
-    _ = try await upsertNotificationPreference(
-      targetType: "channel",
-      targetId: channelID,
-      level: muted ? .none : .all
+    let t = try requireToken()
+    try await ChatAPIService.setChannelMute(
+      token: t,
+      channelId: channelID,
+      muted: muted
     )
   }
 
@@ -508,27 +575,57 @@ final class AuthStore {
     attachmentStorageId: String? = nil,
     attachmentFileName: String? = nil,
     attachmentMimeType: String? = nil,
+    attachmentFileSize: Int? = nil,
     attachmentTitle: String? = nil,
     attachmentDescription: String? = nil,
     attachmentThumbnail: String? = nil
   ) async throws -> ConvexChatMessage {
     let t = try requireToken()
-    let messageId = try await ChatAPIService.sendMessage(token: t, conversationId: conversationID, body: content)
-    return ConvexChatMessage(
-      _id: messageId, channelId: nil, conversationId: conversationID,
-      senderId: viewer?.subject, senderName: viewer?.name, body: content,
-      isEdited: false, isDeleted: false, replyCount: 0, lastReplyAt: nil,
-      parentMessageId: nil, _creationTime: Date().timeIntervalSince1970 * 1000,
-      attachments: nil
+    let attachmentsPayload: [[String: Any]]?
+    if let attachmentStorageId {
+      var attachment: [String: Any] = [
+        "storageId": attachmentStorageId
+      ]
+      if let attachmentFileName, !attachmentFileName.isEmpty {
+        attachment["fileName"] = attachmentFileName
+      }
+      if let attachmentMimeType, !attachmentMimeType.isEmpty {
+        attachment["fileType"] = attachmentMimeType
+      } else if let attachmentType, !attachmentType.isEmpty {
+        attachment["fileType"] = attachmentType
+      }
+      if let attachmentFileSize {
+        attachment["fileSize"] = attachmentFileSize
+      }
+      attachmentsPayload = [attachment]
+    } else {
+      attachmentsPayload = nil
+    }
+
+    let messageId = try await ChatAPIService.sendMessage(
+      token: t,
+      conversationId: conversationID,
+      body: content,
+      attachments: attachmentsPayload
     )
+    return try await ChatAPIService.getMessage(token: t, messageId: messageId)
   }
 
   func generateAttachmentUploadURL() async throws -> URL {
-    throw AuthStoreError.notImplemented
+    let t = try requireToken()
+    let urlString = try await HRConvexAPIService.generateUploadURL(token: t)
+    guard let url = URL(string: urlString) else {
+      throw AuthStoreError.invalidUploadURL
+    }
+    return url
   }
 
   func uploadAttachmentData(_ data: Data, uploadURL: URL, mimeType: String) async throws -> String {
-    throw AuthStoreError.notImplemented
+    try await HRConvexAPIService.uploadFile(
+      uploadURL: uploadURL.absoluteString,
+      data: data,
+      contentType: mimeType
+    )
   }
 
   // MARK: - Files
@@ -649,22 +746,134 @@ final class AuthStore {
   @discardableResult func markPostRead(postId: String) async throws -> MarkPostReadResult { throw AuthStoreError.notImplemented }
   func fetchUnreadPostCount() async throws -> Int { 0 }
 
-  // MARK: - Presence (not in current API)
+  // MARK: - Presence
 
-  @discardableResult func sendPresenceHeartbeat() async throws -> HeartbeatResult { throw AuthStoreError.notImplemented }
-  @discardableResult func setPresenceStatus(status: PresenceStatus, customStatusText: String? = nil, customStatusEmoji: String? = nil) async throws -> SetStatusResult { throw AuthStoreError.notImplemented }
-  func fetchPresence(for stackUserIds: [String]) async throws -> [UserPresenceInfo] { [] }
-  @discardableResult func clearPresenceStatus() async throws -> ClearStatusResult { throw AuthStoreError.notImplemented }
+  @discardableResult
+  func sendPresenceHeartbeat() async throws -> HeartbeatResult {
+    let t = try requireToken()
+    let response = try await ChatAPIService.sendPresenceHeartbeat(token: t)
+    return HeartbeatResult(status: response.status ?? PresenceStatus.online.rawValue)
+  }
 
-  // MARK: - Reactions (not in current API)
+  @discardableResult
+  func setPresenceStatus(status: PresenceStatus, customStatusText: String? = nil, customStatusEmoji: String? = nil) async throws -> SetStatusResult {
+    let t = try requireToken()
+    let response = try await ChatAPIService.sendPresenceHeartbeat(
+      token: t,
+      status: status,
+      customStatusText: customStatusText,
+      customStatusEmoji: customStatusEmoji
+    )
+    return SetStatusResult(status: response.status ?? status.rawValue)
+  }
 
-  @discardableResult func addMessageReaction(messageId: String, messageSource: String, emoji: String) async throws -> MessageReactionResult { throw AuthStoreError.notImplemented }
-  func fetchMessageReactions(messageId: String, messageSource: String) async throws -> [MessageReactionInfo] { [] }
+  func fetchPresence(for stackUserIds: [String]) async throws -> [UserPresenceInfo] {
+    let t = try requireToken()
+    return try await ChatAPIService.getPresence(token: t, stackUserIds: stackUserIds)
+  }
 
-  // MARK: - Notification preferences (not in current API)
+  func fetchOnlinePresence() async throws -> [UserPresenceInfo] {
+    let t = try requireToken()
+    return try await ChatAPIService.getOnlinePresence(token: t)
+  }
 
-  func fetchNotificationPreference(targetType: String, targetId: String) async throws -> NotificationPreference? { nil }
-  @discardableResult func upsertNotificationPreference(targetType: String, targetId: String, level: NotificationLevel, muteUntil: Double? = nil) async throws -> UpsertNotificationPrefResult { throw AuthStoreError.notImplemented }
+  @discardableResult
+  func clearPresenceStatus() async throws -> ClearStatusResult {
+    let t = try requireToken()
+    let response = try await ChatAPIService.sendPresenceHeartbeat(
+      token: t,
+      status: .online,
+      customStatusText: "",
+      customStatusEmoji: ""
+    )
+    return ClearStatusResult(cleared: response.cleared ?? response.success ?? true)
+  }
+
+  // MARK: - Reactions
+
+  @discardableResult
+  func addMessageReaction(messageId: String, messageSource: String, emoji: String) async throws -> MessageReactionResult {
+    let t = try requireToken()
+    return try await ChatAPIService.addReaction(
+      token: t,
+      messageId: messageId,
+      messageSource: messageSource,
+      emoji: emoji
+    )
+  }
+
+  @discardableResult
+  func removeMessageReaction(messageId: String, messageSource: String, emoji: String) async throws -> MessageReactionResult {
+    let t = try requireToken()
+    return try await ChatAPIService.removeReaction(
+      token: t,
+      messageId: messageId,
+      messageSource: messageSource,
+      emoji: emoji
+    )
+  }
+
+  @discardableResult
+  func toggleMessageReaction(messageId: String, messageSource: String, emoji: String) async throws -> MessageReactionResult {
+    let t = try requireToken()
+    return try await ChatAPIService.toggleReaction(
+      token: t,
+      messageId: messageId,
+      messageSource: messageSource,
+      emoji: emoji
+    )
+  }
+
+  func fetchMessageReactions(messageId: String, messageSource: String) async throws -> [MessageReactionInfo] {
+    let t = try requireToken()
+    return try await ChatAPIService.getReactions(
+      token: t,
+      messageId: messageId,
+      messageSource: messageSource
+    )
+  }
+
+  func fetchBulkMessageReactions(messageIds: [String]) async throws -> [String: [MessageReactionInfo]] {
+    let t = try requireToken()
+    return try await ChatAPIService.getBulkReactions(token: t, messageIds: messageIds)
+  }
+
+  // MARK: - Notification preferences
+
+  func fetchNotificationPreference(targetType: String, targetId: String) async throws -> NotificationPreference? {
+    switch targetType {
+    case "channel":
+      let channel = try await fetchChannel(channelID: targetId)
+      return NotificationPreference(
+        targetType: targetType,
+        targetId: targetId,
+        level: (channel.muted ?? false) ? NotificationLevel.none.rawValue : NotificationLevel.all.rawValue,
+        muteUntil: nil,
+        updatedAt: Date().timeIntervalSince1970 * 1000
+      )
+    default:
+      let conversation = try await fetchConversation(conversationID: targetId)
+      return NotificationPreference(
+        targetType: targetType,
+        targetId: targetId,
+        level: (conversation.muted ?? false) ? NotificationLevel.none.rawValue : NotificationLevel.all.rawValue,
+        muteUntil: nil,
+        updatedAt: Date().timeIntervalSince1970 * 1000
+      )
+    }
+  }
+
+  @discardableResult
+  func upsertNotificationPreference(targetType: String, targetId: String, level: NotificationLevel, muteUntil: Double? = nil) async throws -> UpsertNotificationPrefResult {
+    let isMuted = level == .none
+    switch targetType {
+    case "channel":
+      try await toggleChannelMute(channelID: targetId, muted: isMuted)
+    default:
+      try await toggleConversationMute(conversationID: targetId, muted: isMuted)
+    }
+    return UpsertNotificationPrefResult(saved: true)
+  }
 
   // MARK: - Storage folders (not in current API)
 
@@ -728,6 +937,7 @@ enum AuthStoreError: LocalizedError {
   case sessionNotAvailable
   case invalidPhoneNumber
   case invalidOTP
+  case invalidUploadURL
   case notImplemented
 
   var errorDescription: String? {
@@ -735,6 +945,7 @@ enum AuthStoreError: LocalizedError {
     case .sessionNotAvailable: return "Session is not available. Please sign in again."
     case .invalidPhoneNumber: return "Enter a valid 10-digit phone number."
     case .invalidOTP: return "Enter the OTP you received."
+    case .invalidUploadURL: return "Attachment upload URL is invalid."
     case .notImplemented: return "This feature is not yet connected."
     }
   }

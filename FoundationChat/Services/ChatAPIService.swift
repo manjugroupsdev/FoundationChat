@@ -2,7 +2,22 @@ import Foundation
 
 /// HTTP client for all chat-related endpoints (channels, conversations, messages, typing).
 enum ChatAPIService {
-  private static let baseURL = AppConfig.baseURL
+  private static let baseURL = AppConfig.chatBaseURL
+
+  private struct EmptySuccessResponse: Decodable {
+    let success: Bool?
+    let error: String?
+  }
+
+  private struct BooleanFlagResponse: Decodable {
+    let success: Bool?
+    let saved: Bool?
+    let added: Bool?
+    let removed: Bool?
+    let deleted: Bool?
+    let edited: Bool?
+    let error: String?
+  }
 
   // MARK: - Staff Directory
 
@@ -46,15 +61,27 @@ enum ChatAPIService {
     return wrapper.channels ?? []
   }
 
+  static func searchChannels(token: String, query: String) async throws -> [ChannelSummary] {
+    let data = try await get(
+      path: path("/api/chat/channels/search", [
+        URLQueryItem(name: "q", value: query),
+        URLQueryItem(name: "limit", value: "50"),
+      ]),
+      token: token
+    )
+    let wrapper = try decode(ChannelsListResponse.self, from: data)
+    return wrapper.channels ?? []
+  }
+
   static func getChannel(token: String, channelId: String) async throws -> ChannelSummary {
-    let data = try await get(path: "/api/chat/channels/get?channelId=\(channelId)", token: token)
+    let data = try await get(path: path("/api/chat/channels/get", [URLQueryItem(name: "channelId", value: channelId)]), token: token)
     let wrapper = try decode(ChannelDetailResponse.self, from: data)
     guard let channel = wrapper.channel else { throw ChatAPIError.notFound("Channel not found") }
     return channel
   }
 
   static func getChannelMembers(token: String, channelId: String) async throws -> [ChannelMember] {
-    let data = try await get(path: "/api/chat/channels/members?channelId=\(channelId)", token: token)
+    let data = try await get(path: path("/api/chat/channels/members", [URLQueryItem(name: "channelId", value: channelId)]), token: token)
     let wrapper = try decode(ChannelMembersResponse.self, from: data)
     return wrapper.members ?? []
   }
@@ -83,6 +110,36 @@ enum ChatAPIService {
     _ = try await post(path: "/api/chat/channels/leave", token: token, jsonBody: body)
   }
 
+  static func addChannelMember(token: String, channelId: String, memberStackUserId: String) async throws {
+    let body: [String: Any] = [
+      "channelId": channelId,
+      "staffId": memberStackUserId,
+    ]
+    _ = try await post(path: "/api/chat/channels/add-member", token: token, jsonBody: body)
+  }
+
+  static func removeChannelMember(token: String, channelId: String, memberStackUserId: String) async throws {
+    let body: [String: Any] = [
+      "channelId": channelId,
+      "staffId": memberStackUserId,
+    ]
+    _ = try await post(path: "/api/chat/channels/remove-member", token: token, jsonBody: body)
+  }
+
+  static func setChannelMute(token: String, channelId: String, muted: Bool) async throws {
+    let body: [String: Any] = ["channelId": channelId, "muted": muted]
+    _ = try await post(path: "/api/chat/channels/set-mute", token: token, jsonBody: body)
+  }
+
+  static func setChannelRole(token: String, channelId: String, memberStackUserId: String, role: String) async throws {
+    let body: [String: Any] = [
+      "channelId": channelId,
+      "targetStaffId": memberStackUserId,
+      "role": role,
+    ]
+    _ = try await post(path: "/api/chat/channels/set-role", token: token, jsonBody: body)
+  }
+
   static func updateChannel(token: String, channelId: String, name: String? = nil, description: String? = nil, type: String? = nil) async throws {
     var body: [String: Any] = ["channelId": channelId]
     if let name { body["name"] = name }
@@ -105,7 +162,7 @@ enum ChatAPIService {
   }
 
   static func getConversation(token: String, conversationId: String) async throws -> ConvexConversationSummary {
-    let data = try await get(path: "/api/chat/conversations/get?conversationId=\(conversationId)", token: token)
+    let data = try await get(path: path("/api/chat/conversations/get", [URLQueryItem(name: "conversationId", value: conversationId)]), token: token)
     let wrapper = try decode(ConversationDetailResponse.self, from: data)
     guard let conv = wrapper.conversation else { throw ChatAPIError.notFound("Conversation not found") }
     return conv
@@ -128,33 +185,77 @@ enum ChatAPIService {
     return id
   }
 
+  static func addConversationMember(token: String, conversationId: String, memberStackUserId: String) async throws {
+    let body: [String: Any] = [
+      "conversationId": conversationId,
+      "staffId": memberStackUserId,
+    ]
+    _ = try await post(path: "/api/chat/conversations/add-member", token: token, jsonBody: body)
+  }
+
+  static func removeConversationMember(token: String, conversationId: String, memberStackUserId: String) async throws {
+    let body: [String: Any] = [
+      "conversationId": conversationId,
+      "staffId": memberStackUserId,
+    ]
+    _ = try await post(path: "/api/chat/conversations/remove-member", token: token, jsonBody: body)
+  }
+
+  static func hideConversation(token: String, conversationId: String) async throws {
+    let body: [String: Any] = ["conversationId": conversationId]
+    _ = try await post(path: "/api/chat/conversations/hide", token: token, jsonBody: body)
+  }
+
+  static func setConversationMute(token: String, conversationId: String, muted: Bool) async throws {
+    let body: [String: Any] = ["conversationId": conversationId, "muted": muted]
+    _ = try await post(path: "/api/chat/conversations/set-mute", token: token, jsonBody: body)
+  }
+
   // MARK: - Messages
 
   static func listChannelMessages(token: String, channelId: String, numItems: Int = 25, cursor: String? = nil) async throws -> PaginatedMessages {
-    var path = "/api/chat/messages/channel?channelId=\(channelId)&numItems=\(numItems)"
-    if let cursor { path += "&cursor=\(cursor)" }
-    let data = try await get(path: path, token: token)
+    var items = [
+      URLQueryItem(name: "channelId", value: channelId),
+      URLQueryItem(name: "numItems", value: String(numItems)),
+    ]
+    if let cursor { items.append(URLQueryItem(name: "cursor", value: cursor)) }
+    let data = try await get(path: path("/api/chat/messages/channel", items), token: token)
     return try decode(PaginatedMessages.self, from: data)
   }
 
   static func listConversationMessages(token: String, conversationId: String, numItems: Int = 25, cursor: String? = nil) async throws -> PaginatedMessages {
-    var path = "/api/chat/messages/conversation?conversationId=\(conversationId)&numItems=\(numItems)"
-    if let cursor { path += "&cursor=\(cursor)" }
-    let data = try await get(path: path, token: token)
+    var items = [
+      URLQueryItem(name: "conversationId", value: conversationId),
+      URLQueryItem(name: "numItems", value: String(numItems)),
+    ]
+    if let cursor { items.append(URLQueryItem(name: "cursor", value: cursor)) }
+    let data = try await get(path: path("/api/chat/messages/conversation", items), token: token)
     return try decode(PaginatedMessages.self, from: data)
   }
 
   static func listReplies(token: String, parentMessageId: String) async throws -> [ConvexChatMessage] {
-    let data = try await get(path: "/api/chat/messages/replies?parentMessageId=\(parentMessageId)", token: token)
+    let data = try await get(path: path("/api/chat/messages/replies", [URLQueryItem(name: "parentMessageId", value: parentMessageId)]), token: token)
     let wrapper = try decode(RepliesResponse.self, from: data)
     return wrapper.replies ?? []
   }
 
   static func getMessage(token: String, messageId: String) async throws -> ConvexChatMessage {
-    let data = try await get(path: "/api/chat/messages/get?messageId=\(messageId)", token: token)
+    let data = try await get(path: path("/api/chat/messages/get", [URLQueryItem(name: "messageId", value: messageId)]), token: token)
     let wrapper = try decode(MessageDetailResponse.self, from: data)
     guard let msg = wrapper.message else { throw ChatAPIError.notFound("Message not found") }
     return msg
+  }
+
+  static func getUnreadSummary(token: String) async throws -> UnreadSummary {
+    let data = try await get(path: "/api/chat/messages/unread-summary", token: token)
+    let wrapper = try decode(UnreadSummaryResponse.self, from: data)
+    return wrapper.summary
+      ?? UnreadSummary(
+        channels: wrapper.channels ?? wrapper.unreadChannels ?? 0,
+        dms: wrapper.dms ?? wrapper.unreadConversations ?? 0,
+        mentions: wrapper.mentions ?? 0,
+        total: wrapper.total ?? wrapper.totalUnreadMessages ?? 0
+      )
   }
 
   static func sendMessage(
@@ -163,13 +264,20 @@ enum ChatAPIService {
     conversationId: String? = nil,
     body: String,
     parentMessageId: String? = nil,
-    mentionedStaffIds: [String]? = nil
+    mentionedStaffIds: [String]? = nil,
+    channelMentionType: String? = nil,
+    attachments: [[String: Any]]? = nil
   ) async throws -> String {
+    guard (channelId == nil) != (conversationId == nil) else {
+      throw ChatAPIError.unexpected("Send message requires exactly one channelId or conversationId")
+    }
     var json: [String: Any] = ["body": body]
     if let channelId { json["channelId"] = channelId }
     if let conversationId { json["conversationId"] = conversationId }
     if let parentMessageId { json["parentMessageId"] = parentMessageId }
     if let mentionedStaffIds { json["mentionedStaffIds"] = mentionedStaffIds }
+    if let channelMentionType { json["channelMentionType"] = channelMentionType }
+    if let attachments, !attachments.isEmpty { json["attachments"] = attachments }
     let data = try await post(path: "/api/chat/messages/send", token: token, jsonBody: json)
     let wrapper = try decode(SendMessageResponse.self, from: data)
     guard let id = wrapper.messageId else { throw ChatAPIError.unexpected("Missing messageId") }
@@ -250,12 +358,85 @@ enum ChatAPIService {
   }
 
   static func getTyping(token: String, channelId: String? = nil, conversationId: String? = nil) async throws -> [TypingUser] {
-    var path = "/api/chat/typing?"
-    if let channelId { path += "channelId=\(channelId)" }
-    if let conversationId { path += "conversationId=\(conversationId)" }
-    let data = try await get(path: path, token: token)
+    var items: [URLQueryItem] = []
+    if let channelId { items.append(URLQueryItem(name: "channelId", value: channelId)) }
+    if let conversationId { items.append(URLQueryItem(name: "conversationId", value: conversationId)) }
+    let data = try await get(path: path("/api/chat/typing", items), token: token)
     let wrapper = try decode(TypingResponse.self, from: data)
     return wrapper.typing ?? []
+  }
+
+  // MARK: - Reactions
+
+  static func getReactions(token: String, messageId: String, messageSource: String) async throws -> [MessageReactionInfo] {
+    let data = try await get(path: path("/api/chat/reactions", [URLQueryItem(name: "messageId", value: messageId)]), token: token)
+    let wrapper = try decode(ReactionsResponse.self, from: data)
+    return wrapper.reactions ?? []
+  }
+
+  static func addReaction(token: String, messageId: String, messageSource: String, emoji: String) async throws -> MessageReactionResult {
+    let body: [String: Any] = ["messageId": messageId, "emoji": emoji]
+    let data = try await post(path: "/api/chat/reactions/add", token: token, jsonBody: body)
+    let wrapper = try decode(ReactionMutationResponse.self, from: data)
+    return MessageReactionResult(added: wrapper.added ?? wrapper.success ?? true, removed: false)
+  }
+
+  static func removeReaction(token: String, messageId: String, messageSource: String, emoji: String) async throws -> MessageReactionResult {
+    let body: [String: Any] = ["messageId": messageId, "emoji": emoji]
+    let data = try await post(path: "/api/chat/reactions/remove", token: token, jsonBody: body)
+    let wrapper = try decode(ReactionMutationResponse.self, from: data)
+    return MessageReactionResult(added: false, removed: wrapper.removed ?? wrapper.success ?? true)
+  }
+
+  static func toggleReaction(token: String, messageId: String, messageSource: String, emoji: String) async throws -> MessageReactionResult {
+    let body: [String: Any] = ["messageId": messageId, "emoji": emoji]
+    let data = try await post(path: "/api/chat/reactions/toggle", token: token, jsonBody: body)
+    let wrapper = try decode(ReactionMutationResponse.self, from: data)
+    return MessageReactionResult(
+      added: wrapper.added ?? (wrapper.state == "added" ? true : nil),
+      removed: wrapper.removed ?? (wrapper.state == "removed" ? true : nil)
+    )
+  }
+
+  static func getBulkReactions(token: String, messageIds: [String]) async throws -> [String: [MessageReactionInfo]] {
+    let body: [String: Any] = ["messageIds": messageIds]
+    let data = try await post(path: "/api/chat/reactions/bulk", token: token, jsonBody: body)
+    let wrapper = try decode(BulkReactionsResponse.self, from: data)
+    return wrapper.reactions ?? [:]
+  }
+
+  // MARK: - Presence
+
+  static func getPresence(token: String, stackUserIds: [String]) async throws -> [UserPresenceInfo] {
+    var components = URLComponents()
+    components.path = "/api/chat/presence"
+    if !stackUserIds.isEmpty {
+      components.queryItems = [
+        URLQueryItem(name: "staffIds", value: stackUserIds.joined(separator: ",")),
+      ]
+    }
+    let path = components.path + (components.percentEncodedQuery.map { "?\($0)" } ?? "")
+    let data = try await get(path: path, token: token)
+    let wrapper = try decode(PresenceResponse.self, from: data)
+    return wrapper.presence ?? wrapper.users ?? []
+  }
+
+  static func getOnlinePresence(token: String) async throws -> [UserPresenceInfo] {
+    let data = try await get(path: path("/api/chat/presence/online", [URLQueryItem(name: "limit", value: "100")]), token: token)
+    let wrapper = try decode(PresenceResponse.self, from: data)
+    return wrapper.presence ?? wrapper.users ?? []
+  }
+
+  static func sendPresenceHeartbeat(
+    token: String,
+    status: PresenceStatus? = nil,
+    customStatusText: String? = nil,
+    customStatusEmoji: String? = nil
+  ) async throws -> PresenceHeartbeatResponse {
+    var body: [String: Any] = [:]
+    if let status { body["status"] = status.rawValue }
+    let data = try await post(path: "/api/chat/presence/heartbeat", token: token, jsonBody: body)
+    return try decode(PresenceHeartbeatResponse.self, from: data)
   }
 
   // MARK: - Push Notifications
@@ -276,11 +457,10 @@ enum ChatAPIService {
   // MARK: - Message Polling
 
   static func pollMessages(token: String, conversationId: String? = nil, channelId: String? = nil, after: Double = 0) async throws -> [ConvexChatMessage] {
-    var path = "/api/chat/messages/poll?"
-    if let conversationId { path += "conversationId=\(conversationId)&" }
-    if let channelId { path += "channelId=\(channelId)&" }
-    path += "after=\(after)"
-    let data = try await get(path: path, token: token)
+    var items = [URLQueryItem(name: "after", value: String(after))]
+    if let conversationId { items.append(URLQueryItem(name: "conversationId", value: conversationId)) }
+    if let channelId { items.append(URLQueryItem(name: "channelId", value: channelId)) }
+    let data = try await get(path: path("/api/chat/messages/poll", items), token: token)
     let wrapper = try decode(PollMessagesResponse.self, from: data)
     return wrapper.messages ?? []
   }
@@ -340,8 +520,49 @@ enum ChatAPIService {
   private struct SendMessageResponse: Decodable {
     let success: Bool; let messageId: String?; let error: String?
   }
+  private struct UnreadSummaryResponse: Decodable {
+    let success: Bool?
+    let summary: UnreadSummary?
+    let channels: Int?
+    let dms: Int?
+    let mentions: Int?
+    let total: Int?
+    let totalUnreadMessages: Int?
+    let unreadChannels: Int?
+    let unreadConversations: Int?
+    let error: String?
+  }
   private struct TypingResponse: Decodable {
     let success: Bool; let typing: [TypingUser]?; let error: String?
+  }
+  private struct ReactionsResponse: Decodable {
+    let success: Bool?
+    let reactions: [MessageReactionInfo]?
+    let error: String?
+  }
+  private struct ReactionMutationResponse: Decodable {
+    let success: Bool?
+    let added: Bool?
+    let removed: Bool?
+    let state: String?
+    let error: String?
+  }
+  private struct BulkReactionsResponse: Decodable {
+    let success: Bool?
+    let reactions: [String: [MessageReactionInfo]]?
+    let error: String?
+  }
+  private struct PresenceResponse: Decodable {
+    let success: Bool?
+    let presence: [UserPresenceInfo]?
+    let users: [UserPresenceInfo]?
+    let error: String?
+  }
+  struct PresenceHeartbeatResponse: Decodable, Sendable {
+    let success: Bool?
+    let status: String?
+    let cleared: Bool?
+    let error: String?
   }
   private struct SearchMessagesResponse: Decodable {
     let success: Bool?; let messages: [ConvexChatMessage]?; let results: [ConvexChatMessage]?; let total: Int?; let error: String?
@@ -371,7 +592,26 @@ enum ChatAPIService {
     let error: String?
   }
 
+  struct UnreadSummary: Decodable, Sendable {
+    let channels: Int
+    let dms: Int
+    let mentions: Int
+    let total: Int
+
+    var totalUnreadMessages: Int { total }
+    var unreadChannels: Int { channels }
+    var unreadConversations: Int { dms }
+  }
+
   // MARK: - HTTP helpers
+
+  private static func path(_ path: String, _ queryItems: [URLQueryItem]) -> String {
+    guard !queryItems.isEmpty else { return path }
+    var components = URLComponents()
+    components.path = path
+    components.queryItems = queryItems
+    return components.path + "?" + (components.percentEncodedQuery ?? "")
+  }
 
   private static func get(path: String, token: String) async throws -> Data {
     guard let url = URL(string: "\(baseURL)\(path)") else { throw ChatAPIError.badURL }
@@ -417,6 +657,7 @@ enum ChatAPIService {
       throw ChatAPIError.server("Request failed", statusCode: http.statusCode)
     }
   }
+
 }
 
 enum ChatAPIError: LocalizedError {

@@ -2,10 +2,12 @@ import Combine
 import PhotosUI
 import SwiftData
 import SwiftUI
+import UIKit
 import UniformTypeIdentifiers
 
 struct ConversationDetailView: View {
   @Environment(\.modelContext) private var modelContext
+  @Environment(\.dismiss) private var dismiss
   @Environment(AuthStore.self) private var authStore
 
   @State var newMessage: String = ""
@@ -20,6 +22,8 @@ struct ConversationDetailView: View {
   @State private var isAttachmentOptionsPresented = false
   @State private var isPhotoPickerPresented = false
   @State private var selectedPhotoItem: PhotosPickerItem?
+  @State private var isCameraPresented = false
+  @State private var capturedCameraImage: UIImage?
   @State private var isFileImporterPresented = false
   @State private var activeDetailSheet: ActiveDetailSheet?
   @FocusState var isInputFocused: Bool
@@ -52,6 +56,13 @@ struct ConversationDetailView: View {
     return "Conversation"
   }
 
+  private var conversationSubtitle: String {
+    if let lastSeen = conversation.otherParticipantLastReadAt {
+      return "Last seen \(lastSeen.formatted(date: .omitted, time: .shortened))"
+    }
+    return "Direct message"
+  }
+
   private var lastOutgoingMessage: Message? {
     let currentUserStackUserId = authStore.viewer?.subject
     return conversation.sortedMessages.last { message in
@@ -65,29 +76,36 @@ struct ConversationDetailView: View {
   var body: some View {
     let sortedMessages = conversation.sortedMessages
 
-    return VStack(spacing: 0) {
-      ScrollView {
-        LazyVStack(spacing: 12) {
-          ForEach(Array(sortedMessages.enumerated()), id: \.element.id) { index, message in
-            if shouldShowTimestamp(at: index, in: sortedMessages) {
-              MessageTimestampDivider(date: message.timestamp)
-                .padding(.top, index == 0 ? 8 : 12)
-            }
+    return ZStack {
+      ChatWallpaper()
+        .ignoresSafeArea()
 
-            MessageView(
-              message: message,
-              otherParticipantLastReadAt: conversation.otherParticipantLastReadAt,
-              isLastOutgoingMessage: message === lastOutgoingMessage
-            )
-            .id(message.id)
+      VStack(spacing: 0) {
+        conversationHeader
+
+        ScrollView {
+          LazyVStack(spacing: 12) {
+            ForEach(Array(sortedMessages.enumerated()), id: \.element.id) { index, message in
+              if shouldShowTimestamp(at: index, in: sortedMessages) {
+                MessageTimestampDivider(date: message.timestamp)
+                  .padding(.top, index == 0 ? 12 : 16)
+              }
+
+              MessageView(
+                message: message,
+                otherParticipantLastReadAt: conversation.otherParticipantLastReadAt,
+                isLastOutgoingMessage: message === lastOutgoingMessage
+              )
+              .id(message.id)
+            }
           }
+          .scrollTargetLayout()
+          .padding(.top, 12)
+          .padding(.bottom, 18)
         }
-        .scrollTargetLayout()
-        .padding(.bottom, 50)
+        .scrollIndicators(.hidden)
       }
-      .scrollIndicators(.hidden)
     }
-    .background(Color(uiColor: .systemBackground))
     .onAppear {
       isInputFocused = true
       startMessagesSubscription()
@@ -112,37 +130,7 @@ struct ConversationDetailView: View {
     }
     .scrollDismissesKeyboard(.interactively)
     .scrollPosition($scrollPosition, anchor: .bottom)
-    .navigationTitle(conversationTitle)
-    .navigationBarTitleDisplayMode(.inline)
-    .toolbar {
-      ToolbarItem(placement: .topBarTrailing) {
-        Menu {
-          Button {
-            isInputFocused = false
-            activeDetailSheet = .search
-          } label: {
-            Label("Search Messages", systemImage: "magnifyingglass")
-          }
-
-          Button {
-            isInputFocused = false
-            activeDetailSheet = .media
-          } label: {
-            Label("Media, Files & Links", systemImage: "photo.on.rectangle")
-          }
-
-          Button {
-            isInputFocused = false
-            activeDetailSheet = .info
-          } label: {
-            Label("Conversation Info", systemImage: "info.circle")
-          }
-        } label: {
-          Image(systemName: "ellipsis.circle")
-        }
-        .disabled(conversation.remoteConversationID == nil)
-      }
-
+    .safeAreaInset(edge: .bottom, spacing: 0) {
       ConversationDetailInputView(
         newMessage: $newMessage,
         isGenerating: $isGenerating,
@@ -171,6 +159,13 @@ struct ConversationDetailView: View {
             isPhotoPickerPresented = true
           }
         },
+        onCamera: {
+          isAttachmentOptionsPresented = false
+          Task { @MainActor in
+            try? await Task.sleep(for: .milliseconds(220))
+            isCameraPresented = true
+          }
+        },
         onFiles: {
           isAttachmentOptionsPresented = false
           Task { @MainActor in
@@ -182,8 +177,13 @@ struct ConversationDetailView: View {
           isAttachmentOptionsPresented = false
         }
       )
-      .presentationDetents([.fraction(0.5), .large])
-      .presentationDragIndicator(.visible)
+      .presentationDetents([.height(214)])
+      .presentationDragIndicator(.hidden)
+      .presentationBackground(.clear)
+    }
+    .sheet(isPresented: $isCameraPresented) {
+      ChatCameraPicker(image: $capturedCameraImage)
+        .ignoresSafeArea()
     }
     .photosPicker(
       isPresented: $isPhotoPickerPresented,
@@ -197,6 +197,12 @@ struct ConversationDetailView: View {
         await handleSelectedMedia(newValue)
       }
     }
+    .onChange(of: capturedCameraImage) { _, newValue in
+      guard let newValue else { return }
+      Task {
+        await handleCapturedCameraImage(newValue)
+      }
+    }
     .fileImporter(
       isPresented: $isFileImporterPresented,
       allowedContentTypes: [.item],
@@ -206,7 +212,94 @@ struct ConversationDetailView: View {
         await handleImportedFile(result)
       }
     }
+    .toolbar(.hidden, for: .navigationBar)
     .toolbar(.hidden, for: .tabBar)
+  }
+
+  private var conversationHeader: some View {
+    HStack(spacing: 12) {
+      Button {
+        dismiss()
+      } label: {
+        Image(systemName: "chevron.left")
+          .font(.system(size: 16, weight: .semibold))
+          .foregroundStyle(Color(red: 0.43, green: 0.52, blue: 0.89))
+          .frame(width: 32, height: 32)
+          .background(Color.white.opacity(0.8), in: Circle())
+      }
+      .buttonStyle(.plain)
+
+      Circle()
+        .fill(
+          LinearGradient(
+            colors: [
+              Color(red: 0.92, green: 0.80, blue: 0.71),
+              Color(red: 0.70, green: 0.48, blue: 0.28)
+            ],
+            startPoint: .topLeading,
+            endPoint: .bottomTrailing
+          )
+        )
+        .frame(width: 32, height: 32)
+        .overlay(
+          Text(String(conversationTitle.prefix(1)).uppercased())
+            .font(.system(size: 14, weight: .semibold))
+            .foregroundStyle(Color.black.opacity(0.8))
+        )
+
+      VStack(spacing: 1) {
+        Text(conversationTitle)
+          .font(.system(size: 18, weight: .semibold))
+          .foregroundStyle(Color.black.opacity(0.9))
+          .lineLimit(1)
+
+        Text(conversationSubtitle)
+          .font(.system(size: 12, weight: .regular))
+          .foregroundStyle(Color.black.opacity(0.35))
+          .lineLimit(1)
+      }
+      .frame(maxWidth: .infinity)
+
+      Menu {
+        Button {
+          isInputFocused = false
+          activeDetailSheet = .search
+        } label: {
+          Label("Search Messages", systemImage: "magnifyingglass")
+        }
+
+        Button {
+          isInputFocused = false
+          activeDetailSheet = .media
+        } label: {
+          Label("Media, Files & Links", systemImage: "photo.on.rectangle")
+        }
+
+        Button {
+          isInputFocused = false
+          activeDetailSheet = .info
+        } label: {
+          Label("Conversation Info", systemImage: "info.circle")
+        }
+      } label: {
+        Image(systemName: "magnifyingglass")
+          .font(.system(size: 16, weight: .medium))
+          .foregroundStyle(Color(red: 0.43, green: 0.52, blue: 0.89))
+          .frame(width: 32, height: 32)
+          .background(Color.white.opacity(0.8), in: Circle())
+      }
+      .buttonStyle(.plain)
+      .disabled(conversation.remoteConversationID == nil)
+    }
+    .padding(.horizontal, 14)
+    .padding(.top, 10)
+    .padding(.bottom, 12)
+    .background(Color.white.opacity(0.9))
+    .overlay(alignment: .bottom) {
+      Rectangle()
+        .fill(Color.black.opacity(0.06))
+        .frame(height: 1)
+    }
   }
 
   @ViewBuilder
@@ -264,47 +357,60 @@ private struct MessageTimestampDivider: View {
 
   var body: some View {
     Text(Self.formatter.string(from: date))
-      .font(.subheadline)
-      .foregroundStyle(.secondary)
+      .font(.system(size: 12, weight: .medium))
+      .foregroundStyle(Color.black.opacity(0.6))
+      .padding(.horizontal, 14)
+      .padding(.vertical, 5)
+      .background(Color.white.opacity(0.9), in: RoundedRectangle(cornerRadius: 9, style: .continuous))
+      .overlay(
+        RoundedRectangle(cornerRadius: 9, style: .continuous)
+          .stroke(Color.black.opacity(0.04), lineWidth: 1)
+      )
       .frame(maxWidth: .infinity)
   }
 }
 
 private struct AttachmentOptionsSheet: View {
   let onPhotos: () -> Void
+  let onCamera: () -> Void
   let onFiles: () -> Void
   let onDismiss: () -> Void
 
   var body: some View {
-    NavigationStack {
-      List {
-        Button(action: onPhotos) {
-          AttachmentOptionRow(
-            icon: "photo.on.rectangle.angled",
-            tint: .blue,
-            title: "Photos"
-          )
-        }
-        .buttonStyle(.plain)
+    VStack(alignment: .leading, spacing: 0) {
+      Button(action: onFiles) {
+        AttachmentOptionRow(
+          icon: "doc",
+          tint: Color(red: 0.04, green: 0.42, blue: 1.0),
+          title: "Attach a file"
+        )
+      }
+      .buttonStyle(.plain)
 
-        Button(action: onFiles) {
+      Button(action: onPhotos) {
           AttachmentOptionRow(
-            icon: "doc",
-            tint: .orange,
-            title: "Files"
+            icon: "photo",
+            tint: Color(red: 0.67, green: 0.23, blue: 1.0),
+            title: "Photos or videos"
           )
-        }
-        .buttonStyle(.plain)
       }
-      .listStyle(.insetGrouped)
-      .navigationTitle("Attachments")
-      .navigationBarTitleDisplayMode(.inline)
-      .toolbar {
-        ToolbarItem(placement: .topBarTrailing) {
-          Button("Done", action: onDismiss)
-        }
+      .buttonStyle(.plain)
+
+      Button(action: onCamera) {
+        AttachmentOptionRow(
+          icon: "camera",
+          tint: Color(red: 0.0, green: 0.72, blue: 0.47),
+          title: "Camera"
+        )
       }
+      .buttonStyle(.plain)
     }
+    .padding(.vertical, 12)
+    .frame(maxWidth: .infinity, alignment: .leading)
+    .background(Color.white, in: RoundedRectangle(cornerRadius: 28, style: .continuous))
+    .shadow(color: .black.opacity(0.24), radius: 24, y: 8)
+    .padding(.horizontal, 24)
+    .padding(.bottom, 16)
   }
 }
 
@@ -316,22 +422,49 @@ private struct AttachmentOptionRow: View {
   var body: some View {
     HStack(spacing: 12) {
       Image(systemName: icon)
-        .font(.title3)
-        .foregroundStyle(.white)
-        .frame(width: 34, height: 34)
-        .background(tint, in: Circle())
+        .font(.system(size: 25, weight: .regular))
+        .foregroundStyle(tint)
+        .frame(width: 42, height: 42)
 
       Text(title)
-        .font(.title3)
-        .foregroundStyle(.primary)
+        .font(.system(size: 24, weight: .regular))
+        .foregroundStyle(Color.black.opacity(0.92))
 
       Spacer()
     }
-    .padding(.vertical, 4)
+    .padding(.horizontal, 28)
+    .frame(height: 72)
   }
 }
 
 extension ConversationDetailView {
+  @MainActor
+  private func handleCapturedCameraImage(_ image: UIImage) async {
+    defer { capturedCameraImage = nil }
+
+    guard let jpegData = image.jpegData(compressionQuality: 0.9) else {
+      conversation.messages.append(
+        Message(
+          content: "Failed to process captured photo.",
+          role: .system,
+          timestamp: Date()
+        )
+      )
+      try? modelContext.save()
+      return
+    }
+
+    let fileName = "Camera-\(Int(Date().timeIntervalSince1970)).jpg"
+    await sendAttachment(
+      data: jpegData,
+      fileName: fileName,
+      mimeType: "image/jpeg",
+      attachmentType: "image",
+      attachmentTitle: nil,
+      attachmentDescription: nil
+    )
+  }
+
   @MainActor
   private func handleSelectedMedia(_ item: PhotosPickerItem) async {
     do {
@@ -463,6 +596,7 @@ extension ConversationDetailView {
         attachmentStorageId: storageId,
         attachmentFileName: fileName,
         attachmentMimeType: mimeType,
+        attachmentFileSize: data.count,
         attachmentTitle: attachmentTitle,
         attachmentDescription: attachmentDescription
       )
@@ -611,6 +745,7 @@ extension ConversationDetailView {
         )
         sync(savedMessage: savedMessage, into: localUserMessage)
       } catch {
+        conversation.messages.removeAll(where: { $0 === localUserMessage })
         conversation.messages.append(
           Message(
             content: "Failed to send message: \(error.localizedDescription)",
@@ -672,7 +807,9 @@ extension ConversationDetailView {
       }
     }
 
-    let unsyncedMessages = conversation.messages.filter { $0.remoteMessageID == nil }
+    let unsyncedMessages = conversation.messages.filter {
+      $0.remoteMessageID == nil && $0.role == .user
+    }
     conversation.messages = ordered + unsyncedMessages
   }
 
@@ -721,6 +858,118 @@ extension ConversationDetailView {
         // Keep UI responsive; next subscription update will retry.
       }
     }
+  }
+}
+
+private struct ChatCameraPicker: UIViewControllerRepresentable {
+  @Binding var image: UIImage?
+  @Environment(\.dismiss) private var dismiss
+
+  func makeCoordinator() -> Coordinator {
+    Coordinator(self)
+  }
+
+  func makeUIViewController(context: Context) -> UIImagePickerController {
+    let picker = UIImagePickerController()
+    picker.delegate = context.coordinator
+    picker.allowsEditing = false
+    picker.sourceType = UIImagePickerController.isSourceTypeAvailable(.camera) ? .camera : .photoLibrary
+    picker.cameraCaptureMode = .photo
+    return picker
+  }
+
+  func updateUIViewController(_ uiViewController: UIImagePickerController, context: Context) {}
+
+  final class Coordinator: NSObject, UINavigationControllerDelegate, UIImagePickerControllerDelegate {
+    private let parent: ChatCameraPicker
+
+    init(_ parent: ChatCameraPicker) {
+      self.parent = parent
+    }
+
+    func imagePickerController(_ picker: UIImagePickerController, didFinishPickingMediaWithInfo info: [UIImagePickerController.InfoKey : Any]) {
+      if let selectedImage = info[.originalImage] as? UIImage {
+        parent.image = selectedImage
+      }
+      parent.dismiss()
+    }
+
+    func imagePickerControllerDidCancel(_ picker: UIImagePickerController) {
+      parent.dismiss()
+    }
+  }
+}
+
+private struct ChatWallpaper: View {
+  private let symbolColor = Color(red: 0.73, green: 0.70, blue: 0.69).opacity(0.22)
+
+  var body: some View {
+    ZStack {
+      LinearGradient(
+        colors: [
+          Color(red: 0.97, green: 0.97, blue: 0.99),
+          Color(red: 0.93, green: 0.94, blue: 1.0)
+        ],
+        startPoint: .top,
+        endPoint: .bottom
+      )
+
+      GeometryReader { proxy in
+        let columns = stride(from: 24.0, through: proxy.size.width, by: 86.0).map { $0 }
+        let rows = stride(from: 12.0, through: proxy.size.height, by: 92.0).map { $0 }
+
+        ForEach(Array(rows.enumerated()), id: \.offset) { rowIndex, y in
+          ForEach(Array(columns.enumerated()), id: \.offset) { columnIndex, x in
+            WallpaperSymbol(
+              name: wallpaperSymbol(for: rowIndex + columnIndex),
+              size: symbolSize(row: rowIndex, column: columnIndex),
+              angle: symbolAngle(row: rowIndex, column: columnIndex),
+              color: symbolColor,
+              x: x,
+              y: y
+            )
+          }
+        }
+      }
+    }
+  }
+
+  private func wallpaperSymbol(for index: Int) -> String {
+    let symbols = [
+      "house",
+      "key",
+      "building.2",
+      "doc",
+      "message",
+      "cloud",
+      "mappin.and.ellipse"
+    ]
+    return symbols[index % symbols.count]
+  }
+
+  private func symbolSize(row: Int, column: Int) -> CGFloat {
+    CGFloat(18 + ((row + column) % 3) * 6)
+  }
+
+  private func symbolAngle(row: Int, column: Int) -> Double {
+    Double((row * 17 + column * 11) % 24) - 12
+  }
+}
+
+private struct WallpaperSymbol: View {
+  let name: String
+  let size: CGFloat
+  let angle: Double
+  let color: Color
+  let x: Double
+  let y: Double
+
+  var body: some View {
+    Image(systemName: name)
+      .font(.system(size: size, weight: .regular))
+      .foregroundStyle(color)
+      .rotationEffect(.degrees(angle))
+      .position(x: x, y: y)
   }
 }
 

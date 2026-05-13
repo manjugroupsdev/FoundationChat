@@ -37,6 +37,32 @@ struct MessageReactionInfo: Decodable, Identifiable, Equatable, Sendable {
     let hasReacted: Bool
 
     var id: String { emoji }
+
+    private enum CodingKeys: String, CodingKey {
+        case emoji
+        case count
+        case users
+        case hasReacted
+        case staffIds
+        case mine
+    }
+
+    init(from decoder: Decoder) throws {
+        let container = try decoder.container(keyedBy: CodingKeys.self)
+        emoji = try container.decode(String.self, forKey: .emoji)
+        count = try container.decodeIfPresent(Int.self, forKey: .count) ?? 0
+        users = try container.decodeIfPresent([ReactionUser].self, forKey: .users) ?? []
+        hasReacted = try container.decodeIfPresent(Bool.self, forKey: .hasReacted)
+            ?? container.decodeIfPresent(Bool.self, forKey: .mine)
+            ?? false
+    }
+
+    init(emoji: String, count: Int, users: [ReactionUser] = [], hasReacted: Bool = false) {
+        self.emoji = emoji
+        self.count = count
+        self.users = users
+        self.hasReacted = hasReacted
+    }
 }
 
 struct MessageReactionResult: Decodable, Sendable {

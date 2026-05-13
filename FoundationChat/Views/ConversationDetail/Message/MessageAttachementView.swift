@@ -18,7 +18,8 @@ struct MessageAttachementView: View {
   }
 
   private var mediaURL: URL? {
-    guard let raw = message.attachementThumbnail else { return nil }
+    let raw = message.attachementThumbnail ?? message.attachementURL
+    guard let raw else { return nil }
     return URL(string: raw)
   }
 
@@ -43,16 +44,18 @@ struct MessageAttachementView: View {
         if let image = state.image {
           image
             .resizable()
-            .scaledToFit()
-            .frame(maxWidth: 260, maxHeight: 360)
+            .scaledToFill()
+            .frame(maxWidth: 242, maxHeight: 320)
+            .clipped()
         } else {
           ProgressView()
-            .frame(width: 260, height: 180)
+            .frame(width: 242, height: 180)
         }
       }
+      .clipShape(RoundedRectangle(cornerRadius: 10, style: .continuous))
       .overlay(
-        RoundedRectangle(cornerRadius: 2, style: .continuous)
-          .stroke(Color.primary.opacity(0.2), lineWidth: 1)
+        RoundedRectangle(cornerRadius: 10, style: .continuous)
+          .stroke(Color.primary.opacity(0.12), lineWidth: 1)
       )
       .contentShape(Rectangle())
       .onTapGesture {
@@ -83,7 +86,7 @@ struct MessageAttachementView: View {
       }
       .padding(.horizontal, 10)
       .padding(.vertical, 8)
-      .background(isOutgoing ? .white.opacity(0.2) : .white.opacity(0.75))
+      .background(isOutgoing ? .white.opacity(0.18) : Color.black.opacity(0.04))
       .clipShape(.rect(cornerRadius: 12))
       .onTapGesture {
         if let attachmentURL {

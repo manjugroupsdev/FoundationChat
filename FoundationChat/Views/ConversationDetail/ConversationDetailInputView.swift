@@ -1,6 +1,6 @@
 import SwiftUI
 
-struct ConversationDetailInputView: ToolbarContent {
+struct ConversationDetailInputView: View {
   @Binding var newMessage: String
   @Binding var isGenerating: Bool
   var isInputFocused: FocusState<Bool>.Binding
@@ -8,51 +8,86 @@ struct ConversationDetailInputView: ToolbarContent {
   var onAddAttachment: () -> Void
   var onSend: () async throws -> Void
 
-  var body: some ToolbarContent {
-    let canSend = !isGenerating && !newMessage.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
+  private var canSend: Bool {
+    !isGenerating && !newMessage.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
+  }
 
-    ToolbarItemGroup(placement: .bottomBar) {
+  var body: some View {
+    HStack(spacing: 8) {
       Button(action: onAddAttachment) {
         Image(systemName: "plus")
+          .font(.system(size: 19, weight: .medium))
+          .foregroundStyle(Color.black.opacity(0.8))
+          .frame(width: 32, height: 32)
+          .background(Color(red: 0.89, green: 0.90, blue: 0.92), in: Circle())
       }
+      .buttonStyle(.plain)
 
-      TextField("iMessage", text: $newMessage, axis: .vertical)
-        .textFieldStyle(.plain)
-        .lineLimit(1...4)
-        .focused(isInputFocused)
+      HStack(spacing: 10) {
+        TextField("Message ...", text: $newMessage, axis: .vertical)
+          .font(.system(size: 16, weight: .regular))
+          .foregroundStyle(Color.black.opacity(0.85))
+          .lineLimit(1...4)
+          .focused(isInputFocused)
 
-      if canSend {
-        Button {
-          Task {
-            try? await onSend()
+        Image(systemName: "face.smiling")
+          .font(.system(size: 18, weight: .regular))
+          .foregroundStyle(Color.black.opacity(0.45))
+      }
+      .padding(.leading, 14)
+      .padding(.trailing, 10)
+      .frame(minHeight: 40)
+      .background(Color.white, in: Capsule())
+      .overlay(
+        Capsule()
+          .stroke(Color.black.opacity(0.08), lineWidth: 1)
+      )
+      .shadow(color: .black.opacity(0.05), radius: 10, y: 4)
+
+      Button {
+        guard canSend else { return }
+        Task { try? await onSend() }
+      } label: {
+        Group {
+          if isGenerating {
+            ProgressView()
+              .tint(.white)
+          } else {
+            Image(systemName: canSend ? "paperplane.fill" : "mic.fill")
+              .font(.system(size: 16, weight: .semibold))
           }
-        } label: {
-          Image(systemName: "arrow.up.circle.fill")
-            .foregroundStyle(.blue)
         }
-      } else if isGenerating {
-        ProgressView()
-      } else {
-        Image(systemName: "mic.fill")
-          .foregroundStyle(.secondary)
+        .foregroundStyle(.white)
+        .frame(width: 36, height: 36)
+        .background(Color(red: 0.05, green: 0.38, blue: 0.79), in: Circle())
       }
+      .buttonStyle(.plain)
+      .disabled(isGenerating)
+    }
+    .padding(.horizontal, 16)
+    .padding(.top, 10)
+    .padding(.bottom, 10)
+    .background(Color.white)
+    .overlay(alignment: .top) {
+      Rectangle()
+        .fill(Color.black.opacity(0.06))
+        .frame(height: 1)
     }
   }
 }
 
 #Preview {
+  @Previewable @State var text = ""
   @FocusState var isInputFocused: Bool
-  
-  NavigationStack {
-    List {
-      Text("Hello")
-    }
-    .toolbar {
-      ConversationDetailInputView(newMessage: .constant(""),
-                                  isGenerating: .constant(false),
-                                  isInputFocused: $isInputFocused,
-                                  onAddAttachment: {},
-                                  onSend: { })
-    }
+
+  VStack {
+    Spacer()
+    ConversationDetailInputView(
+      newMessage: $text,
+      isGenerating: .constant(false),
+      isInputFocused: $isInputFocused,
+      onAddAttachment: {},
+      onSend: {}
+    )
   }
 }

@@ -19,8 +19,10 @@ struct ConversationsListView: View {
 
   enum ChatFilter: String, CaseIterable, Identifiable {
     case all
-    case direct
-    case channels
+    case unread
+    case groups
+    case favoriteChats
+    case directChats
 
     var id: String { rawValue }
 
@@ -28,10 +30,14 @@ struct ConversationsListView: View {
       switch self {
       case .all:
         return "All"
-      case .direct:
-        return "Direct"
-      case .channels:
-        return "Channels"
+      case .unread:
+        return "Unread Chats"
+      case .favoriteChats:
+        return "Favourite Chats"
+      case .groups:
+        return "Group Chats"
+      case .directChats:
+        return "DM"
       }
     }
   }
@@ -52,20 +58,32 @@ struct ConversationsListView: View {
   @State private var conversationsSubscription: AnyCancellable?
 
   private var filteredConversations: [Conversation] {
-    let sorted = conversations.sorted(by: { $0.lastMessageTimestamp > $1.lastMessageTimestamp })
+    let remoteBackedConversations = conversations.filter {
+      guard let remoteID = $0.remoteConversationID?.trimmingCharacters(in: .whitespacesAndNewlines) else {
+        return false
+      }
+      return !remoteID.isEmpty
+    }
+    let sorted = remoteBackedConversations.sorted(by: { $0.lastMessageTimestamp > $1.lastMessageTimestamp })
     let trimmedSearch = searchText.trimmingCharacters(in: .whitespacesAndNewlines).lowercased()
 
     return sorted.filter { conversation in
+      let filterMatch: Bool
       switch selectedFilter {
-      case .all, .direct:
-        break
-      case .channels:
-        return false
+      case .all, .directChats:
+        filterMatch = true
+      case .unread:
+        filterMatch = conversation.unreadCountValue > 0
+      case .favoriteChats:
+        filterMatch = conversation.isFavorite
+      case .groups:
+        filterMatch = false
       }
 
+      guard filterMatch else { return false }
       guard !trimmedSearch.isEmpty else { return true }
 
-      let lastMessage = conversation.messages.last
+      let lastMessage = conversation.sortedMessages.last
       let haystack = [
         conversation.participantDisplayName,
         conversation.summary,
@@ -83,9 +101,21 @@ struct ConversationsListView: View {
   private var filteredChannels: [ChannelSummary] {
     let sorted = channels.sorted(by: { $0.lastMessageAt > $1.lastMessageAt })
     let trimmedSearch = searchText.trimmingCharacters(in: .whitespacesAndNewlines).lowercased()
-    guard !trimmedSearch.isEmpty else { return sorted }
 
     return sorted.filter { channel in
+      let filterMatch: Bool
+      switch selectedFilter {
+      case .all, .groups:
+        filterMatch = true
+      case .unread:
+        filterMatch = channel.unreadCountValue > 0
+      case .favoriteChats, .directChats:
+        filterMatch = false
+      }
+
+      guard filterMatch else { return false }
+      guard !trimmedSearch.isEmpty else { return true }
+
       let haystack = [
         channel.name.lowercased(),
         channel.description?.lowercased(),
@@ -105,46 +135,78 @@ struct ConversationsListView: View {
     }
   }
 
+  private var currentItems: [HomeItem] {
+    switch selectedFilter {
+    case .all, .unread:
+      return allHomeItems.filter { item in
+        switch item {
+        case .conversation(let conversation):
+          return selectedFilter != .unread || conversation.unreadCountValue > 0
+        case .channel(let channel):
+          return selectedFilter != .unread || channel.unreadCountValue > 0
+        }
+      }
+    case .favoriteChats:
+      return filteredConversations.map(HomeItem.conversation)
+    case .groups:
+      return filteredChannels.map(HomeItem.channel)
+    case .directChats:
+      return filteredConversations.map(HomeItem.conversation)
+    }
+  }
+
+  private var unreadBadgeCount: Int {
+    filteredConversations.reduce(0) { $0 + $1.unreadCountValue } + filteredChannels.reduce(0) { $0 + $1.unreadCountValue }
+  }
+
   var body: some View {
     NavigationStack(path: $path) {
-      VStack(spacing: 10) {
-        chatFiltersBar
-          .padding(.horizontal, 16)
-          .padding(.top, 8)
+      VStack(spacing: 0) {
+        chatListHeader
 
-        List {
-          if selectedFilter == .channels {
-            ForEach(filteredChannels) { channel in
-              NavigationLink {
-                ChannelChatView(channel: channel)
-              } label: {
-                ChannelSummaryRow(channel: channel)
+        ChatListSearchField(text: $searchText)
+          .padding(.horizontal, 8)
+          .padding(.top, 10)
+
+        chatFiltersBar
+          .padding(.top, 29)
+
+        ScrollView {
+          LazyVStack(spacing: 0) {
+            if currentItems.isEmpty {
+              EmptyChatState(filter: selectedFilter) {
+                switch selectedFilter {
+                case .groups:
+                  isCreateChannelSheetPresented = true
+                case .directChats:
+                  isNewConversationSheetPresented = true
+                case .favoriteChats:
+                  selectedFilter = .all
+                case .all, .unread:
+                  break
+                }
               }
-            }
-            .listSectionSeparator(.hidden, edges: .top)
-          } else if selectedFilter == .all {
-            ForEach(allHomeItems) { item in
-              switch item {
-              case .conversation(let conversation):
-                conversationNavigationRow(for: conversation)
-              case .channel(let channel):
-                NavigationLink {
-                  ChannelChatView(channel: channel)
-                } label: {
-                  ChannelSummaryRow(channel: channel)
+              .padding(.top, 74)
+            } else {
+              ForEach(currentItems) { item in
+                switch item {
+                case .conversation(let conversation):
+                  conversationNavigationRow(for: conversation)
+                case .channel(let channel):
+                  NavigationLink {
+                    ChannelChatView(channel: channel)
+                  } label: {
+                    ChannelSummaryRow(channel: channel)
+                  }
+                  .buttonStyle(.plain)
                 }
               }
             }
-            .listSectionSeparator(.hidden, edges: .top)
-          } else {
-            ForEach(filteredConversations) { conversation in
-              conversationNavigationRow(for: conversation)
-            }
-            .listSectionSeparator(.hidden, edges: .top)
           }
+          .padding(.top, 18)
         }
-        .listStyle(.plain)
       }
+      .background(Color.white.ignoresSafeArea())
       .navigationDestination(for: Conversation.self) { conversation in
         ConversationDetailView(conversation: conversation)
       }
@@ -158,43 +220,7 @@ struct ConversationsListView: View {
         conversationsSubscription?.cancel()
         conversationsSubscription = nil
       }
-      .navigationTitle("Chat")
-      .navigationBarTitleDisplayMode(.inline)
-      .toolbar {
-        ToolbarItem(placement: .navigationBarTrailing) {
-          HStack(spacing: 12) {
-            Menu {
-              Button {
-                isNewConversationSheetPresented = true
-              } label: {
-                Label("New Conversation", systemImage: "message.fill")
-              }
-
-              Button {
-                selectedFilter = .channels
-              } label: {
-                Label("Open Channels", systemImage: "person.3.fill")
-              }
-
-              if authStore.isAdmin {
-                Button {
-                  isCreateChannelSheetPresented = true
-                } label: {
-                  Label("Create Channel", systemImage: "plus.bubble.fill")
-                }
-              }
-            } label: {
-              Image(systemName: "plus")
-            }
-
-            NavigationLink {
-              ProfileView()
-            } label: {
-              ProfileAvatarView(label: authStore.currentUserLabel)
-            }
-          }
-        }
-      }
+      .toolbar(.hidden, for: .navigationBar)
       .sheet(isPresented: $isNewConversationSheetPresented) {
         NewConversationSheet { selectedUser in
           try await startConversation(with: selectedUser)
@@ -203,7 +229,7 @@ struct ConversationsListView: View {
       .sheet(isPresented: $isCreateChannelSheetPresented) {
         CreateChannelSheet {
           await loadChannels(search: searchText)
-          selectedFilter = .channels
+          selectedFilter = .groups
         }
       }
       .task(id: searchText) {
@@ -218,32 +244,94 @@ struct ConversationsListView: View {
   }
 
   private var chatFiltersBar: some View {
-    VStack(spacing: 10) {
-      GlassSearchField(placeholder: "Search chats", text: $searchText)
-
-      ScrollView(.horizontal, showsIndicators: false) {
-        HStack(spacing: 8) {
-          ForEach(ChatFilter.allCases) { filter in
-            Button {
-              selectedFilter = filter
-            } label: {
+    ScrollView(.horizontal, showsIndicators: false) {
+      HStack(spacing: 8) {
+        ForEach(ChatFilter.allCases) { filter in
+          Button {
+            selectedFilter = filter
+          } label: {
+            HStack(spacing: 8) {
               Text(filter.title)
-                .font(.subheadline.weight(.semibold))
-                .foregroundStyle(selectedFilter == filter ? .white : .primary)
-                .padding(.horizontal, 12)
-                .padding(.vertical, 8)
-                .background(
-                  selectedFilter == filter
-                    ? Color.blue
-                    : Color(.systemGray5),
-                  in: Capsule()
-                )
+                .font(.system(size: 12, weight: .regular))
+                .foregroundStyle(selectedFilter == filter ? .white : FoundationChatTheme.ink)
+
+              if badgeCount(for: filter) > 0 {
+                Text(badgeLabel(for: filter))
+                  .font(.system(size: 9, weight: .semibold))
+                  .foregroundStyle(selectedFilter == filter ? FoundationChatTheme.outgoingBubble : .white)
+                  .padding(.horizontal, 6)
+                  .frame(height: 18)
+                  .background(selectedFilter == filter ? .white : FoundationChatTheme.outgoingBubble, in: Capsule())
+              }
             }
-            .buttonStyle(.plain)
+            .padding(.horizontal, 14)
+            .frame(height: 34)
+            .background(
+              selectedFilter == filter
+                ? FoundationChatTheme.outgoingBubble
+                : Color(red: 0.94, green: 0.96, blue: 0.98),
+              in: RoundedRectangle(cornerRadius: 10, style: .continuous)
+            )
           }
+          .buttonStyle(.plain)
         }
       }
+      .padding(.horizontal, 8)
     }
+  }
+
+  private var chatListHeader: some View {
+    HStack(spacing: 12) {
+      Button {
+        selectedTab = .home
+      } label: {
+        Image(systemName: "chevron.left")
+          .font(.system(size: 23, weight: .regular))
+          .foregroundStyle(FoundationChatTheme.headerAccent)
+          .frame(width: 63, height: 63)
+          .background(Color(red: 0.96, green: 0.97, blue: 1.0), in: Circle())
+      }
+      .buttonStyle(.plain)
+
+      Spacer()
+
+      Text("Chats")
+        .font(.system(size: 18, weight: .semibold))
+        .foregroundStyle(FoundationChatTheme.ink)
+
+      Spacer()
+
+      Menu {
+        Button {
+          isNewConversationSheetPresented = true
+        } label: {
+          Label("Direct Messages", systemImage: "message.fill")
+        }
+
+        Button {
+          selectedFilter = .groups
+        } label: {
+          Label("Group Chats", systemImage: "person.3.fill")
+        }
+
+        if authStore.isAdmin {
+          Button {
+            isCreateChannelSheetPresented = true
+          } label: {
+            Label("Create Group", systemImage: "plus.bubble.fill")
+          }
+        }
+      } label: {
+        Image(systemName: "plus")
+          .font(.system(size: 23, weight: .regular))
+          .foregroundStyle(FoundationChatTheme.headerAccent)
+          .frame(width: 63, height: 63)
+          .background(Color(red: 0.96, green: 0.97, blue: 1.0), in: Circle())
+      }
+    }
+    .frame(height: 100)
+    .padding(.horizontal, 23.5)
+    .background(Color.white)
   }
 
   @MainActor
@@ -276,9 +364,29 @@ struct ConversationsListView: View {
 
   @MainActor
   private func applyRemoteConversations(_ remoteConversations: [ConvexConversationSummary]) {
+    let remoteIDs = Set(remoteConversations.map(\.id))
+
+    // Keep the local SwiftData cache aligned with the latest Convex response.
+    // This prevents stale/hardcoded-looking rows from surviving across runs.
+    for conversation in conversations {
+      guard let remoteID = conversation.remoteConversationID?.trimmingCharacters(in: .whitespacesAndNewlines),
+        !remoteID.isEmpty
+      else {
+        modelContext.delete(conversation)
+        continue
+      }
+
+      if !remoteIDs.contains(remoteID) {
+        modelContext.delete(conversation)
+      }
+    }
+
     var localByRemoteID: [String: Conversation] = [:]
     for conversation in conversations {
-      if let remoteID = conversation.remoteConversationID {
+      if let remoteID = conversation.remoteConversationID?.trimmingCharacters(in: .whitespacesAndNewlines),
+        !remoteID.isEmpty,
+        remoteIDs.contains(remoteID)
+      {
         localByRemoteID[remoteID] = conversation
       }
     }
@@ -438,6 +546,29 @@ struct ConversationsListView: View {
           .tint(.yellow)
         }
     }
+    .buttonStyle(.plain)
+  }
+
+  private func badgeCount(for filter: ChatFilter) -> Int {
+    switch filter {
+    case .all:
+      return filteredConversations.count + filteredChannels.count
+    case .unread:
+      return unreadBadgeCount
+    case .favoriteChats:
+      return conversations.filter(\.isFavorite).count
+    case .groups:
+      return channels.count
+    case .directChats:
+      return filteredConversations.count
+    }
+  }
+
+  private func badgeLabel(for filter: ChatFilter) -> String {
+    let count = badgeCount(for: filter)
+    if count > 99 { return "99+" }
+    if filter == .groups && count < 10 { return "0\(count)" }
+    return "\(count)"
   }
 
   @MainActor
@@ -462,29 +593,187 @@ private struct ChannelSummaryRow: View {
   let channel: ChannelSummary
 
   var body: some View {
-    VStack(alignment: .leading, spacing: 4) {
-      Text("#\(channel.name)")
-        .font(.body.weight(.semibold))
+    HStack(spacing: 12) {
+      AvatarPlaceholder(initials: "#")
 
-      if let lastMessage = channel.lastMessageContent,
-        !lastMessage.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
-      {
-        Text(lastMessage)
-          .font(.subheadline)
-          .foregroundStyle(.secondary)
+      VStack(alignment: .leading, spacing: 5) {
+        HStack {
+          Text(channel.name)
+            .font(.system(size: 15, weight: .semibold))
+            .foregroundStyle(FoundationChatTheme.ink)
+            .lineLimit(1)
+          Spacer()
+          Text(channel.lastMessageDate.formatted(date: .omitted, time: .shortened))
+            .font(.system(size: 14, weight: .regular))
+            .foregroundStyle(FoundationChatTheme.ink)
+        }
+
+        Text(channel.lastMessageContent ?? channel.description ?? "No messages yet")
+          .font(.system(size: 15, weight: .regular))
+          .foregroundStyle(Color(red: 0.45, green: 0.46, blue: 0.48))
           .lineLimit(1)
-      } else if let description = channel.description, !description.isEmpty {
-        Text(description)
-          .font(.subheadline)
-          .foregroundStyle(.secondary)
-          .lineLimit(1)
-      } else {
-        Text("No messages yet")
-          .font(.caption)
-          .foregroundStyle(.secondary)
       }
     }
-    .padding(.vertical, 4)
+    .frame(height: 80)
+    .padding(.horizontal, 12)
+    .background(Color.white)
+    .overlay(alignment: .bottom) {
+      Rectangle()
+        .fill(Color.black.opacity(0.06))
+        .frame(height: 1)
+        .padding(.leading, 76)
+    }
+  }
+}
+
+private struct ChatListSearchField: View {
+  @Binding var text: String
+
+  var body: some View {
+    HStack(spacing: 12) {
+      TextField("Search Chats", text: $text)
+        .font(.system(size: 15, weight: .regular))
+        .foregroundStyle(FoundationChatTheme.ink)
+        .tint(FoundationChatTheme.outgoingBubble)
+        .textInputAutocapitalization(.never)
+        .autocorrectionDisabled()
+
+      Spacer(minLength: 0)
+
+      Button {
+        if text.isEmpty {
+          return
+        }
+        text = ""
+      } label: {
+        Image(systemName: text.isEmpty ? "magnifyingglass" : "xmark.circle.fill")
+          .font(.system(size: text.isEmpty ? 28 : 21, weight: .regular))
+          .foregroundStyle(text.isEmpty ? Color.black.opacity(0.88) : Color.black.opacity(0.28))
+          .frame(width: 36, height: 36)
+      }
+      .buttonStyle(.plain)
+    }
+    .padding(.leading, 20)
+    .padding(.trailing, 16)
+    .frame(height: 50)
+    .background(Color.white, in: RoundedRectangle(cornerRadius: 10, style: .continuous))
+    .overlay(
+      RoundedRectangle(cornerRadius: 10, style: .continuous)
+        .stroke(Color.black.opacity(0.12), lineWidth: 1)
+    )
+  }
+}
+
+private struct EmptyChatState: View {
+  let filter: ConversationsListView.ChatFilter
+  let action: () -> Void
+
+  private var title: String {
+    switch filter {
+    case .groups:
+      return "No Groups Yet"
+    case .directChats:
+      return "No Direct Message Yet"
+    case .unread:
+      return "No Unread Message Yet"
+    case .favoriteChats:
+      return "No Favourite Message Yet"
+    case .all:
+      return "No Message Yet"
+    }
+  }
+
+  private var buttonTitle: String? {
+    switch filter {
+    case .groups:
+      return "Create Group"
+    case .directChats:
+      return "Direct Messages"
+    case .favoriteChats:
+      return "Add Favorites"
+    case .all, .unread:
+      return nil
+    }
+  }
+
+  var body: some View {
+    VStack(spacing: 26) {
+      NativeGroupsIllustration()
+        .frame(width: 163, height: 159)
+
+      Text(title)
+        .font(.system(size: 20, weight: .regular))
+        .foregroundStyle(Color.black)
+
+      Text("Stay organized by creating or joining teams. Groups help you manage tasks, track progress, and collaborate with your team in one place.")
+        .font(.system(size: 16, weight: .regular))
+        .foregroundStyle(Color(red: 0.45, green: 0.46, blue: 0.48))
+        .multilineTextAlignment(.center)
+        .lineSpacing(4)
+        .padding(.horizontal, 28)
+
+      if let buttonTitle {
+        Button(action: action) {
+          HStack(spacing: 18) {
+            Image(systemName: "plus")
+              .font(.system(size: 28, weight: .regular))
+            Text(buttonTitle)
+              .font(.system(size: 16, weight: .semibold))
+          }
+          .foregroundStyle(.white)
+          .frame(maxWidth: .infinity)
+          .frame(height: 44)
+          .background(Color(red: 0.09, green: 0.76, blue: 0.02), in: RoundedRectangle(cornerRadius: 14, style: .continuous))
+        }
+        .buttonStyle(.plain)
+        .padding(.horizontal, 25)
+        .padding(.top, 32)
+      }
+    }
+    .frame(maxWidth: .infinity)
+  }
+}
+
+private struct NativeGroupsIllustration: View {
+  var body: some View {
+    ZStack {
+      Image(systemName: "person.3.fill")
+        .font(.system(size: 66, weight: .regular))
+        .foregroundStyle(Color(red: 0.38, green: 0.72, blue: 0.30))
+        .offset(y: 14)
+
+      Image(systemName: "checklist")
+        .font(.system(size: 47, weight: .regular))
+        .foregroundStyle(Color(red: 0.22, green: 0.25, blue: 0.22))
+        .offset(x: 48, y: -34)
+        .rotationEffect(.degrees(11))
+
+      Image(systemName: "text.bubble")
+        .font(.system(size: 38, weight: .regular))
+        .foregroundStyle(Color(red: 0.22, green: 0.25, blue: 0.22))
+        .offset(x: -52, y: -32)
+
+      Image(systemName: "folder")
+        .font(.system(size: 42, weight: .regular))
+        .foregroundStyle(Color(red: 0.22, green: 0.25, blue: 0.22))
+        .offset(x: -70, y: 48)
+
+      Image(systemName: "calendar")
+        .font(.system(size: 41, weight: .regular))
+        .foregroundStyle(Color(red: 0.22, green: 0.25, blue: 0.22))
+        .offset(x: 66, y: 50)
+
+      Circle()
+        .stroke(Color(red: 0.22, green: 0.25, blue: 0.22), lineWidth: 2)
+        .frame(width: 44, height: 44)
+        .overlay {
+          Image(systemName: "plus")
+            .font(.system(size: 24, weight: .regular))
+            .foregroundStyle(Color(red: 0.09, green: 0.76, blue: 0.02))
+        }
+        .background(Color.white, in: Circle())
+        .offset(y: 68)
+    }
   }
 }
 
@@ -504,19 +793,19 @@ struct ProfileAvatarView: View {
 
   var body: some View {
     Text(initials)
-      .font(.caption.weight(.bold))
+      .font(.system(size: 14, weight: .semibold))
       .foregroundStyle(.white)
-      .frame(width: 32, height: 32)
+      .frame(width: 44, height: 44)
       .background(
         LinearGradient(
           colors: [
-            Color(red: 0.25, green: 0.07, blue: 0.30),
-            Color(red: 0.48, green: 0.18, blue: 0.50)
+            Color(red: 0.77, green: 0.59, blue: 0.15),
+            Color(red: 0.67, green: 0.45, blue: 0.09)
           ],
           startPoint: .topLeading,
           endPoint: .bottomTrailing
         ),
-        in: Circle()
+        in: RoundedRectangle(cornerRadius: 18, style: .continuous)
       )
   }
 }

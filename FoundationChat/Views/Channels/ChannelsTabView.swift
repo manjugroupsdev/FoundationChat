@@ -264,7 +264,8 @@ struct ChannelChatView: View {
           }
         }
       }
-
+    }
+    .safeAreaInset(edge: .bottom, spacing: 0) {
       ConversationDetailInputView(
         newMessage: $newMessage,
         isGenerating: $isSendingMessage,
