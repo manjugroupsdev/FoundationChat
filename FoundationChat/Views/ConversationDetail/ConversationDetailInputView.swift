@@ -1,4 +1,5 @@
 import SwiftUI
+import UIKit
 
 struct ConversationDetailInputView: View {
   @Binding var newMessage: String
@@ -10,6 +11,7 @@ struct ConversationDetailInputView: View {
   var onVoiceTap: () -> Void
   var onCancelVoiceRecording: () -> Void
   var onSend: () async throws -> Void
+  @State private var isEmojiKeyboardActive = false
 
   private var canSend: Bool {
     !isGenerating && !newMessage.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
@@ -52,9 +54,15 @@ struct ConversationDetailInputView: View {
             .lineLimit(1...4)
             .focused(isInputFocused)
 
-          Image(systemName: "face.smiling")
-            .font(.system(size: 18, weight: .regular))
-            .foregroundStyle(Color.black.opacity(0.45))
+          Button {
+            isEmojiKeyboardActive = true
+          } label: {
+            Image(systemName: "face.smiling")
+              .font(.system(size: 18, weight: .regular))
+              .foregroundStyle(Color.black.opacity(0.45))
+              .frame(width: 24, height: 24)
+          }
+          .buttonStyle(.plain)
         }
       }
       .padding(.leading, 14)
@@ -99,6 +107,81 @@ struct ConversationDetailInputView: View {
         .fill(Color.black.opacity(0.06))
         .frame(height: 1)
     }
+    .background(
+      EmojiKeyboardHost(
+        isActive: $isEmojiKeyboardActive,
+        onInsert: { insertedText in
+          newMessage += insertedText
+        },
+        onDelete: {
+          guard !newMessage.isEmpty else { return }
+          newMessage.removeLast()
+        }
+      )
+      .frame(width: 0, height: 0)
+    )
+  }
+}
+
+private struct EmojiKeyboardHost: UIViewRepresentable {
+  @Binding var isActive: Bool
+  let onInsert: (String) -> Void
+  let onDelete: () -> Void
+
+  func makeUIView(context: Context) -> EmojiTextField {
+    let textField = EmojiTextField()
+    textField.delegate = context.coordinator
+    textField.autocorrectionType = .no
+    textField.autocapitalizationType = .none
+    textField.tintColor = .clear
+    return textField
+  }
+
+  func updateUIView(_ textField: EmojiTextField, context: Context) {
+    context.coordinator.onInsert = onInsert
+    context.coordinator.onDelete = onDelete
+    if isActive, !textField.isFirstResponder {
+      DispatchQueue.main.async {
+        textField.becomeFirstResponder()
+      }
+    } else if !isActive, textField.isFirstResponder {
+      textField.resignFirstResponder()
+    }
+  }
+
+  func makeCoordinator() -> Coordinator {
+    Coordinator(onInsert: onInsert, onDelete: onDelete)
+  }
+
+  final class Coordinator: NSObject, UITextFieldDelegate {
+    var onInsert: (String) -> Void
+    var onDelete: () -> Void
+
+    init(onInsert: @escaping (String) -> Void, onDelete: @escaping () -> Void) {
+      self.onInsert = onInsert
+      self.onDelete = onDelete
+    }
+
+    func textField(
+      _ textField: UITextField,
+      shouldChangeCharactersIn range: NSRange,
+      replacementString string: String
+    ) -> Bool {
+      if string.isEmpty {
+        onDelete()
+      } else {
+        onInsert(string)
+      }
+      textField.text = ""
+      return false
+    }
+  }
+}
+
+private final class EmojiTextField: UITextField {
+  override var textInputMode: UITextInputMode? {
+    UITextInputMode.activeInputModes.first { $0.primaryLanguage == "emoji" }
+      ?? super.textInputMode
   }
 }
 

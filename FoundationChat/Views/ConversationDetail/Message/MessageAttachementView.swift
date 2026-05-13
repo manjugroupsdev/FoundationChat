@@ -17,6 +17,11 @@ struct MessageAttachementView: View {
       || message.attachementMimeType?.hasPrefix("video/") == true
   }
 
+  private var isAudioAttachment: Bool {
+    message.attachementType == "audio"
+      || message.attachementMimeType?.hasPrefix("audio/") == true
+  }
+
   private var mediaURL: URL? {
     let raw = message.attachementThumbnail ?? message.attachementURL
     guard let raw else { return nil }
@@ -67,6 +72,12 @@ struct MessageAttachementView: View {
     } else if isVideoAttachment, let mediaURL {
       VideoThumbnailPreview(url: mediaURL)
         .clipShape(.rect(cornerRadius: 16))
+    } else if isAudioAttachment, let attachmentURL {
+      AudioAttachmentPlaybackView(
+        url: attachmentURL,
+        title: displayFileName ?? "Voice message",
+        isOutgoing: isOutgoing
+      )
     } else if let displayFileName {
       HStack(spacing: 8) {
         Image(systemName: "doc")
@@ -94,6 +105,77 @@ struct MessageAttachementView: View {
         }
       }
     }
+  }
+}
+
+private struct AudioAttachmentPlaybackView: View {
+  let url: URL
+  let title: String
+  let isOutgoing: Bool
+
+  @State private var player: AVPlayer?
+  @State private var isPlaying = false
+
+  var body: some View {
+    HStack(spacing: 10) {
+      Button {
+        togglePlayback()
+      } label: {
+        Image(systemName: isPlaying ? "pause.fill" : "play.fill")
+          .font(.system(size: 14, weight: .bold))
+          .foregroundStyle(isOutgoing ? Color(red: 0.05, green: 0.38, blue: 0.79) : .white)
+          .frame(width: 34, height: 34)
+          .background(isOutgoing ? .white : Color(red: 0.05, green: 0.38, blue: 0.79), in: Circle())
+      }
+      .buttonStyle(.plain)
+
+      VStack(alignment: .leading, spacing: 4) {
+        Text("Voice message")
+          .font(.system(size: 14, weight: .semibold))
+          .foregroundStyle(isOutgoing ? .white : Color.black.opacity(0.88))
+
+        HStack(spacing: 3) {
+          ForEach(0..<18, id: \.self) { index in
+            Capsule()
+              .fill((isOutgoing ? Color.white : Color.black).opacity(index % 3 == 0 ? 0.65 : 0.35))
+              .frame(width: 3, height: CGFloat([10, 16, 8, 20, 12, 15][index % 6]))
+          }
+        }
+        .frame(height: 22)
+      }
+
+      Spacer(minLength: 0)
+    }
+    .padding(.horizontal, 10)
+    .padding(.vertical, 9)
+    .frame(minWidth: 230)
+    .background(isOutgoing ? .white.opacity(0.18) : Color.black.opacity(0.04))
+    .clipShape(RoundedRectangle(cornerRadius: 14, style: .continuous))
+    .onDisappear {
+      player?.pause()
+      isPlaying = false
+    }
+  }
+
+  private func togglePlayback() {
+    if isPlaying {
+      player?.pause()
+      isPlaying = false
+      return
+    }
+
+    let currentPlayer = player ?? AVPlayer(url: url)
+    player = currentPlayer
+    NotificationCenter.default.addObserver(
+      forName: .AVPlayerItemDidPlayToEndTime,
+      object: currentPlayer.currentItem,
+      queue: .main
+    ) { _ in
+      currentPlayer.seek(to: .zero)
+      isPlaying = false
+    }
+    currentPlayer.play()
+    isPlaying = true
   }
 }
 
