@@ -464,11 +464,6 @@ private struct AttachmentOptionsSheet: View {
 
   var body: some View {
     VStack(spacing: 16) {
-      Capsule()
-        .fill(Color.black.opacity(0.18))
-        .frame(width: 44, height: 5)
-        .padding(.top, 10)
-
       LazyVGrid(columns: columns, spacing: 20) {
         AttachmentDrawerItem(icon: "photo.on.rectangle.angled", tint: Color(red: 0.20, green: 0.56, blue: 1.0), title: "Photos", action: onPhotos)
         AttachmentDrawerItem(icon: "camera.fill", tint: .white, title: "Camera", action: onCamera)
@@ -485,7 +480,7 @@ private struct AttachmentOptionsSheet: View {
     }
     .frame(maxWidth: .infinity, maxHeight: .infinity)
     .background(Color.clear)
-    .padding(.top, 10)
+    .padding(.top, 18)
   }
 }
 

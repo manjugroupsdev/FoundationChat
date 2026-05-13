@@ -126,39 +126,28 @@ struct AvatarPlaceholder: View {
   var body: some View {
     ZStack {
       Circle()
-        .fill(Color.white)
+        .fill(
+          LinearGradient(
+            colors: [
+              Color(red: 0.93, green: 0.95, blue: 0.98),
+              Color(red: 0.86, green: 0.90, blue: 0.95)
+            ],
+            startPoint: .topLeading,
+            endPoint: .bottomTrailing
+          )
+        )
         .frame(width: 52, height: 52)
         .overlay(
           Circle()
-            .stroke(Color.black.opacity(0.10), lineWidth: 1)
+            .stroke(Color.black.opacity(0.04), lineWidth: 1)
         )
 
-      CheckerboardPattern()
-        .clipShape(Circle())
-        .frame(width: 52, height: 52)
-
       Text(initials)
-        .font(.system(size: 13, weight: .semibold))
-        .foregroundStyle(Color.black.opacity(0.55))
-        .opacity(0)
+        .font(.system(size: 18, weight: .semibold))
+        .foregroundStyle(Color(red: 0.18, green: 0.42, blue: 0.78))
+        .lineLimit(1)
+        .minimumScaleFactor(0.7)
     }
-  }
-}
-
-private struct CheckerboardPattern: View {
-  var body: some View {
-    Canvas { context, size in
-      let cell: CGFloat = 6
-      let columns = Int(ceil(size.width / cell))
-      let rows = Int(ceil(size.height / cell))
-
-      for row in 0..<rows {
-        for column in 0..<columns where (row + column).isMultiple(of: 2) {
-          let rect = CGRect(x: CGFloat(column) * cell, y: CGFloat(row) * cell, width: cell, height: cell)
-          context.fill(Path(rect), with: .color(Color.black.opacity(0.08)))
-        }
-      }
-    }
-    .background(Color.black.opacity(0.03))
+    .accessibilityLabel(initials)
   }
 }

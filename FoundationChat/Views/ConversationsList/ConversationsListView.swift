@@ -290,7 +290,7 @@ struct ConversationsListView: View {
         Image(systemName: "chevron.left")
           .font(.system(size: 23, weight: .regular))
           .foregroundStyle(FoundationChatTheme.headerAccent)
-          .frame(width: 63, height: 63)
+          .frame(width: 58, height: 58)
           .background(Color(red: 0.96, green: 0.97, blue: 1.0), in: Circle())
       }
       .buttonStyle(.plain)
@@ -327,11 +327,11 @@ struct ConversationsListView: View {
         Image(systemName: "plus")
           .font(.system(size: 23, weight: .regular))
           .foregroundStyle(FoundationChatTheme.headerAccent)
-          .frame(width: 63, height: 63)
+          .frame(width: 58, height: 58)
           .background(Color(red: 0.96, green: 0.97, blue: 1.0), in: Circle())
       }
     }
-    .frame(height: 100)
+    .frame(height: 84)
     .padding(.horizontal, 23.5)
     .background(Color.white)
   }
