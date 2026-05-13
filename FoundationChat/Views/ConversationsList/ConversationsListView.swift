@@ -166,11 +166,11 @@ struct ConversationsListView: View {
         chatListHeader
 
         ChatListSearchField(text: $searchText)
-          .padding(.horizontal, 8)
-          .padding(.top, 10)
+          .padding(.horizontal, 16)
+          .padding(.top, 12)
 
         chatFiltersBar
-          .padding(.top, 29)
+          .padding(.top, 24)
 
         ScrollView {
           LazyVStack(spacing: 0) {
@@ -246,38 +246,39 @@ struct ConversationsListView: View {
 
   private var chatFiltersBar: some View {
     ScrollView(.horizontal, showsIndicators: false) {
-      HStack(spacing: 8) {
+      HStack(spacing: 12) {
         ForEach(ChatFilter.allCases) { filter in
           Button {
             selectedFilter = filter
           } label: {
             HStack(spacing: 8) {
               Text(filter.title)
-                .font(.system(size: 12, weight: .regular))
+                .font(.system(size: 15, weight: .medium))
                 .foregroundStyle(selectedFilter == filter ? .white : FoundationChatTheme.ink)
+                .lineLimit(1)
 
               if badgeCount(for: filter) > 0 {
                 Text(badgeLabel(for: filter))
-                  .font(.system(size: 9, weight: .semibold))
+                  .font(.system(size: 12, weight: .bold))
                   .foregroundStyle(selectedFilter == filter ? FoundationChatTheme.outgoingBubble : .white)
-                  .padding(.horizontal, 6)
-                  .frame(height: 18)
+                  .padding(.horizontal, 7)
+                  .frame(minWidth: 24, minHeight: 24)
                   .background(selectedFilter == filter ? .white : FoundationChatTheme.outgoingBubble, in: Capsule())
               }
             }
-            .padding(.horizontal, 14)
-            .frame(height: 34)
+            .padding(.horizontal, 16)
+            .frame(height: 40)
             .background(
               selectedFilter == filter
                 ? FoundationChatTheme.outgoingBubble
                 : Color(red: 0.94, green: 0.96, blue: 0.98),
-              in: RoundedRectangle(cornerRadius: 10, style: .continuous)
+              in: Capsule()
             )
           }
           .buttonStyle(.plain)
         }
       }
-      .padding(.horizontal, 8)
+      .padding(.horizontal, 16)
     }
   }
 
@@ -631,35 +632,48 @@ private struct ChatListSearchField: View {
   @Binding var text: String
 
   var body: some View {
-    NativeSearchTextField(text: $text, placeholder: "Search Chats")
-      .frame(height: 50)
-      .clipShape(RoundedRectangle(cornerRadius: 10, style: .continuous))
+    NativeSearchBar(text: $text, placeholder: "Search Chats")
+      .frame(height: 52)
   }
 }
 
-private struct NativeSearchTextField: UIViewRepresentable {
+private struct NativeSearchBar: UIViewRepresentable {
   @Binding var text: String
   let placeholder: String
 
-  func makeUIView(context: Context) -> UISearchTextField {
-    let searchField = FixedHeightSearchTextField()
-    searchField.placeholder = placeholder
-    searchField.font = .systemFont(ofSize: 15, weight: .regular)
+  func makeUIView(context: Context) -> UISearchBar {
+    let searchBar = UISearchBar(frame: .zero)
+    searchBar.searchBarStyle = .minimal
+    searchBar.placeholder = placeholder
+    searchBar.delegate = context.coordinator
+    searchBar.autocapitalizationType = .none
+    searchBar.autocorrectionType = .no
+    searchBar.returnKeyType = .search
+    searchBar.tintColor = UIColor(FoundationChatTheme.outgoingBubble)
+    searchBar.setShowsCancelButton(false, animated: false)
+
+    let searchField = searchBar.searchTextField
+    searchField.font = .systemFont(ofSize: 17, weight: .regular)
     searchField.textColor = .label
-    searchField.tintColor = UIColor(FoundationChatTheme.outgoingBubble)
-    searchField.backgroundColor = .secondarySystemBackground
+    searchField.backgroundColor = UIColor(red: 0.95, green: 0.95, blue: 0.97, alpha: 1)
+    searchField.layer.cornerRadius = 16
+    searchField.layer.masksToBounds = true
     searchField.clearButtonMode = .whileEditing
-    searchField.autocapitalizationType = .none
-    searchField.autocorrectionType = .no
-    searchField.returnKeyType = .search
-    searchField.delegate = context.coordinator
-    searchField.addTarget(context.coordinator, action: #selector(Coordinator.textDidChange(_:)), for: .editingChanged)
-    return searchField
+    searchField.leftView?.tintColor = .label
+    searchField.attributedPlaceholder = NSAttributedString(
+      string: placeholder,
+      attributes: [
+        .foregroundColor: UIColor.placeholderText,
+        .font: UIFont.systemFont(ofSize: 17, weight: .regular)
+      ]
+    )
+
+    return searchBar
   }
 
-  func updateUIView(_ searchField: UISearchTextField, context: Context) {
-    if searchField.text != text {
-      searchField.text = text
+  func updateUIView(_ searchBar: UISearchBar, context: Context) {
+    if searchBar.text != text {
+      searchBar.text = text
     }
   }
 
@@ -667,33 +681,35 @@ private struct NativeSearchTextField: UIViewRepresentable {
     Coordinator(text: $text)
   }
 
-  final class Coordinator: NSObject, UITextFieldDelegate {
+  final class Coordinator: NSObject, UISearchBarDelegate {
     @Binding private var text: String
 
     init(text: Binding<String>) {
       _text = text
     }
 
-    @objc func textDidChange(_ searchField: UISearchTextField) {
-      text = searchField.text ?? ""
+    func searchBar(_ searchBar: UISearchBar, textDidChange searchText: String) {
+      text = searchText
     }
 
-    func textFieldShouldReturn(_ textField: UITextField) -> Bool {
-      textField.resignFirstResponder()
-      return true
+    func searchBarTextDidBeginEditing(_ searchBar: UISearchBar) {
+      searchBar.setShowsCancelButton(true, animated: true)
     }
-  }
-}
 
-private final class FixedHeightSearchTextField: UISearchTextField {
-  override var intrinsicContentSize: CGSize {
-    CGSize(width: UIView.noIntrinsicMetric, height: 50)
-  }
+    func searchBarSearchButtonClicked(_ searchBar: UISearchBar) {
+      searchBar.resignFirstResponder()
+    }
 
-  override func layoutSubviews() {
-    super.layoutSubviews()
-    layer.cornerRadius = 10
-    layer.masksToBounds = true
+    func searchBarCancelButtonClicked(_ searchBar: UISearchBar) {
+      text = ""
+      searchBar.text = ""
+      searchBar.setShowsCancelButton(false, animated: true)
+      searchBar.resignFirstResponder()
+    }
+
+    func searchBarTextDidEndEditing(_ searchBar: UISearchBar) {
+      searchBar.setShowsCancelButton(false, animated: true)
+    }
   }
 }
 
