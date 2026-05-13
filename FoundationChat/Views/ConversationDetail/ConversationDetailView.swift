@@ -177,9 +177,8 @@ struct ConversationDetailView: View {
           isAttachmentOptionsPresented = false
         }
       )
-      .presentationDetents([.height(214)])
-      .presentationDragIndicator(.hidden)
-      .presentationBackground(.clear)
+      .presentationDetents([.fraction(0.5), .large])
+      .presentationDragIndicator(.visible)
     }
     .sheet(isPresented: $isCameraPresented) {
       ChatCameraPicker(image: $capturedCameraImage)
