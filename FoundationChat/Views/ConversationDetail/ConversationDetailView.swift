@@ -26,6 +26,7 @@ struct ConversationDetailView: View {
   @State private var capturedCameraImage: UIImage?
   @State private var isFileImporterPresented = false
   @State private var activeDetailSheet: ActiveDetailSheet?
+  @State private var replyTarget: Message?
   @FocusState var isInputFocused: Bool
 
   enum ActiveDetailSheet: Identifiable {
@@ -94,7 +95,11 @@ struct ConversationDetailView: View {
               MessageView(
                 message: message,
                 otherParticipantLastReadAt: conversation.otherParticipantLastReadAt,
-                isLastOutgoingMessage: message === lastOutgoingMessage
+                isLastOutgoingMessage: message === lastOutgoingMessage,
+                onReply: {
+                  replyTarget = message
+                  isInputFocused = true
+                }
               )
               .id(message.id)
             }
@@ -131,21 +136,31 @@ struct ConversationDetailView: View {
     .scrollDismissesKeyboard(.interactively)
     .scrollPosition($scrollPosition, anchor: .bottom)
     .safeAreaInset(edge: .bottom, spacing: 0) {
-      ConversationDetailInputView(
-        newMessage: $newMessage,
-        isGenerating: $isGenerating,
-        isInputFocused: $isInputFocused,
-        onAddAttachment: {
-          guard !isGenerating else { return }
-          isInputFocused = false
-          isAttachmentOptionsPresented = true
-        },
-        onSend: {
-          isGenerating = true
-          await streamNewMessage()
-          isGenerating = false
+      VStack(spacing: 0) {
+        if let replyTarget {
+          ReplyComposerPreview(
+            message: replyTarget,
+            senderName: replySenderName(for: replyTarget),
+            onClose: { self.replyTarget = nil }
+          )
         }
-      )
+
+        ConversationDetailInputView(
+          newMessage: $newMessage,
+          isGenerating: $isGenerating,
+          isInputFocused: $isInputFocused,
+          onAddAttachment: {
+            guard !isGenerating else { return }
+            isInputFocused = false
+            isAttachmentOptionsPresented = true
+          },
+          onSend: {
+            isGenerating = true
+            await streamNewMessage()
+            isGenerating = false
+          }
+        )
+      }
     }
     .sheet(item: $activeDetailSheet) { sheet in
       conversationDetailSheet(for: sheet)
@@ -433,6 +448,62 @@ private struct AttachmentOptionRow: View {
     }
     .padding(.horizontal, 28)
     .frame(height: 72)
+  }
+}
+
+private struct ReplyComposerPreview: View {
+  let message: Message
+  let senderName: String
+  let onClose: () -> Void
+
+  private var previewText: String {
+    let text = message.content.trimmingCharacters(in: .whitespacesAndNewlines)
+    if !text.isEmpty { return text }
+    if message.attachementMimeType?.hasPrefix("image/") == true || message.attachementType == "image" {
+      return "Photo"
+    }
+    if let fileName = message.attachementFileName, !fileName.isEmpty {
+      return fileName
+    }
+    return "Attachment"
+  }
+
+  var body: some View {
+    HStack(spacing: 10) {
+      RoundedRectangle(cornerRadius: 2, style: .continuous)
+        .fill(Color(red: 0.05, green: 0.38, blue: 0.79))
+        .frame(width: 4, height: 34)
+
+      VStack(alignment: .leading, spacing: 3) {
+        Text(senderName)
+          .font(.system(size: 13, weight: .semibold))
+          .foregroundStyle(Color(red: 0.05, green: 0.38, blue: 0.79))
+          .lineLimit(1)
+
+        Text(previewText)
+          .font(.system(size: 13, weight: .regular))
+          .foregroundStyle(Color.black.opacity(0.56))
+          .lineLimit(1)
+      }
+      .frame(maxWidth: .infinity, alignment: .leading)
+
+      Button(action: onClose) {
+        Image(systemName: "xmark")
+          .font(.system(size: 12, weight: .bold))
+          .foregroundStyle(Color.black.opacity(0.42))
+          .frame(width: 28, height: 28)
+          .background(Color.black.opacity(0.06), in: Circle())
+      }
+      .buttonStyle(.plain)
+    }
+    .padding(.horizontal, 16)
+    .frame(height: 54)
+    .background(Color.white)
+    .overlay(alignment: .top) {
+      Rectangle()
+        .fill(Color.black.opacity(0.06))
+        .frame(height: 1)
+    }
   }
 }
 
@@ -725,22 +796,32 @@ extension ConversationDetailView {
     let userInput = newMessage.trimmingCharacters(in: .whitespacesAndNewlines)
     guard !userInput.isEmpty else { return }
 
+    let parentMessage = replyTarget
+    let parentMessageId = parentMessage?.remoteMessageID
+    let parentPreview = parentMessage.map { replyPreviewText(for: $0) }
+    let parentSenderName = parentMessage.map { replySenderName(for: $0) }
+
     let localUserMessage = Message(
       content: userInput,
       role: .user,
       timestamp: Date(),
-      senderStackUserId: authStore.viewer?.subject
+      senderStackUserId: authStore.viewer?.subject,
+      replyToRemoteMessageID: parentMessageId,
+      replyPreviewText: parentPreview,
+      replySenderName: parentSenderName
     )
     conversation.messages.append(localUserMessage)
     try? modelContext.save()
     newMessage = ""
+    replyTarget = nil
 
     if let remoteConversationID = conversation.remoteConversationID {
       do {
         let savedMessage = try await authStore.sendMessage(
           conversationID: remoteConversationID,
           role: .user,
-          content: userInput
+          content: userInput,
+          parentMessageId: parentMessageId
         )
         sync(savedMessage: savedMessage, into: localUserMessage)
       } catch {
@@ -785,8 +866,14 @@ extension ConversationDetailView {
         localMessage.attachementDescription = remoteMessage.attachmentDescription
         localMessage.attachementThumbnail = remoteMessage.attachmentThumbnail
         localMessage.attachementURL = remoteMessage.attachmentUrl
+        localMessage.replyToRemoteMessageID = remoteMessage.parentMessageId
+        if let parent = parentMessage(for: remoteMessage.parentMessageId) {
+          localMessage.replyPreviewText = replyPreviewText(for: parent)
+          localMessage.replySenderName = replySenderName(for: parent)
+        }
         ordered.append(localMessage)
       } else {
+        let parent = parentMessage(for: remoteMessage.parentMessageId)
         ordered.append(
           Message(
             content: remoteMessage.content,
@@ -800,7 +887,10 @@ extension ConversationDetailView {
             attachementTitle: remoteMessage.attachmentTitle,
             attachementDescription: remoteMessage.attachmentDescription,
             attachementThumbnail: remoteMessage.attachmentThumbnail,
-            attachementURL: remoteMessage.attachmentUrl
+            attachementURL: remoteMessage.attachmentUrl,
+            replyToRemoteMessageID: remoteMessage.parentMessageId,
+            replyPreviewText: parent.map { replyPreviewText(for: $0) },
+            replySenderName: parent.map { replySenderName(for: $0) }
           )
         )
       }
@@ -825,6 +915,34 @@ extension ConversationDetailView {
     localMessage.attachementDescription = savedMessage.attachmentDescription
     localMessage.attachementThumbnail = savedMessage.attachmentThumbnail
     localMessage.attachementURL = savedMessage.attachmentUrl
+    localMessage.replyToRemoteMessageID = savedMessage.parentMessageId ?? localMessage.replyToRemoteMessageID
+  }
+
+  private func parentMessage(for remoteMessageID: String?) -> Message? {
+    guard let remoteMessageID else { return nil }
+    return conversation.messages.first { $0.remoteMessageID == remoteMessageID }
+  }
+
+  private func replySenderName(for message: Message) -> String {
+    if let currentUser = authStore.viewer?.subject {
+      return message.senderStackUserId == currentUser ? "You" : conversationTitle
+    }
+    if message.role == .user {
+      return "You"
+    }
+    return conversationTitle
+  }
+
+  private func replyPreviewText(for message: Message) -> String {
+    let text = message.content.trimmingCharacters(in: .whitespacesAndNewlines)
+    if !text.isEmpty { return text }
+    if message.attachementMimeType?.hasPrefix("image/") == true || message.attachementType == "image" {
+      return "Photo"
+    }
+    if let fileName = message.attachementFileName, !fileName.isEmpty {
+      return fileName
+    }
+    return "Attachment"
   }
 
   @MainActor

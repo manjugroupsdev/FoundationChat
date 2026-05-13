@@ -17,6 +17,9 @@ final class Message {
   var attachementThumbnail: String?
   var attachementURL: String?
   var attachementSummary: String?
+  var replyToRemoteMessageID: String?
+  var replyPreviewText: String?
+  var replySenderName: String?
 
   init(
     content: String, role: Role, timestamp: Date,
@@ -28,7 +31,10 @@ final class Message {
     attachementTitle: String? = nil,
     attachementDescription: String? = nil,
     attachementThumbnail: String? = nil,
-    attachementURL: String? = nil
+    attachementURL: String? = nil,
+    replyToRemoteMessageID: String? = nil,
+    replyPreviewText: String? = nil,
+    replySenderName: String? = nil
   ) {
     self.remoteMessageID = remoteMessageID
     self.senderStackUserId = senderStackUserId
@@ -42,5 +48,8 @@ final class Message {
     self.attachementDescription = attachementDescription
     self.attachementThumbnail = attachementThumbnail
     self.attachementURL = attachementURL
+    self.replyToRemoteMessageID = replyToRemoteMessageID
+    self.replyPreviewText = replyPreviewText
+    self.replySenderName = replySenderName
   }
 }

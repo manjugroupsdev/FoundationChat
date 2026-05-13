@@ -578,7 +578,8 @@ final class AuthStore {
     attachmentFileSize: Int? = nil,
     attachmentTitle: String? = nil,
     attachmentDescription: String? = nil,
-    attachmentThumbnail: String? = nil
+    attachmentThumbnail: String? = nil,
+    parentMessageId: String? = nil
   ) async throws -> ConvexChatMessage {
     let t = try requireToken()
     let attachmentsPayload: [[String: Any]]?
@@ -606,6 +607,7 @@ final class AuthStore {
       token: t,
       conversationId: conversationID,
       body: content,
+      parentMessageId: parentMessageId,
       attachments: attachmentsPayload
     )
     return try await ChatAPIService.getMessage(token: t, messageId: messageId)
