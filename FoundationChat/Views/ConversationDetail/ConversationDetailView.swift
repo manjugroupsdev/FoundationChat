@@ -30,6 +30,7 @@ struct ConversationDetailView: View {
   @State private var replyTarget: Message?
   @State private var pendingImageAttachment: PendingImageAttachment?
   @State private var reactionTarget: Message?
+  @State private var highlightedRemoteMessageID: String?
   @State private var voiceRecorder: AVAudioRecorder?
   @State private var voiceRecordingURL: URL?
   @State private var isVoiceRecording = false
@@ -102,12 +103,16 @@ struct ConversationDetailView: View {
                 message: message,
                 otherParticipantLastReadAt: conversation.otherParticipantLastReadAt,
                 isLastOutgoingMessage: message === lastOutgoingMessage,
+                isHighlighted: message.remoteMessageID == highlightedRemoteMessageID,
                 onReply: {
                   replyTarget = message
                   isInputFocused = true
                 },
+                onTapReplyPreview: {
+                  scrollToRepliedMessage(from: message)
+                },
                 onShowReactions: {
-                  guard message.remoteMessageID != nil else { return }
+                  guard message.remoteMessageID != nil, !message.isDeleted else { return }
                   withAnimation(.spring(response: 0.28, dampingFraction: 0.86)) {
                     reactionTarget = message
                   }
@@ -136,9 +141,13 @@ struct ConversationDetailView: View {
             replyTarget = reactionTarget
             isInputFocused = true
           },
-          onSelect: { emoji in
+          onForward: {},
+          onCopy: {
+            UIPasteboard.general.string = reactionTarget.content
+          },
+          onDelete: {
             Task {
-              await toggleReaction(emoji, for: reactionTarget)
+              await deleteMessage(reactionTarget)
             }
           }
         )
@@ -719,9 +728,9 @@ private struct MessageReactionOverlay: View {
   let isOutgoing: Bool
   let onDismiss: () -> Void
   let onReply: () -> Void
-  let onSelect: (String) -> Void
-
-  private let quickReactions = ["👍", "❤️", "😂", "😮", "😢", "🙏", "😳"]
+  let onForward: () -> Void
+  let onCopy: () -> Void
+  let onDelete: () -> Void
 
   var body: some View {
     ZStack {
@@ -730,36 +739,6 @@ private struct MessageReactionOverlay: View {
         .onTapGesture(perform: onDismiss)
 
       VStack(spacing: 12) {
-        HStack(spacing: 6) {
-          ForEach(quickReactions, id: \.self) { emoji in
-            Button {
-              onSelect(emoji)
-              onDismiss()
-            } label: {
-              Text(emoji)
-                .font(.system(size: 25))
-                .frame(width: 34, height: 38)
-            }
-            .buttonStyle(.plain)
-          }
-
-          Button {
-            onDismiss()
-          } label: {
-            Image(systemName: "plus")
-              .font(.system(size: 18, weight: .semibold))
-              .foregroundStyle(Color.black.opacity(0.62))
-              .frame(width: 36, height: 36)
-              .background(Color.black.opacity(0.07), in: Circle())
-          }
-          .buttonStyle(.plain)
-        }
-        .padding(.horizontal, 10)
-        .padding(.vertical, 7)
-        .frame(maxWidth: 342)
-        .background(.regularMaterial, in: Capsule())
-        .shadow(color: .black.opacity(0.14), radius: 18, y: 8)
-
         ReactionPreviewBubble(message: message, isOutgoing: isOutgoing)
 
         ReactionActionMenu(
@@ -768,8 +747,16 @@ private struct MessageReactionOverlay: View {
             onReply()
             onDismiss()
           },
+          onForward: {
+            onForward()
+            onDismiss()
+          },
           onCopy: {
-            UIPasteboard.general.string = message.content
+            onCopy()
+            onDismiss()
+          },
+          onDelete: {
+            onDelete()
             onDismiss()
           },
           onDismiss: onDismiss
@@ -784,29 +771,22 @@ private struct MessageReactionOverlay: View {
 private struct ReactionActionMenu: View {
   let message: Message
   let onReply: () -> Void
+  let onForward: () -> Void
   let onCopy: () -> Void
+  let onDelete: () -> Void
   let onDismiss: () -> Void
 
   var body: some View {
     VStack(spacing: 0) {
       ReactionActionRow(icon: "arrowshape.turn.up.left", title: "Reply", tint: .white, action: onReply)
-      ReactionActionRow(icon: "arrowshape.turn.up.right", title: "Forward", tint: .white, action: onDismiss)
+      ReactionActionRow(icon: "arrowshape.turn.up.right", title: "Forward", tint: .white, action: onForward)
       ReactionActionRow(icon: "doc.on.doc", title: "Copy", tint: .white, action: onCopy)
         .disabled(message.content.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty)
         .opacity(message.content.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty ? 0.45 : 1)
-      ReactionActionRow(icon: "info.circle", title: "Info", tint: .white, action: onDismiss)
-      ReactionActionRow(icon: "star", title: "Star", tint: .white, action: onDismiss)
-      ReactionActionRow(icon: "trash", title: "Delete", tint: Color(red: 1.0, green: 0.36, blue: 0.45), action: onDismiss)
-
-      Rectangle()
-        .fill(Color.white.opacity(0.12))
-        .frame(height: 1)
-        .padding(.vertical, 8)
-
-      ReactionActionRow(icon: "ellipsis.circle", title: "More...", tint: .white, action: onDismiss)
+      ReactionActionRow(icon: "trash", title: "Delete", tint: Color(red: 1.0, green: 0.36, blue: 0.45), action: onDelete)
     }
     .padding(.horizontal, 26)
-    .padding(.vertical, 18)
+    .padding(.vertical, 16)
     .frame(maxWidth: 290)
     .background(Color.black.opacity(0.66), in: RoundedRectangle(cornerRadius: 28, style: .continuous))
     .background(.ultraThinMaterial, in: RoundedRectangle(cornerRadius: 28, style: .continuous))
@@ -1510,6 +1490,75 @@ extension ConversationDetailView {
       updated.append(MessageReactionInfo(emoji: emoji, count: 1, hasReacted: true))
     }
     return updated
+  }
+
+  @MainActor
+  private func deleteMessage(_ message: Message) async {
+    guard !message.isDeleted else { return }
+
+    guard let remoteMessageID = message.remoteMessageID else {
+      conversation.messages.removeAll { $0 === message }
+      try? modelContext.save()
+      return
+    }
+
+    let previousContent = message.content
+    let previousAttachmentType = message.attachementType
+    let previousAttachmentFileName = message.attachementFileName
+    let previousAttachmentMimeType = message.attachementMimeType
+    let previousAttachmentTitle = message.attachementTitle
+    let previousAttachmentDescription = message.attachementDescription
+    let previousAttachmentThumbnail = message.attachementThumbnail
+    let previousAttachmentURL = message.attachementURL
+    let previousReplyToRemoteMessageID = message.replyToRemoteMessageID
+    let previousReplyPreviewText = message.replyPreviewText
+    let previousReplySenderName = message.replySenderName
+    let previousReactionSummary = message.reactionSummary
+
+    message.isDeleted = true
+    clearDeletedMessagePayload(message)
+    try? modelContext.save()
+
+    do {
+      try await authStore.deleteMessage(messageId: remoteMessageID)
+    } catch {
+      message.isDeleted = false
+      message.content = previousContent
+      message.attachementType = previousAttachmentType
+      message.attachementFileName = previousAttachmentFileName
+      message.attachementMimeType = previousAttachmentMimeType
+      message.attachementTitle = previousAttachmentTitle
+      message.attachementDescription = previousAttachmentDescription
+      message.attachementThumbnail = previousAttachmentThumbnail
+      message.attachementURL = previousAttachmentURL
+      message.replyToRemoteMessageID = previousReplyToRemoteMessageID
+      message.replyPreviewText = previousReplyPreviewText
+      message.replySenderName = previousReplySenderName
+      message.reactionSummary = previousReactionSummary
+      try? modelContext.save()
+    }
+  }
+
+  @MainActor
+  private func scrollToRepliedMessage(from message: Message) {
+    guard
+      let parent = parentMessage(for: message.replyToRemoteMessageID),
+      let parentRemoteMessageID = parent.remoteMessageID
+    else { return }
+
+    withAnimation(.spring(response: 0.32, dampingFraction: 0.86)) {
+      scrollPosition.scrollTo(id: parent.id, anchor: .center)
+      highlightedRemoteMessageID = parentRemoteMessageID
+    }
+
+    Task { @MainActor in
+      try? await Task.sleep(for: .seconds(1.4))
+      if highlightedRemoteMessageID == parentRemoteMessageID {
+        withAnimation(.easeOut(duration: 0.25)) {
+          highlightedRemoteMessageID = nil
+        }
+      }
+    }
   }
 
   private func parentMessage(for remoteMessageID: String?) -> Message? {

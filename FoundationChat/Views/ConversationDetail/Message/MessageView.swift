@@ -6,7 +6,9 @@ struct MessageView: View {
   let message: Message
   let otherParticipantLastReadAt: Date?
   let isLastOutgoingMessage: Bool
+  let isHighlighted: Bool
   let onReply: () -> Void
+  let onTapReplyPreview: () -> Void
   let onShowReactions: () -> Void
 
   @State private var horizontalDragOffset: CGFloat = 0
@@ -80,7 +82,8 @@ struct MessageView: View {
                 ReplySnippetView(
                   sender: message.replySenderName,
                   preview: message.replyPreviewText ?? "",
-                  isOutgoing: isOutgoing
+                  isOutgoing: isOutgoing,
+                  onTap: onTapReplyPreview
                 )
               }
               MessageContentView(message: message, isOutgoing: isOutgoing)
@@ -92,7 +95,12 @@ struct MessageView: View {
             .clipShape(RoundedRectangle(cornerRadius: 18, style: .continuous))
             .overlay(
               RoundedRectangle(cornerRadius: 18, style: .continuous)
-                .stroke(Color.black.opacity(message.isDeleted ? 0.08 : (isOutgoing ? 0.03 : 0.06)), lineWidth: 1)
+                .stroke(
+                  isHighlighted
+                    ? Color.yellow.opacity(0.95)
+                    : Color.black.opacity(message.isDeleted ? 0.08 : (isOutgoing ? 0.03 : 0.06)),
+                  lineWidth: isHighlighted ? 2 : 1
+                )
             )
             .shadow(color: .black.opacity(message.isDeleted ? 0.02 : 0.04), radius: 6, y: 2)
           }
@@ -194,6 +202,7 @@ private struct ReplySnippetView: View {
   let sender: String?
   let preview: String
   let isOutgoing: Bool
+  let onTap: () -> Void
 
   var body: some View {
     HStack(spacing: 8) {
@@ -217,6 +226,8 @@ private struct ReplySnippetView: View {
     }
     .padding(8)
     .background(isOutgoing ? .white.opacity(0.14) : Color.black.opacity(0.04), in: RoundedRectangle(cornerRadius: 8, style: .continuous))
+    .contentShape(Rectangle())
+    .onTapGesture(perform: onTap)
   }
 }
 
@@ -237,14 +248,18 @@ private struct MessageDeliveryStatusView: View {
                                timestamp: Date()),
                 otherParticipantLastReadAt: nil,
                 isLastOutgoingMessage: true,
+                isHighlighted: false,
                 onReply: {},
+                onTapReplyPreview: {},
                 onShowReactions: {})
     MessageView(message: .init(content: "Hello world this is a short message",
                                role: .assistant,
                                timestamp: Date()),
                 otherParticipantLastReadAt: nil,
                 isLastOutgoingMessage: false,
+                isHighlighted: false,
                 onReply: {},
+                onTapReplyPreview: {},
                 onShowReactions: {})
   }
 }
