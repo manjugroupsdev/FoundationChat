@@ -21,6 +21,7 @@ final class Message {
   var replyPreviewText: String?
   var replySenderName: String?
   var reactionSummary: String?
+  var isDeleted: Bool = false
 
   init(
     content: String, role: Role, timestamp: Date,
@@ -36,7 +37,8 @@ final class Message {
     replyToRemoteMessageID: String? = nil,
     replyPreviewText: String? = nil,
     replySenderName: String? = nil,
-    reactionSummary: String? = nil
+    reactionSummary: String? = nil,
+    isDeleted: Bool = false
   ) {
     self.remoteMessageID = remoteMessageID
     self.senderStackUserId = senderStackUserId
@@ -54,5 +56,6 @@ final class Message {
     self.replyPreviewText = replyPreviewText
     self.replySenderName = replySenderName
     self.reactionSummary = reactionSummary
+    self.isDeleted = isDeleted
   }
 }

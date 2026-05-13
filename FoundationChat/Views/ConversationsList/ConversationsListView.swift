@@ -1,7 +1,6 @@
 import Combine
 import SwiftData
 import SwiftUI
-import UIKit
 
 struct ConversationsListView: View {
   private enum HomeItem: Identifiable {
@@ -156,21 +155,11 @@ struct ConversationsListView: View {
     }
   }
 
-  private var unreadBadgeCount: Int {
-    filteredConversations.reduce(0) { $0 + $1.unreadCountValue } + filteredChannels.reduce(0) { $0 + $1.unreadCountValue }
-  }
-
   var body: some View {
     NavigationStack(path: $path) {
       VStack(spacing: 0) {
-        chatListHeader
-
-        ChatListSearchField(text: $searchText)
-          .padding(.horizontal, 16)
-          .padding(.top, 12)
-
         chatFiltersBar
-          .padding(.top, 24)
+          .padding(.top, 12)
 
         ScrollView {
           LazyVStack(spacing: 0) {
@@ -211,6 +200,13 @@ struct ConversationsListView: View {
       .navigationDestination(for: Conversation.self) { conversation in
         ConversationDetailView(conversation: conversation)
       }
+      .navigationTitle("Chats")
+      .navigationBarTitleDisplayMode(.inline)
+      .searchable(
+        text: $searchText,
+        placement: .navigationBarDrawer(displayMode: .automatic),
+        prompt: "Search Chats"
+      )
       .onAppear {
         startConversationsSubscription()
         Task {
@@ -221,7 +217,43 @@ struct ConversationsListView: View {
         conversationsSubscription?.cancel()
         conversationsSubscription = nil
       }
-      .toolbar(.hidden, for: .navigationBar)
+      .toolbar {
+        ToolbarItem(placement: .navigationBarTrailing) {
+          HStack(spacing: 12) {
+            Menu {
+              Button {
+                isNewConversationSheetPresented = true
+              } label: {
+                Label("Direct Messages", systemImage: "message.fill")
+              }
+
+              Button {
+                selectedFilter = .groups
+              } label: {
+                Label("Group Chats", systemImage: "person.3.fill")
+              }
+
+              if authStore.isAdmin {
+                Button {
+                  isCreateChannelSheetPresented = true
+                } label: {
+                  Label("Create Group", systemImage: "plus.bubble.fill")
+                }
+              }
+            } label: {
+              Image(systemName: "plus")
+                .font(.system(size: 18, weight: .semibold))
+                .foregroundStyle(.primary)
+            }
+
+            NavigationLink {
+              ProfileView()
+            } label: {
+              ProfileAvatarView(label: authStore.currentUserLabel)
+            }
+          }
+        }
+      }
       .sheet(isPresented: $isNewConversationSheetPresented) {
         NewConversationSheet { selectedUser in
           try await startConversation(with: selectedUser)
@@ -251,21 +283,10 @@ struct ConversationsListView: View {
           Button {
             selectedFilter = filter
           } label: {
-            HStack(spacing: 8) {
-              Text(filter.title)
-                .font(.system(size: 15, weight: .medium))
-                .foregroundStyle(selectedFilter == filter ? .white : FoundationChatTheme.ink)
-                .lineLimit(1)
-
-              if badgeCount(for: filter) > 0 {
-                Text(badgeLabel(for: filter))
-                  .font(.system(size: 12, weight: .bold))
-                  .foregroundStyle(selectedFilter == filter ? FoundationChatTheme.outgoingBubble : .white)
-                  .padding(.horizontal, 7)
-                  .frame(minWidth: 24, minHeight: 24)
-                  .background(selectedFilter == filter ? .white : FoundationChatTheme.outgoingBubble, in: Capsule())
-              }
-            }
+            Text(filter.title)
+              .font(.system(size: 15, weight: .medium))
+              .foregroundStyle(selectedFilter == filter ? .white : FoundationChatTheme.ink)
+              .lineLimit(1)
             .padding(.horizontal, 16)
             .frame(height: 40)
             .background(
@@ -280,60 +301,6 @@ struct ConversationsListView: View {
       }
       .padding(.horizontal, 16)
     }
-  }
-
-  private var chatListHeader: some View {
-    HStack(spacing: 12) {
-      Button {
-        selectedTab = .home
-      } label: {
-        Image(systemName: "chevron.left")
-          .font(.system(size: 23, weight: .regular))
-          .foregroundStyle(FoundationChatTheme.headerAccent)
-          .frame(width: 58, height: 58)
-          .background(Color(red: 0.96, green: 0.97, blue: 1.0), in: Circle())
-      }
-      .buttonStyle(.plain)
-
-      Spacer()
-
-      Text("Chats")
-        .font(.system(size: 18, weight: .semibold))
-        .foregroundStyle(FoundationChatTheme.ink)
-
-      Spacer()
-
-      Menu {
-        Button {
-          isNewConversationSheetPresented = true
-        } label: {
-          Label("Direct Messages", systemImage: "message.fill")
-        }
-
-        Button {
-          selectedFilter = .groups
-        } label: {
-          Label("Group Chats", systemImage: "person.3.fill")
-        }
-
-        if authStore.isAdmin {
-          Button {
-            isCreateChannelSheetPresented = true
-          } label: {
-            Label("Create Group", systemImage: "plus.bubble.fill")
-          }
-        }
-      } label: {
-        Image(systemName: "plus")
-          .font(.system(size: 23, weight: .regular))
-          .foregroundStyle(FoundationChatTheme.headerAccent)
-          .frame(width: 58, height: 58)
-          .background(Color(red: 0.96, green: 0.97, blue: 1.0), in: Circle())
-      }
-    }
-    .frame(height: 84)
-    .padding(.horizontal, 23.5)
-    .background(Color.white)
   }
 
   @MainActor
@@ -441,6 +408,7 @@ struct ConversationsListView: View {
       existing.senderStackUserId = remoteMessage.senderStackUserId
       existing.role = remoteMessage.role.appRole
       existing.timestamp = remoteMessage.timestamp
+      existing.isDeleted = remoteMessage.isDeleted == true
       existing.attachementType = remoteMessage.attachmentType
       existing.attachementFileName = remoteMessage.attachmentFileName
       existing.attachementMimeType = remoteMessage.attachmentMimeType
@@ -448,25 +416,48 @@ struct ConversationsListView: View {
       existing.attachementDescription = remoteMessage.attachmentDescription
       existing.attachementThumbnail = remoteMessage.attachmentThumbnail
       existing.attachementURL = remoteMessage.attachmentUrl
+      if existing.isDeleted {
+        clearDeletedMessagePayload(existing)
+      }
       return
     }
 
-    conversation.messages.append(
-      Message(
-        content: remoteMessage.content,
-        role: remoteMessage.role.appRole,
-        timestamp: remoteMessage.timestamp,
-        remoteMessageID: remoteMessage.id,
-        senderStackUserId: remoteMessage.senderStackUserId,
-        attachementType: remoteMessage.attachmentType,
-        attachementFileName: remoteMessage.attachmentFileName,
-        attachementMimeType: remoteMessage.attachmentMimeType,
-        attachementTitle: remoteMessage.attachmentTitle,
-        attachementDescription: remoteMessage.attachmentDescription,
-        attachementThumbnail: remoteMessage.attachmentThumbnail,
-        attachementURL: remoteMessage.attachmentUrl
-      )
+    let localMessage = Message(
+      content: remoteMessage.content,
+      role: remoteMessage.role.appRole,
+      timestamp: remoteMessage.timestamp,
+      remoteMessageID: remoteMessage.id,
+      senderStackUserId: remoteMessage.senderStackUserId,
+      attachementType: remoteMessage.attachmentType,
+      attachementFileName: remoteMessage.attachmentFileName,
+      attachementMimeType: remoteMessage.attachmentMimeType,
+      attachementTitle: remoteMessage.attachmentTitle,
+      attachementDescription: remoteMessage.attachmentDescription,
+      attachementThumbnail: remoteMessage.attachmentThumbnail,
+      attachementURL: remoteMessage.attachmentUrl,
+      isDeleted: remoteMessage.isDeleted == true
     )
+    if localMessage.isDeleted {
+      clearDeletedMessagePayload(localMessage)
+    }
+    conversation.messages.append(
+      localMessage
+    )
+  }
+
+  private func clearDeletedMessagePayload(_ message: Message) {
+    message.content = "This message was deleted"
+    message.attachementType = nil
+    message.attachementFileName = nil
+    message.attachementMimeType = nil
+    message.attachementTitle = nil
+    message.attachementDescription = nil
+    message.attachementThumbnail = nil
+    message.attachementURL = nil
+    message.replyToRemoteMessageID = nil
+    message.replyPreviewText = nil
+    message.replySenderName = nil
+    message.reactionSummary = nil
   }
 
   @MainActor
@@ -551,28 +542,6 @@ struct ConversationsListView: View {
     .buttonStyle(.plain)
   }
 
-  private func badgeCount(for filter: ChatFilter) -> Int {
-    switch filter {
-    case .all:
-      return filteredConversations.count + filteredChannels.count
-    case .unread:
-      return unreadBadgeCount
-    case .favoriteChats:
-      return conversations.filter(\.isFavorite).count
-    case .groups:
-      return channels.count
-    case .directChats:
-      return filteredConversations.count
-    }
-  }
-
-  private func badgeLabel(for filter: ChatFilter) -> String {
-    let count = badgeCount(for: filter)
-    if count > 99 { return "99+" }
-    if filter == .groups && count < 10 { return "0\(count)" }
-    return "\(count)"
-  }
-
   @MainActor
   private func loadChannels(search: String) async {
     let trimmedSearch = search.trimmingCharacters(in: .whitespacesAndNewlines)
@@ -624,91 +593,6 @@ private struct ChannelSummaryRow: View {
         .fill(Color.black.opacity(0.06))
         .frame(height: 1)
         .padding(.leading, 76)
-    }
-  }
-}
-
-private struct ChatListSearchField: View {
-  @Binding var text: String
-
-  var body: some View {
-    NativeSearchBar(text: $text, placeholder: "Search Chats")
-      .frame(height: 52)
-  }
-}
-
-private struct NativeSearchBar: UIViewRepresentable {
-  @Binding var text: String
-  let placeholder: String
-
-  func makeUIView(context: Context) -> UISearchBar {
-    let searchBar = UISearchBar(frame: .zero)
-    searchBar.searchBarStyle = .minimal
-    searchBar.placeholder = placeholder
-    searchBar.delegate = context.coordinator
-    searchBar.autocapitalizationType = .none
-    searchBar.autocorrectionType = .no
-    searchBar.returnKeyType = .search
-    searchBar.tintColor = UIColor(FoundationChatTheme.outgoingBubble)
-    searchBar.setShowsCancelButton(false, animated: false)
-
-    let searchField = searchBar.searchTextField
-    searchField.font = .systemFont(ofSize: 17, weight: .regular)
-    searchField.textColor = .label
-    searchField.backgroundColor = UIColor(red: 0.95, green: 0.95, blue: 0.97, alpha: 1)
-    searchField.layer.cornerRadius = 16
-    searchField.layer.masksToBounds = true
-    searchField.clearButtonMode = .whileEditing
-    searchField.leftView?.tintColor = .label
-    searchField.attributedPlaceholder = NSAttributedString(
-      string: placeholder,
-      attributes: [
-        .foregroundColor: UIColor.placeholderText,
-        .font: UIFont.systemFont(ofSize: 17, weight: .regular)
-      ]
-    )
-
-    return searchBar
-  }
-
-  func updateUIView(_ searchBar: UISearchBar, context: Context) {
-    if searchBar.text != text {
-      searchBar.text = text
-    }
-  }
-
-  func makeCoordinator() -> Coordinator {
-    Coordinator(text: $text)
-  }
-
-  final class Coordinator: NSObject, UISearchBarDelegate {
-    @Binding private var text: String
-
-    init(text: Binding<String>) {
-      _text = text
-    }
-
-    func searchBar(_ searchBar: UISearchBar, textDidChange searchText: String) {
-      text = searchText
-    }
-
-    func searchBarTextDidBeginEditing(_ searchBar: UISearchBar) {
-      searchBar.setShowsCancelButton(true, animated: true)
-    }
-
-    func searchBarSearchButtonClicked(_ searchBar: UISearchBar) {
-      searchBar.resignFirstResponder()
-    }
-
-    func searchBarCancelButtonClicked(_ searchBar: UISearchBar) {
-      text = ""
-      searchBar.text = ""
-      searchBar.setShowsCancelButton(false, animated: true)
-      searchBar.resignFirstResponder()
-    }
-
-    func searchBarTextDidEndEditing(_ searchBar: UISearchBar) {
-      searchBar.setShowsCancelButton(false, animated: true)
     }
   }
 }

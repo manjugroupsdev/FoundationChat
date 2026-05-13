@@ -33,11 +33,10 @@ struct MessageView: View {
   }
 
   private var bubbleColor: Color {
-    isOutgoing ? Color(red: 0.05, green: 0.38, blue: 0.79) : .white
-  }
-
-  private var textColor: Color {
-    isOutgoing ? .white : Color.black.opacity(0.92)
+    if message.isDeleted {
+      return Color.white.opacity(0.88)
+    }
+    return isOutgoing ? Color(red: 0.02, green: 0.42, blue: 0.82) : .white
   }
 
   private var hasTextContent: Bool {
@@ -50,7 +49,7 @@ struct MessageView: View {
   }
 
   private var shouldRenderImageWithoutBubble: Bool {
-    isImageAttachment && !hasTextContent
+    isImageAttachment && !hasTextContent && !message.isDeleted
   }
 
   private var reactions: [MessageReactionInfo] {
@@ -87,20 +86,15 @@ struct MessageView: View {
               MessageContentView(message: message, isOutgoing: isOutgoing)
               MessageAttachementView(message: message, isOutgoing: isOutgoing)
             }
-            .padding(.horizontal, 14)
-            .padding(.top, 10)
-            .padding(.bottom, 12)
+            .padding(.horizontal, message.isDeleted ? 12 : 14)
+            .padding(.vertical, message.isDeleted ? 9 : 11)
             .background(bubbleColor)
-            .clipShape(RoundedRectangle(cornerRadius: 16, style: .continuous))
-            .overlay(alignment: isOutgoing ? .bottomTrailing : .bottomLeading) {
-              BubbleTail(isOutgoing: isOutgoing)
-                .offset(x: isOutgoing ? 8 : -8, y: 2)
-            }
+            .clipShape(RoundedRectangle(cornerRadius: 18, style: .continuous))
             .overlay(
-              RoundedRectangle(cornerRadius: 16, style: .continuous)
-                .stroke(Color.black.opacity(isOutgoing ? 0.04 : 0.06), lineWidth: 1)
+              RoundedRectangle(cornerRadius: 18, style: .continuous)
+                .stroke(Color.black.opacity(message.isDeleted ? 0.08 : (isOutgoing ? 0.03 : 0.06)), lineWidth: 1)
             )
-            .shadow(color: .black.opacity(0.04), radius: 8, y: 2)
+            .shadow(color: .black.opacity(message.isDeleted ? 0.02 : 0.04), radius: 6, y: 2)
           }
 
           if !reactions.isEmpty {
@@ -220,22 +214,9 @@ private struct ReplySnippetView: View {
           .foregroundStyle(isOutgoing ? .white.opacity(0.72) : Color.black.opacity(0.55))
           .lineLimit(2)
       }
-
-      Spacer(minLength: 0)
     }
     .padding(8)
     .background(isOutgoing ? .white.opacity(0.14) : Color.black.opacity(0.04), in: RoundedRectangle(cornerRadius: 8, style: .continuous))
-  }
-}
-
-private struct BubbleTail: View {
-  let isOutgoing: Bool
-
-  var body: some View {
-    RoundedRectangle(cornerRadius: 4, style: .continuous)
-      .fill(isOutgoing ? Color(red: 0.05, green: 0.38, blue: 0.79) : .white)
-      .frame(width: 14, height: 14)
-      .rotationEffect(.degrees(45))
   }
 }
 

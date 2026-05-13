@@ -1345,23 +1345,7 @@ extension ConversationDetailView {
     var ordered: [Message] = []
     for remoteMessage in remoteMessages.sorted(by: { $0.createdAt < $1.createdAt }) {
       if let localMessage = existingByRemoteID[remoteMessage.id] {
-        localMessage.content = remoteMessage.content
-        localMessage.senderStackUserId = remoteMessage.senderStackUserId
-        localMessage.role = remoteMessage.role.appRole
-        localMessage.timestamp = remoteMessage.timestamp
-        localMessage.attachementType = remoteMessage.attachmentType
-        localMessage.attachementFileName = remoteMessage.attachmentFileName
-        localMessage.attachementMimeType = remoteMessage.attachmentMimeType
-        localMessage.attachementTitle = remoteMessage.attachmentTitle
-        localMessage.attachementDescription = remoteMessage.attachmentDescription
-        localMessage.attachementThumbnail = remoteMessage.attachmentThumbnail
-        localMessage.attachementURL = remoteMessage.attachmentUrl
-        localMessage.replyToRemoteMessageID = remoteMessage.parentMessageId
-        localMessage.reactionSummary = encodeReactions(remoteMessage.reactions ?? [])
-        if let parent = parentMessage(for: remoteMessage.parentMessageId) {
-          localMessage.replyPreviewText = replyPreviewText(for: parent)
-          localMessage.replySenderName = replySenderName(for: parent)
-        }
+        apply(remoteMessage, to: localMessage)
         ordered.append(localMessage)
       } else {
         let parent = parentMessage(for: remoteMessage.parentMessageId)
@@ -1382,9 +1366,13 @@ extension ConversationDetailView {
             replyToRemoteMessageID: remoteMessage.parentMessageId,
             replyPreviewText: parent.map { replyPreviewText(for: $0) },
             replySenderName: parent.map { replySenderName(for: $0) },
-            reactionSummary: encodeReactions(remoteMessage.reactions ?? [])
+            reactionSummary: encodeReactions(remoteMessage.reactions ?? []),
+            isDeleted: remoteMessage.isDeleted == true
           )
         )
+        if let localMessage = ordered.last, remoteMessage.isDeleted == true {
+          clearDeletedMessagePayload(localMessage)
+        }
       }
     }
 
@@ -1395,20 +1383,54 @@ extension ConversationDetailView {
   }
 
   private func sync(savedMessage: ConvexChatMessage, into localMessage: Message) {
-    localMessage.remoteMessageID = savedMessage.id
-    localMessage.senderStackUserId = savedMessage.senderStackUserId
-    localMessage.timestamp = savedMessage.timestamp
-    localMessage.content = savedMessage.content
-    localMessage.role = savedMessage.role.appRole
-    localMessage.attachementType = savedMessage.attachmentType
-    localMessage.attachementFileName = savedMessage.attachmentFileName
-    localMessage.attachementMimeType = savedMessage.attachmentMimeType
-    localMessage.attachementTitle = savedMessage.attachmentTitle
-    localMessage.attachementDescription = savedMessage.attachmentDescription
-    localMessage.attachementThumbnail = savedMessage.attachmentThumbnail
-    localMessage.attachementURL = savedMessage.attachmentUrl
-    localMessage.replyToRemoteMessageID = savedMessage.parentMessageId ?? localMessage.replyToRemoteMessageID
-    localMessage.reactionSummary = encodeReactions(savedMessage.reactions ?? [])
+    apply(savedMessage, to: localMessage)
+  }
+
+  private func apply(_ remoteMessage: ConvexChatMessage, to localMessage: Message) {
+    let isDeleted = remoteMessage.isDeleted == true
+    localMessage.remoteMessageID = remoteMessage.id
+    localMessage.senderStackUserId = remoteMessage.senderStackUserId
+    localMessage.role = remoteMessage.role.appRole
+    localMessage.timestamp = remoteMessage.timestamp
+    localMessage.isDeleted = isDeleted
+
+    if isDeleted {
+      clearDeletedMessagePayload(localMessage)
+      return
+    }
+
+    localMessage.content = remoteMessage.content
+    localMessage.attachementType = remoteMessage.attachmentType
+    localMessage.attachementFileName = remoteMessage.attachmentFileName
+    localMessage.attachementMimeType = remoteMessage.attachmentMimeType
+    localMessage.attachementTitle = remoteMessage.attachmentTitle
+    localMessage.attachementDescription = remoteMessage.attachmentDescription
+    localMessage.attachementThumbnail = remoteMessage.attachmentThumbnail
+    localMessage.attachementURL = remoteMessage.attachmentUrl
+    localMessage.replyToRemoteMessageID = remoteMessage.parentMessageId
+    localMessage.reactionSummary = encodeReactions(remoteMessage.reactions ?? [])
+    if let parent = parentMessage(for: remoteMessage.parentMessageId) {
+      localMessage.replyPreviewText = replyPreviewText(for: parent)
+      localMessage.replySenderName = replySenderName(for: parent)
+    } else {
+      localMessage.replyPreviewText = nil
+      localMessage.replySenderName = nil
+    }
+  }
+
+  private func clearDeletedMessagePayload(_ message: Message) {
+    message.content = "This message was deleted"
+    message.attachementType = nil
+    message.attachementFileName = nil
+    message.attachementMimeType = nil
+    message.attachementTitle = nil
+    message.attachementDescription = nil
+    message.attachementThumbnail = nil
+    message.attachementURL = nil
+    message.replyToRemoteMessageID = nil
+    message.replyPreviewText = nil
+    message.replySenderName = nil
+    message.reactionSummary = nil
   }
 
   private func isOutgoingMessage(_ message: Message) -> Bool {

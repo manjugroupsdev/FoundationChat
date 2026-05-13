@@ -45,7 +45,9 @@ struct MessageAttachementView: View {
   }
 
   var body: some View {
-    if isImageAttachment, let mediaURL {
+    if message.isDeleted {
+      EmptyView()
+    } else if isImageAttachment, let mediaURL {
       AsyncImage(url: mediaURL) { state in
         if let image = state.image {
           image
@@ -87,7 +89,6 @@ struct MessageAttachementView: View {
           .foregroundStyle(isOutgoing ? .white : .primary)
           .font(.subheadline)
           .lineLimit(2)
-        Spacer(minLength: 0)
         if let attachmentURL {
           ShareLink(item: attachmentURL) {
             Image(systemName: "square.and.arrow.up")
@@ -152,12 +153,9 @@ private struct AudioAttachmentPlaybackView: View {
         }
         .frame(height: 22)
       }
-
-      Spacer(minLength: 0)
     }
     .padding(.horizontal, 10)
     .padding(.vertical, 9)
-    .frame(minWidth: 230)
     .background(isOutgoing ? .white.opacity(0.18) : Color.black.opacity(0.04))
     .clipShape(RoundedRectangle(cornerRadius: 14, style: .continuous))
     .onDisappear {
