@@ -793,19 +793,19 @@ struct ProfileAvatarView: View {
 
   var body: some View {
     Text(initials)
-      .font(.system(size: 14, weight: .semibold))
+      .font(.caption.weight(.bold))
       .foregroundStyle(.white)
-      .frame(width: 44, height: 44)
+      .frame(width: 32, height: 32)
       .background(
         LinearGradient(
           colors: [
-            Color(red: 0.77, green: 0.59, blue: 0.15),
-            Color(red: 0.67, green: 0.45, blue: 0.09)
+            Color(red: 0.25, green: 0.07, blue: 0.30),
+            Color(red: 0.48, green: 0.18, blue: 0.50)
           ],
           startPoint: .topLeading,
           endPoint: .bottomTrailing
         ),
-        in: RoundedRectangle(cornerRadius: 18, style: .continuous)
+        in: Circle()
       )
   }
 }
