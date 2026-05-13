@@ -1,4 +1,5 @@
 import AVFoundation
+import Combine
 import SwiftUI
 import UIKit
 
@@ -113,21 +114,29 @@ private struct AudioAttachmentPlaybackView: View {
   let title: String
   let isOutgoing: Bool
 
-  @State private var player: AVPlayer?
-  @State private var isPlaying = false
+  @StateObject private var playbackController = VoicePlaybackController()
 
   var body: some View {
     HStack(spacing: 10) {
       Button {
-        togglePlayback()
+        playbackController.toggle(url: url)
       } label: {
-        Image(systemName: isPlaying ? "pause.fill" : "play.fill")
-          .font(.system(size: 14, weight: .bold))
+        Group {
+          if playbackController.isLoading {
+            ProgressView()
+              .controlSize(.small)
+              .tint(isOutgoing ? Color(red: 0.05, green: 0.38, blue: 0.79) : .white)
+          } else {
+            Image(systemName: playbackController.isPlaying ? "pause.fill" : "play.fill")
+              .font(.system(size: 14, weight: .bold))
+          }
+        }
           .foregroundStyle(isOutgoing ? Color(red: 0.05, green: 0.38, blue: 0.79) : .white)
           .frame(width: 34, height: 34)
           .background(isOutgoing ? .white : Color(red: 0.05, green: 0.38, blue: 0.79), in: Circle())
       }
       .buttonStyle(.plain)
+      .disabled(playbackController.isLoading)
 
       VStack(alignment: .leading, spacing: 4) {
         Text("Voice message")
@@ -152,30 +161,104 @@ private struct AudioAttachmentPlaybackView: View {
     .background(isOutgoing ? .white.opacity(0.18) : Color.black.opacity(0.04))
     .clipShape(RoundedRectangle(cornerRadius: 14, style: .continuous))
     .onDisappear {
-      player?.pause()
-      isPlaying = false
+      playbackController.stop()
     }
   }
+}
 
-  private func togglePlayback() {
+@MainActor
+private final class VoicePlaybackController: NSObject, ObservableObject, AVAudioPlayerDelegate {
+  @Published var isPlaying = false
+  @Published var isLoading = false
+
+  private var player: AVAudioPlayer?
+  private var cachedURL: URL?
+  private var playbackTask: Task<Void, Never>?
+
+  func toggle(url: URL) {
     if isPlaying {
       player?.pause()
       isPlaying = false
       return
     }
 
-    let currentPlayer = player ?? AVPlayer(url: url)
-    player = currentPlayer
-    NotificationCenter.default.addObserver(
-      forName: .AVPlayerItemDidPlayToEndTime,
-      object: currentPlayer.currentItem,
-      queue: .main
-    ) { _ in
-      currentPlayer.seek(to: .zero)
+    if let player {
+      player.play()
+      isPlaying = true
+      return
+    }
+
+    playbackTask?.cancel()
+    playbackTask = Task { [weak self] in
+      await self?.prepareAndPlay(url: url)
+    }
+  }
+
+  func stop() {
+    playbackTask?.cancel()
+    player?.stop()
+    player = nil
+    isPlaying = false
+    isLoading = false
+  }
+
+  private func prepareAndPlay(url: URL) async {
+    isLoading = true
+    defer { isLoading = false }
+
+    do {
+      let localURL = try await localPlayableURL(for: url)
+      guard !Task.isCancelled else { return }
+
+      let session = AVAudioSession.sharedInstance()
+      try session.setCategory(.playback, mode: .spokenAudio, options: [.defaultToSpeaker])
+      try session.setActive(true)
+
+      let audioPlayer = try AVAudioPlayer(contentsOf: localURL)
+      audioPlayer.delegate = self
+      audioPlayer.prepareToPlay()
+      player = audioPlayer
+      audioPlayer.play()
+      isPlaying = true
+    } catch {
       isPlaying = false
     }
-    currentPlayer.play()
-    isPlaying = true
+  }
+
+  private func localPlayableURL(for url: URL) async throws -> URL {
+    if url.isFileURL {
+      return url
+    }
+
+    if let cachedURL, FileManager.default.fileExists(atPath: cachedURL.path) {
+      return cachedURL
+    }
+
+    let (downloadedURL, _) = try await URLSession.shared.download(from: url)
+    let fileExtension = url.pathExtension.isEmpty ? "m4a" : url.pathExtension
+    let destinationURL = FileManager.default.temporaryDirectory
+      .appendingPathComponent("VoicePlayback-\(UUID().uuidString).\(fileExtension)")
+
+    if FileManager.default.fileExists(atPath: destinationURL.path) {
+      try FileManager.default.removeItem(at: destinationURL)
+    }
+    try FileManager.default.moveItem(at: downloadedURL, to: destinationURL)
+    cachedURL = destinationURL
+    return destinationURL
+  }
+
+  nonisolated func audioPlayerDidFinishPlaying(_ player: AVAudioPlayer, successfully flag: Bool) {
+    Task { @MainActor in
+      player.currentTime = 0
+      isPlaying = false
+    }
+  }
+
+  nonisolated func audioPlayerDecodeErrorDidOccur(_ player: AVAudioPlayer, error: Error?) {
+    Task { @MainActor in
+      isPlaying = false
+      self.player = nil
+    }
   }
 }
 
