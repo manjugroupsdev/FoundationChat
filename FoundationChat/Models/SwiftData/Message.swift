@@ -20,6 +20,7 @@ final class Message {
   var replyToRemoteMessageID: String?
   var replyPreviewText: String?
   var replySenderName: String?
+  var reactionSummary: String?
 
   init(
     content: String, role: Role, timestamp: Date,
@@ -34,7 +35,8 @@ final class Message {
     attachementURL: String? = nil,
     replyToRemoteMessageID: String? = nil,
     replyPreviewText: String? = nil,
-    replySenderName: String? = nil
+    replySenderName: String? = nil,
+    reactionSummary: String? = nil
   ) {
     self.remoteMessageID = remoteMessageID
     self.senderStackUserId = senderStackUserId
@@ -51,5 +53,6 @@ final class Message {
     self.replyToRemoteMessageID = replyToRemoteMessageID
     self.replyPreviewText = replyPreviewText
     self.replySenderName = replySenderName
+    self.reactionSummary = reactionSummary
   }
 }

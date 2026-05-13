@@ -292,6 +292,7 @@
 				INFOPLIST_KEY_NSCameraUsageDescription = "M-Chat needs camera access to take attendance selfie photos.";
 				INFOPLIST_KEY_NSLocationAlwaysAndWhenInUseUsageDescription = "M-Chat uses your location to share your position with your team.";
 				INFOPLIST_KEY_NSLocationWhenInUseUsageDescription = "M-Chat uses your location to share your position with your team.";
+				INFOPLIST_KEY_NSMicrophoneUsageDescription = "M-Chat needs microphone access to record and send voice messages.";
 				"INFOPLIST_KEY_UIApplicationSceneManifest_Generation[sdk=iphoneos*]" = YES;
 				"INFOPLIST_KEY_UIApplicationSceneManifest_Generation[sdk=iphonesimulator*]" = YES;
 				"INFOPLIST_KEY_UIApplicationSupportsIndirectInputEvents[sdk=iphoneos*]" = YES;
@@ -358,6 +359,7 @@
 				INFOPLIST_KEY_NSCameraUsageDescription = "M-Chat needs camera access to take attendance selfie photos.";
 				INFOPLIST_KEY_NSLocationAlwaysAndWhenInUseUsageDescription = "M-Chat uses your location to share your position with your team.";
 				INFOPLIST_KEY_NSLocationWhenInUseUsageDescription = "M-Chat uses your location to share your position with your team.";
+				INFOPLIST_KEY_NSMicrophoneUsageDescription = "M-Chat needs microphone access to record and send voice messages.";
 				"INFOPLIST_KEY_UIApplicationSceneManifest_Generation[sdk=iphoneos*]" = YES;
 				"INFOPLIST_KEY_UIApplicationSceneManifest_Generation[sdk=iphonesimulator*]" = YES;
 				"INFOPLIST_KEY_UIApplicationSupportsIndirectInputEvents[sdk=iphoneos*]" = YES;

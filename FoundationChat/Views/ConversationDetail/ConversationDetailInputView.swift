@@ -5,7 +5,10 @@ struct ConversationDetailInputView: View {
   @Binding var isGenerating: Bool
   var isInputFocused: FocusState<Bool>.Binding
 
+  let isVoiceRecording: Bool
   var onAddAttachment: () -> Void
+  var onVoiceTap: () -> Void
+  var onCancelVoiceRecording: () -> Void
   var onSend: () async throws -> Void
 
   private var canSend: Bool {
@@ -22,17 +25,37 @@ struct ConversationDetailInputView: View {
           .background(Color(red: 0.89, green: 0.90, blue: 0.92), in: Circle())
       }
       .buttonStyle(.plain)
+      .disabled(isVoiceRecording)
 
       HStack(spacing: 10) {
-        TextField("Message ...", text: $newMessage, axis: .vertical)
-          .font(.system(size: 16, weight: .regular))
-          .foregroundStyle(Color.black.opacity(0.85))
-          .lineLimit(1...4)
-          .focused(isInputFocused)
+        if isVoiceRecording {
+          Image(systemName: "waveform")
+            .font(.system(size: 17, weight: .semibold))
+            .foregroundStyle(Color.red)
 
-        Image(systemName: "face.smiling")
-          .font(.system(size: 18, weight: .regular))
-          .foregroundStyle(Color.black.opacity(0.45))
+          Text("Recording voice...")
+            .font(.system(size: 16, weight: .medium))
+            .foregroundStyle(Color.black.opacity(0.78))
+
+          Spacer(minLength: 0)
+
+          Button(action: onCancelVoiceRecording) {
+            Image(systemName: "xmark.circle.fill")
+              .font(.system(size: 18, weight: .semibold))
+              .foregroundStyle(Color.black.opacity(0.35))
+          }
+          .buttonStyle(.plain)
+        } else {
+          TextField("Message ...", text: $newMessage, axis: .vertical)
+            .font(.system(size: 16, weight: .regular))
+            .foregroundStyle(Color.black.opacity(0.85))
+            .lineLimit(1...4)
+            .focused(isInputFocused)
+
+          Image(systemName: "face.smiling")
+            .font(.system(size: 18, weight: .regular))
+            .foregroundStyle(Color.black.opacity(0.45))
+        }
       }
       .padding(.leading, 14)
       .padding(.trailing, 10)
@@ -45,21 +68,24 @@ struct ConversationDetailInputView: View {
       .shadow(color: .black.opacity(0.05), radius: 10, y: 4)
 
       Button {
-        guard canSend else { return }
-        Task { try? await onSend() }
+        if canSend {
+          Task { try? await onSend() }
+        } else {
+          onVoiceTap()
+        }
       } label: {
         Group {
           if isGenerating {
             ProgressView()
               .tint(.white)
           } else {
-            Image(systemName: canSend ? "paperplane.fill" : "mic.fill")
+            Image(systemName: canSend || isVoiceRecording ? "paperplane.fill" : "mic.fill")
               .font(.system(size: 16, weight: .semibold))
           }
         }
         .foregroundStyle(.white)
         .frame(width: 36, height: 36)
-        .background(Color(red: 0.05, green: 0.38, blue: 0.79), in: Circle())
+        .background(isVoiceRecording ? Color.green : Color(red: 0.05, green: 0.38, blue: 0.79), in: Circle())
       }
       .buttonStyle(.plain)
       .disabled(isGenerating)
@@ -86,7 +112,10 @@ struct ConversationDetailInputView: View {
       newMessage: $text,
       isGenerating: .constant(false),
       isInputFocused: $isInputFocused,
+      isVoiceRecording: false,
       onAddAttachment: {},
+      onVoiceTap: {},
+      onCancelVoiceRecording: {},
       onSend: {}
     )
   }

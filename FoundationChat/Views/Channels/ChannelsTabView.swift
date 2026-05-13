@@ -270,9 +270,14 @@ struct ChannelChatView: View {
         newMessage: $newMessage,
         isGenerating: $isSendingMessage,
         isInputFocused: $isInputFocused,
+        isVoiceRecording: false,
         onAddAttachment: {
           errorMessage = "Channel attachments are coming soon."
         },
+        onVoiceTap: {
+          errorMessage = "Channel voice messages are coming soon."
+        },
+        onCancelVoiceRecording: {},
         onSend: {
           await sendMessage()
         }

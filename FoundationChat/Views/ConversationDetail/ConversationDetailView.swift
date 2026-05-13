@@ -1,4 +1,5 @@
 import Combine
+import AVFoundation
 import PhotosUI
 import SwiftData
 import SwiftUI
@@ -27,6 +28,11 @@ struct ConversationDetailView: View {
   @State private var isFileImporterPresented = false
   @State private var activeDetailSheet: ActiveDetailSheet?
   @State private var replyTarget: Message?
+  @State private var pendingImageAttachment: PendingImageAttachment?
+  @State private var reactionTarget: Message?
+  @State private var voiceRecorder: AVAudioRecorder?
+  @State private var voiceRecordingURL: URL?
+  @State private var isVoiceRecording = false
   @FocusState var isInputFocused: Bool
 
   enum ActiveDetailSheet: Identifiable {
@@ -99,6 +105,12 @@ struct ConversationDetailView: View {
                 onReply: {
                   replyTarget = message
                   isInputFocused = true
+                },
+                onShowReactions: {
+                  guard message.remoteMessageID != nil else { return }
+                  withAnimation(.spring(response: 0.28, dampingFraction: 0.86)) {
+                    reactionTarget = message
+                  }
                 }
               )
               .id(message.id)
@@ -109,6 +121,29 @@ struct ConversationDetailView: View {
           .padding(.bottom, 18)
         }
         .scrollIndicators(.hidden)
+      }
+
+      if let reactionTarget {
+        MessageReactionOverlay(
+          message: reactionTarget,
+          isOutgoing: isOutgoingMessage(reactionTarget),
+          onDismiss: {
+            withAnimation(.easeOut(duration: 0.18)) {
+              self.reactionTarget = nil
+            }
+          },
+          onReply: {
+            replyTarget = reactionTarget
+            isInputFocused = true
+          },
+          onSelect: { emoji in
+            Task {
+              await toggleReaction(emoji, for: reactionTarget)
+            }
+          }
+        )
+        .transition(.opacity.combined(with: .scale(scale: 0.96)))
+        .zIndex(20)
       }
     }
     .onAppear {
@@ -149,10 +184,23 @@ struct ConversationDetailView: View {
           newMessage: $newMessage,
           isGenerating: $isGenerating,
           isInputFocused: $isInputFocused,
+          isVoiceRecording: isVoiceRecording,
           onAddAttachment: {
             guard !isGenerating else { return }
             isInputFocused = false
             isAttachmentOptionsPresented = true
+          },
+          onVoiceTap: {
+            Task {
+              if isVoiceRecording {
+                await finishVoiceRecordingAndSend()
+              } else {
+                await startVoiceRecording()
+              }
+            }
+          },
+          onCancelVoiceRecording: {
+            cancelVoiceRecording()
           },
           onSend: {
             isGenerating = true
@@ -192,12 +240,34 @@ struct ConversationDetailView: View {
           isAttachmentOptionsPresented = false
         }
       )
-      .presentationDetents([.fraction(0.5), .large])
+      .presentationDetents([.height(390), .fraction(0.7)])
       .presentationDragIndicator(.visible)
+      .presentationBackground(.clear)
     }
     .sheet(isPresented: $isCameraPresented) {
       ChatCameraPicker(image: $capturedCameraImage)
         .ignoresSafeArea()
+    }
+    .fullScreenCover(item: $pendingImageAttachment) { attachment in
+      ImageAttachmentPreviewView(
+        attachment: attachment,
+        recipientName: conversationTitle,
+        onCancel: {
+          pendingImageAttachment = nil
+        },
+        onSend: { caption in
+          pendingImageAttachment = nil
+          await sendAttachment(
+            data: attachment.data,
+            fileName: attachment.fileName,
+            mimeType: attachment.mimeType,
+            attachmentType: attachment.attachmentType,
+            attachmentTitle: nil,
+            attachmentDescription: nil,
+            caption: caption
+          )
+        }
+      )
     }
     .photosPicker(
       isPresented: $isPhotoPickerPresented,
@@ -390,41 +460,63 @@ private struct AttachmentOptionsSheet: View {
   let onFiles: () -> Void
   let onDismiss: () -> Void
 
+  private let columns = Array(repeating: GridItem(.flexible(), spacing: 12), count: 4)
+
   var body: some View {
-    VStack(alignment: .leading, spacing: 0) {
-      Button(action: onFiles) {
-        AttachmentOptionRow(
-          icon: "doc",
-          tint: Color(red: 0.04, green: 0.42, blue: 1.0),
-          title: "Attach a file"
-        )
-      }
-      .buttonStyle(.plain)
+    VStack(spacing: 16) {
+      Capsule()
+        .fill(Color.black.opacity(0.18))
+        .frame(width: 44, height: 5)
+        .padding(.top, 10)
 
-      Button(action: onPhotos) {
-          AttachmentOptionRow(
-            icon: "photo",
-            tint: Color(red: 0.67, green: 0.23, blue: 1.0),
-            title: "Photos or videos"
-          )
+      LazyVGrid(columns: columns, spacing: 20) {
+        AttachmentDrawerItem(icon: "photo.on.rectangle.angled", tint: Color(red: 0.20, green: 0.56, blue: 1.0), title: "Photos", action: onPhotos)
+        AttachmentDrawerItem(icon: "camera.fill", tint: .white, title: "Camera", action: onCamera)
+        AttachmentDrawerItem(icon: "mappin.circle.fill", tint: Color(red: 0.04, green: 0.78, blue: 0.55), title: "Location", action: onDismiss)
+        AttachmentDrawerItem(icon: "person.crop.circle.fill", tint: Color.white.opacity(0.9), title: "Contact", action: onDismiss)
+        AttachmentDrawerItem(icon: "doc.fill", tint: Color(red: 0.04, green: 0.64, blue: 1.0), title: "Document", action: onFiles)
+        AttachmentDrawerItem(icon: "list.bullet.rectangle.fill", tint: Color(red: 1.0, green: 0.72, blue: 0.22), title: "Poll", action: onDismiss)
+        AttachmentDrawerItem(icon: "calendar", tint: Color(red: 1.0, green: 0.02, blue: 0.30), title: "Event", action: onDismiss)
+        AttachmentDrawerItem(icon: "photo.badge.sparkles", tint: Color(red: 0.20, green: 0.56, blue: 1.0), title: "AI images", action: onDismiss)
       }
-      .buttonStyle(.plain)
+      .padding(.horizontal, 20)
 
-      Button(action: onCamera) {
-        AttachmentOptionRow(
-          icon: "camera",
-          tint: Color(red: 0.0, green: 0.72, blue: 0.47),
-          title: "Camera"
-        )
-      }
-      .buttonStyle(.plain)
+      Spacer(minLength: 0)
     }
-    .padding(.vertical, 12)
-    .frame(maxWidth: .infinity, alignment: .leading)
-    .background(Color.white, in: RoundedRectangle(cornerRadius: 28, style: .continuous))
-    .shadow(color: .black.opacity(0.24), radius: 24, y: 8)
-    .padding(.horizontal, 24)
-    .padding(.bottom, 16)
+    .frame(maxWidth: .infinity, maxHeight: .infinity)
+    .background(Color.clear)
+    .padding(.top, 10)
+  }
+}
+
+private struct AttachmentDrawerItem: View {
+  let icon: String
+  let tint: Color
+  let title: String
+  let action: () -> Void
+
+  var body: some View {
+    Button(action: action) {
+      VStack(spacing: 8) {
+        Image(systemName: icon)
+          .font(.system(size: 27, weight: .semibold))
+          .foregroundStyle(tint)
+          .frame(width: 62, height: 42)
+          .background(.ultraThinMaterial, in: Capsule())
+          .overlay(
+            Capsule()
+              .stroke(Color.white.opacity(0.16), lineWidth: 0.5)
+          )
+
+        Text(title)
+          .font(.system(size: 13, weight: .medium))
+          .foregroundStyle(Color.black.opacity(0.82))
+          .lineLimit(1)
+          .minimumScaleFactor(0.75)
+      }
+      .frame(maxWidth: .infinity)
+    }
+    .buttonStyle(.plain)
   }
 }
 
@@ -507,6 +599,283 @@ private struct ReplyComposerPreview: View {
   }
 }
 
+private struct PendingImageAttachment: Identifiable {
+  let id = UUID()
+  let data: Data
+  let fileName: String
+  let mimeType: String
+  let attachmentType: String
+  let image: UIImage
+}
+
+private struct ImageAttachmentPreviewView: View {
+  let attachment: PendingImageAttachment
+  let recipientName: String
+  let onCancel: () -> Void
+  let onSend: (String) async -> Void
+
+  @State private var caption = ""
+  @State private var isSending = false
+  @FocusState private var isCaptionFocused: Bool
+
+  var body: some View {
+    ZStack {
+      Color.black.ignoresSafeArea()
+
+      VStack(spacing: 0) {
+        previewHeader
+
+        GeometryReader { proxy in
+          Image(uiImage: attachment.image)
+            .resizable()
+            .scaledToFit()
+            .frame(width: proxy.size.width, height: proxy.size.height)
+            .clipped()
+        }
+
+        previewComposer
+      }
+    }
+    .preferredColorScheme(.dark)
+  }
+
+  private var previewHeader: some View {
+    HStack(spacing: 12) {
+      Button(action: onCancel) {
+        Image(systemName: "xmark")
+          .font(.system(size: 17, weight: .semibold))
+          .foregroundStyle(.white)
+          .frame(width: 44, height: 44)
+          .background(Color.white.opacity(0.16), in: Circle())
+      }
+      .buttonStyle(.plain)
+      .disabled(isSending)
+
+      VStack(alignment: .leading, spacing: 2) {
+        Text(recipientName)
+          .font(.system(size: 16, weight: .semibold))
+          .foregroundStyle(.white)
+          .lineLimit(1)
+
+        Text("Photo")
+          .font(.system(size: 12, weight: .regular))
+          .foregroundStyle(.white.opacity(0.68))
+      }
+
+      Spacer()
+    }
+    .padding(.horizontal, 16)
+    .padding(.top, 8)
+    .padding(.bottom, 10)
+    .background(.ultraThinMaterial.opacity(0.35))
+  }
+
+  private var previewComposer: some View {
+    HStack(spacing: 12) {
+      HStack(spacing: 10) {
+        Image(systemName: "photo")
+          .font(.system(size: 18, weight: .regular))
+          .foregroundStyle(.white.opacity(0.86))
+
+        TextField("Add a caption...", text: $caption, axis: .vertical)
+          .font(.system(size: 16, weight: .regular))
+          .foregroundStyle(.white)
+          .tint(.white)
+          .lineLimit(1...4)
+          .focused($isCaptionFocused)
+      }
+      .padding(.horizontal, 16)
+      .frame(minHeight: 52)
+      .background(Color.white.opacity(0.12), in: Capsule())
+
+      Button {
+        guard !isSending else { return }
+        isSending = true
+        Task {
+          await onSend(caption.trimmingCharacters(in: .whitespacesAndNewlines))
+          isSending = false
+        }
+      } label: {
+        Group {
+          if isSending {
+            ProgressView()
+              .tint(.white)
+          } else {
+            Image(systemName: "paperplane.fill")
+              .font(.system(size: 19, weight: .semibold))
+          }
+        }
+        .foregroundStyle(.white)
+        .frame(width: 54, height: 54)
+        .background(Color(red: 0.05, green: 0.70, blue: 0.32), in: Circle())
+      }
+      .buttonStyle(.plain)
+      .disabled(isSending)
+    }
+    .padding(.horizontal, 16)
+    .padding(.top, 12)
+    .padding(.bottom, 18)
+    .background(.ultraThinMaterial.opacity(0.45))
+  }
+}
+
+private struct MessageReactionOverlay: View {
+  let message: Message
+  let isOutgoing: Bool
+  let onDismiss: () -> Void
+  let onReply: () -> Void
+  let onSelect: (String) -> Void
+
+  private let quickReactions = ["👍", "❤️", "😂", "😮", "😢", "🙏", "😳"]
+
+  var body: some View {
+    ZStack {
+      Color.black.opacity(0.28)
+        .ignoresSafeArea()
+        .onTapGesture(perform: onDismiss)
+
+      VStack(spacing: 12) {
+        HStack(spacing: 6) {
+          ForEach(quickReactions, id: \.self) { emoji in
+            Button {
+              onSelect(emoji)
+              onDismiss()
+            } label: {
+              Text(emoji)
+                .font(.system(size: 25))
+                .frame(width: 34, height: 38)
+            }
+            .buttonStyle(.plain)
+          }
+
+          Button {
+            onDismiss()
+          } label: {
+            Image(systemName: "plus")
+              .font(.system(size: 18, weight: .semibold))
+              .foregroundStyle(Color.black.opacity(0.62))
+              .frame(width: 36, height: 36)
+              .background(Color.black.opacity(0.07), in: Circle())
+          }
+          .buttonStyle(.plain)
+        }
+        .padding(.horizontal, 10)
+        .padding(.vertical, 7)
+        .frame(maxWidth: 342)
+        .background(.regularMaterial, in: Capsule())
+        .shadow(color: .black.opacity(0.14), radius: 18, y: 8)
+
+        ReactionPreviewBubble(message: message, isOutgoing: isOutgoing)
+
+        ReactionActionMenu(
+          message: message,
+          onReply: {
+            onReply()
+            onDismiss()
+          },
+          onCopy: {
+            UIPasteboard.general.string = message.content
+            onDismiss()
+          },
+          onDismiss: onDismiss
+        )
+      }
+      .padding(.horizontal, 16)
+      .frame(maxWidth: .infinity)
+    }
+  }
+}
+
+private struct ReactionActionMenu: View {
+  let message: Message
+  let onReply: () -> Void
+  let onCopy: () -> Void
+  let onDismiss: () -> Void
+
+  var body: some View {
+    VStack(spacing: 0) {
+      ReactionActionRow(icon: "arrowshape.turn.up.left", title: "Reply", tint: .white, action: onReply)
+      ReactionActionRow(icon: "arrowshape.turn.up.right", title: "Forward", tint: .white, action: onDismiss)
+      ReactionActionRow(icon: "doc.on.doc", title: "Copy", tint: .white, action: onCopy)
+        .disabled(message.content.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty)
+        .opacity(message.content.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty ? 0.45 : 1)
+      ReactionActionRow(icon: "info.circle", title: "Info", tint: .white, action: onDismiss)
+      ReactionActionRow(icon: "star", title: "Star", tint: .white, action: onDismiss)
+      ReactionActionRow(icon: "trash", title: "Delete", tint: Color(red: 1.0, green: 0.36, blue: 0.45), action: onDismiss)
+
+      Rectangle()
+        .fill(Color.white.opacity(0.12))
+        .frame(height: 1)
+        .padding(.vertical, 8)
+
+      ReactionActionRow(icon: "ellipsis.circle", title: "More...", tint: .white, action: onDismiss)
+    }
+    .padding(.horizontal, 26)
+    .padding(.vertical, 18)
+    .frame(maxWidth: 290)
+    .background(Color.black.opacity(0.66), in: RoundedRectangle(cornerRadius: 28, style: .continuous))
+    .background(.ultraThinMaterial, in: RoundedRectangle(cornerRadius: 28, style: .continuous))
+    .shadow(color: .black.opacity(0.2), radius: 24, y: 12)
+  }
+}
+
+private struct ReactionActionRow: View {
+  let icon: String
+  let title: String
+  let tint: Color
+  let action: () -> Void
+
+  var body: some View {
+    Button(action: action) {
+      HStack(spacing: 18) {
+        Image(systemName: icon)
+          .font(.system(size: 18, weight: .regular))
+          .frame(width: 24)
+
+        Text(title)
+          .font(.system(size: 18, weight: .regular))
+
+        Spacer(minLength: 0)
+      }
+      .foregroundStyle(tint)
+      .frame(height: 44)
+    }
+    .buttonStyle(.plain)
+  }
+}
+
+private struct ReactionPreviewBubble: View {
+  let message: Message
+  let isOutgoing: Bool
+
+  private var previewText: String {
+    let text = message.content.trimmingCharacters(in: .whitespacesAndNewlines)
+    if !text.isEmpty { return text }
+    if message.attachementMimeType?.hasPrefix("image/") == true || message.attachementType == "image" {
+      return "Photo"
+    }
+    if let fileName = message.attachementFileName, !fileName.isEmpty {
+      return fileName
+    }
+    return "Message"
+  }
+
+  var body: some View {
+    Text(previewText)
+      .font(.system(size: 15, weight: .regular))
+      .foregroundStyle(isOutgoing ? .white : Color.black.opacity(0.9))
+      .lineLimit(4)
+      .padding(.horizontal, 14)
+      .padding(.vertical, 10)
+      .frame(maxWidth: 260, alignment: .leading)
+      .background(isOutgoing ? Color(red: 0.05, green: 0.38, blue: 0.79) : .white)
+      .clipShape(RoundedRectangle(cornerRadius: 16, style: .continuous))
+      .shadow(color: .black.opacity(0.12), radius: 12, y: 6)
+      .frame(maxWidth: .infinity, alignment: isOutgoing ? .trailing : .leading)
+      .padding(.horizontal, 28)
+  }
+}
+
 extension ConversationDetailView {
   @MainActor
   private func handleCapturedCameraImage(_ image: UIImage) async {
@@ -525,13 +894,12 @@ extension ConversationDetailView {
     }
 
     let fileName = "Camera-\(Int(Date().timeIntervalSince1970)).jpg"
-    await sendAttachment(
+    pendingImageAttachment = PendingImageAttachment(
       data: jpegData,
       fileName: fileName,
       mimeType: "image/jpeg",
       attachmentType: "image",
-      attachmentTitle: nil,
-      attachmentDescription: nil
+      image: image
     )
   }
 
@@ -546,6 +914,18 @@ extension ConversationDetailView {
       let fileExtension = contentType?.preferredFilenameExtension ?? (isVideo ? "mp4" : "jpg")
       let fileNamePrefix = isVideo ? "Video" : "Image"
       let fileName = "\(fileNamePrefix)-\(Int(Date().timeIntervalSince1970)).\(fileExtension)"
+
+      if !isVideo, let image = UIImage(data: mediaData) {
+        pendingImageAttachment = PendingImageAttachment(
+          data: mediaData,
+          fileName: fileName,
+          mimeType: mimeType,
+          attachmentType: attachmentType,
+          image: image
+        )
+        selectedPhotoItem = nil
+        return
+      }
 
       await sendAttachment(
         data: mediaData,
@@ -595,6 +975,17 @@ extension ConversationDetailView {
         attachmentType = "file"
       }
 
+      if attachmentType == "image", let image = UIImage(data: fileData) {
+        pendingImageAttachment = PendingImageAttachment(
+          data: fileData,
+          fileName: fileURL.lastPathComponent,
+          mimeType: mimeType,
+          attachmentType: attachmentType,
+          image: image
+        )
+        return
+      }
+
       await sendAttachment(
         data: fileData,
         fileName: fileURL.lastPathComponent,
@@ -616,13 +1007,116 @@ extension ConversationDetailView {
   }
 
   @MainActor
+  private func startVoiceRecording() async {
+    guard !isVoiceRecording else { return }
+
+    let granted = await requestMicrophonePermission()
+    guard granted else {
+      conversation.messages.append(
+        Message(
+          content: "Microphone permission is required to record voice messages.",
+          role: .system,
+          timestamp: Date()
+        )
+      )
+      try? modelContext.save()
+      return
+    }
+
+    do {
+      let session = AVAudioSession.sharedInstance()
+      try session.setCategory(.playAndRecord, mode: .spokenAudio, options: [.defaultToSpeaker])
+      try session.setActive(true)
+
+      let url = FileManager.default.temporaryDirectory
+        .appendingPathComponent("Voice-\(Int(Date().timeIntervalSince1970)).m4a")
+      let settings: [String: Any] = [
+        AVFormatIDKey: Int(kAudioFormatMPEG4AAC),
+        AVSampleRateKey: 44_100,
+        AVNumberOfChannelsKey: 1,
+        AVEncoderAudioQualityKey: AVAudioQuality.high.rawValue
+      ]
+      let recorder = try AVAudioRecorder(url: url, settings: settings)
+      recorder.record()
+      voiceRecorder = recorder
+      voiceRecordingURL = url
+      isVoiceRecording = true
+      isInputFocused = false
+    } catch {
+      conversation.messages.append(
+        Message(
+          content: "Failed to start voice recording: \(error.localizedDescription)",
+          role: .system,
+          timestamp: Date()
+        )
+      )
+      try? modelContext.save()
+    }
+  }
+
+  @MainActor
+  private func finishVoiceRecordingAndSend() async {
+    guard isVoiceRecording, let url = voiceRecordingURL else { return }
+    voiceRecorder?.stop()
+    voiceRecorder = nil
+    voiceRecordingURL = nil
+    isVoiceRecording = false
+    try? AVAudioSession.sharedInstance().setActive(false, options: .notifyOthersOnDeactivation)
+
+    do {
+      let data = try Data(contentsOf: url)
+      guard !data.isEmpty else { return }
+      await sendAttachment(
+        data: data,
+        fileName: url.lastPathComponent,
+        mimeType: "audio/m4a",
+        attachmentType: "audio",
+        attachmentTitle: "Voice message",
+        attachmentDescription: nil
+      )
+      try? FileManager.default.removeItem(at: url)
+    } catch {
+      conversation.messages.append(
+        Message(
+          content: "Failed to send voice message: \(error.localizedDescription)",
+          role: .system,
+          timestamp: Date()
+        )
+      )
+      try? modelContext.save()
+    }
+  }
+
+  @MainActor
+  private func cancelVoiceRecording() {
+    voiceRecorder?.stop()
+    voiceRecorder = nil
+    let url = voiceRecordingURL
+    voiceRecordingURL = nil
+    isVoiceRecording = false
+    try? AVAudioSession.sharedInstance().setActive(false, options: .notifyOthersOnDeactivation)
+    if let url {
+      try? FileManager.default.removeItem(at: url)
+    }
+  }
+
+  private func requestMicrophonePermission() async -> Bool {
+    await withCheckedContinuation { continuation in
+      AVAudioSession.sharedInstance().requestRecordPermission { granted in
+        continuation.resume(returning: granted)
+      }
+    }
+  }
+
+  @MainActor
   private func sendAttachment(
     data: Data,
     fileName: String,
     mimeType: String,
     attachmentType: String,
     attachmentTitle: String?,
-    attachmentDescription: String?
+    attachmentDescription: String?,
+    caption: String = ""
   ) async {
     guard let remoteConversationID = conversation.remoteConversationID else {
       conversation.messages.append(
@@ -637,8 +1131,9 @@ extension ConversationDetailView {
     }
 
     isGenerating = true
+    let messageContent = caption.trimmingCharacters(in: .whitespacesAndNewlines)
     let localPlaceholderMessage = Message(
-      content: "Uploading...",
+      content: messageContent.isEmpty ? "Uploading..." : messageContent,
       role: .user,
       timestamp: Date(),
       senderStackUserId: authStore.viewer?.subject,
@@ -661,7 +1156,7 @@ extension ConversationDetailView {
       let savedMessage = try await authStore.sendMessage(
         conversationID: remoteConversationID,
         role: .user,
-        content: "",
+        content: messageContent,
         attachmentType: attachmentType,
         attachmentStorageId: storageId,
         attachmentFileName: fileName,
@@ -867,6 +1362,7 @@ extension ConversationDetailView {
         localMessage.attachementThumbnail = remoteMessage.attachmentThumbnail
         localMessage.attachementURL = remoteMessage.attachmentUrl
         localMessage.replyToRemoteMessageID = remoteMessage.parentMessageId
+        localMessage.reactionSummary = encodeReactions(remoteMessage.reactions ?? [])
         if let parent = parentMessage(for: remoteMessage.parentMessageId) {
           localMessage.replyPreviewText = replyPreviewText(for: parent)
           localMessage.replySenderName = replySenderName(for: parent)
@@ -890,7 +1386,8 @@ extension ConversationDetailView {
             attachementURL: remoteMessage.attachmentUrl,
             replyToRemoteMessageID: remoteMessage.parentMessageId,
             replyPreviewText: parent.map { replyPreviewText(for: $0) },
-            replySenderName: parent.map { replySenderName(for: $0) }
+            replySenderName: parent.map { replySenderName(for: $0) },
+            reactionSummary: encodeReactions(remoteMessage.reactions ?? [])
           )
         )
       }
@@ -916,6 +1413,86 @@ extension ConversationDetailView {
     localMessage.attachementThumbnail = savedMessage.attachmentThumbnail
     localMessage.attachementURL = savedMessage.attachmentUrl
     localMessage.replyToRemoteMessageID = savedMessage.parentMessageId ?? localMessage.replyToRemoteMessageID
+    localMessage.reactionSummary = encodeReactions(savedMessage.reactions ?? [])
+  }
+
+  private func isOutgoingMessage(_ message: Message) -> Bool {
+    guard let currentUserStackUserId = authStore.viewer?.subject else {
+      return message.role == .user
+    }
+    return message.senderStackUserId == currentUserStackUserId
+  }
+
+  private func encodeReactions(_ reactions: [MessageReactionInfo]) -> String? {
+    let normalized = reactions
+      .filter { $0.count > 0 }
+      .map { "\($0.emoji),\($0.count),\($0.hasReacted ? "1" : "0")" }
+    return normalized.isEmpty ? nil : normalized.joined(separator: "|")
+  }
+
+  private func decodedReactions(from message: Message) -> [MessageReactionInfo] {
+    guard let summary = message.reactionSummary, !summary.isEmpty else { return [] }
+    return summary.split(separator: "|").compactMap { item in
+      let parts = item.split(separator: ",", omittingEmptySubsequences: false)
+      guard parts.count >= 3, let count = Int(parts[1]) else { return nil }
+      return MessageReactionInfo(
+        emoji: String(parts[0]),
+        count: count,
+        hasReacted: parts[2] == "1"
+      )
+    }
+  }
+
+  @MainActor
+  private func toggleReaction(_ emoji: String, for message: Message) async {
+    guard let remoteMessageID = message.remoteMessageID else { return }
+
+    let previousSummary = message.reactionSummary
+    let existing = decodedReactions(from: message)
+    let hadReacted = existing.first(where: { $0.emoji == emoji })?.hasReacted == true
+    message.reactionSummary = encodeReactions(upsertReaction(emoji, hadReacted: hadReacted, in: existing))
+    try? modelContext.save()
+
+    do {
+      _ = try await authStore.toggleMessageReaction(
+        messageId: remoteMessageID,
+        messageSource: "message",
+        emoji: emoji
+      )
+      let reactions = try await authStore.fetchMessageReactions(
+        messageId: remoteMessageID,
+        messageSource: "message"
+      )
+      message.reactionSummary = encodeReactions(reactions)
+      try? modelContext.save()
+    } catch {
+      message.reactionSummary = previousSummary
+      try? modelContext.save()
+    }
+  }
+
+  private func upsertReaction(
+    _ emoji: String,
+    hadReacted: Bool,
+    in reactions: [MessageReactionInfo]
+  ) -> [MessageReactionInfo] {
+    var updated = reactions
+    if let index = updated.firstIndex(where: { $0.emoji == emoji }) {
+      let old = updated[index]
+      let nextCount = max(0, old.count + (hadReacted ? -1 : 1))
+      if nextCount == 0 {
+        updated.remove(at: index)
+      } else {
+        updated[index] = MessageReactionInfo(
+          emoji: emoji,
+          count: nextCount,
+          hasReacted: !hadReacted
+        )
+      }
+    } else {
+      updated.append(MessageReactionInfo(emoji: emoji, count: 1, hasReacted: true))
+    }
+    return updated
   }
 
   private func parentMessage(for remoteMessageID: String?) -> Message? {

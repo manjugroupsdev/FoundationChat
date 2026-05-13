@@ -7,6 +7,7 @@ struct MessageView: View {
   let otherParticipantLastReadAt: Date?
   let isLastOutgoingMessage: Bool
   let onReply: () -> Void
+  let onShowReactions: () -> Void
 
   @State private var horizontalDragOffset: CGFloat = 0
 
@@ -50,6 +51,10 @@ struct MessageView: View {
 
   private var shouldRenderImageWithoutBubble: Bool {
     isImageAttachment && !hasTextContent
+  }
+
+  private var reactions: [MessageReactionInfo] {
+    Self.decodeReactions(from: message.reactionSummary)
   }
 
   var body: some View {
@@ -98,6 +103,12 @@ struct MessageView: View {
             .shadow(color: .black.opacity(0.04), radius: 8, y: 2)
           }
 
+          if !reactions.isEmpty {
+            MessageReactionSummaryView(reactions: reactions, isOutgoing: isOutgoing)
+              .padding(.top, -2)
+              .padding(isOutgoing ? .trailing : .leading, 8)
+          }
+
           if let deliveryStatusText {
             MessageDeliveryStatusView(text: deliveryStatusText)
               .padding(.trailing, 6)
@@ -110,6 +121,12 @@ struct MessageView: View {
       }
       .offset(x: horizontalDragOffset)
       .gesture(replyDragGesture)
+      .simultaneousGesture(
+        LongPressGesture(minimumDuration: 0.45)
+          .onEnded { _ in
+            onShowReactions()
+          }
+      )
     }
   }
 
@@ -130,6 +147,52 @@ struct MessageView: View {
           onReply()
         }
       }
+  }
+
+  private static func decodeReactions(from summary: String?) -> [MessageReactionInfo] {
+    guard let summary, !summary.isEmpty else { return [] }
+    return summary.split(separator: "|").compactMap { item in
+      let parts = item.split(separator: ",", omittingEmptySubsequences: false)
+      guard parts.count >= 3, let count = Int(parts[1]) else { return nil }
+      return MessageReactionInfo(
+        emoji: String(parts[0]),
+        count: count,
+        hasReacted: parts[2] == "1"
+      )
+    }
+  }
+}
+
+private struct MessageReactionSummaryView: View {
+  let reactions: [MessageReactionInfo]
+  let isOutgoing: Bool
+
+  private var visibleReactions: [MessageReactionInfo] {
+    Array(reactions.prefix(3))
+  }
+
+  var body: some View {
+    HStack(spacing: 3) {
+      ForEach(visibleReactions) { reaction in
+        Text(reaction.emoji)
+          .font(.system(size: 12))
+      }
+
+      let total = reactions.reduce(0) { $0 + $1.count }
+      if total > 1 {
+        Text("\(total)")
+          .font(.system(size: 10, weight: .semibold))
+          .foregroundStyle(Color.black.opacity(0.55))
+      }
+    }
+    .padding(.horizontal, 7)
+    .padding(.vertical, 4)
+    .background(Color.white, in: Capsule())
+    .overlay(
+      Capsule()
+        .stroke(Color.black.opacity(0.08), lineWidth: 1)
+    )
+    .shadow(color: .black.opacity(0.08), radius: 6, y: 2)
   }
 }
 
@@ -193,12 +256,14 @@ private struct MessageDeliveryStatusView: View {
                                timestamp: Date()),
                 otherParticipantLastReadAt: nil,
                 isLastOutgoingMessage: true,
-                onReply: {})
+                onReply: {},
+                onShowReactions: {})
     MessageView(message: .init(content: "Hello world this is a short message",
                                role: .assistant,
                                timestamp: Date()),
                 otherParticipantLastReadAt: nil,
                 isLastOutgoingMessage: false,
-                onReply: {})
+                onReply: {},
+                onShowReactions: {})
   }
 }

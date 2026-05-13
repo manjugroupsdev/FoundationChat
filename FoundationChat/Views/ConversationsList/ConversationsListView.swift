@@ -1,6 +1,7 @@
 import Combine
 import SwiftData
 import SwiftUI
+import UIKit
 
 struct ConversationsListView: View {
   private enum HomeItem: Identifiable {
@@ -630,37 +631,69 @@ private struct ChatListSearchField: View {
   @Binding var text: String
 
   var body: some View {
-    HStack(spacing: 12) {
-      TextField("Search Chats", text: $text)
-        .font(.system(size: 15, weight: .regular))
-        .foregroundStyle(FoundationChatTheme.ink)
-        .tint(FoundationChatTheme.outgoingBubble)
-        .textInputAutocapitalization(.never)
-        .autocorrectionDisabled()
+    NativeSearchTextField(text: $text, placeholder: "Search Chats")
+      .frame(height: 50)
+      .clipShape(RoundedRectangle(cornerRadius: 10, style: .continuous))
+  }
+}
 
-      Spacer(minLength: 0)
+private struct NativeSearchTextField: UIViewRepresentable {
+  @Binding var text: String
+  let placeholder: String
 
-      Button {
-        if text.isEmpty {
-          return
-        }
-        text = ""
-      } label: {
-        Image(systemName: text.isEmpty ? "magnifyingglass" : "xmark.circle.fill")
-          .font(.system(size: text.isEmpty ? 28 : 21, weight: .regular))
-          .foregroundStyle(text.isEmpty ? Color.black.opacity(0.88) : Color.black.opacity(0.28))
-          .frame(width: 36, height: 36)
-      }
-      .buttonStyle(.plain)
+  func makeUIView(context: Context) -> UISearchTextField {
+    let searchField = FixedHeightSearchTextField()
+    searchField.placeholder = placeholder
+    searchField.font = .systemFont(ofSize: 15, weight: .regular)
+    searchField.textColor = .label
+    searchField.tintColor = UIColor(FoundationChatTheme.outgoingBubble)
+    searchField.backgroundColor = .secondarySystemBackground
+    searchField.clearButtonMode = .whileEditing
+    searchField.autocapitalizationType = .none
+    searchField.autocorrectionType = .no
+    searchField.returnKeyType = .search
+    searchField.delegate = context.coordinator
+    searchField.addTarget(context.coordinator, action: #selector(Coordinator.textDidChange(_:)), for: .editingChanged)
+    return searchField
+  }
+
+  func updateUIView(_ searchField: UISearchTextField, context: Context) {
+    if searchField.text != text {
+      searchField.text = text
     }
-    .padding(.leading, 20)
-    .padding(.trailing, 16)
-    .frame(height: 50)
-    .background(Color.white, in: RoundedRectangle(cornerRadius: 10, style: .continuous))
-    .overlay(
-      RoundedRectangle(cornerRadius: 10, style: .continuous)
-        .stroke(Color.black.opacity(0.12), lineWidth: 1)
-    )
+  }
+
+  func makeCoordinator() -> Coordinator {
+    Coordinator(text: $text)
+  }
+
+  final class Coordinator: NSObject, UITextFieldDelegate {
+    @Binding private var text: String
+
+    init(text: Binding<String>) {
+      _text = text
+    }
+
+    @objc func textDidChange(_ searchField: UISearchTextField) {
+      text = searchField.text ?? ""
+    }
+
+    func textFieldShouldReturn(_ textField: UITextField) -> Bool {
+      textField.resignFirstResponder()
+      return true
+    }
+  }
+}
+
+private final class FixedHeightSearchTextField: UISearchTextField {
+  override var intrinsicContentSize: CGSize {
+    CGSize(width: UIView.noIntrinsicMetric, height: 50)
+  }
+
+  override func layoutSubviews() {
+    super.layoutSubviews()
+    layer.cornerRadius = 10
+    layer.masksToBounds = true
   }
 }
 
