@@ -261,6 +261,11 @@ struct ConversationsListView: View {
       }
       .navigationTitle(isSelectionMode ? "\(selectedHomeItemIDs.count) selected" : "Chats")
       .navigationBarTitleDisplayMode(.inline)
+      .searchable(
+        text: $searchText,
+        placement: .navigationBarDrawer(displayMode: .always),
+        prompt: "Search Chats"
+      )
       .onAppear {
         startConversationsSubscription()
         Task {
@@ -374,37 +379,8 @@ struct ConversationsListView: View {
 
   private var chatListControls: some View {
     VStack(spacing: 14) {
-      searchField
       chatFiltersBar
     }
-  }
-
-  private var searchField: some View {
-    HStack(spacing: 10) {
-      Image(systemName: "magnifyingglass")
-        .font(.system(size: 18, weight: .regular))
-        .foregroundStyle(Color.black.opacity(0.72))
-
-      TextField("Search Chats", text: $searchText)
-        .font(.system(size: 17, weight: .regular))
-        .foregroundStyle(Color.black.opacity(0.86))
-        .submitLabel(.search)
-
-      if !searchText.isEmpty {
-        Button {
-          searchText = ""
-        } label: {
-          Image(systemName: "xmark.circle.fill")
-            .font(.system(size: 16, weight: .semibold))
-            .foregroundStyle(Color.black.opacity(0.32))
-        }
-        .buttonStyle(.plain)
-      }
-    }
-    .padding(.horizontal, 16)
-    .frame(height: 52)
-    .background(Color(red: 0.96, green: 0.96, blue: 0.96), in: Capsule())
-    .padding(.horizontal, 16)
   }
 
   private var chatFiltersBar: some View {
