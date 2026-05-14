@@ -44,6 +44,13 @@ struct MessageAttachementView: View {
     return nil
   }
 
+  private var audioDurationHint: TimeInterval? {
+    guard let description = message.attachementDescription else { return nil }
+    let rawValue = description.replacingOccurrences(of: "duration:", with: "")
+    guard let seconds = Double(rawValue), seconds.isFinite, seconds > 0 else { return nil }
+    return seconds
+  }
+
   var body: some View {
     if message.isDeleted {
       EmptyView()
@@ -55,9 +62,15 @@ struct MessageAttachementView: View {
             .scaledToFill()
             .frame(maxWidth: 242, maxHeight: 320)
             .clipped()
-        } else {
+        } else if state.error == nil {
           ProgressView()
             .frame(width: 242, height: 180)
+        } else {
+          Image(systemName: "photo")
+            .font(.system(size: 28, weight: .regular))
+            .foregroundStyle(Color.secondary.opacity(0.7))
+            .frame(width: 242, height: 180)
+            .background(Color.white.opacity(0.72))
         }
       }
       .clipShape(RoundedRectangle(cornerRadius: 10, style: .continuous))
@@ -79,7 +92,8 @@ struct MessageAttachementView: View {
       AudioAttachmentPlaybackView(
         url: attachmentURL,
         title: displayFileName ?? "Voice message",
-        isOutgoing: isOutgoing
+        isOutgoing: isOutgoing,
+        durationOverride: audioDurationHint
       )
     } else if let displayFileName {
       HStack(spacing: 8) {
@@ -110,12 +124,25 @@ struct MessageAttachementView: View {
   }
 }
 
-private struct AudioAttachmentPlaybackView: View {
+struct AudioAttachmentPlaybackView: View {
   let url: URL
   let title: String
   let isOutgoing: Bool
+  let durationOverride: TimeInterval?
 
   @StateObject private var playbackController = VoicePlaybackController()
+
+  init(
+    url: URL,
+    title: String,
+    isOutgoing: Bool,
+    durationOverride: TimeInterval? = nil
+  ) {
+    self.url = url
+    self.title = title
+    self.isOutgoing = isOutgoing
+    self.durationOverride = durationOverride
+  }
 
   var body: some View {
     HStack(spacing: 10) {
@@ -139,32 +166,32 @@ private struct AudioAttachmentPlaybackView: View {
       .buttonStyle(.plain)
       .disabled(playbackController.isLoading)
 
-      VStack(alignment: .leading, spacing: 4) {
-        Text("Voice message")
-          .font(.system(size: 14, weight: .semibold))
-          .foregroundStyle(isOutgoing ? .white : Color.black.opacity(0.88))
-
-        HStack(spacing: 3) {
-          ForEach(0..<18, id: \.self) { index in
-            Capsule()
-              .fill(
-                (isOutgoing ? Color.white : Color.black)
-                  .opacity(playbackController.progress >= Double(index + 1) / 18.0 ? 0.85 : (index % 3 == 0 ? 0.65 : 0.35))
-              )
-              .frame(width: 3, height: CGFloat([10, 16, 8, 20, 12, 15][index % 6]))
-          }
+      HStack(spacing: 3) {
+        ForEach(0..<24, id: \.self) { index in
+          Capsule()
+            .fill(
+              (isOutgoing ? Color.white : Color.black)
+                .opacity(playbackController.progress >= Double(index + 1) / 24.0 ? 0.88 : (index % 3 == 0 ? 0.58 : 0.32))
+            )
+            .frame(width: 3, height: CGFloat([8, 15, 11, 20, 13, 17, 9, 14][index % 8]))
         }
-        .frame(height: 22)
+      }
+      .frame(height: 24)
+      .frame(maxWidth: .infinity, alignment: .leading)
 
-        Text(playbackController.timeLabel)
-          .font(.system(size: 11, weight: .medium))
-          .foregroundStyle(isOutgoing ? .white.opacity(0.68) : Color.black.opacity(0.45))
+      Text(playbackController.displayTimeLabel)
+        .font(.system(size: 12, weight: .medium))
+        .monospacedDigit()
+        .foregroundStyle(isOutgoing ? .white.opacity(0.72) : Color.black.opacity(0.48))
+    }
+    .frame(width: 226)
+    .task(id: url) {
+      if let durationOverride {
+        playbackController.setKnownDuration(durationOverride, for: url)
+      } else {
+        await playbackController.prepareDuration(url: url)
       }
     }
-    .padding(.horizontal, 10)
-    .padding(.vertical, 9)
-    .background(isOutgoing ? .white.opacity(0.18) : Color.black.opacity(0.04))
-    .clipShape(RoundedRectangle(cornerRadius: 14, style: .continuous))
     .onDisappear {
       playbackController.stop()
     }
@@ -176,12 +203,36 @@ private final class VoicePlaybackController: NSObject, ObservableObject, AVAudio
   @Published var isPlaying = false
   @Published var isLoading = false
   @Published var progress: Double = 0
-  @Published var timeLabel = "0:00"
+  @Published var currentTimeLabel = "0:00"
+  @Published var durationLabel = "0:00"
 
   private var player: AVAudioPlayer?
   private var cachedURL: URL?
   private var playbackTask: Task<Void, Never>?
+  private var durationTask: Task<Void, Never>?
   private var progressTask: Task<Void, Never>?
+
+  var displayTimeLabel: String {
+    isPlaying ? currentTimeLabel : durationLabel
+  }
+
+  func setKnownDuration(_ duration: TimeInterval, for url: URL) {
+    guard duration.isFinite, duration > 0 else { return }
+    durationLabel = format(duration)
+    VoiceDurationCache.setDuration(duration, for: url)
+  }
+
+  func prepareDuration(url: URL) async {
+    if let cachedDuration = VoiceDurationCache.duration(for: url) {
+      setKnownDuration(cachedDuration, for: url)
+      return
+    }
+
+    durationTask?.cancel()
+    durationTask = Task { [weak self] in
+      await self?.loadDuration(url: url)
+    }
+  }
 
   func toggle(url: URL) {
     if isPlaying {
@@ -212,6 +263,7 @@ private final class VoicePlaybackController: NSObject, ObservableObject, AVAudio
     isPlaying = false
     isLoading = false
     progress = 0
+    currentTimeLabel = "0:00"
   }
 
   private func prepareAndPlay(url: URL) async {
@@ -223,13 +275,15 @@ private final class VoicePlaybackController: NSObject, ObservableObject, AVAudio
       guard !Task.isCancelled else { return }
 
       let session = AVAudioSession.sharedInstance()
-      try session.setCategory(.playback, mode: .spokenAudio, options: [.defaultToSpeaker])
+      try session.setCategory(.playAndRecord, mode: .spokenAudio, options: [.defaultToSpeaker, .allowBluetooth])
       try session.setActive(true)
 
       let audioPlayer = try AVAudioPlayer(contentsOf: localURL)
       audioPlayer.delegate = self
+      audioPlayer.volume = 1
       audioPlayer.prepareToPlay()
       player = audioPlayer
+      setKnownDuration(audioPlayer.duration, for: url)
       audioPlayer.play()
       isPlaying = true
       updateProgress()
@@ -263,10 +317,25 @@ private final class VoicePlaybackController: NSObject, ObservableObject, AVAudio
     }
     if player.duration > 0 {
       progress = min(1, max(0, player.currentTime / player.duration))
-      timeLabel = "\(format(player.currentTime)) / \(format(player.duration))"
+      currentTimeLabel = format(player.currentTime)
+      durationLabel = format(player.duration)
     } else {
       progress = 0
-      timeLabel = format(player.currentTime)
+      currentTimeLabel = format(player.currentTime)
+    }
+  }
+
+  private func loadDuration(url: URL) async {
+    do {
+      let localURL = try await localPlayableURL(for: url)
+      guard !Task.isCancelled else { return }
+      let asset = AVURLAsset(url: localURL)
+      let duration = try await asset.load(.duration)
+      let seconds = CMTimeGetSeconds(duration)
+      guard seconds.isFinite, seconds > 0 else { return }
+      setKnownDuration(seconds, for: url)
+    } catch {
+      // Keep the compact 0:00 fallback if duration metadata is unavailable.
     }
   }
 
@@ -302,6 +371,7 @@ private final class VoicePlaybackController: NSObject, ObservableObject, AVAudio
       player.currentTime = 0
       isPlaying = false
       progress = 1
+      currentTimeLabel = "0:00"
       stopProgressUpdates()
     }
   }
@@ -312,6 +382,31 @@ private final class VoicePlaybackController: NSObject, ObservableObject, AVAudio
       self.player = nil
       stopProgressUpdates()
     }
+  }
+}
+
+enum VoiceDurationCache {
+  private static let key = "FoundationChat.VoiceDurationCache.secondsByURL"
+
+  static func duration(for url: URL) -> TimeInterval? {
+    let values = UserDefaults.standard.dictionary(forKey: key) as? [String: Double]
+    guard let seconds = values?[url.absoluteString], seconds.isFinite, seconds > 0 else {
+      return nil
+    }
+    return seconds
+  }
+
+  static func setDuration(_ duration: TimeInterval, for url: URL) {
+    guard duration.isFinite, duration > 0 else { return }
+    var values = UserDefaults.standard.dictionary(forKey: key) as? [String: Double] ?? [:]
+    values[url.absoluteString] = duration
+    UserDefaults.standard.set(values, forKey: key)
+  }
+
+  static func removeDuration(for url: URL) {
+    var values = UserDefaults.standard.dictionary(forKey: key) as? [String: Double] ?? [:]
+    values.removeValue(forKey: url.absoluteString)
+    UserDefaults.standard.set(values, forKey: key)
   }
 }
 

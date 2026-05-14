@@ -192,11 +192,12 @@ struct ConversationsListView: View {
   var body: some View {
     NavigationStack(path: $path) {
       VStack(spacing: 0) {
-        chatFiltersBar
-          .padding(.top, 8)
-
         ScrollView {
           LazyVStack(spacing: 0) {
+            chatListControls
+              .padding(.top, 8)
+              .padding(.bottom, 6)
+
             if currentItems.isEmpty {
               EmptyChatState(filter: selectedFilter) {
                 switch selectedFilter {
@@ -247,15 +248,9 @@ struct ConversationsListView: View {
               }
             }
           }
-          .padding(.top, 18)
         }
       }
       .background(Color.white.ignoresSafeArea())
-      .searchable(
-        text: $searchText,
-        placement: .navigationBarDrawer(displayMode: .always),
-        prompt: "Search Chats"
-      )
       .textInputAutocapitalization(.never)
       .autocorrectionDisabled()
       .navigationDestination(for: Conversation.self) { conversation in
@@ -377,6 +372,41 @@ struct ConversationsListView: View {
     }
   }
 
+  private var chatListControls: some View {
+    VStack(spacing: 14) {
+      searchField
+      chatFiltersBar
+    }
+  }
+
+  private var searchField: some View {
+    HStack(spacing: 10) {
+      Image(systemName: "magnifyingglass")
+        .font(.system(size: 18, weight: .regular))
+        .foregroundStyle(Color.black.opacity(0.72))
+
+      TextField("Search Chats", text: $searchText)
+        .font(.system(size: 17, weight: .regular))
+        .foregroundStyle(Color.black.opacity(0.86))
+        .submitLabel(.search)
+
+      if !searchText.isEmpty {
+        Button {
+          searchText = ""
+        } label: {
+          Image(systemName: "xmark.circle.fill")
+            .font(.system(size: 16, weight: .semibold))
+            .foregroundStyle(Color.black.opacity(0.32))
+        }
+        .buttonStyle(.plain)
+      }
+    }
+    .padding(.horizontal, 16)
+    .frame(height: 52)
+    .background(Color(red: 0.96, green: 0.96, blue: 0.96), in: Capsule())
+    .padding(.horizontal, 16)
+  }
+
   private var chatFiltersBar: some View {
     ScrollView(.horizontal, showsIndicators: false) {
       HStack(spacing: 12) {
@@ -479,9 +509,15 @@ struct ConversationsListView: View {
       }
 
       if let displayName, !displayName.isEmpty {
+        ConversationUserCache.setDisplayName(displayName, for: remoteConversation.id)
         localConversation.participantDisplayName = displayName
         if localConversation.summary?.isEmpty ?? true {
           localConversation.summary = displayName
+        }
+      } else if let cachedDisplayName = ConversationUserCache.displayName(for: remoteConversation.id) {
+        localConversation.participantDisplayName = cachedDisplayName
+        if localConversation.summary?.isEmpty ?? true {
+          localConversation.summary = cachedDisplayName
         }
       }
 
@@ -523,6 +559,26 @@ struct ConversationsListView: View {
       return
     }
 
+    if let pendingMessage = pendingLocalMessage(matching: remoteMessage, in: conversation) {
+      pendingMessage.remoteMessageID = remoteMessage.id
+      pendingMessage.content = remoteMessage.content
+      pendingMessage.senderStackUserId = remoteMessage.senderStackUserId
+      pendingMessage.role = remoteMessage.role.appRole
+      pendingMessage.timestamp = remoteMessage.timestamp
+      pendingMessage.isDeleted = remoteMessage.isDeleted == true
+      pendingMessage.attachementType = remoteMessage.attachmentType
+      pendingMessage.attachementFileName = remoteMessage.attachmentFileName
+      pendingMessage.attachementMimeType = remoteMessage.attachmentMimeType
+      pendingMessage.attachementTitle = remoteMessage.attachmentTitle
+      pendingMessage.attachementDescription = remoteMessage.attachmentDescription
+      pendingMessage.attachementThumbnail = remoteMessage.attachmentThumbnail
+      pendingMessage.attachementURL = remoteMessage.attachmentUrl
+      if pendingMessage.isDeleted {
+        clearDeletedMessagePayload(pendingMessage)
+      }
+      return
+    }
+
     let localMessage = Message(
       content: remoteMessage.content,
       role: remoteMessage.role.appRole,
@@ -546,7 +602,28 @@ struct ConversationsListView: View {
     )
   }
 
+  private func pendingLocalMessage(
+    matching remoteMessage: ConvexChatMessage,
+    in conversation: Conversation
+  ) -> Message? {
+    conversation.messages.first { message in
+      guard message.remoteMessageID == nil, message.role == .user else { return false }
+      guard message.content == remoteMessage.content else { return false }
+
+      let isSameAttachment = message.attachementType == remoteMessage.attachmentType
+        && message.attachementFileName == remoteMessage.attachmentFileName
+      guard isSameAttachment else { return false }
+
+      return abs(message.timestamp.timeIntervalSince(remoteMessage.timestamp)) < 120
+    }
+  }
+
   private func clearDeletedMessagePayload(_ message: Message) {
+    if let attachmentURLString = message.attachementURL,
+      let attachmentURL = URL(string: attachmentURLString)
+    {
+      VoiceDurationCache.removeDuration(for: attachmentURL)
+    }
     message.content = "This message was deleted"
     message.attachementType = nil
     message.attachementFileName = nil

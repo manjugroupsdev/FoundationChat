@@ -34,7 +34,11 @@ struct ConversationDetailView: View {
   @State private var highlightedRemoteMessageID: String?
   @State private var voiceRecorder: AVAudioRecorder?
   @State private var voiceRecordingURL: URL?
+  @State private var pendingVoicePreviewURL: URL?
+  @State private var pendingVoicePreviewDuration: TimeInterval?
   @State private var isVoiceRecording = false
+  @State private var voiceRecordingElapsed: TimeInterval = 0
+  @State private var voiceRecordingTimerTask: Task<Void, Never>?
   @State private var isEmojiPanelVisible = false
   @State private var mentionUsers: [DirectoryUser] = []
   @State private var mentionSearchTask: Task<Void, Never>?
@@ -59,6 +63,12 @@ struct ConversationDetailView: View {
       !participantDisplayName.isEmpty
     {
       return participantDisplayName
+    }
+
+    if let remoteConversationID = conversation.remoteConversationID,
+      let cachedName = ConversationUserCache.displayName(for: remoteConversationID)
+    {
+      return cachedName
     }
 
     if let summary = conversation.summary, !summary.isEmpty {
@@ -178,7 +188,6 @@ struct ConversationDetailView: View {
       }
     }
     .onAppear {
-      isInputFocused = true
       startMessagesSubscription()
       startConversationStatusSubscription()
       startPolling()
@@ -202,6 +211,7 @@ struct ConversationDetailView: View {
     .onChange(of: newMessage) { _, _ in
       scheduleMentionDirectoryLoad()
     }
+    .simultaneousGesture(backSwipeGesture)
     .scrollDismissesKeyboard(.interactively)
     .scrollPosition($scrollPosition, anchor: .bottom)
     .safeAreaInset(edge: .bottom, spacing: 0) {
@@ -224,8 +234,10 @@ struct ConversationDetailView: View {
         ConversationDetailInputView(
           newMessage: $newMessage,
           isGenerating: $isGenerating,
+          pendingVoicePreviewURL: $pendingVoicePreviewURL,
           isInputFocused: $isInputFocused,
           isVoiceRecording: isVoiceRecording,
+          voiceRecordingElapsed: voiceRecordingElapsed,
           isEmojiPanelVisible: $isEmojiPanelVisible,
           onAddAttachment: {
             guard !isGenerating else { return }
@@ -235,16 +247,24 @@ struct ConversationDetailView: View {
           },
           onVoiceTap: {
             Task {
-              if isVoiceRecording {
-                await finishVoiceRecordingAndSend()
-              } else {
-                await startVoiceRecording()
-              }
+              await startVoiceRecording()
+            }
+          },
+          onVoiceRelease: {
+            Task {
+              await finishVoiceRecordingForPreview()
             }
           },
           onCancelVoiceRecording: {
             cancelVoiceRecording()
           },
+          onSendVoicePreview: {
+            await sendVoicePreview()
+          },
+          onDiscardVoicePreview: {
+            discardVoicePreview()
+          },
+          pendingVoicePreviewDuration: pendingVoicePreviewDuration,
           onSend: {
             isGenerating = true
             await streamNewMessage()
@@ -673,6 +693,38 @@ struct ConversationDetailView: View {
     return mentionUsers.compactMap { user in
       lowerText.contains("@\(user.displayName.lowercased())") ? user.stackUserId : nil
     }
+  }
+
+  private var backSwipeGesture: some Gesture {
+    DragGesture(minimumDistance: 18, coordinateSpace: .global)
+      .onEnded { value in
+        let startsNearLeadingEdge = value.startLocation.x < 32
+        let movesRight = value.translation.width > 86
+        let mostlyHorizontal = abs(value.translation.width) > abs(value.translation.height) * 1.6
+
+        if startsNearLeadingEdge && movesRight && mostlyHorizontal {
+          dismiss()
+        }
+      }
+  }
+}
+
+enum ConversationUserCache {
+  private static let key = "FoundationChat.ConversationUserCache.displayNames"
+
+  static func displayName(for conversationID: String) -> String? {
+    let cache = UserDefaults.standard.dictionary(forKey: key) as? [String: String]
+    let value = cache?[conversationID]?.trimmingCharacters(in: .whitespacesAndNewlines)
+    return value?.isEmpty == false ? value : nil
+  }
+
+  static func setDisplayName(_ displayName: String, for conversationID: String) {
+    let trimmed = displayName.trimmingCharacters(in: .whitespacesAndNewlines)
+    guard !trimmed.isEmpty else { return }
+
+    var cache = UserDefaults.standard.dictionary(forKey: key) as? [String: String] ?? [:]
+    cache[conversationID] = trimmed
+    UserDefaults.standard.set(cache, forKey: key)
   }
 }
 
@@ -1584,7 +1636,7 @@ extension ConversationDetailView {
 
   @MainActor
   private func startVoiceRecording() async {
-    guard !isVoiceRecording else { return }
+    guard !isVoiceRecording, pendingVoicePreviewURL == nil else { return }
 
     let granted = await requestMicrophonePermission()
     guard granted else {
@@ -1613,10 +1665,12 @@ extension ConversationDetailView {
         AVEncoderAudioQualityKey: AVAudioQuality.high.rawValue
       ]
       let recorder = try AVAudioRecorder(url: url, settings: settings)
+      recorder.prepareToRecord()
       recorder.record()
       voiceRecorder = recorder
       voiceRecordingURL = url
       isVoiceRecording = true
+      startVoiceRecordingTimer()
       isInputFocused = false
     } catch {
       conversation.messages.append(
@@ -1631,13 +1685,35 @@ extension ConversationDetailView {
   }
 
   @MainActor
-  private func finishVoiceRecordingAndSend() async {
+  private func finishVoiceRecordingForPreview() async {
     guard isVoiceRecording, let url = voiceRecordingURL else { return }
     voiceRecorder?.stop()
     voiceRecorder = nil
     voiceRecordingURL = nil
     isVoiceRecording = false
+    stopVoiceRecordingTimer()
     try? AVAudioSession.sharedInstance().setActive(false, options: .notifyOthersOnDeactivation)
+
+    do {
+      let attributes = try FileManager.default.attributesOfItem(atPath: url.path)
+      let fileSize = attributes[.size] as? NSNumber
+      guard fileSize?.intValue ?? 0 > 0 else {
+        try? FileManager.default.removeItem(at: url)
+        return
+      }
+      pendingVoicePreviewDuration = audioDuration(for: url)
+      pendingVoicePreviewURL = url
+    } catch {
+      try? FileManager.default.removeItem(at: url)
+    }
+  }
+
+  @MainActor
+  private func sendVoicePreview() async {
+    guard let url = pendingVoicePreviewURL else { return }
+    let duration = pendingVoicePreviewDuration
+    pendingVoicePreviewURL = nil
+    pendingVoicePreviewDuration = nil
 
     do {
       let data = try Data(contentsOf: url)
@@ -1648,7 +1724,7 @@ extension ConversationDetailView {
         mimeType: "audio/m4a",
         attachmentType: "audio",
         attachmentTitle: "Voice message",
-        attachmentDescription: nil
+        attachmentDescription: duration.map { "duration:\($0)" }
       )
       try? FileManager.default.removeItem(at: url)
     } catch {
@@ -1664,12 +1740,23 @@ extension ConversationDetailView {
   }
 
   @MainActor
+  private func discardVoicePreview() {
+    let url = pendingVoicePreviewURL
+    pendingVoicePreviewURL = nil
+    pendingVoicePreviewDuration = nil
+    if let url {
+      try? FileManager.default.removeItem(at: url)
+    }
+  }
+
+  @MainActor
   private func cancelVoiceRecording() {
     voiceRecorder?.stop()
     voiceRecorder = nil
     let url = voiceRecordingURL
     voiceRecordingURL = nil
     isVoiceRecording = false
+    stopVoiceRecordingTimer()
     try? AVAudioSession.sharedInstance().setActive(false, options: .notifyOthersOnDeactivation)
     if let url {
       try? FileManager.default.removeItem(at: url)
@@ -1682,6 +1769,33 @@ extension ConversationDetailView {
         continuation.resume(returning: granted)
       }
     }
+  }
+
+  @MainActor
+  private func startVoiceRecordingTimer() {
+    voiceRecordingTimerTask?.cancel()
+    voiceRecordingElapsed = 0
+    let startDate = Date()
+    voiceRecordingTimerTask = Task { @MainActor in
+      while !Task.isCancelled {
+        voiceRecordingElapsed = Date().timeIntervalSince(startDate)
+        try? await Task.sleep(for: .milliseconds(200))
+      }
+    }
+  }
+
+  @MainActor
+  private func stopVoiceRecordingTimer() {
+    voiceRecordingTimerTask?.cancel()
+    voiceRecordingTimerTask = nil
+    voiceRecordingElapsed = 0
+  }
+
+  private func audioDuration(for url: URL) -> TimeInterval? {
+    let asset = AVURLAsset(url: url)
+    let seconds = CMTimeGetSeconds(asset.duration)
+    guard seconds.isFinite, seconds > 0 else { return nil }
+    return seconds
   }
 
   @MainActor
@@ -1785,6 +1899,7 @@ extension ConversationDetailView {
             else { return }
             conversation.unreadCount = remoteConversation.unreadCountValue
             conversation.otherParticipantLastReadAt = remoteConversation.otherParticipantLastReadDate
+            cacheConversationUserData(from: remoteConversation)
             try? modelContext.save()
           }
         )
@@ -1823,7 +1938,7 @@ extension ConversationDetailView {
             }
           },
           receiveValue: { remoteMessages in
-            let messages = remoteMessages ?? []
+            guard let messages = remoteMessages else { return }
             applyRemoteMessages(messages)
             markConversationAsSeenIfNeeded(messages)
             try? modelContext.save()
@@ -1924,11 +2039,16 @@ extension ConversationDetailView {
       }
     }
 
+    let sortedRemoteMessages = remoteMessages.sorted(by: { $0.createdAt < $1.createdAt })
+    let remoteIDsInPage = Set(sortedRemoteMessages.map(\.id))
     var ordered: [Message] = []
-    for remoteMessage in remoteMessages.sorted(by: { $0.createdAt < $1.createdAt }) {
+    for remoteMessage in sortedRemoteMessages {
       if let localMessage = existingByRemoteID[remoteMessage.id] {
         apply(remoteMessage, to: localMessage)
         ordered.append(localMessage)
+      } else if let pendingLocalMessage = pendingLocalMessage(matching: remoteMessage) {
+        apply(remoteMessage, to: pendingLocalMessage)
+        ordered.append(pendingLocalMessage)
       } else {
         let parent = parentMessage(for: remoteMessage.parentMessageId)
         ordered.append(
@@ -1958,14 +2078,69 @@ extension ConversationDetailView {
       }
     }
 
+    if let lastCreationTime = sortedRemoteMessages.last?._creationTime {
+      lastPollTimestamp = max(lastPollTimestamp, lastCreationTime)
+    }
+
+    let cachedRemoteMessagesOutsidePage = conversation.messages.filter { message in
+      guard let remoteMessageID = message.remoteMessageID else { return false }
+      return !remoteIDsInPage.contains(remoteMessageID)
+    }
     let unsyncedMessages = conversation.messages.filter {
       $0.remoteMessageID == nil && $0.role == .user
     }
-    conversation.messages = ordered + unsyncedMessages
+    conversation.messages = (cachedRemoteMessagesOutsidePage + ordered + unsyncedMessages)
+      .sorted { $0.timestamp < $1.timestamp }
+  }
+
+  private func cacheConversationUserData(from remoteConversation: ConvexConversationSummary) {
+    guard let displayName = remoteConversation.otherParticipant?.displayName,
+      !displayName.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
+    else { return }
+
+    ConversationUserCache.setDisplayName(displayName, for: remoteConversation.id)
+
+    if conversation.participantDisplayName?.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty ?? true {
+      conversation.participantDisplayName = displayName
+    }
+    if conversation.summary?.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty ?? true {
+      conversation.summary = displayName
+    }
   }
 
   private func sync(savedMessage: ConvexChatMessage, into localMessage: Message) {
     apply(savedMessage, to: localMessage)
+    removeDuplicateRemoteMessages(keeping: localMessage)
+  }
+
+  private func pendingLocalMessage(matching remoteMessage: ConvexChatMessage) -> Message? {
+    conversation.messages.first { message in
+      guard message.remoteMessageID == nil, message.role == .user else { return false }
+      guard message.content == remoteMessage.content else { return false }
+      guard message.replyToRemoteMessageID == remoteMessage.parentMessageId else { return false }
+
+      let remoteSender = remoteMessage.senderStackUserId
+      if !remoteSender.isEmpty,
+        let localSender = message.senderStackUserId,
+        !localSender.isEmpty,
+        localSender != remoteSender
+      {
+        return false
+      }
+
+      let isSameAttachment = message.attachementType == remoteMessage.attachmentType
+        && message.attachementFileName == remoteMessage.attachmentFileName
+      guard isSameAttachment else { return false }
+
+      return abs(message.timestamp.timeIntervalSince(remoteMessage.timestamp)) < 120
+    }
+  }
+
+  private func removeDuplicateRemoteMessages(keeping keptMessage: Message) {
+    guard let remoteMessageID = keptMessage.remoteMessageID else { return }
+    conversation.messages.removeAll { message in
+      message !== keptMessage && message.remoteMessageID == remoteMessageID
+    }
   }
 
   private func apply(_ remoteMessage: ConvexChatMessage, to localMessage: Message) {
@@ -1986,7 +2161,9 @@ extension ConversationDetailView {
     localMessage.attachementFileName = remoteMessage.attachmentFileName
     localMessage.attachementMimeType = remoteMessage.attachmentMimeType
     localMessage.attachementTitle = remoteMessage.attachmentTitle
-    localMessage.attachementDescription = remoteMessage.attachmentDescription
+    if remoteMessage.attachmentDescription != nil || localMessage.attachementDescription == nil {
+      localMessage.attachementDescription = remoteMessage.attachmentDescription
+    }
     localMessage.attachementThumbnail = remoteMessage.attachmentThumbnail
     localMessage.attachementURL = remoteMessage.attachmentUrl
     localMessage.replyToRemoteMessageID = remoteMessage.parentMessageId
@@ -2001,6 +2178,11 @@ extension ConversationDetailView {
   }
 
   private func clearDeletedMessagePayload(_ message: Message) {
+    if let attachmentURLString = message.attachementURL,
+      let attachmentURL = URL(string: attachmentURLString)
+    {
+      VoiceDurationCache.removeDuration(for: attachmentURL)
+    }
     message.content = "This message was deleted"
     message.attachementType = nil
     message.attachementFileName = nil

@@ -216,6 +216,7 @@ struct ChannelChatView: View {
   @State private var isInviteSheetPresented = false
   @State private var isSendingMessage = false
   @State private var isEmojiPanelVisible = false
+  @State private var pendingVoicePreviewURL: URL?
   @State private var mentionUsers: [DirectoryUser] = []
   @State private var mentionSearchTask: Task<Void, Never>?
   @State private var messagesSubscription: AnyCancellable?
@@ -224,6 +225,8 @@ struct ChannelChatView: View {
   @FocusState private var isInputFocused: Bool
 
   var body: some View {
+    let currentUserStackUserId = authStore.viewer?.subject
+
     ScrollViewReader { proxy in
       ScrollView {
         LazyVStack(spacing: 8) {
@@ -238,7 +241,7 @@ struct ChannelChatView: View {
             ForEach(messages) { message in
               ChannelMessageRow(
                 message: message,
-                isMine: message.senderStackUserId == authStore.viewer?.subject
+                isMine: message.senderStackUserId == currentUserStackUserId
               )
               .id(message.id)
             }
@@ -277,8 +280,10 @@ struct ChannelChatView: View {
         ConversationDetailInputView(
           newMessage: $newMessage,
           isGenerating: $isSendingMessage,
+          pendingVoicePreviewURL: $pendingVoicePreviewURL,
           isInputFocused: $isInputFocused,
           isVoiceRecording: false,
+          voiceRecordingElapsed: 0,
           isEmojiPanelVisible: $isEmojiPanelVisible,
           onAddAttachment: {
             errorMessage = "Channel attachments are coming soon."
@@ -286,7 +291,13 @@ struct ChannelChatView: View {
           onVoiceTap: {
             errorMessage = "Channel voice messages are coming soon."
           },
+          onVoiceRelease: {},
           onCancelVoiceRecording: {},
+          onSendVoicePreview: {},
+          onDiscardVoicePreview: {
+            pendingVoicePreviewURL = nil
+          },
+          pendingVoicePreviewDuration: nil,
           onSend: {
             await sendMessage()
           }

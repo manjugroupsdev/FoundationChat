@@ -33,13 +33,15 @@ struct ConversationInfoView: View {
   @State private var showLeaveConfirm: Bool = false
   @State private var showMediaSheet = false
   @State private var showSearchSheet = false
+  @State private var participantStaffIds: [String: String] = [:]
 
   private var displayName: String {
     if case .channel = source, let channel {
       return "#\(channel.name)"
     }
     if case .conversation = source, let conversation {
-      return conversation.otherParticipant?.displayName
+      return conversationParticipantsToShow.first?.displayName
+        ?? conversation.otherParticipant?.displayName
         ?? conversation.displayName
         ?? initialDisplayName
         ?? "Conversation"
@@ -55,12 +57,18 @@ struct ConversationInfoView: View {
       }
       return channel?.description
     case .conversation:
-      let count = conversation?.participants?.count ?? 0
+      let count = conversationParticipantsToShow.count
       if count > 1 {
         return "\(count) participants"
       }
       return nil
     }
+  }
+
+  private var conversationParticipantsToShow: [ConvexConversationParticipant] {
+    guard let participants = conversation?.participants else { return [] }
+    let filtered = participants.filter { !isCurrentUser($0) }
+    return filtered.isEmpty ? participants : filtered
   }
 
   var body: some View {
@@ -223,7 +231,7 @@ struct ConversationInfoView: View {
 
   @ViewBuilder
   private var conversationParticipantsSection: some View {
-    let participants = conversation?.participants ?? []
+    let participants = conversationParticipantsToShow
 
     Section(participants.count > 1 ? "People (\(participants.count))" : "User Details") {
       if isLoading && participants.isEmpty {
@@ -235,7 +243,7 @@ struct ConversationInfoView: View {
       } else {
         ForEach(participants, id: \.stackUserId) { participant in
           NavigationLink {
-            StaffDetailView(staffId: participant.stackUserId)
+            StaffDetailView(staffId: staffDetailId(for: participant))
           } label: {
             ParticipantInfoRow(participant: participant)
           }
@@ -315,6 +323,7 @@ struct ConversationInfoView: View {
         let summary = try await authStore.fetchConversation(conversationID: id)
         conversation = summary
         isMuted = summary.muted ?? false
+        await loadParticipantStaffIds(for: summary.participants ?? [])
       } catch {
         errorMessage = error.localizedDescription
       }
@@ -362,6 +371,76 @@ struct ConversationInfoView: View {
     } catch {
       errorMessage = error.localizedDescription
     }
+  }
+
+  private func staffDetailId(for participant: ConvexConversationParticipant) -> String {
+    participantStaffIds[participant.stackUserId] ?? participant.stackUserId
+  }
+
+  private func isCurrentUser(_ participant: ConvexConversationParticipant) -> Bool {
+    let participantId = participant.stackUserId.trimmingCharacters(in: .whitespacesAndNewlines)
+
+    if participantId == authStore.viewer?.subject || participantId == authStore.currentSession?.user._id {
+      return true
+    }
+
+    let currentName = authStore.currentUserLabel?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
+    return !currentName.isEmpty && normalizedName(participant.displayName) == normalizedName(currentName)
+  }
+
+  @MainActor
+  private func loadParticipantStaffIds(for participants: [ConvexConversationParticipant]) async {
+    guard !participants.isEmpty, let token = authStore.currentSession?.token else { return }
+
+    do {
+      let staff = try await HRConvexAPIService.listAllStaff(token: token)
+      var resolved: [String: String] = [:]
+
+      for participant in participants {
+        if let match = staff.first(where: { item in
+          staffItem(item, matches: participant)
+        }) {
+          resolved[participant.stackUserId] = match._id
+        }
+      }
+
+      participantStaffIds = resolved
+    } catch {
+      // Keep navigation working with the original participant id if directory lookup is unavailable.
+    }
+  }
+
+  private func staffItem(_ item: ConvexStaffListItem, matches participant: ConvexConversationParticipant) -> Bool {
+    let participantId = participant.stackUserId.trimmingCharacters(in: .whitespacesAndNewlines)
+    let participantName = participant.displayName.trimmingCharacters(in: .whitespacesAndNewlines)
+
+    if item._id == participantId || item.employeeId == participantId {
+      return true
+    }
+
+    if normalizedPhone(item.phone) == normalizedPhone(participantId) {
+      return true
+    }
+
+    if normalizedName(item.displayName) == normalizedName(participantName) {
+      return true
+    }
+
+    return false
+  }
+
+  private func normalizedPhone(_ value: String?) -> String {
+    let digits = (value ?? "").filter(\.isNumber)
+    if digits.count > 10, digits.hasPrefix("91") {
+      return String(digits.suffix(10))
+    }
+    return digits
+  }
+
+  private func normalizedName(_ value: String) -> String {
+    value
+      .trimmingCharacters(in: .whitespacesAndNewlines)
+      .lowercased()
   }
 }
 

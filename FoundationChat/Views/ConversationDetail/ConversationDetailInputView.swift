@@ -4,19 +4,29 @@ import UIKit
 struct ConversationDetailInputView: View {
   @Binding var newMessage: String
   @Binding var isGenerating: Bool
+  @Binding var pendingVoicePreviewURL: URL?
   var isInputFocused: FocusState<Bool>.Binding
 
   let isVoiceRecording: Bool
+  let voiceRecordingElapsed: TimeInterval
   @Binding var isEmojiPanelVisible: Bool
   var onAddAttachment: () -> Void
   var onVoiceTap: () -> Void
+  var onVoiceRelease: () -> Void
   var onCancelVoiceRecording: () -> Void
+  var onSendVoicePreview: () async throws -> Void
+  var onDiscardVoicePreview: () -> Void
+  var pendingVoicePreviewDuration: TimeInterval?
   var onSend: () async throws -> Void
   @State private var hasStartedVoiceDrag = false
   @State private var shouldCancelVoiceDrag = false
 
   private var canSend: Bool {
     !isGenerating && !newMessage.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
+  }
+
+  private var hasVoicePreview: Bool {
+    pendingVoicePreviewURL != nil
   }
 
   var body: some View {
@@ -43,12 +53,32 @@ struct ConversationDetailInputView: View {
 
           Spacer(minLength: 0)
 
+          Text(Self.formatDuration(voiceRecordingElapsed))
+            .font(.system(size: 14, weight: .medium))
+            .monospacedDigit()
+            .foregroundStyle(Color.black.opacity(0.48))
+
           Button(action: onCancelVoiceRecording) {
             Image(systemName: "xmark.circle.fill")
               .font(.system(size: 18, weight: .semibold))
               .foregroundStyle(Color.black.opacity(0.35))
           }
           .buttonStyle(.plain)
+        } else if let pendingVoicePreviewURL {
+          Button(action: onDiscardVoicePreview) {
+            Image(systemName: "xmark.circle.fill")
+              .font(.system(size: 18, weight: .semibold))
+              .foregroundStyle(Color.black.opacity(0.35))
+          }
+          .buttonStyle(.plain)
+
+          AudioAttachmentPlaybackView(
+            url: pendingVoicePreviewURL,
+            title: "Voice preview",
+            isOutgoing: false,
+            durationOverride: pendingVoicePreviewDuration
+          )
+          .frame(maxWidth: .infinity, alignment: .leading)
         } else {
           TextField("Message ...", text: $newMessage, axis: .vertical)
             .font(.system(size: 16, weight: .regular))
@@ -60,8 +90,13 @@ struct ConversationDetailInputView: View {
             }
 
           Button {
-            isInputFocused.wrappedValue = false
-            isEmojiPanelVisible = true
+            if isEmojiPanelVisible {
+              isEmojiPanelVisible = false
+              isInputFocused.wrappedValue = true
+            } else {
+              isEmojiPanelVisible = true
+              isInputFocused.wrappedValue = false
+            }
           } label: {
             Image(systemName: "face.smiling")
               .font(.system(size: 18, weight: .regular))
@@ -82,7 +117,9 @@ struct ConversationDetailInputView: View {
       .shadow(color: .black.opacity(0.05), radius: 10, y: 4)
 
       Button {
-        if canSend {
+        if hasVoicePreview {
+          Task { try? await onSendVoicePreview() }
+        } else if canSend {
           Task { try? await onSend() }
         }
       } label: {
@@ -91,13 +128,13 @@ struct ConversationDetailInputView: View {
             ProgressView()
               .tint(.white)
           } else {
-            Image(systemName: canSend ? "paperplane.fill" : (shouldCancelVoiceDrag ? "xmark" : "mic.fill"))
+            Image(systemName: (canSend || hasVoicePreview) ? "paperplane.fill" : (shouldCancelVoiceDrag ? "xmark" : "mic.fill"))
               .font(.system(size: 16, weight: .semibold))
           }
         }
         .foregroundStyle(.white)
         .frame(width: 36, height: 36)
-        .background(shouldCancelVoiceDrag ? Color.red : (isVoiceRecording ? Color.green : Color(red: 0.05, green: 0.38, blue: 0.79)), in: Circle())
+        .background(shouldCancelVoiceDrag ? Color.red : ((isVoiceRecording || hasVoicePreview) ? Color.green : Color(red: 0.05, green: 0.38, blue: 0.79)), in: Circle())
       }
       .buttonStyle(.plain)
       .disabled(isGenerating)
@@ -123,7 +160,7 @@ struct ConversationDetailInputView: View {
   private var voiceDragGesture: some Gesture {
     DragGesture(minimumDistance: 0, coordinateSpace: .local)
       .onChanged { value in
-        guard !canSend, !isGenerating else { return }
+        guard !canSend, !hasVoicePreview, !isGenerating else { return }
         if !hasStartedVoiceDrag {
           hasStartedVoiceDrag = true
           shouldCancelVoiceDrag = false
@@ -136,11 +173,16 @@ struct ConversationDetailInputView: View {
         if shouldCancelVoiceDrag {
           onCancelVoiceRecording()
         } else {
-          onVoiceTap()
+          onVoiceRelease()
         }
         hasStartedVoiceDrag = false
         shouldCancelVoiceDrag = false
       }
+  }
+
+  private static func formatDuration(_ seconds: TimeInterval) -> String {
+    let total = max(0, Int(seconds.rounded()))
+    return "\(total / 60):\(String(format: "%02d", total % 60))"
   }
 }
 
@@ -192,7 +234,9 @@ private struct EmojiKeyboardInput: UIViewRepresentable {
     }
 
     func textFieldDidEndEditing(_ textField: UITextField) {
-      isFirstResponder = false
+      if !isFirstResponder {
+        textField.resignFirstResponder()
+      }
     }
   }
 }
@@ -213,12 +257,18 @@ private final class EmojiTextField: UITextField {
     ConversationDetailInputView(
       newMessage: $text,
       isGenerating: .constant(false),
+      pendingVoicePreviewURL: .constant(nil),
       isInputFocused: $isInputFocused,
       isVoiceRecording: false,
+      voiceRecordingElapsed: 0,
       isEmojiPanelVisible: $emoji,
       onAddAttachment: {},
       onVoiceTap: {},
+      onVoiceRelease: {},
       onCancelVoiceRecording: {},
+      onSendVoicePreview: {},
+      onDiscardVoicePreview: {},
+      pendingVoicePreviewDuration: nil,
       onSend: {}
     )
   }
