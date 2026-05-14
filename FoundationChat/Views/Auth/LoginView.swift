@@ -29,16 +29,8 @@ struct LoginView: View {
                 )
                 .ignoresSafeArea()
 
-                // Badge + sheet move together as keyboard rises/falls
-                ZStack(alignment: .bottom) {
-                    if step == .otp {
-                        shieldBadge
-                            .offset(y: -(sheetHeight(geo) - 31))
-                            .zIndex(1)
-                            .transition(.scale.combined(with: .opacity))
-                    }
-                    bottomSheet(geo: geo)
-                }
+                // Sheet moves as a single unit; the OTP badge is anchored to its top edge.
+                bottomSheet(geo: geo)
                 .frame(maxWidth: .infinity, maxHeight: .infinity)
                 .offset(y: -keyboardHeight)
             }
@@ -131,6 +123,14 @@ struct LoginView: View {
                     ))
             )
             .background(Color.white, in: RoundedRectangle(cornerRadius: 28, style: .continuous))
+            .overlay(alignment: .top) {
+                if step == .otp {
+                    shieldBadge
+                        .offset(y: -31)
+                        .zIndex(1)
+                        .transition(.scale.combined(with: .opacity))
+                }
+            }
         }
     }
 

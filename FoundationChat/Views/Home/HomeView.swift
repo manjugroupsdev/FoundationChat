@@ -74,7 +74,7 @@ struct HomeView: View {
             .navigationBarTitleDisplayMode(.inline)
             .toolbar {
                 ToolbarItem(placement: .navigationBarTrailing) {
-                    HStack(spacing: 12) {
+                    HStack(spacing: 2) {
                         NavigationLink {
                             NotificationsListView()
                         } label: {
@@ -82,6 +82,7 @@ struct HomeView: View {
                                 Image(systemName: "bell")
                                     .font(.system(size: 18, weight: .semibold))
                                     .foregroundStyle(.primary)
+                                    .frame(width: 28, height: 32, alignment: .leading)
                                 if unreadCount > 0 {
                                     Text(unreadCount > 99 ? "99+" : String(unreadCount))
                                         .font(.system(size: 10, weight: .bold))
@@ -89,9 +90,10 @@ struct HomeView: View {
                                         .padding(.horizontal, 4)
                                         .padding(.vertical, 1)
                                         .background(Color.red, in: Capsule())
-                                        .offset(x: 8, y: -6)
+                                        .offset(y: -2)
                                 }
                             }
+                            .frame(width: 34, height: 32, alignment: .leading)
                         }
 
                         NavigationLink {
