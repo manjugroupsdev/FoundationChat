@@ -8,6 +8,7 @@ struct ConversationInfoView: View {
 
   @Environment(AuthStore.self) private var authStore
   @Environment(\.dismiss) private var dismiss
+  @Environment(\.openURL) private var openURL
 
   let source: Source
   let initialDisplayName: String?
@@ -34,6 +35,7 @@ struct ConversationInfoView: View {
   @State private var showMediaSheet = false
   @State private var showSearchSheet = false
   @State private var participantStaffIds: [String: String] = [:]
+  @State private var participantStaffDetails: [String: ConvexStaffDetail] = [:]
 
   private var displayName: String {
     if case .channel = source, let channel {
@@ -73,10 +75,16 @@ struct ConversationInfoView: View {
 
   var body: some View {
     List {
-      Section {
-        headerCard
-          .listRowInsets(EdgeInsets())
-          .listRowBackground(Color.clear)
+      if case .channel = source {
+        Section {
+          headerCard
+            .listRowInsets(EdgeInsets())
+            .listRowBackground(Color.clear)
+        }
+      }
+
+      if case .conversation = source {
+        conversationUserDetailsTopSection
       }
 
       Section {
@@ -102,10 +110,6 @@ struct ConversationInfoView: View {
 
       if case .channel = source {
         membersSection
-      }
-
-      if case .conversation = source {
-        conversationParticipantsSection
       }
 
       if case .channel = source {
@@ -230,10 +234,10 @@ struct ConversationInfoView: View {
   }
 
   @ViewBuilder
-  private var conversationParticipantsSection: some View {
+  private var conversationUserDetailsTopSection: some View {
     let participants = conversationParticipantsToShow
 
-    Section(participants.count > 1 ? "People (\(participants.count))" : "User Details") {
+    Section {
       if isLoading && participants.isEmpty {
         ProgressView()
       } else if participants.isEmpty {
@@ -242,11 +246,20 @@ struct ConversationInfoView: View {
           .foregroundStyle(.secondary)
       } else {
         ForEach(participants, id: \.stackUserId) { participant in
-          NavigationLink {
-            StaffDetailView(staffId: staffDetailId(for: participant))
-          } label: {
-            ParticipantInfoRow(participant: participant)
-          }
+          ParticipantInlineProfileView(
+            participant: participant,
+            staff: participantStaffDetails[participant.stackUserId],
+            onCall: { phone in
+              if let url = phoneURL(phone) { openURL(url) }
+            },
+            onSMS: { phone in
+              if let url = smsURL(phone) { openURL(url) }
+            },
+            onEmail: { email in
+              if let url = emailURL(email) { openURL(url) }
+            }
+          )
+          .padding(.vertical, 8)
         }
       }
     }
@@ -405,9 +418,30 @@ struct ConversationInfoView: View {
       }
 
       participantStaffIds = resolved
+      await loadParticipantStaffDetails(for: participants)
     } catch {
       // Keep navigation working with the original participant id if directory lookup is unavailable.
     }
+  }
+
+  @MainActor
+  private func loadParticipantStaffDetails(for participants: [ConvexConversationParticipant]) async {
+    guard let token = authStore.currentSession?.token else { return }
+
+    var details = participantStaffDetails
+    for participant in participants where !isCurrentUser(participant) {
+      guard details[participant.stackUserId] == nil else { continue }
+      do {
+        let staff = try await HRConvexAPIService.getStaffDetail(
+          token: token,
+          id: staffDetailId(for: participant)
+        )
+        details[participant.stackUserId] = staff
+      } catch {
+        continue
+      }
+    }
+    participantStaffDetails = details
   }
 
   private func staffItem(_ item: ConvexStaffListItem, matches participant: ConvexConversationParticipant) -> Bool {
@@ -441,6 +475,24 @@ struct ConversationInfoView: View {
     value
       .trimmingCharacters(in: .whitespacesAndNewlines)
       .lowercased()
+  }
+
+  private func phoneURL(_ phone: String) -> URL? {
+    let digits = phone.filter { $0.isNumber || $0 == "+" }
+    guard !digits.isEmpty else { return nil }
+    return URL(string: "tel:\(digits)")
+  }
+
+  private func smsURL(_ phone: String) -> URL? {
+    let digits = phone.filter { $0.isNumber || $0 == "+" }
+    guard !digits.isEmpty else { return nil }
+    return URL(string: "sms:\(digits)")
+  }
+
+  private func emailURL(_ email: String) -> URL? {
+    let trimmed = email.trimmingCharacters(in: .whitespacesAndNewlines)
+    guard !trimmed.isEmpty else { return nil }
+    return URL(string: "mailto:\(trimmed)")
   }
 }
 
@@ -501,9 +553,158 @@ private struct ParticipantInfoRow: View {
   }
 }
 
+private struct ParticipantInlineProfileView: View {
+  let participant: ConvexConversationParticipant
+  let staff: ConvexStaffDetail?
+  let onCall: (String) -> Void
+  let onSMS: (String) -> Void
+  let onEmail: (String) -> Void
+
+  private var displayName: String {
+    staff?.displayName ?? participant.displayName
+  }
+
+  var body: some View {
+    VStack(spacing: 14) {
+      profileHeader
+
+      if let staff {
+        contactActions(for: staff)
+        detailGroup {
+          detailRow("Phone", staff.phone)
+          detailRow("Email", staff.email)
+          detailRow("Gender", staff.gender)
+          detailRow("Designation", staff.designation)
+          detailRow("Department", staff.department)
+          detailRow("Employee ID", staff.employeeId)
+        }
+      } else {
+        HStack(spacing: 8) {
+          ProgressView()
+            .controlSize(.small)
+          Text("Loading user details")
+            .font(.subheadline)
+            .foregroundStyle(.secondary)
+        }
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .padding(.vertical, 4)
+      }
+    }
+  }
+
+  private var profileHeader: some View {
+    VStack(spacing: 10) {
+      AvatarView(urlString: staff?.photo ?? participant.profilePhoto, initials: initials, size: 74)
+
+      Text(displayName)
+        .font(.title3.weight(.semibold))
+        .multilineTextAlignment(.center)
+
+      if let subtitle = staff?.headerSubtitle, !subtitle.isEmpty {
+        Text(subtitle)
+          .font(.subheadline)
+          .foregroundStyle(.secondary)
+          .multilineTextAlignment(.center)
+      }
+
+      if let staff {
+        Text(staff.isActive ? "Active" : "Inactive")
+          .font(.caption.weight(.semibold))
+          .padding(.horizontal, 10)
+          .padding(.vertical, 4)
+          .background((staff.isActive ? Color.green : Color.red).opacity(0.15), in: Capsule())
+          .foregroundStyle(staff.isActive ? Color.green : Color.red)
+      }
+    }
+    .frame(maxWidth: .infinity)
+    .padding(.vertical, 8)
+  }
+
+  @ViewBuilder
+  private func contactActions(for staff: ConvexStaffDetail) -> some View {
+    HStack(spacing: 10) {
+      if let phone = staff.phone, !phone.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
+        contactButton(title: "Call", systemImage: "phone.fill", color: .green) {
+          onCall(phone)
+        }
+        contactButton(title: "SMS", systemImage: "message.fill", color: .blue) {
+          onSMS(phone)
+        }
+      }
+
+      if let email = staff.email, !email.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
+        contactButton(title: "Email", systemImage: "envelope.fill", color: .orange) {
+          onEmail(email)
+        }
+      }
+    }
+  }
+
+  private func contactButton(
+    title: String,
+    systemImage: String,
+    color: Color,
+    action: @escaping () -> Void
+  ) -> some View {
+    Button(action: action) {
+      VStack(spacing: 6) {
+        Image(systemName: systemImage)
+          .font(.title3)
+        Text(title)
+          .font(.caption.weight(.medium))
+      }
+      .frame(maxWidth: .infinity)
+      .padding(.vertical, 12)
+      .background(color.opacity(0.15), in: RoundedRectangle(cornerRadius: 12, style: .continuous))
+      .foregroundStyle(color)
+    }
+    .buttonStyle(.plain)
+  }
+
+  private func detailGroup<Content: View>(@ViewBuilder content: () -> Content) -> some View {
+    VStack(spacing: 0) {
+      content()
+    }
+    .background(Color(.secondarySystemGroupedBackground), in: RoundedRectangle(cornerRadius: 14, style: .continuous))
+  }
+
+  @ViewBuilder
+  private func detailRow(_ title: String, _ value: String?) -> some View {
+    if let value, !value.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
+      HStack(alignment: .top, spacing: 12) {
+        Text(title)
+          .font(.subheadline)
+          .foregroundStyle(.secondary)
+          .frame(width: 104, alignment: .leading)
+
+        Text(value)
+          .font(.subheadline.weight(.medium))
+          .foregroundStyle(.primary)
+          .multilineTextAlignment(.leading)
+          .frame(maxWidth: .infinity, alignment: .leading)
+      }
+      .padding(.horizontal, 12)
+      .padding(.vertical, 10)
+
+      Divider()
+        .padding(.leading, 12)
+    }
+  }
+
+  private var initials: String {
+    let parts = displayName
+      .split(whereSeparator: { !$0.isLetter })
+      .prefix(2)
+      .compactMap(\.first)
+    let result = String(parts).uppercased()
+    return result.isEmpty ? "?" : result
+  }
+}
+
 private struct AvatarView: View {
   let urlString: String?
   let initials: String
+  var size: CGFloat = 36
 
   var body: some View {
     ZStack {
@@ -519,17 +720,17 @@ private struct AvatarView: View {
               .scaledToFill()
           default:
             Text(initials)
-              .font(.caption.weight(.semibold))
+              .font(.system(size: max(12, size * 0.34), weight: .semibold))
               .foregroundStyle(.white)
           }
         }
       } else {
         Text(initials)
-          .font(.caption.weight(.semibold))
+          .font(.system(size: max(12, size * 0.34), weight: .semibold))
           .foregroundStyle(.white)
       }
     }
-    .frame(width: 36, height: 36)
+    .frame(width: size, height: size)
     .clipShape(Circle())
   }
 

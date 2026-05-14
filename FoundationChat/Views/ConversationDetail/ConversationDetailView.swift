@@ -1,5 +1,6 @@
 import Combine
 import AVFoundation
+import AVKit
 import PhotosUI
 import SwiftData
 import SwiftUI
@@ -211,6 +212,10 @@ struct ConversationDetailView: View {
     .onChange(of: newMessage) { _, _ in
       scheduleMentionDirectoryLoad()
     }
+    .onChange(of: isInputFocused) { _, isFocused in
+      guard isFocused else { return }
+      scrollToBottomForKeyboard()
+    }
     .simultaneousGesture(backSwipeGesture)
     .scrollDismissesKeyboard(.interactively)
     .scrollPosition($scrollPosition, anchor: .bottom)
@@ -303,7 +308,7 @@ struct ConversationDetailView: View {
           isAttachmentOptionsPresented = false
         }
       )
-      .presentationDetents([.height(390), .fraction(0.7)])
+      .presentationDetents([.height(270)])
       .presentationDragIndicator(.visible)
       .presentationBackground(.clear)
     }
@@ -364,7 +369,7 @@ struct ConversationDetailView: View {
   }
 
   private var conversationHeader: some View {
-    HStack(spacing: 12) {
+    HStack(spacing: 4) {
       Button {
         dismiss()
       } label: {
@@ -577,7 +582,21 @@ struct ConversationDetailView: View {
 
     let previousTimestamp = messages[index - 1].timestamp
     let currentTimestamp = messages[index].timestamp
-    return currentTimestamp.timeIntervalSince(previousTimestamp) > 30 * 60
+    return !Calendar.current.isDate(previousTimestamp, inSameDayAs: currentTimestamp)
+  }
+
+  private func scrollToBottomForKeyboard() {
+    Task { @MainActor in
+      try? await Task.sleep(for: .milliseconds(80))
+      withAnimation(.easeOut(duration: 0.22)) {
+        scrollPosition.scrollTo(edge: .bottom)
+      }
+
+      try? await Task.sleep(for: .milliseconds(240))
+      withAnimation(.easeOut(duration: 0.18)) {
+        scrollPosition.scrollTo(edge: .bottom)
+      }
+    }
   }
 
   private var selectedMessages: [Message] {
@@ -783,12 +802,23 @@ private struct MessageTimestampDivider: View {
 
   private static let formatter: DateFormatter = {
     let formatter = DateFormatter()
-    formatter.dateFormat = "E, d MMM 'at' h:mm a"
+    formatter.dateFormat = "d MMM yyyy"
     return formatter
   }()
 
+  private static func title(for date: Date) -> String {
+    let calendar = Calendar.current
+    if calendar.isDateInToday(date) {
+      return "Today"
+    }
+    if calendar.isDateInYesterday(date) {
+      return "Yesterday"
+    }
+    return formatter.string(from: date)
+  }
+
   var body: some View {
-    Text(Self.formatter.string(from: date))
+    Text(Self.title(for: date))
       .font(.system(size: 12, weight: .medium))
       .foregroundStyle(Color.black.opacity(0.6))
       .padding(.horizontal, 14)
@@ -808,58 +838,31 @@ private struct AttachmentOptionsSheet: View {
   let onFiles: () -> Void
   let onDismiss: () -> Void
 
-  private let columns = Array(repeating: GridItem(.flexible(), spacing: 12), count: 4)
-
   var body: some View {
-    VStack(spacing: 16) {
-      LazyVGrid(columns: columns, spacing: 20) {
-        AttachmentDrawerItem(icon: "photo.on.rectangle.angled", tint: Color(red: 0.20, green: 0.56, blue: 1.0), title: "Photos", action: onPhotos)
-        AttachmentDrawerItem(icon: "camera.fill", tint: .white, title: "Camera", action: onCamera)
-        AttachmentDrawerItem(icon: "mappin.circle.fill", tint: Color(red: 0.04, green: 0.78, blue: 0.55), title: "Location", action: onDismiss)
-        AttachmentDrawerItem(icon: "person.crop.circle.fill", tint: Color.white.opacity(0.9), title: "Contact", action: onDismiss)
-        AttachmentDrawerItem(icon: "doc.fill", tint: Color(red: 0.04, green: 0.64, blue: 1.0), title: "Document", action: onFiles)
-        AttachmentDrawerItem(icon: "list.bullet.rectangle.fill", tint: Color(red: 1.0, green: 0.72, blue: 0.22), title: "Poll", action: onDismiss)
-        AttachmentDrawerItem(icon: "calendar", tint: Color(red: 1.0, green: 0.02, blue: 0.30), title: "Event", action: onDismiss)
-        AttachmentDrawerItem(icon: "photo.badge.sparkles", tint: Color(red: 0.20, green: 0.56, blue: 1.0), title: "AI images", action: onDismiss)
-      }
-      .padding(.horizontal, 20)
+    VStack(spacing: 0) {
+      AttachmentOptionRow(
+        icon: "photo.on.rectangle.angled",
+        tint: Color(red: 0.66, green: 0.25, blue: 0.95),
+        title: "Photos or videos",
+        action: onPhotos
+      )
 
-      Spacer(minLength: 0)
+      AttachmentOptionRow(
+        icon: "camera.fill",
+        tint: Color(red: 0.02, green: 0.70, blue: 0.48),
+        title: "Camera",
+        action: onCamera
+      )
+
+      AttachmentOptionRow(
+        icon: "doc",
+        tint: Color(red: 0.05, green: 0.45, blue: 1.0),
+        title: "Attach a file",
+        action: onFiles
+      )
     }
-    .frame(maxWidth: .infinity, maxHeight: .infinity)
-    .background(Color.clear)
-    .padding(.top, 18)
-  }
-}
-
-private struct AttachmentDrawerItem: View {
-  let icon: String
-  let tint: Color
-  let title: String
-  let action: () -> Void
-
-  var body: some View {
-    Button(action: action) {
-      VStack(spacing: 8) {
-        Image(systemName: icon)
-          .font(.system(size: 27, weight: .semibold))
-          .foregroundStyle(tint)
-          .frame(width: 62, height: 42)
-          .background(.ultraThinMaterial, in: Capsule())
-          .overlay(
-            Capsule()
-              .stroke(Color.white.opacity(0.16), lineWidth: 0.5)
-          )
-
-        Text(title)
-          .font(.system(size: 13, weight: .medium))
-          .foregroundStyle(Color.black.opacity(0.82))
-          .lineLimit(1)
-          .minimumScaleFactor(0.75)
-      }
-      .frame(maxWidth: .infinity)
-    }
-    .buttonStyle(.plain)
+    .padding(.vertical, 12)
+    .frame(maxWidth: .infinity, alignment: .top)
   }
 }
 
@@ -867,22 +870,26 @@ private struct AttachmentOptionRow: View {
   let icon: String
   let tint: Color
   let title: String
+  let action: () -> Void
 
   var body: some View {
-    HStack(spacing: 12) {
-      Image(systemName: icon)
-        .font(.system(size: 25, weight: .regular))
-        .foregroundStyle(tint)
-        .frame(width: 42, height: 42)
+    Button(action: action) {
+      HStack(spacing: 18) {
+        Image(systemName: icon)
+          .font(.system(size: 25, weight: .regular))
+          .foregroundStyle(tint)
+          .frame(width: 46, height: 46)
 
-      Text(title)
-        .font(.system(size: 24, weight: .regular))
-        .foregroundStyle(Color.black.opacity(0.92))
+        Text(title)
+          .font(.system(size: 24, weight: .regular))
+          .foregroundStyle(Color.black.opacity(0.92))
 
-      Spacer()
+        Spacer()
+      }
+      .padding(.horizontal, 30)
+      .frame(height: 72)
     }
-    .padding(.horizontal, 28)
-    .frame(height: 72)
+    .buttonStyle(.plain)
   }
 }
 
@@ -948,7 +955,16 @@ private struct PendingImageAttachment: Identifiable {
   let fileName: String
   let mimeType: String
   let attachmentType: String
-  let image: UIImage
+  let image: UIImage?
+  let previewURL: URL?
+
+  var isVideo: Bool {
+    attachmentType == "video" || mimeType.hasPrefix("video/")
+  }
+
+  var displayKind: String {
+    isVideo ? "Video" : "Photo"
+  }
 }
 
 private struct ImageAttachmentPreviewView: View {
@@ -959,10 +975,12 @@ private struct ImageAttachmentPreviewView: View {
 
   @State private var caption = ""
   @State private var isSending = false
-  @State private var workingImage: UIImage
+  @State private var workingImage: UIImage?
   @State private var workingData: Data
   @State private var isCropPresented = false
   @State private var statusMessage: String?
+  @State private var previewPlayer: AVPlayer?
+  @State private var keyboardHeight: CGFloat = 0
   @FocusState private var isCaptionFocused: Bool
 
   init(
@@ -980,56 +998,100 @@ private struct ImageAttachmentPreviewView: View {
   }
 
   var body: some View {
-    ZStack {
-      Color.black.ignoresSafeArea()
+    GeometryReader { proxy in
+      ZStack {
+        Color.black
+          .ignoresSafeArea(.container)
 
-      VStack(spacing: 0) {
-        previewHeader
+        VStack(spacing: 0) {
+          previewHeader(topInset: max(proxy.safeAreaInsets.top, 44))
 
-        GeometryReader { proxy in
-          Image(uiImage: workingImage)
-            .resizable()
-            .scaledToFit()
-            .frame(width: proxy.size.width, height: proxy.size.height)
-            .clipped()
+          GeometryReader { imageProxy in
+            previewMedia
+              .frame(width: imageProxy.size.width, height: imageProxy.size.height)
+              .clipped()
+          }
+
+          previewTools
         }
 
-        previewTools
-        previewComposer
+        if let statusMessage {
+          VStack {
+            Text(statusMessage)
+              .font(.footnote.weight(.semibold))
+              .foregroundStyle(.white)
+              .padding(.horizontal, 14)
+              .padding(.vertical, 9)
+              .background(Color.white.opacity(0.16), in: Capsule())
+              .padding(.top, max(proxy.safeAreaInsets.top, 44) + 72)
+            Spacer()
+          }
+          .transition(.move(edge: .top).combined(with: .opacity))
+        }
       }
-
-      if let statusMessage {
-        VStack {
-          Text(statusMessage)
-            .font(.footnote.weight(.semibold))
-            .foregroundStyle(.white)
-            .padding(.horizontal, 14)
-            .padding(.vertical, 9)
-            .background(Color.white.opacity(0.16), in: Capsule())
-            .padding(.top, 72)
-          Spacer()
-        }
-        .transition(.move(edge: .top).combined(with: .opacity))
+      .safeAreaInset(edge: .bottom, spacing: 0) {
+        previewComposer
       }
     }
     .preferredColorScheme(.dark)
+    .simultaneousGesture(backDismissGesture)
     .fullScreenCover(isPresented: $isCropPresented) {
-      ImageCropEditorView(
-        image: workingImage,
-        onCancel: {
-          isCropPresented = false
-        },
-        onDone: { croppedImage in
-          workingImage = croppedImage
-          workingData = encodedData(for: croppedImage)
-          isCropPresented = false
-          showStatus("Crop applied")
-        }
-      )
+      if let workingImage {
+        ImageCropEditorView(
+          image: workingImage,
+          onCancel: {
+            isCropPresented = false
+          },
+          onDone: { croppedImage in
+            self.workingImage = croppedImage
+            workingData = encodedData(for: croppedImage)
+            isCropPresented = false
+            showStatus("Crop applied")
+          }
+        )
+      }
+    }
+    .onAppear {
+      prepareVideoPreviewIfNeeded()
+    }
+    .onReceive(NotificationCenter.default.publisher(for: UIResponder.keyboardWillChangeFrameNotification)) { notification in
+      updateKeyboardHeight(from: notification)
+    }
+    .onReceive(NotificationCenter.default.publisher(for: UIResponder.keyboardWillHideNotification)) { _ in
+      withAnimation(.easeOut(duration: 0.22)) {
+        keyboardHeight = 0
+      }
+    }
+    .onDisappear {
+      previewPlayer?.pause()
+      previewPlayer = nil
     }
   }
 
-  private var previewHeader: some View {
+  @ViewBuilder
+  private var previewMedia: some View {
+    if let workingImage {
+      Image(uiImage: workingImage)
+        .resizable()
+        .scaledToFit()
+    } else if let previewPlayer {
+      VideoPlayer(player: previewPlayer)
+        .onAppear {
+          previewPlayer.play()
+        }
+    } else {
+      VStack(spacing: 12) {
+        Image(systemName: "video")
+          .font(.system(size: 42, weight: .regular))
+        Text("Video preview")
+          .font(.system(size: 15, weight: .medium))
+      }
+      .foregroundStyle(.white.opacity(0.72))
+      .frame(maxWidth: .infinity, maxHeight: .infinity)
+    }
+  }
+
+  private func previewHeader(topInset: CGFloat) -> some View {
     HStack(spacing: 12) {
       Button(action: onCancel) {
         Image(systemName: "xmark")
@@ -1047,7 +1109,7 @@ private struct ImageAttachmentPreviewView: View {
           .foregroundStyle(.white)
           .lineLimit(1)
 
-        Text("Photo")
+        Text(attachment.displayKind)
           .font(.system(size: 12, weight: .regular))
           .foregroundStyle(.white.opacity(0.68))
       }
@@ -1055,7 +1117,7 @@ private struct ImageAttachmentPreviewView: View {
       Spacer()
     }
     .padding(.horizontal, 16)
-    .padding(.top, 8)
+    .padding(.top, topInset + 8)
     .padding(.bottom, 10)
     .background(.ultraThinMaterial.opacity(0.35))
   }
@@ -1063,7 +1125,7 @@ private struct ImageAttachmentPreviewView: View {
   private var previewComposer: some View {
     HStack(spacing: 12) {
       HStack(spacing: 10) {
-        Image(systemName: "photo")
+        Image(systemName: attachment.isVideo ? "video" : "photo")
           .font(.system(size: 18, weight: .regular))
           .foregroundStyle(.white.opacity(0.86))
 
@@ -1104,19 +1166,28 @@ private struct ImageAttachmentPreviewView: View {
     }
     .padding(.horizontal, 16)
     .padding(.top, 12)
-    .padding(.bottom, 18)
+    .padding(.bottom, keyboardHeight > 0 ? keyboardHeight + 10 : 18)
     .background(.ultraThinMaterial.opacity(0.45))
+    .animation(.easeOut(duration: 0.22), value: keyboardHeight)
   }
 
   private var previewTools: some View {
     HStack(spacing: 14) {
       PreviewToolButton(icon: "square.and.arrow.down", title: "Save") {
+        guard let workingImage else { return }
         UIImageWriteToSavedPhotosAlbum(workingImage, nil, nil, nil)
         showStatus("Saved to Photos")
       }
+      .disabled(workingImage == nil)
+      .opacity(workingImage == nil ? 0.42 : 1)
+
       PreviewToolButton(icon: "crop", title: "Crop") {
+        guard workingImage != nil else { return }
         isCropPresented = true
       }
+      .disabled(workingImage == nil)
+      .opacity(workingImage == nil ? 0.42 : 1)
+
       PreviewToolButton(icon: "pencil.tip", title: "Draw", isEnabled: false) {}
       PreviewToolButton(icon: "textformat", title: "Text", isEnabled: false) {}
     }
@@ -1132,6 +1203,11 @@ private struct ImageAttachmentPreviewView: View {
     return image.jpegData(compressionQuality: 0.9) ?? workingData
   }
 
+  private func prepareVideoPreviewIfNeeded() {
+    guard attachment.isVideo, previewPlayer == nil, let previewURL = attachment.previewURL else { return }
+    previewPlayer = AVPlayer(url: previewURL)
+  }
+
   private func showStatus(_ message: String) {
     withAnimation(.spring(response: 0.25, dampingFraction: 0.9)) {
       statusMessage = message
@@ -1144,6 +1220,27 @@ private struct ImageAttachmentPreviewView: View {
         statusMessage = nil
       }
     }
+  }
+
+  private func updateKeyboardHeight(from notification: Notification) {
+    guard
+      let frame = notification.userInfo?[UIResponder.keyboardFrameEndUserInfoKey] as? CGRect
+    else { return }
+    let screenHeight = UIScreen.main.bounds.height
+    let height = max(0, screenHeight - frame.minY)
+    withAnimation(.easeOut(duration: 0.22)) {
+      keyboardHeight = height
+    }
+  }
+
+  private var backDismissGesture: some Gesture {
+    DragGesture(minimumDistance: 18, coordinateSpace: .local)
+      .onEnded { value in
+        guard !isSending else { return }
+        guard value.startLocation.x < 44 else { return }
+        guard value.translation.width > 90, abs(value.translation.height) < 80 else { return }
+        onCancel()
+      }
   }
 }
 
@@ -1188,8 +1285,15 @@ private struct ImageCropEditorView: View {
 
       VStack(spacing: 0) {
         HStack {
-          Button("Cancel", action: onCancel)
-            .foregroundStyle(.white)
+          Button {
+            onCancel()
+          } label: {
+            Text("Cancel")
+              .frame(minWidth: 72, minHeight: 44, alignment: .leading)
+          }
+          .buttonStyle(.plain)
+          .foregroundStyle(.white)
+          .contentShape(Rectangle())
 
           Spacer()
 
@@ -1199,20 +1303,26 @@ private struct ImageCropEditorView: View {
 
           Spacer()
 
-          Button("Done") {
+          Button {
             if let croppedImage = renderCroppedImage(cropSize: cropSize) {
               onDone(croppedImage)
             } else {
               onCancel()
             }
+          } label: {
+            Text("Done")
+              .fontWeight(.semibold)
+              .frame(minWidth: 72, minHeight: 44, alignment: .trailing)
           }
-          .fontWeight(.semibold)
+          .buttonStyle(.plain)
           .foregroundStyle(Color(red: 0.2, green: 0.7, blue: 1))
+          .contentShape(Rectangle())
         }
         .padding(.horizontal, 18)
-        .padding(.top, proxy.safeAreaInsets.top + 12)
+        .padding(.top, max(proxy.safeAreaInsets.top, 44) + 6)
         .padding(.bottom, 16)
         .background(Color.black.opacity(0.92))
+        .zIndex(2)
 
         Spacer(minLength: 20)
 
@@ -1517,7 +1627,8 @@ extension ConversationDetailView {
       fileName: fileName,
       mimeType: "image/jpeg",
       attachmentType: "image",
-      image: image
+      image: image,
+      previewURL: localAttachmentPreviewURL(data: jpegData, fileName: fileName)
     )
   }
 
@@ -1539,19 +1650,20 @@ extension ConversationDetailView {
           fileName: fileName,
           mimeType: mimeType,
           attachmentType: attachmentType,
-          image: image
+          image: image,
+          previewURL: localAttachmentPreviewURL(data: mediaData, fileName: fileName)
         )
         selectedPhotoItem = nil
         return
       }
 
-      await sendAttachment(
+      pendingImageAttachment = PendingImageAttachment(
         data: mediaData,
         fileName: fileName,
         mimeType: mimeType,
         attachmentType: attachmentType,
-        attachmentTitle: nil,
-        attachmentDescription: nil
+        image: nil,
+        previewURL: localAttachmentPreviewURL(data: mediaData, fileName: fileName)
       )
     } catch {
       conversation.messages.append(
@@ -1608,7 +1720,20 @@ extension ConversationDetailView {
             fileName: fileURL.lastPathComponent,
             mimeType: mimeType,
             attachmentType: attachmentType,
-            image: image
+            image: image,
+            previewURL: localAttachmentPreviewURL(data: fileData, fileName: fileURL.lastPathComponent)
+          )
+          return
+        }
+
+        if urls.count == 1, attachmentType == "video" {
+          pendingImageAttachment = PendingImageAttachment(
+            data: fileData,
+            fileName: fileURL.lastPathComponent,
+            mimeType: mimeType,
+            attachmentType: attachmentType,
+            image: nil,
+            previewURL: localAttachmentPreviewURL(data: fileData, fileName: fileURL.lastPathComponent)
           )
           return
         }
@@ -1820,10 +1945,10 @@ extension ConversationDetailView {
       return
     }
 
-    isGenerating = true
     let messageContent = caption.trimmingCharacters(in: .whitespacesAndNewlines)
+    let localPreviewURL = localAttachmentPreviewURL(data: data, fileName: fileName)
     let localPlaceholderMessage = Message(
-      content: messageContent.isEmpty ? "Uploading..." : messageContent,
+      content: messageContent,
       role: .user,
       timestamp: Date(),
       senderStackUserId: authStore.viewer?.subject,
@@ -1831,7 +1956,8 @@ extension ConversationDetailView {
       attachementFileName: fileName,
       attachementMimeType: mimeType,
       attachementTitle: attachmentTitle,
-      attachementDescription: attachmentDescription
+      attachementDescription: attachmentDescription,
+      attachementURL: localPreviewURL?.absoluteString
     )
     conversation.messages.append(localPlaceholderMessage)
     try? modelContext.save()
@@ -1871,7 +1997,6 @@ extension ConversationDetailView {
       scrollPosition.scrollTo(edge: .bottom)
     }
     try? modelContext.save()
-    isGenerating = false
   }
 
   @MainActor
@@ -2221,6 +2346,18 @@ extension ConversationDetailView {
         count: count,
         hasReacted: parts[2] == "1"
       )
+    }
+  }
+
+  private func localAttachmentPreviewURL(data: Data, fileName: String) -> URL? {
+    let safeFileName = fileName.replacingOccurrences(of: "/", with: "-")
+    let previewURL = FileManager.default.temporaryDirectory
+      .appendingPathComponent("FoundationChatAttachment-\(UUID().uuidString)-\(safeFileName)")
+    do {
+      try data.write(to: previewURL, options: [.atomic])
+      return previewURL
+    } catch {
+      return nil
     }
   }
 

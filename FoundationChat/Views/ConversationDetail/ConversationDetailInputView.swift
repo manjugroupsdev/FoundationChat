@@ -94,8 +94,7 @@ struct ConversationDetailInputView: View {
               isEmojiPanelVisible = false
               isInputFocused.wrappedValue = true
             } else {
-              isEmojiPanelVisible = true
-              isInputFocused.wrappedValue = false
+              openEmojiKeyboard()
             }
           } label: {
             Image(systemName: "face.smiling")
@@ -157,6 +156,16 @@ struct ConversationDetailInputView: View {
     }
   }
 
+  private func openEmojiKeyboard() {
+    isInputFocused.wrappedValue = false
+    isEmojiPanelVisible = false
+    UIApplication.shared.sendAction(#selector(UIResponder.resignFirstResponder), to: nil, from: nil, for: nil)
+
+    DispatchQueue.main.async {
+      isEmojiPanelVisible = true
+    }
+  }
+
   private var voiceDragGesture: some Gesture {
     DragGesture(minimumDistance: 0, coordinateSpace: .local)
       .onChanged { value in
@@ -209,8 +218,12 @@ private struct EmojiKeyboardInput: UIViewRepresentable {
     }
 
     if isFirstResponder, !textField.isFirstResponder {
-      textField.becomeFirstResponder()
-      textField.reloadInputViews()
+      UIApplication.shared.sendAction(#selector(UIResponder.resignFirstResponder), to: nil, from: nil, for: nil)
+      DispatchQueue.main.async {
+        guard isFirstResponder, !textField.isFirstResponder else { return }
+        textField.becomeFirstResponder()
+        textField.reloadInputViews()
+      }
     } else if !isFirstResponder, textField.isFirstResponder {
       textField.resignFirstResponder()
     }

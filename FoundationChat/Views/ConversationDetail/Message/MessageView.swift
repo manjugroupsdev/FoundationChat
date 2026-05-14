@@ -53,6 +53,15 @@ struct MessageView: View {
       || message.attachementMimeType?.hasPrefix("image/") == true
   }
 
+  private var isVideoAttachment: Bool {
+    message.attachementType == "video"
+      || message.attachementMimeType?.hasPrefix("video/") == true
+  }
+
+  private var isMediaAttachment: Bool {
+    isImageAttachment || isVideoAttachment
+  }
+
   private var shouldRenderImageWithoutBubble: Bool {
     isImageAttachment && !hasTextContent && !message.isDeleted
   }
@@ -93,8 +102,13 @@ struct MessageView: View {
                   onTap: onTapReplyPreview
                 )
               }
-              MessageContentView(message: message, isOutgoing: isOutgoing)
-              MessageAttachementView(message: message, isOutgoing: isOutgoing)
+              if isMediaAttachment {
+                MessageAttachementView(message: message, isOutgoing: isOutgoing)
+                MessageContentView(message: message, isOutgoing: isOutgoing)
+              } else {
+                MessageContentView(message: message, isOutgoing: isOutgoing)
+                MessageAttachementView(message: message, isOutgoing: isOutgoing)
+              }
             }
             .padding(.horizontal, message.isDeleted ? 12 : 14)
             .padding(.vertical, message.isDeleted ? 9 : 11)
@@ -135,7 +149,7 @@ struct MessageView: View {
       .offset(x: horizontalDragOffset)
       .contentShape(Rectangle())
       .onTapGesture {
-        guard !message.isDeleted else { return }
+        guard isSelectionMode, !message.isDeleted else { return }
         onToggleSelection()
       }
       .gesture(replyDragGesture)

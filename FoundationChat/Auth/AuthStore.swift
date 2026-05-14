@@ -186,6 +186,10 @@ final class AuthStore {
     UNUserNotificationCenter.current().requestAuthorization(options: [.alert, .badge, .sound]) { granted, error in
       if granted {
         DispatchQueue.main.async {
+          guard PushNotificationEntitlements.canRegisterForRemoteNotifications else {
+            print("[push] skipping APNs registration: missing aps-environment entitlement")
+            return
+          }
           UIApplication.shared.registerForRemoteNotifications()
         }
       }

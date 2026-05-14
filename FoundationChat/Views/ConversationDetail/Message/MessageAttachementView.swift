@@ -1,4 +1,5 @@
 import AVFoundation
+import AVKit
 import Combine
 import SwiftUI
 import UIKit
@@ -51,28 +52,17 @@ struct MessageAttachementView: View {
     return seconds
   }
 
+  private var isPendingUpload: Bool {
+    message.role == .user
+      && message.remoteMessageID == nil
+      && (isImageAttachment || isVideoAttachment || isAudioAttachment)
+  }
+
   var body: some View {
     if message.isDeleted {
       EmptyView()
     } else if isImageAttachment, let mediaURL {
-      AsyncImage(url: mediaURL) { state in
-        if let image = state.image {
-          image
-            .resizable()
-            .scaledToFill()
-            .frame(maxWidth: 242, maxHeight: 320)
-            .clipped()
-        } else if state.error == nil {
-          ProgressView()
-            .frame(width: 242, height: 180)
-        } else {
-          Image(systemName: "photo")
-            .font(.system(size: 28, weight: .regular))
-            .foregroundStyle(Color.secondary.opacity(0.7))
-            .frame(width: 242, height: 180)
-            .background(Color.white.opacity(0.72))
-        }
-      }
+      ChatImagePreview(url: mediaURL, isPendingUpload: isPendingUpload)
       .clipShape(RoundedRectangle(cornerRadius: 10, style: .continuous))
       .overlay(
         RoundedRectangle(cornerRadius: 10, style: .continuous)
@@ -85,15 +75,19 @@ struct MessageAttachementView: View {
       .fullScreenCover(isPresented: $isPresentingFullscreenImage) {
         FullscreenImageViewer(imageURL: mediaURL)
       }
+    } else if isVideoAttachment, let previewURL = mediaURL, let attachmentURL {
+      VideoInlinePreview(previewURL: previewURL, videoURL: attachmentURL, isPendingUpload: isPendingUpload)
+        .clipShape(.rect(cornerRadius: 16))
     } else if isVideoAttachment, let mediaURL {
-      VideoThumbnailPreview(url: mediaURL)
+      VideoInlinePreview(previewURL: mediaURL, videoURL: mediaURL, isPendingUpload: isPendingUpload)
         .clipShape(.rect(cornerRadius: 16))
     } else if isAudioAttachment, let attachmentURL {
       AudioAttachmentPlaybackView(
         url: attachmentURL,
         title: displayFileName ?? "Voice message",
         isOutgoing: isOutgoing,
-        durationOverride: audioDurationHint
+        durationOverride: audioDurationHint,
+        isPendingUpload: isPendingUpload
       )
     } else if let displayFileName {
       HStack(spacing: 8) {
@@ -124,11 +118,81 @@ struct MessageAttachementView: View {
   }
 }
 
+private struct ChatImagePreview: View {
+  let url: URL
+  let isPendingUpload: Bool
+  @State private var image: UIImage?
+  @State private var isLoading = false
+  @State private var didFail = false
+
+  var body: some View {
+    ZStack {
+      if let image {
+        Image(uiImage: image)
+          .resizable()
+          .scaledToFill()
+          .frame(width: 242, height: 220)
+          .clipped()
+      } else if isLoading {
+        ZStack {
+          Color.white.opacity(0.72)
+          ProgressView()
+        }
+        .frame(width: 242, height: 180)
+      } else {
+        ZStack {
+          Color.white.opacity(didFail ? 0.72 : 0.46)
+          Image(systemName: "photo")
+            .font(.system(size: 28, weight: .regular))
+            .foregroundStyle(Color.secondary.opacity(0.7))
+        }
+        .frame(width: 242, height: 180)
+      }
+
+      if isPendingUpload {
+        AttachmentPendingOverlay()
+      }
+    }
+    .task(id: url) {
+      await loadImage()
+    }
+  }
+
+  @MainActor
+  private func loadImage() async {
+    image = nil
+    didFail = false
+    isLoading = true
+    defer { isLoading = false }
+
+    if url.isFileURL {
+      if let data = try? Data(contentsOf: url), let loadedImage = UIImage(data: data) {
+        image = loadedImage
+      } else {
+        didFail = true
+      }
+      return
+    }
+
+    do {
+      let (data, _) = try await URLSession.shared.data(from: url)
+      if let loadedImage = UIImage(data: data) {
+        image = loadedImage
+      } else {
+        didFail = true
+      }
+    } catch {
+      didFail = true
+    }
+  }
+}
+
 struct AudioAttachmentPlaybackView: View {
   let url: URL
   let title: String
   let isOutgoing: Bool
   let durationOverride: TimeInterval?
+  let isPendingUpload: Bool
 
   @StateObject private var playbackController = VoicePlaybackController()
 
@@ -136,53 +200,61 @@ struct AudioAttachmentPlaybackView: View {
     url: URL,
     title: String,
     isOutgoing: Bool,
-    durationOverride: TimeInterval? = nil
+    durationOverride: TimeInterval? = nil,
+    isPendingUpload: Bool = false
   ) {
     self.url = url
     self.title = title
     self.isOutgoing = isOutgoing
     self.durationOverride = durationOverride
+    self.isPendingUpload = isPendingUpload
   }
 
   var body: some View {
-    HStack(spacing: 10) {
-      Button {
-        playbackController.toggle(url: url)
-      } label: {
-        Group {
-          if playbackController.isLoading {
-            ProgressView()
-              .controlSize(.small)
-              .tint(isOutgoing ? Color(red: 0.05, green: 0.38, blue: 0.79) : .white)
-          } else {
-            Image(systemName: playbackController.isPlaying ? "pause.fill" : "play.fill")
-              .font(.system(size: 14, weight: .bold))
+    ZStack {
+      HStack(spacing: 10) {
+        Button {
+          playbackController.toggle(url: url)
+        } label: {
+          Group {
+            if playbackController.isLoading {
+              ProgressView()
+                .controlSize(.small)
+                .tint(isOutgoing ? Color(red: 0.05, green: 0.38, blue: 0.79) : .white)
+            } else {
+              Image(systemName: playbackController.isPlaying ? "pause.fill" : "play.fill")
+                .font(.system(size: 14, weight: .bold))
+            }
+          }
+            .foregroundStyle(isOutgoing ? Color(red: 0.05, green: 0.38, blue: 0.79) : .white)
+            .frame(width: 34, height: 34)
+            .background(isOutgoing ? .white : Color(red: 0.05, green: 0.38, blue: 0.79), in: Circle())
+        }
+        .buttonStyle(.plain)
+        .disabled(playbackController.isLoading)
+
+        HStack(spacing: 3) {
+          ForEach(0..<24, id: \.self) { index in
+            Capsule()
+              .fill(
+                (isOutgoing ? Color.white : Color.black)
+                  .opacity(playbackController.progress >= Double(index + 1) / 24.0 ? 0.88 : (index % 3 == 0 ? 0.58 : 0.32))
+              )
+              .frame(width: 3, height: CGFloat([8, 15, 11, 20, 13, 17, 9, 14][index % 8]))
           }
         }
-          .foregroundStyle(isOutgoing ? Color(red: 0.05, green: 0.38, blue: 0.79) : .white)
-          .frame(width: 34, height: 34)
-          .background(isOutgoing ? .white : Color(red: 0.05, green: 0.38, blue: 0.79), in: Circle())
-      }
-      .buttonStyle(.plain)
-      .disabled(playbackController.isLoading)
+        .frame(height: 24)
+        .frame(maxWidth: .infinity, alignment: .leading)
 
-      HStack(spacing: 3) {
-        ForEach(0..<24, id: \.self) { index in
-          Capsule()
-            .fill(
-              (isOutgoing ? Color.white : Color.black)
-                .opacity(playbackController.progress >= Double(index + 1) / 24.0 ? 0.88 : (index % 3 == 0 ? 0.58 : 0.32))
-            )
-            .frame(width: 3, height: CGFloat([8, 15, 11, 20, 13, 17, 9, 14][index % 8]))
-        }
+        Text(playbackController.displayTimeLabel)
+          .font(.system(size: 12, weight: .medium))
+          .monospacedDigit()
+          .foregroundStyle(isOutgoing ? .white.opacity(0.72) : Color.black.opacity(0.48))
       }
-      .frame(height: 24)
-      .frame(maxWidth: .infinity, alignment: .leading)
 
-      Text(playbackController.displayTimeLabel)
-        .font(.system(size: 12, weight: .medium))
-        .monospacedDigit()
-        .foregroundStyle(isOutgoing ? .white.opacity(0.72) : Color.black.opacity(0.48))
+      if isPendingUpload {
+        AttachmentPendingOverlay()
+      }
     }
     .frame(width: 226)
     .task(id: url) {
@@ -483,9 +555,12 @@ private struct FullscreenImageViewer: View {
   }
 }
 
-private struct VideoThumbnailPreview: View {
-  let url: URL
+private struct VideoInlinePreview: View {
+  let previewURL: URL
+  let videoURL: URL
+  let isPendingUpload: Bool
   @State private var thumbnail: UIImage?
+  @State private var isPresentingFullscreenVideo = false
 
   var body: some View {
     ZStack {
@@ -494,18 +569,30 @@ private struct VideoThumbnailPreview: View {
           .resizable()
           .scaledToFill()
       } else {
-        Color.secondary
+        Color.secondary.opacity(0.35)
       }
 
       Image(systemName: "play.circle.fill")
         .font(.system(size: 44))
         .foregroundStyle(.white)
         .shadow(radius: 4)
+
+      if isPendingUpload {
+        AttachmentPendingOverlay()
+      }
     }
+    .frame(width: 242)
     .frame(height: 220)
     .clipped()
-    .task(id: url) {
-      thumbnail = await generateThumbnail(for: url)
+    .contentShape(Rectangle())
+    .onTapGesture {
+      isPresentingFullscreenVideo = true
+    }
+    .fullScreenCover(isPresented: $isPresentingFullscreenVideo) {
+      FullscreenVideoPlayer(videoURL: videoURL)
+    }
+    .task(id: previewURL) {
+      thumbnail = await generateThumbnail(for: previewURL)
     }
   }
 
@@ -524,6 +611,68 @@ private struct VideoThumbnailPreview: View {
           continuation.resume(returning: nil)
         }
       }
+    }
+  }
+}
+
+private struct AttachmentPendingOverlay: View {
+  var body: some View {
+    ZStack {
+      Color.black.opacity(0.18)
+
+      ProgressView()
+        .controlSize(.regular)
+        .tint(.white)
+        .padding(10)
+        .background(Color.black.opacity(0.42), in: Circle())
+    }
+  }
+}
+
+private struct FullscreenVideoPlayer: View {
+  let videoURL: URL
+  @Environment(\.dismiss) private var dismiss
+  @State private var player: AVPlayer?
+
+  var body: some View {
+    ZStack(alignment: .topTrailing) {
+      Color.black
+        .ignoresSafeArea()
+
+      if let player {
+        VideoPlayer(player: player)
+          .ignoresSafeArea()
+          .onAppear {
+            player.play()
+          }
+      } else {
+        ProgressView()
+          .tint(.white)
+      }
+
+      Button {
+        dismiss()
+      } label: {
+        Image(systemName: "xmark")
+          .font(.system(size: 14, weight: .bold))
+          .foregroundStyle(.white)
+          .frame(width: 34, height: 34)
+          .background(.black.opacity(0.55), in: Circle())
+          .overlay(
+            Circle()
+              .stroke(.white.opacity(0.25), lineWidth: 0.5)
+          )
+          .shadow(color: .black.opacity(0.5), radius: 8, y: 2)
+      }
+      .padding(.top, 16)
+      .padding(.trailing, 16)
+    }
+    .onAppear {
+      player = AVPlayer(url: videoURL)
+    }
+    .onDisappear {
+      player?.pause()
+      player = nil
     }
   }
 }
