@@ -30,10 +30,14 @@ struct ConversationDetailView: View {
   @State private var replyTarget: Message?
   @State private var pendingImageAttachment: PendingImageAttachment?
   @State private var reactionTarget: Message?
+  @State private var selectedMessageIDs: Set<PersistentIdentifier> = []
   @State private var highlightedRemoteMessageID: String?
   @State private var voiceRecorder: AVAudioRecorder?
   @State private var voiceRecordingURL: URL?
   @State private var isVoiceRecording = false
+  @State private var isEmojiPanelVisible = false
+  @State private var mentionUsers: [DirectoryUser] = []
+  @State private var mentionSearchTask: Task<Void, Never>?
   @FocusState var isInputFocused: Bool
 
   enum ActiveDetailSheet: Identifiable {
@@ -89,7 +93,11 @@ struct ConversationDetailView: View {
         .ignoresSafeArea()
 
       VStack(spacing: 0) {
-        conversationHeader
+        if selectedMessageIDs.isEmpty {
+          conversationHeader
+        } else {
+          messageSelectionHeader
+        }
 
         ScrollView {
           LazyVStack(spacing: 12) {
@@ -104,6 +112,8 @@ struct ConversationDetailView: View {
                 otherParticipantLastReadAt: conversation.otherParticipantLastReadAt,
                 isLastOutgoingMessage: message === lastOutgoingMessage,
                 isHighlighted: message.remoteMessageID == highlightedRemoteMessageID,
+                isSelected: selectedMessageIDs.contains(message.persistentModelID),
+                isSelectionMode: !selectedMessageIDs.isEmpty,
                 onReply: {
                   replyTarget = message
                   isInputFocused = true
@@ -114,8 +124,11 @@ struct ConversationDetailView: View {
                 onShowReactions: {
                   guard message.remoteMessageID != nil, !message.isDeleted else { return }
                   withAnimation(.spring(response: 0.28, dampingFraction: 0.86)) {
-                    reactionTarget = message
+                    _ = selectedMessageIDs.insert(message.persistentModelID)
                   }
+                },
+                onToggleSelection: {
+                  toggleMessageSelection(message)
                 }
               )
               .id(message.id)
@@ -140,15 +153,24 @@ struct ConversationDetailView: View {
           onReply: {
             replyTarget = reactionTarget
             isInputFocused = true
+            selectedMessageIDs.removeAll()
           },
           onForward: {},
           onCopy: {
             UIPasteboard.general.string = reactionTarget.content
+            selectedMessageIDs.removeAll()
+          },
+          onReact: { emoji in
+            Task {
+              await toggleReaction(emoji, for: reactionTarget)
+            }
+            selectedMessageIDs.removeAll()
           },
           onDelete: {
             Task {
               await deleteMessage(reactionTarget)
             }
+            selectedMessageIDs.removeAll()
           }
         )
         .transition(.opacity.combined(with: .scale(scale: 0.96)))
@@ -177,6 +199,9 @@ struct ConversationDetailView: View {
       startMessagesSubscription()
       startConversationStatusSubscription()
     }
+    .onChange(of: newMessage) { _, _ in
+      scheduleMentionDirectoryLoad()
+    }
     .scrollDismissesKeyboard(.interactively)
     .scrollPosition($scrollPosition, anchor: .bottom)
     .safeAreaInset(edge: .bottom, spacing: 0) {
@@ -189,14 +214,23 @@ struct ConversationDetailView: View {
           )
         }
 
+        if let mentionQuery = activeMentionQuery {
+          MentionSuggestionsView(
+            users: mentionSuggestions(for: mentionQuery),
+            onSelect: insertMention
+          )
+        }
+
         ConversationDetailInputView(
           newMessage: $newMessage,
           isGenerating: $isGenerating,
           isInputFocused: $isInputFocused,
           isVoiceRecording: isVoiceRecording,
+          isEmojiPanelVisible: $isEmojiPanelVisible,
           onAddAttachment: {
             guard !isGenerating else { return }
             isInputFocused = false
+            isEmojiPanelVisible = false
             isAttachmentOptionsPresented = true
           },
           onVoiceTap: {
@@ -264,10 +298,10 @@ struct ConversationDetailView: View {
         onCancel: {
           pendingImageAttachment = nil
         },
-        onSend: { caption in
+        onSend: { editedData, caption in
           pendingImageAttachment = nil
           await sendAttachment(
-            data: attachment.data,
+            data: editedData,
             fileName: attachment.fileName,
             mimeType: attachment.mimeType,
             attachmentType: attachment.attachmentType,
@@ -299,7 +333,7 @@ struct ConversationDetailView: View {
     .fileImporter(
       isPresented: $isFileImporterPresented,
       allowedContentTypes: [.item],
-      allowsMultipleSelection: false
+      allowsMultipleSelection: true
     ) { result in
       Task {
         await handleImportedFile(result)
@@ -322,36 +356,47 @@ struct ConversationDetailView: View {
       }
       .buttonStyle(.plain)
 
-      Circle()
-        .fill(
-          LinearGradient(
-            colors: [
-              Color(red: 0.92, green: 0.80, blue: 0.71),
-              Color(red: 0.70, green: 0.48, blue: 0.28)
-            ],
-            startPoint: .topLeading,
-            endPoint: .bottomTrailing
-          )
-        )
-        .frame(width: 32, height: 32)
-        .overlay(
-          Text(String(conversationTitle.prefix(1)).uppercased())
-            .font(.system(size: 14, weight: .semibold))
-            .foregroundStyle(Color.black.opacity(0.8))
-        )
+      Button {
+        isInputFocused = false
+        activeDetailSheet = .info
+      } label: {
+        HStack(spacing: 12) {
+          Circle()
+            .fill(
+              LinearGradient(
+                colors: [
+                  Color(red: 0.92, green: 0.80, blue: 0.71),
+                  Color(red: 0.70, green: 0.48, blue: 0.28)
+                ],
+                startPoint: .topLeading,
+                endPoint: .bottomTrailing
+              )
+            )
+            .frame(width: 32, height: 32)
+            .overlay(
+              Text(String(conversationTitle.prefix(1)).uppercased())
+                .font(.system(size: 14, weight: .semibold))
+                .foregroundStyle(Color.black.opacity(0.8))
+            )
 
-      VStack(spacing: 1) {
-        Text(conversationTitle)
-          .font(.system(size: 18, weight: .semibold))
-          .foregroundStyle(Color.black.opacity(0.9))
-          .lineLimit(1)
+          VStack(spacing: 1) {
+            Text(conversationTitle)
+              .font(.system(size: 18, weight: .semibold))
+              .foregroundStyle(Color.black.opacity(0.9))
+              .lineLimit(1)
 
-        Text(conversationSubtitle)
-          .font(.system(size: 12, weight: .regular))
-          .foregroundStyle(Color.black.opacity(0.35))
-          .lineLimit(1)
+            Text(conversationSubtitle)
+              .font(.system(size: 12, weight: .regular))
+              .foregroundStyle(Color.black.opacity(0.35))
+              .lineLimit(1)
+          }
+          .frame(maxWidth: .infinity)
+        }
+        .contentShape(Rectangle())
       }
       .frame(maxWidth: .infinity)
+      .buttonStyle(.plain)
+      .disabled(conversation.remoteConversationID == nil)
 
       Menu {
         Button {
@@ -395,6 +440,77 @@ struct ConversationDetailView: View {
     }
   }
 
+  private var messageSelectionHeader: some View {
+    HStack(spacing: 12) {
+      Button {
+        withAnimation(.spring(response: 0.25, dampingFraction: 0.9)) {
+          selectedMessageIDs.removeAll()
+          reactionTarget = nil
+        }
+      } label: {
+        Text("Cancel")
+          .font(.system(size: 16, weight: .medium))
+          .foregroundStyle(Color(red: 0.05, green: 0.42, blue: 0.82))
+          .padding(.horizontal, 14)
+          .frame(height: 40)
+          .background(Color.black.opacity(0.04), in: Capsule())
+      }
+      .buttonStyle(.plain)
+
+      Text("\(selectedMessageIDs.count) selected")
+        .font(.system(size: 18, weight: .semibold))
+        .foregroundStyle(Color.black.opacity(0.9))
+        .frame(maxWidth: .infinity)
+
+      Menu {
+        Button {
+          replyToSelectedMessage()
+        } label: {
+          Label("Reply", systemImage: "arrowshape.turn.up.left")
+        }
+        .disabled(selectedMessages.count != 1)
+
+        Button {
+          copySelectedMessages()
+        } label: {
+          Label("Copy", systemImage: "doc.on.doc")
+        }
+        .disabled(selectedMessages.allSatisfy { $0.content.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty })
+
+        Button {
+          showReactionsForSelectedMessage()
+        } label: {
+          Label("React", systemImage: "face.smiling")
+        }
+        .disabled(selectedMessages.count != 1 || selectedMessages.first?.remoteMessageID == nil)
+
+        Button(role: .destructive) {
+          Task { await deleteSelectedMessages() }
+        } label: {
+          Label("Delete", systemImage: "trash")
+        }
+        .disabled(selectedMessages.isEmpty)
+      } label: {
+        Image(systemName: "ellipsis")
+          .font(.system(size: 18, weight: .bold))
+          .foregroundStyle(Color(red: 0.05, green: 0.42, blue: 0.82))
+          .frame(width: 40, height: 40)
+          .background(Color.black.opacity(0.04), in: Circle())
+      }
+      .buttonStyle(.plain)
+    }
+    .padding(.horizontal, 14)
+    .padding(.top, 10)
+    .padding(.bottom, 12)
+    .background(Color.white.opacity(0.96))
+    .overlay(alignment: .bottom) {
+      Rectangle()
+        .fill(Color.black.opacity(0.06))
+        .frame(height: 1)
+    }
+    .transition(.move(edge: .top).combined(with: .opacity))
+  }
+
   @ViewBuilder
   private func conversationDetailSheet(for sheet: ActiveDetailSheet) -> some View {
     if let remoteID = conversation.remoteConversationID {
@@ -408,7 +524,13 @@ struct ConversationDetailView: View {
               }
             }
         case .search:
-          ConversationSearchView(conversationID: remoteID, title: conversationTitle)
+          ConversationSearchView(
+            conversationID: remoteID,
+            title: conversationTitle,
+            onSelectMessage: { message in
+              highlightAndScroll(to: message.id)
+            }
+          )
             .toolbar {
               ToolbarItem(placement: .topBarTrailing) {
                 Button("Done") { activeDetailSheet = nil }
@@ -436,6 +558,171 @@ struct ConversationDetailView: View {
     let previousTimestamp = messages[index - 1].timestamp
     let currentTimestamp = messages[index].timestamp
     return currentTimestamp.timeIntervalSince(previousTimestamp) > 30 * 60
+  }
+
+  private var selectedMessages: [Message] {
+    conversation.sortedMessages.filter { selectedMessageIDs.contains($0.persistentModelID) }
+  }
+
+  private func toggleMessageSelection(_ message: Message) {
+    guard !message.isDeleted else { return }
+    withAnimation(.spring(response: 0.25, dampingFraction: 0.9)) {
+      if selectedMessageIDs.contains(message.persistentModelID) {
+        selectedMessageIDs.remove(message.persistentModelID)
+      } else {
+        selectedMessageIDs.insert(message.persistentModelID)
+      }
+
+      if selectedMessageIDs.isEmpty {
+        reactionTarget = nil
+      }
+    }
+  }
+
+  private func replyToSelectedMessage() {
+    guard let message = selectedMessages.first, selectedMessages.count == 1 else { return }
+    replyTarget = message
+    isInputFocused = true
+    selectedMessageIDs.removeAll()
+    reactionTarget = nil
+  }
+
+  private func copySelectedMessages() {
+    let copiedText = selectedMessages
+      .map(\.content)
+      .map { $0.trimmingCharacters(in: .whitespacesAndNewlines) }
+      .filter { !$0.isEmpty }
+      .joined(separator: "\n")
+
+    guard !copiedText.isEmpty else { return }
+    UIPasteboard.general.string = copiedText
+    selectedMessageIDs.removeAll()
+    reactionTarget = nil
+  }
+
+  private func showReactionsForSelectedMessage() {
+    guard
+      let message = selectedMessages.first,
+      selectedMessages.count == 1,
+      message.remoteMessageID != nil
+    else { return }
+
+    withAnimation(.spring(response: 0.28, dampingFraction: 0.86)) {
+      reactionTarget = message
+    }
+  }
+
+  @MainActor
+  private func deleteSelectedMessages() async {
+    let messages = selectedMessages
+    guard !messages.isEmpty else { return }
+
+    selectedMessageIDs.removeAll()
+    reactionTarget = nil
+
+    for message in messages {
+      await deleteMessage(message)
+    }
+  }
+
+  private var activeMentionQuery: String? {
+    guard let lastToken = newMessage.split(separator: " ", omittingEmptySubsequences: false).last,
+      lastToken.hasPrefix("@")
+    else { return nil }
+    return String(lastToken.dropFirst())
+  }
+
+  private func mentionSuggestions(for query: String) -> [DirectoryUser] {
+    let trimmed = query.trimmingCharacters(in: .whitespacesAndNewlines).lowercased()
+    let candidates = mentionUsers.filter { user in
+      guard !trimmed.isEmpty else { return true }
+      return user.displayName.lowercased().contains(trimmed)
+        || (user.email?.lowercased().contains(trimmed) == true)
+    }
+    return Array(candidates.prefix(6))
+  }
+
+  @MainActor
+  private func scheduleMentionDirectoryLoad() {
+    guard activeMentionQuery != nil, mentionUsers.isEmpty else { return }
+    mentionSearchTask?.cancel()
+    mentionSearchTask = Task {
+      do {
+        let users = try await authStore.fetchDirectoryUsers(search: "")
+        guard !Task.isCancelled else { return }
+        mentionUsers = users
+      } catch {
+        mentionUsers = []
+      }
+    }
+  }
+
+  private func insertMention(_ user: DirectoryUser) {
+    var parts = newMessage.split(separator: " ", omittingEmptySubsequences: false).map(String.init)
+    if parts.last?.hasPrefix("@") == true {
+      parts.removeLast()
+    }
+    parts.append("@\(user.displayName)")
+    newMessage = parts.joined(separator: " ") + " "
+    isEmojiPanelVisible = false
+    isInputFocused = true
+  }
+
+  private func mentionedStaffIds(in text: String) -> [String] {
+    let lowerText = text.lowercased()
+    return mentionUsers.compactMap { user in
+      lowerText.contains("@\(user.displayName.lowercased())") ? user.stackUserId : nil
+    }
+  }
+}
+
+struct MentionSuggestionsView: View {
+  let users: [DirectoryUser]
+  let onSelect: (DirectoryUser) -> Void
+
+  var body: some View {
+    if !users.isEmpty {
+      VStack(spacing: 0) {
+        ForEach(users) { user in
+          Button {
+            onSelect(user)
+          } label: {
+            HStack(spacing: 10) {
+              AvatarPlaceholder(initials: initials(for: user.displayName))
+                .frame(width: 36, height: 36)
+                .scaleEffect(36 / 52)
+
+              VStack(alignment: .leading, spacing: 1) {
+                Text(user.displayName)
+                  .font(.system(size: 14, weight: .semibold))
+                  .foregroundStyle(.primary)
+                if let email = user.email, !email.isEmpty {
+                  Text(email)
+                    .font(.system(size: 12))
+                    .foregroundStyle(.secondary)
+                    .lineLimit(1)
+                }
+              }
+
+              Spacer()
+            }
+            .padding(.horizontal, 16)
+            .frame(height: 52)
+          }
+          .buttonStyle(.plain)
+        }
+      }
+      .background(Color.white)
+      .overlay(alignment: .top) {
+        Rectangle().fill(Color.black.opacity(0.06)).frame(height: 1)
+      }
+    }
+  }
+
+  private func initials(for name: String) -> String {
+    let parts = name.split(whereSeparator: { !$0.isLetter }).prefix(2)
+    let initials = String(parts.compactMap(\.first)).uppercased()
+    return initials.isEmpty ? "U" : initials
   }
 }
 
@@ -616,11 +903,29 @@ private struct ImageAttachmentPreviewView: View {
   let attachment: PendingImageAttachment
   let recipientName: String
   let onCancel: () -> Void
-  let onSend: (String) async -> Void
+  let onSend: (Data, String) async -> Void
 
   @State private var caption = ""
   @State private var isSending = false
+  @State private var workingImage: UIImage
+  @State private var workingData: Data
+  @State private var isCropPresented = false
+  @State private var statusMessage: String?
   @FocusState private var isCaptionFocused: Bool
+
+  init(
+    attachment: PendingImageAttachment,
+    recipientName: String,
+    onCancel: @escaping () -> Void,
+    onSend: @escaping (Data, String) async -> Void
+  ) {
+    self.attachment = attachment
+    self.recipientName = recipientName
+    self.onCancel = onCancel
+    self.onSend = onSend
+    _workingImage = State(initialValue: attachment.image)
+    _workingData = State(initialValue: attachment.data)
+  }
 
   var body: some View {
     ZStack {
@@ -630,17 +935,46 @@ private struct ImageAttachmentPreviewView: View {
         previewHeader
 
         GeometryReader { proxy in
-          Image(uiImage: attachment.image)
+          Image(uiImage: workingImage)
             .resizable()
             .scaledToFit()
             .frame(width: proxy.size.width, height: proxy.size.height)
             .clipped()
         }
 
+        previewTools
         previewComposer
+      }
+
+      if let statusMessage {
+        VStack {
+          Text(statusMessage)
+            .font(.footnote.weight(.semibold))
+            .foregroundStyle(.white)
+            .padding(.horizontal, 14)
+            .padding(.vertical, 9)
+            .background(Color.white.opacity(0.16), in: Capsule())
+            .padding(.top, 72)
+          Spacer()
+        }
+        .transition(.move(edge: .top).combined(with: .opacity))
       }
     }
     .preferredColorScheme(.dark)
+    .fullScreenCover(isPresented: $isCropPresented) {
+      ImageCropEditorView(
+        image: workingImage,
+        onCancel: {
+          isCropPresented = false
+        },
+        onDone: { croppedImage in
+          workingImage = croppedImage
+          workingData = encodedData(for: croppedImage)
+          isCropPresented = false
+          showStatus("Crop applied")
+        }
+      )
+    }
   }
 
   private var previewHeader: some View {
@@ -696,7 +1030,7 @@ private struct ImageAttachmentPreviewView: View {
         guard !isSending else { return }
         isSending = true
         Task {
-          await onSend(caption.trimmingCharacters(in: .whitespacesAndNewlines))
+          await onSend(workingData, caption.trimmingCharacters(in: .whitespacesAndNewlines))
           isSending = false
         }
       } label: {
@@ -721,6 +1055,226 @@ private struct ImageAttachmentPreviewView: View {
     .padding(.bottom, 18)
     .background(.ultraThinMaterial.opacity(0.45))
   }
+
+  private var previewTools: some View {
+    HStack(spacing: 14) {
+      PreviewToolButton(icon: "square.and.arrow.down", title: "Save") {
+        UIImageWriteToSavedPhotosAlbum(workingImage, nil, nil, nil)
+        showStatus("Saved to Photos")
+      }
+      PreviewToolButton(icon: "crop", title: "Crop") {
+        isCropPresented = true
+      }
+      PreviewToolButton(icon: "pencil.tip", title: "Draw", isEnabled: false) {}
+      PreviewToolButton(icon: "textformat", title: "Text", isEnabled: false) {}
+    }
+    .padding(.horizontal, 16)
+    .padding(.vertical, 10)
+    .background(.ultraThinMaterial.opacity(0.35))
+  }
+
+  private func encodedData(for image: UIImage) -> Data {
+    if attachment.mimeType == "image/png", let data = image.pngData() {
+      return data
+    }
+    return image.jpegData(compressionQuality: 0.9) ?? workingData
+  }
+
+  private func showStatus(_ message: String) {
+    withAnimation(.spring(response: 0.25, dampingFraction: 0.9)) {
+      statusMessage = message
+    }
+
+    Task { @MainActor in
+      try? await Task.sleep(for: .seconds(1.5))
+      guard statusMessage == message else { return }
+      withAnimation(.easeOut(duration: 0.2)) {
+        statusMessage = nil
+      }
+    }
+  }
+}
+
+private struct PreviewToolButton: View {
+  let icon: String
+  let title: String
+  var isEnabled = true
+  let action: () -> Void
+
+  var body: some View {
+    Button(action: action) {
+      VStack(spacing: 4) {
+        Image(systemName: icon)
+          .font(.system(size: 17, weight: .semibold))
+          .frame(width: 34, height: 34)
+          .background(Color.white.opacity(0.13), in: Circle())
+        Text(title)
+          .font(.system(size: 11, weight: .medium))
+      }
+      .foregroundStyle(.white.opacity(0.86))
+      .frame(maxWidth: .infinity)
+    }
+    .buttonStyle(.plain)
+    .disabled(!isEnabled)
+    .opacity(isEnabled ? 1 : 0.42)
+  }
+}
+
+private struct ImageCropEditorView: View {
+  let image: UIImage
+  let onCancel: () -> Void
+  let onDone: (UIImage) -> Void
+
+  @State private var scale: CGFloat = 1
+  @State private var lastScale: CGFloat = 1
+  @State private var offset: CGSize = .zero
+  @State private var lastOffset: CGSize = .zero
+
+  var body: some View {
+    GeometryReader { proxy in
+      let cropSize = cropSize(in: proxy.size)
+
+      VStack(spacing: 0) {
+        HStack {
+          Button("Cancel", action: onCancel)
+            .foregroundStyle(.white)
+
+          Spacer()
+
+          Text("Crop")
+            .font(.headline)
+            .foregroundStyle(.white)
+
+          Spacer()
+
+          Button("Done") {
+            if let croppedImage = renderCroppedImage(cropSize: cropSize) {
+              onDone(croppedImage)
+            } else {
+              onCancel()
+            }
+          }
+          .fontWeight(.semibold)
+          .foregroundStyle(Color(red: 0.2, green: 0.7, blue: 1))
+        }
+        .padding(.horizontal, 18)
+        .padding(.top, proxy.safeAreaInsets.top + 12)
+        .padding(.bottom, 16)
+        .background(Color.black.opacity(0.92))
+
+        Spacer(minLength: 20)
+
+        CropCanvasView(
+          image: image,
+          scale: scale,
+          offset: offset,
+          cropSize: cropSize,
+          showsGrid: true
+        )
+        .gesture(dragGesture)
+        .simultaneousGesture(magnificationGesture)
+
+        Spacer(minLength: 20)
+
+        Text("Pinch to zoom and drag to reposition")
+          .font(.footnote)
+          .foregroundStyle(.white.opacity(0.72))
+          .padding(.bottom, proxy.safeAreaInsets.bottom + 20)
+      }
+      .frame(width: proxy.size.width, height: proxy.size.height)
+      .background(Color.black.ignoresSafeArea())
+    }
+    .preferredColorScheme(.dark)
+  }
+
+  private var dragGesture: some Gesture {
+    DragGesture()
+      .onChanged { value in
+        offset = CGSize(
+          width: lastOffset.width + value.translation.width,
+          height: lastOffset.height + value.translation.height
+        )
+      }
+      .onEnded { _ in
+        lastOffset = offset
+      }
+  }
+
+  private var magnificationGesture: some Gesture {
+    MagnificationGesture()
+      .onChanged { value in
+        scale = min(max(lastScale * value, 1), 5)
+      }
+      .onEnded { _ in
+        lastScale = scale
+      }
+  }
+
+  private func cropSize(in size: CGSize) -> CGFloat {
+    max(220, min(size.width - 32, size.height - 230, 420))
+  }
+
+  @MainActor
+  private func renderCroppedImage(cropSize: CGFloat) -> UIImage? {
+    let renderer = ImageRenderer(
+      content: CropCanvasView(
+        image: image,
+        scale: scale,
+        offset: offset,
+        cropSize: cropSize,
+        showsGrid: false
+      )
+    )
+    renderer.scale = UIScreen.main.scale
+    return renderer.uiImage
+  }
+}
+
+private struct CropCanvasView: View {
+  let image: UIImage
+  let scale: CGFloat
+  let offset: CGSize
+  let cropSize: CGFloat
+  let showsGrid: Bool
+
+  var body: some View {
+    ZStack {
+      Color.black
+
+      Image(uiImage: image)
+        .resizable()
+        .scaledToFill()
+        .frame(width: cropSize, height: cropSize)
+        .scaleEffect(scale)
+        .offset(offset)
+
+      if showsGrid {
+        cropOverlay
+      }
+    }
+    .frame(width: cropSize, height: cropSize)
+    .clipShape(RoundedRectangle(cornerRadius: 2, style: .continuous))
+    .overlay(
+      RoundedRectangle(cornerRadius: 2, style: .continuous)
+        .stroke(Color.white.opacity(0.92), lineWidth: 1.5)
+    )
+  }
+
+  private var cropOverlay: some View {
+    ZStack {
+      ForEach([cropSize / 3, cropSize * 2 / 3], id: \.self) { position in
+        Rectangle()
+          .fill(Color.white.opacity(0.45))
+          .frame(width: 1)
+          .offset(x: position - cropSize / 2)
+
+        Rectangle()
+          .fill(Color.white.opacity(0.45))
+          .frame(height: 1)
+          .offset(y: position - cropSize / 2)
+      }
+    }
+  }
 }
 
 private struct MessageReactionOverlay: View {
@@ -730,6 +1284,7 @@ private struct MessageReactionOverlay: View {
   let onReply: () -> Void
   let onForward: () -> Void
   let onCopy: () -> Void
+  let onReact: (String) -> Void
   let onDelete: () -> Void
 
   var body: some View {
@@ -743,6 +1298,7 @@ private struct MessageReactionOverlay: View {
 
         ReactionActionMenu(
           message: message,
+          reactions: decodedReactions,
           onReply: {
             onReply()
             onDismiss()
@@ -753,6 +1309,10 @@ private struct MessageReactionOverlay: View {
           },
           onCopy: {
             onCopy()
+            onDismiss()
+          },
+          onReact: { emoji in
+            onReact(emoji)
             onDismiss()
           },
           onDelete: {
@@ -766,23 +1326,54 @@ private struct MessageReactionOverlay: View {
       .frame(maxWidth: .infinity)
     }
   }
+
+  private var decodedReactions: [MessageReactionInfo] {
+    guard let summary = message.reactionSummary, !summary.isEmpty else { return [] }
+    return summary.split(separator: "|").compactMap { item in
+      let parts = item.split(separator: ",", omittingEmptySubsequences: false)
+      guard parts.count >= 3, let count = Int(parts[1]) else { return nil }
+      return MessageReactionInfo(emoji: String(parts[0]), count: count, hasReacted: parts[2] == "1")
+    }
+  }
 }
 
 private struct ReactionActionMenu: View {
   let message: Message
+  let reactions: [MessageReactionInfo]
   let onReply: () -> Void
   let onForward: () -> Void
   let onCopy: () -> Void
+  let onReact: (String) -> Void
   let onDelete: () -> Void
   let onDismiss: () -> Void
 
+  private let quickEmojis = ["❤️", "👍", "😂", "😮", "😢", "🙏"]
+
   var body: some View {
     VStack(spacing: 0) {
+      HStack(spacing: 10) {
+        ForEach(quickEmojis, id: \.self) { emoji in
+          Button {
+            onReact(emoji)
+          } label: {
+            Text(emoji)
+              .font(.system(size: 24))
+              .frame(width: 34, height: 34)
+              .background(reactions.first(where: { $0.emoji == emoji })?.hasReacted == true ? Color.white.opacity(0.22) : Color.clear, in: Circle())
+          }
+          .buttonStyle(.plain)
+        }
+      }
+      .padding(.bottom, 10)
+
       ReactionActionRow(icon: "arrowshape.turn.up.left", title: "Reply", tint: .white, action: onReply)
       ReactionActionRow(icon: "arrowshape.turn.up.right", title: "Forward", tint: .white, action: onForward)
       ReactionActionRow(icon: "doc.on.doc", title: "Copy", tint: .white, action: onCopy)
         .disabled(message.content.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty)
         .opacity(message.content.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty ? 0.45 : 1)
+      ForEach(reactions.filter(\.hasReacted)) { reaction in
+        ReactionActionRow(icon: "minus.circle", title: "Remove \(reaction.emoji)", tint: .white, action: { onReact(reaction.emoji) })
+      }
       ReactionActionRow(icon: "trash", title: "Delete", tint: Color(red: 1.0, green: 0.36, blue: 0.45), action: onDelete)
     }
     .padding(.horizontal, 26)
@@ -928,47 +1519,57 @@ extension ConversationDetailView {
   private func handleImportedFile(_ result: Result<[URL], any Error>) async {
     do {
       let urls = try result.get()
-      guard let fileURL = urls.first else { return }
-
-      let hasAccess = fileURL.startAccessingSecurityScopedResource()
-      defer {
-        if hasAccess {
-          fileURL.stopAccessingSecurityScopedResource()
+      for fileURL in Array(urls.prefix(5)) {
+        let hasAccess = fileURL.startAccessingSecurityScopedResource()
+        defer {
+          if hasAccess {
+            fileURL.stopAccessingSecurityScopedResource()
+          }
         }
-      }
 
-      let fileData = try Data(contentsOf: fileURL)
-      let mimeType =
-        UTType(filenameExtension: fileURL.pathExtension)?.preferredMIMEType
-        ?? "application/octet-stream"
-      let attachmentType: String
-      if mimeType.hasPrefix("image/") {
-        attachmentType = "image"
-      } else if mimeType.hasPrefix("video/") {
-        attachmentType = "video"
-      } else {
-        attachmentType = "file"
-      }
+        let fileData = try Data(contentsOf: fileURL)
+        guard fileData.count <= 15 * 1024 * 1024 else {
+          conversation.messages.append(
+            Message(
+              content: "\(fileURL.lastPathComponent) is larger than 15 MB.",
+              role: .system,
+              timestamp: Date()
+            )
+          )
+          continue
+        }
+        let mimeType =
+          UTType(filenameExtension: fileURL.pathExtension)?.preferredMIMEType
+          ?? "application/octet-stream"
+        let attachmentType: String
+        if mimeType.hasPrefix("image/") {
+          attachmentType = "image"
+        } else if mimeType.hasPrefix("video/") {
+          attachmentType = "video"
+        } else {
+          attachmentType = "file"
+        }
 
-      if attachmentType == "image", let image = UIImage(data: fileData) {
-        pendingImageAttachment = PendingImageAttachment(
+        if urls.count == 1, attachmentType == "image", let image = UIImage(data: fileData) {
+          pendingImageAttachment = PendingImageAttachment(
+            data: fileData,
+            fileName: fileURL.lastPathComponent,
+            mimeType: mimeType,
+            attachmentType: attachmentType,
+            image: image
+          )
+          return
+        }
+
+        await sendAttachment(
           data: fileData,
           fileName: fileURL.lastPathComponent,
           mimeType: mimeType,
           attachmentType: attachmentType,
-          image: image
+          attachmentTitle: attachmentType == "file" ? fileURL.lastPathComponent : nil,
+          attachmentDescription: nil
         )
-        return
       }
-
-      await sendAttachment(
-        data: fileData,
-        fileName: fileURL.lastPathComponent,
-        mimeType: mimeType,
-        attachmentType: attachmentType,
-        attachmentTitle: attachmentType == "file" ? fileURL.lastPathComponent : nil,
-        attachmentDescription: nil
-      )
     } catch {
       conversation.messages.append(
         Message(
@@ -1291,7 +1892,8 @@ extension ConversationDetailView {
           conversationID: remoteConversationID,
           role: .user,
           content: userInput,
-          parentMessageId: parentMessageId
+          parentMessageId: parentMessageId,
+          mentionedStaffIds: mentionedStaffIds(in: userInput)
         )
         sync(savedMessage: savedMessage, into: localUserMessage)
       } catch {
@@ -1557,6 +2159,25 @@ extension ConversationDetailView {
         withAnimation(.easeOut(duration: 0.25)) {
           highlightedRemoteMessageID = nil
         }
+      }
+    }
+  }
+
+  @MainActor
+  private func highlightAndScroll(to remoteMessageID: String) {
+    guard let target = conversation.messages.first(where: { $0.remoteMessageID == remoteMessageID }) else {
+      highlightedRemoteMessageID = remoteMessageID
+      return
+    }
+
+    highlightedRemoteMessageID = remoteMessageID
+    withAnimation(.snappy) {
+      scrollPosition.scrollTo(id: target.id, anchor: .center)
+    }
+    Task { @MainActor in
+      try? await Task.sleep(for: .seconds(2))
+      if highlightedRemoteMessageID == remoteMessageID {
+        highlightedRemoteMessageID = nil
       }
     }
   }

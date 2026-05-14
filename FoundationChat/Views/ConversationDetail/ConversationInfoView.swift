@@ -96,6 +96,10 @@ struct ConversationInfoView: View {
         membersSection
       }
 
+      if case .conversation = source {
+        conversationParticipantsSection
+      }
+
       if case .channel = source {
         Section {
           Button(role: .destructive) {
@@ -214,6 +218,29 @@ struct ConversationInfoView: View {
             Button("Done") { showMediaSheet = false }
           }
         }
+    }
+  }
+
+  @ViewBuilder
+  private var conversationParticipantsSection: some View {
+    let participants = conversation?.participants ?? []
+
+    Section(participants.count > 1 ? "People (\(participants.count))" : "User Details") {
+      if isLoading && participants.isEmpty {
+        ProgressView()
+      } else if participants.isEmpty {
+        Text("No user details loaded")
+          .font(.subheadline)
+          .foregroundStyle(.secondary)
+      } else {
+        ForEach(participants, id: \.stackUserId) { participant in
+          NavigationLink {
+            StaffDetailView(staffId: participant.stackUserId)
+          } label: {
+            ParticipantInfoRow(participant: participant)
+          }
+        }
+      }
     }
   }
 
@@ -360,5 +387,77 @@ private struct InfoActionRow: View {
         .font(.caption.weight(.semibold))
         .foregroundStyle(.secondary)
     }
+  }
+}
+
+private struct ParticipantInfoRow: View {
+  let participant: ConvexConversationParticipant
+
+  var body: some View {
+    HStack(spacing: 12) {
+      AvatarView(urlString: participant.profilePhoto, initials: initials)
+
+      VStack(alignment: .leading, spacing: 2) {
+        Text(participant.displayName)
+          .font(.subheadline.weight(.semibold))
+          .foregroundStyle(.primary)
+
+        Text("View staff details")
+          .font(.caption)
+          .foregroundStyle(.secondary)
+      }
+
+      Spacer()
+    }
+    .padding(.vertical, 4)
+  }
+
+  private var initials: String {
+    let parts = participant.displayName
+      .split(whereSeparator: { !$0.isLetter })
+      .prefix(2)
+      .compactMap(\.first)
+    let result = String(parts).uppercased()
+    return result.isEmpty ? "?" : result
+  }
+}
+
+private struct AvatarView: View {
+  let urlString: String?
+  let initials: String
+
+  var body: some View {
+    ZStack {
+      Circle()
+        .fill(Color(.systemGray4))
+
+      if let url {
+        AsyncImage(url: url) { phase in
+          switch phase {
+          case .success(let image):
+            image
+              .resizable()
+              .scaledToFill()
+          default:
+            Text(initials)
+              .font(.caption.weight(.semibold))
+              .foregroundStyle(.white)
+          }
+        }
+      } else {
+        Text(initials)
+          .font(.caption.weight(.semibold))
+          .foregroundStyle(.white)
+      }
+    }
+    .frame(width: 36, height: 36)
+    .clipShape(Circle())
+  }
+
+  private var url: URL? {
+    guard let urlString, !urlString.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else {
+      return nil
+    }
+    return URL(string: urlString)
   }
 }

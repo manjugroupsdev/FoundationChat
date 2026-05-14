@@ -443,6 +443,9 @@ struct ChannelChatMessage: Decodable, Identifiable, Equatable, Sendable {
   let lastReplyAt: Double?
   let parentMessageId: String?
   let _creationTime: Double?
+  let attachments: [MessageAttachment]?
+  let reactions: [MessageReactionInfo]?
+  let mentions: [MessageMention]?
 
   // Compat
   var id: String { _id }
@@ -453,4 +456,60 @@ struct ChannelChatMessage: Decodable, Identifiable, Equatable, Sendable {
   var createdAt: Double { _creationTime ?? 0 }
   var updatedAt: Double { _creationTime ?? 0 }
   var createdDate: Date { Date(timeIntervalSince1970: (_creationTime ?? 0) / 1000) }
+
+  var attachmentType: String? { attachments?.first?.fileType }
+  var attachmentFileName: String? { attachments?.first?.fileName }
+  var attachmentMimeType: String? { attachments?.first?.fileType }
+  var attachmentUrl: String? { attachments?.first?.url }
+
+  init(
+    _id: String,
+    channelId: String? = nil,
+    senderId: String? = nil,
+    senderName: String? = nil,
+    body: String? = nil,
+    isEdited: Bool? = nil,
+    isDeleted: Bool? = nil,
+    replyCount: Int? = nil,
+    lastReplyAt: Double? = nil,
+    parentMessageId: String? = nil,
+    _creationTime: Double? = nil,
+    attachments: [MessageAttachment]? = nil,
+    reactions: [MessageReactionInfo]? = nil,
+    mentions: [MessageMention]? = nil
+  ) {
+    self._id = _id
+    self.channelId = channelId
+    self.senderId = senderId
+    self.senderName = senderName
+    self.body = body
+    self.isEdited = isEdited
+    self.isDeleted = isDeleted
+    self.replyCount = replyCount
+    self.lastReplyAt = lastReplyAt
+    self.parentMessageId = parentMessageId
+    self._creationTime = _creationTime
+    self.attachments = attachments
+    self.reactions = reactions
+    self.mentions = mentions
+  }
+
+  init(_ message: ConvexChatMessage) {
+    self.init(
+      _id: message.id,
+      channelId: message.channelId,
+      senderId: message.senderId,
+      senderName: message.senderName,
+      body: message.body,
+      isEdited: message.isEdited,
+      isDeleted: message.isDeleted,
+      replyCount: message.replyCount,
+      lastReplyAt: message.lastReplyAt,
+      parentMessageId: message.parentMessageId,
+      _creationTime: message._creationTime,
+      attachments: message.attachments,
+      reactions: message.reactions,
+      mentions: message.mentions
+    )
+  }
 }

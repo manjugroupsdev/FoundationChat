@@ -7,9 +7,12 @@ struct MessageView: View {
   let otherParticipantLastReadAt: Date?
   let isLastOutgoingMessage: Bool
   let isHighlighted: Bool
+  let isSelected: Bool
+  let isSelectionMode: Bool
   let onReply: () -> Void
   let onTapReplyPreview: () -> Void
   let onShowReactions: () -> Void
+  let onToggleSelection: () -> Void
 
   @State private var horizontalDragOffset: CGFloat = 0
 
@@ -73,6 +76,10 @@ struct MessageView: View {
         if isOutgoing {
           Spacer(minLength: 48)
         }
+        if !isOutgoing && isSelectionMode {
+          selectionIndicator
+            .padding(.leading, 14)
+        }
         VStack(alignment: isOutgoing ? .trailing : .leading, spacing: 6) {
           if shouldRenderImageWithoutBubble {
             MessageAttachementView(message: message, isOutgoing: isOutgoing)
@@ -117,19 +124,49 @@ struct MessageView: View {
           }
         }
         .padding(.horizontal, 16)
+        if isOutgoing && isSelectionMode {
+          selectionIndicator
+            .padding(.trailing, 14)
+        }
         if !isOutgoing {
           Spacer(minLength: 48)
         }
       }
       .offset(x: horizontalDragOffset)
+      .contentShape(Rectangle())
+      .onTapGesture {
+        guard !message.isDeleted else { return }
+        onToggleSelection()
+      }
       .gesture(replyDragGesture)
       .simultaneousGesture(
         LongPressGesture(minimumDuration: 0.45)
           .onEnded { _ in
+            guard !message.isDeleted else { return }
+            onToggleSelection()
             onShowReactions()
           }
       )
     }
+  }
+
+  private var selectionIndicator: some View {
+    ZStack {
+      Circle()
+        .fill(isSelected ? Color(red: 0.05, green: 0.42, blue: 0.82) : Color.white.opacity(0.9))
+        .frame(width: 24, height: 24)
+        .overlay(
+          Circle()
+            .stroke(isSelected ? Color.clear : Color.black.opacity(0.18), lineWidth: 1.5)
+        )
+
+      if isSelected {
+        Image(systemName: "checkmark")
+          .font(.system(size: 12, weight: .bold))
+          .foregroundStyle(.white)
+      }
+    }
+    .transition(.scale.combined(with: .opacity))
   }
 
   private var replyDragGesture: some Gesture {
@@ -249,17 +286,23 @@ private struct MessageDeliveryStatusView: View {
                 otherParticipantLastReadAt: nil,
                 isLastOutgoingMessage: true,
                 isHighlighted: false,
+                isSelected: false,
+                isSelectionMode: false,
                 onReply: {},
                 onTapReplyPreview: {},
-                onShowReactions: {})
+                onShowReactions: {},
+                onToggleSelection: {})
     MessageView(message: .init(content: "Hello world this is a short message",
                                role: .assistant,
                                timestamp: Date()),
                 otherParticipantLastReadAt: nil,
                 isLastOutgoingMessage: false,
                 isHighlighted: false,
+                isSelected: false,
+                isSelectionMode: false,
                 onReply: {},
                 onTapReplyPreview: {},
-                onShowReactions: {})
+                onShowReactions: {},
+                onToggleSelection: {})
   }
 }

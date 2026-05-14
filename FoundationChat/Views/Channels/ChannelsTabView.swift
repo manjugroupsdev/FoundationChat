@@ -215,6 +215,9 @@ struct ChannelChatView: View {
   @State private var errorMessage: String?
   @State private var isInviteSheetPresented = false
   @State private var isSendingMessage = false
+  @State private var isEmojiPanelVisible = false
+  @State private var mentionUsers: [DirectoryUser] = []
+  @State private var mentionSearchTask: Task<Void, Never>?
   @State private var messagesSubscription: AnyCancellable?
   @State private var pollingTask: Task<Void, Never>?
   @State private var lastPollTimestamp: Double = 0
@@ -266,22 +269,29 @@ struct ChannelChatView: View {
       }
     }
     .safeAreaInset(edge: .bottom, spacing: 0) {
-      ConversationDetailInputView(
-        newMessage: $newMessage,
-        isGenerating: $isSendingMessage,
-        isInputFocused: $isInputFocused,
-        isVoiceRecording: false,
-        onAddAttachment: {
-          errorMessage = "Channel attachments are coming soon."
-        },
-        onVoiceTap: {
-          errorMessage = "Channel voice messages are coming soon."
-        },
-        onCancelVoiceRecording: {},
-        onSend: {
-          await sendMessage()
+      VStack(spacing: 0) {
+        if let mentionQuery = activeMentionQuery {
+          MentionSuggestionsView(users: mentionSuggestions(for: mentionQuery), onSelect: insertMention)
         }
-      )
+
+        ConversationDetailInputView(
+          newMessage: $newMessage,
+          isGenerating: $isSendingMessage,
+          isInputFocused: $isInputFocused,
+          isVoiceRecording: false,
+          isEmojiPanelVisible: $isEmojiPanelVisible,
+          onAddAttachment: {
+            errorMessage = "Channel attachments are coming soon."
+          },
+          onVoiceTap: {
+            errorMessage = "Channel voice messages are coming soon."
+          },
+          onCancelVoiceRecording: {},
+          onSend: {
+            await sendMessage()
+          }
+        )
+      }
     }
     .overlay(alignment: .top) {
       if let errorMessage {
@@ -304,6 +314,9 @@ struct ChannelChatView: View {
       startPolling()
       isInputFocused = true
     }
+    .onChange(of: newMessage) { _, _ in
+      scheduleMentionDirectoryLoad()
+    }
     .onDisappear {
       messagesSubscription?.cancel()
       messagesSubscription = nil
@@ -322,15 +335,7 @@ struct ChannelChatView: View {
         do {
           let newMessages = try await authStore.pollMessages(channelId: channel.id, after: lastPollTimestamp)
           if !newMessages.isEmpty {
-            let mapped: [ChannelChatMessage] = newMessages.map { msg in
-              ChannelChatMessage(
-                _id: msg._id, channelId: msg.channelId, senderId: msg.senderId,
-                senderName: msg.senderName, body: msg.body, isEdited: msg.isEdited,
-                isDeleted: msg.isDeleted, replyCount: msg.replyCount,
-                lastReplyAt: msg.lastReplyAt, parentMessageId: msg.parentMessageId,
-                _creationTime: msg._creationTime
-              )
-            }
+            let mapped = newMessages.map(ChannelChatMessage.init)
             for msg in mapped where !messages.contains(where: { $0.id == msg.id }) {
               messages.append(msg)
             }
@@ -385,10 +390,64 @@ struct ChannelChatView: View {
     defer { isSendingMessage = false }
 
     do {
-      _ = try await authStore.sendChannelMessage(channelID: channel.id, content: trimmed)
+      _ = try await authStore.sendChannelMessage(
+        channelID: channel.id,
+        content: trimmed,
+        mentionedStaffIds: mentionedStaffIds(in: trimmed)
+      )
       newMessage = ""
     } catch {
       errorMessage = error.localizedDescription
+    }
+  }
+
+  private var activeMentionQuery: String? {
+    guard let lastToken = newMessage.split(separator: " ", omittingEmptySubsequences: false).last,
+      lastToken.hasPrefix("@")
+    else { return nil }
+    return String(lastToken.dropFirst())
+  }
+
+  private func mentionSuggestions(for query: String) -> [DirectoryUser] {
+    let trimmed = query.trimmingCharacters(in: .whitespacesAndNewlines).lowercased()
+    let candidates = mentionUsers.filter { user in
+      guard !trimmed.isEmpty else { return true }
+      return user.displayName.lowercased().contains(trimmed)
+        || (user.email?.lowercased().contains(trimmed) == true)
+    }
+    return Array(candidates.prefix(6))
+  }
+
+  @MainActor
+  private func scheduleMentionDirectoryLoad() {
+    guard activeMentionQuery != nil, mentionUsers.isEmpty else { return }
+    mentionSearchTask?.cancel()
+    mentionSearchTask = Task {
+      do {
+        let users = try await authStore.fetchDirectoryUsers(search: "")
+        guard !Task.isCancelled else { return }
+        mentionUsers = users
+      } catch {
+        mentionUsers = []
+      }
+    }
+  }
+
+  private func insertMention(_ user: DirectoryUser) {
+    var parts = newMessage.split(separator: " ", omittingEmptySubsequences: false).map(String.init)
+    if parts.last?.hasPrefix("@") == true {
+      parts.removeLast()
+    }
+    parts.append("@\(user.displayName)")
+    newMessage = parts.joined(separator: " ") + " "
+    isEmojiPanelVisible = false
+    isInputFocused = true
+  }
+
+  private func mentionedStaffIds(in text: String) -> [String] {
+    let lowerText = text.lowercased()
+    return mentionUsers.compactMap { user in
+      lowerText.contains("@\(user.displayName.lowercased())") ? user.stackUserId : nil
     }
   }
 }
@@ -414,12 +473,51 @@ private struct ChannelMessageRow: View {
           in: RoundedRectangle(cornerRadius: 12, style: .continuous)
         )
 
+      if message.attachmentType != nil || message.attachmentFileName != nil {
+        MessageAttachementView(message: attachmentMessage, isOutgoing: isMine)
+          .frame(maxWidth: 260, alignment: isMine ? .trailing : .leading)
+      }
+
+      if let reactions = message.reactions?.filter({ $0.count > 0 }), !reactions.isEmpty {
+        HStack(spacing: 3) {
+          ForEach(reactions.prefix(3)) { reaction in
+            Text(reaction.emoji)
+              .font(.system(size: 12))
+          }
+          let total = reactions.reduce(0) { $0 + $1.count }
+          if total > 1 {
+            Text("\(total)")
+              .font(.system(size: 10, weight: .semibold))
+              .foregroundStyle(Color.black.opacity(0.55))
+          }
+        }
+        .padding(.horizontal, 7)
+        .padding(.vertical, 4)
+        .background(Color.white, in: Capsule())
+        .overlay(Capsule().stroke(Color.black.opacity(0.08), lineWidth: 1))
+      }
+
       Text(message.createdDate.formatted(date: .omitted, time: .shortened))
         .font(.caption2)
         .foregroundStyle(.secondary)
     }
     .frame(maxWidth: .infinity, alignment: isMine ? .trailing : .leading)
     .padding(.vertical, 2)
+  }
+
+  private var attachmentMessage: Message {
+    Message(
+      content: "",
+      role: isMine ? .user : .assistant,
+      timestamp: message.createdDate,
+      remoteMessageID: message.id,
+      senderStackUserId: message.senderStackUserId,
+      attachementType: message.attachmentType,
+      attachementFileName: message.attachmentFileName,
+      attachementMimeType: message.attachmentMimeType,
+      attachementURL: message.attachmentUrl,
+      isDeleted: message.isDeleted == true
+    )
   }
 }
 

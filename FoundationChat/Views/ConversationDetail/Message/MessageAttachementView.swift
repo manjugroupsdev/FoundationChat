@@ -147,11 +147,18 @@ private struct AudioAttachmentPlaybackView: View {
         HStack(spacing: 3) {
           ForEach(0..<18, id: \.self) { index in
             Capsule()
-              .fill((isOutgoing ? Color.white : Color.black).opacity(index % 3 == 0 ? 0.65 : 0.35))
+              .fill(
+                (isOutgoing ? Color.white : Color.black)
+                  .opacity(playbackController.progress >= Double(index + 1) / 18.0 ? 0.85 : (index % 3 == 0 ? 0.65 : 0.35))
+              )
               .frame(width: 3, height: CGFloat([10, 16, 8, 20, 12, 15][index % 6]))
           }
         }
         .frame(height: 22)
+
+        Text(playbackController.timeLabel)
+          .font(.system(size: 11, weight: .medium))
+          .foregroundStyle(isOutgoing ? .white.opacity(0.68) : Color.black.opacity(0.45))
       }
     }
     .padding(.horizontal, 10)
@@ -168,21 +175,26 @@ private struct AudioAttachmentPlaybackView: View {
 private final class VoicePlaybackController: NSObject, ObservableObject, AVAudioPlayerDelegate {
   @Published var isPlaying = false
   @Published var isLoading = false
+  @Published var progress: Double = 0
+  @Published var timeLabel = "0:00"
 
   private var player: AVAudioPlayer?
   private var cachedURL: URL?
   private var playbackTask: Task<Void, Never>?
+  private var progressTask: Task<Void, Never>?
 
   func toggle(url: URL) {
     if isPlaying {
       player?.pause()
       isPlaying = false
+      stopProgressUpdates()
       return
     }
 
     if let player {
       player.play()
       isPlaying = true
+      startProgressUpdates()
       return
     }
 
@@ -194,10 +206,12 @@ private final class VoicePlaybackController: NSObject, ObservableObject, AVAudio
 
   func stop() {
     playbackTask?.cancel()
+    stopProgressUpdates()
     player?.stop()
     player = nil
     isPlaying = false
     isLoading = false
+    progress = 0
   }
 
   private func prepareAndPlay(url: URL) async {
@@ -218,9 +232,47 @@ private final class VoicePlaybackController: NSObject, ObservableObject, AVAudio
       player = audioPlayer
       audioPlayer.play()
       isPlaying = true
+      updateProgress()
+      startProgressUpdates()
     } catch {
       isPlaying = false
     }
+  }
+
+  private func startProgressUpdates() {
+    progressTask?.cancel()
+    progressTask = Task { [weak self] in
+      while !Task.isCancelled {
+        await MainActor.run {
+          self?.updateProgress()
+        }
+        try? await Task.sleep(for: .milliseconds(120))
+      }
+    }
+  }
+
+  private func stopProgressUpdates() {
+    progressTask?.cancel()
+    progressTask = nil
+  }
+
+  private func updateProgress() {
+    guard let player else {
+      progress = 0
+      return
+    }
+    if player.duration > 0 {
+      progress = min(1, max(0, player.currentTime / player.duration))
+      timeLabel = "\(format(player.currentTime)) / \(format(player.duration))"
+    } else {
+      progress = 0
+      timeLabel = format(player.currentTime)
+    }
+  }
+
+  private func format(_ seconds: TimeInterval) -> String {
+    let total = max(0, Int(seconds.rounded()))
+    return "\(total / 60):\(String(format: "%02d", total % 60))"
   }
 
   private func localPlayableURL(for url: URL) async throws -> URL {
@@ -249,6 +301,8 @@ private final class VoicePlaybackController: NSObject, ObservableObject, AVAudio
     Task { @MainActor in
       player.currentTime = 0
       isPlaying = false
+      progress = 1
+      stopProgressUpdates()
     }
   }
 
@@ -256,6 +310,7 @@ private final class VoicePlaybackController: NSObject, ObservableObject, AVAudio
     Task { @MainActor in
       isPlaying = false
       self.player = nil
+      stopProgressUpdates()
     }
   }
 }

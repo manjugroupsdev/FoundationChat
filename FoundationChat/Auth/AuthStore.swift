@@ -307,16 +307,24 @@ final class AuthStore {
   }
 
   @discardableResult
-  func sendChannelMessage(channelID: String, content: String) async throws -> ChannelChatMessage {
+  func sendChannelMessage(
+    channelID: String,
+    content: String,
+    parentMessageId: String? = nil,
+    mentionedStaffIds: [String]? = nil,
+    attachments: [[String: Any]]? = nil
+  ) async throws -> ChannelChatMessage {
     let t = try requireToken()
-    let messageId = try await ChatAPIService.sendMessage(token: t, channelId: channelID, body: content)
-    // Return a lightweight local echo
-    return ChannelChatMessage(
-      _id: messageId, channelId: channelID, senderId: viewer?.subject,
-      senderName: viewer?.name, body: content, isEdited: false, isDeleted: false,
-      replyCount: 0, lastReplyAt: nil, parentMessageId: nil,
-      _creationTime: Date().timeIntervalSince1970 * 1000
+    let messageId = try await ChatAPIService.sendMessage(
+      token: t,
+      channelId: channelID,
+      body: content,
+      parentMessageId: parentMessageId,
+      mentionedStaffIds: mentionedStaffIds,
+      attachments: attachments
     )
+    let saved = try await ChatAPIService.getMessage(token: t, messageId: messageId)
+    return ChannelChatMessage(saved)
   }
 
   @discardableResult
@@ -324,6 +332,13 @@ final class AuthStore {
     let t = try requireToken()
     let channelId = try await ChatAPIService.createChannel(token: t, name: name, description: description)
     return CreateChannelResult(channelId: channelId)
+  }
+
+  @discardableResult
+  func createGroupConversation(memberIds: [String], name: String? = nil) async throws -> StartDirectConversationResult {
+    let t = try requireToken()
+    let conversationId = try await ChatAPIService.createGroupDM(token: t, memberIds: memberIds, name: name)
+    return StartDirectConversationResult(conversationId: conversationId)
   }
 
   @discardableResult
@@ -372,16 +387,7 @@ final class AuthStore {
     return Future<[ChannelChatMessage]?, Never> { promise in
       Task {
         let result = try? await ChatAPIService.listChannelMessages(token: t, channelId: channelID)
-        // Map ConvexChatMessage → ChannelChatMessage
-        let mapped: [ChannelChatMessage]? = result?.page?.map { msg in
-          ChannelChatMessage(
-            _id: msg._id, channelId: msg.channelId, senderId: msg.senderId,
-            senderName: msg.senderName, body: msg.body, isEdited: msg.isEdited,
-            isDeleted: msg.isDeleted, replyCount: msg.replyCount,
-            lastReplyAt: msg.lastReplyAt, parentMessageId: msg.parentMessageId,
-            _creationTime: msg._creationTime
-          )
-        }
+        let mapped: [ChannelChatMessage]? = result?.page?.map(ChannelChatMessage.init)
         promise(.success(mapped))
       }
     }.eraseToAnyPublisher()
@@ -579,11 +585,15 @@ final class AuthStore {
     attachmentTitle: String? = nil,
     attachmentDescription: String? = nil,
     attachmentThumbnail: String? = nil,
-    parentMessageId: String? = nil
+    parentMessageId: String? = nil,
+    mentionedStaffIds: [String]? = nil,
+    attachments: [[String: Any]]? = nil
   ) async throws -> ConvexChatMessage {
     let t = try requireToken()
     let attachmentsPayload: [[String: Any]]?
-    if let attachmentStorageId {
+    if let attachments {
+      attachmentsPayload = attachments
+    } else if let attachmentStorageId {
       var attachment: [String: Any] = [
         "storageId": attachmentStorageId
       ]
@@ -608,6 +618,7 @@ final class AuthStore {
       conversationId: conversationID,
       body: content,
       parentMessageId: parentMessageId,
+      mentionedStaffIds: mentionedStaffIds,
       attachments: attachmentsPayload
     )
     return try await ChatAPIService.getMessage(token: t, messageId: messageId)

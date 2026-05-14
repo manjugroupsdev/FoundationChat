@@ -7,11 +7,18 @@ struct ConversationSearchView: View {
   let conversationID: String?
   let channelID: String?
   let title: String
+  let onSelectMessage: ((ConvexChatMessage) -> Void)?
 
-  init(conversationID: String? = nil, channelID: String? = nil, title: String = "Search") {
+  init(
+    conversationID: String? = nil,
+    channelID: String? = nil,
+    title: String = "Search",
+    onSelectMessage: ((ConvexChatMessage) -> Void)? = nil
+  ) {
     self.conversationID = conversationID
     self.channelID = channelID
     self.title = title
+    self.onSelectMessage = onSelectMessage
   }
 
   @State private var query: String = ""
@@ -56,8 +63,14 @@ struct ConversationSearchView: View {
           .frame(maxWidth: .infinity, maxHeight: .infinity)
         } else {
           List(results) { message in
-            SearchResultRow(message: message, query: query)
-              .listRowSeparator(.visible)
+            Button {
+              onSelectMessage?(message)
+              dismiss()
+            } label: {
+              SearchResultRow(message: message, query: query)
+            }
+            .buttonStyle(.plain)
+            .listRowSeparator(.visible)
           }
           .listStyle(.plain)
         }

@@ -15,6 +15,33 @@ struct ConversationsListView: View {
         return "channel:\(channel.id)"
       }
     }
+
+    var selectionID: String {
+      switch self {
+      case .conversation(let conversation):
+        return "conversation:\(conversation.remoteConversationID ?? conversation.persistentModelID.id.hashValue.description)"
+      case .channel(let channel):
+        return "channel:\(channel.id)"
+      }
+    }
+
+    var title: String {
+      switch self {
+      case .conversation(let conversation):
+        return conversation.participantDisplayName ?? conversation.summary ?? "New conversation"
+      case .channel(let channel):
+        return channel.name
+      }
+    }
+
+    var unreadCount: Int {
+      switch self {
+      case .conversation(let conversation):
+        return conversation.unreadCountValue
+      case .channel(let channel):
+        return channel.unreadCountValue
+      }
+    }
   }
 
   enum ChatFilter: String, CaseIterable, Identifiable {
@@ -31,11 +58,11 @@ struct ConversationsListView: View {
       case .all:
         return "All"
       case .unread:
-        return "Unread Chats"
+        return "Unread"
       case .favoriteChats:
-        return "Favourite Chats"
+        return "Favourites"
       case .groups:
-        return "Group Chats"
+        return "Groups"
       case .directChats:
         return "DM"
       }
@@ -49,12 +76,15 @@ struct ConversationsListView: View {
   let openConversationID: String?
   let onOpenConversationHandled: () -> Void
 
-  @State private var path: [Conversation] = []
+  @State private var path = NavigationPath()
   @State private var searchText = ""
   @State private var selectedFilter: ChatFilter = .all
   @State private var isNewConversationSheetPresented = false
   @State private var isCreateChannelSheetPresented = false
   @State private var channels: [ChannelSummary] = []
+  @State private var favoriteChannelIDs: Set<String> = []
+  @State private var selectedHomeItemIDs: Set<String> = []
+  @State private var longPressSelectionGuards: Set<String> = []
   @State private var conversationsSubscription: AnyCancellable?
 
   private var filteredConversations: [Conversation] {
@@ -109,7 +139,9 @@ struct ConversationsListView: View {
         filterMatch = true
       case .unread:
         filterMatch = channel.unreadCountValue > 0
-      case .favoriteChats, .directChats:
+      case .favoriteChats:
+        filterMatch = favoriteChannelIDs.contains(channel.id)
+      case .directChats:
         filterMatch = false
       }
 
@@ -130,9 +162,7 @@ struct ConversationsListView: View {
   private var allHomeItems: [HomeItem] {
     let conversationItems = filteredConversations.map(HomeItem.conversation)
     let channelItems = filteredChannels.map(HomeItem.channel)
-    return (conversationItems + channelItems).sorted { lhs, rhs in
-      lastActivityDate(for: lhs) > lastActivityDate(for: rhs)
-    }
+    return sortHomeItems(conversationItems + channelItems)
   }
 
   private var currentItems: [HomeItem] {
@@ -147,19 +177,23 @@ struct ConversationsListView: View {
         }
       }
     case .favoriteChats:
-      return filteredConversations.map(HomeItem.conversation)
+      return sortHomeItems(filteredConversations.map(HomeItem.conversation) + filteredChannels.map(HomeItem.channel))
     case .groups:
-      return filteredChannels.map(HomeItem.channel)
+      return sortHomeItems(filteredChannels.map(HomeItem.channel))
     case .directChats:
-      return filteredConversations.map(HomeItem.conversation)
+      return sortHomeItems(filteredConversations.map(HomeItem.conversation))
     }
+  }
+
+  private var isSelectionMode: Bool {
+    !selectedHomeItemIDs.isEmpty
   }
 
   var body: some View {
     NavigationStack(path: $path) {
       VStack(spacing: 0) {
         chatFiltersBar
-          .padding(.top, 12)
+          .padding(.top, 8)
 
         ScrollView {
           LazyVStack(spacing: 0) {
@@ -183,12 +217,32 @@ struct ConversationsListView: View {
                 case .conversation(let conversation):
                   conversationNavigationRow(for: conversation)
                 case .channel(let channel):
-                  NavigationLink {
-                    ChannelChatView(channel: channel)
+                  let item = HomeItem.channel(channel)
+                  Button {
+                    handlePrimaryTap(on: item)
                   } label: {
                     ChannelSummaryRow(channel: channel)
+                      .overlaySelection(
+                        isSelected: selectedHomeItemIDs.contains(item.selectionID),
+                        isSelectionMode: isSelectionMode
+                      )
                   }
                   .buttonStyle(.plain)
+                  .simultaneousGesture(
+                    LongPressGesture(minimumDuration: 0.45)
+                      .onEnded { _ in selectFromLongPress(item) }
+                  )
+                  .swipeActions(edge: .leading, allowsFullSwipe: false) {
+                    Button {
+                      toggleFavoriteChannel(channel.id)
+                    } label: {
+                      Label(
+                        favoriteChannelIDs.contains(channel.id) ? "Unfavorite" : "Favorite",
+                        systemImage: favoriteChannelIDs.contains(channel.id) ? "star.slash.fill" : "star.fill"
+                      )
+                    }
+                    .tint(.yellow)
+                  }
                 }
               }
             }
@@ -197,16 +251,21 @@ struct ConversationsListView: View {
         }
       }
       .background(Color.white.ignoresSafeArea())
+      .searchable(
+        text: $searchText,
+        placement: .navigationBarDrawer(displayMode: .always),
+        prompt: "Search Chats"
+      )
+      .textInputAutocapitalization(.never)
+      .autocorrectionDisabled()
       .navigationDestination(for: Conversation.self) { conversation in
         ConversationDetailView(conversation: conversation)
       }
-      .navigationTitle("Chats")
+      .navigationDestination(for: String.self) { channelID in
+        ChannelChatView(channel: channelSummary(for: channelID))
+      }
+      .navigationTitle(isSelectionMode ? "\(selectedHomeItemIDs.count) selected" : "Chats")
       .navigationBarTitleDisplayMode(.inline)
-      .searchable(
-        text: $searchText,
-        placement: .navigationBarDrawer(displayMode: .automatic),
-        prompt: "Search Chats"
-      )
       .onAppear {
         startConversationsSubscription()
         Task {
@@ -218,8 +277,41 @@ struct ConversationsListView: View {
         conversationsSubscription = nil
       }
       .toolbar {
+        if isSelectionMode {
+          ToolbarItem(placement: .navigationBarLeading) {
+            Button("Cancel") {
+              withAnimation(.snappy) {
+                selectedHomeItemIDs.removeAll()
+              }
+            }
+          }
+        }
+
         ToolbarItem(placement: .navigationBarTrailing) {
           HStack(spacing: 12) {
+            if isSelectionMode {
+              Menu {
+                Button {
+                  toggleFavoritesForSelection()
+                } label: {
+                  Label(selectionIsAllFavorite ? "Remove Favourites" : "Add Favourites", systemImage: "star.fill")
+                }
+
+                Button(role: .destructive) {
+                  deleteSelectedConversations()
+                } label: {
+                  Label("Delete Direct Chats", systemImage: "trash")
+                }
+                .disabled(selectedConversationCount == 0)
+              } label: {
+                Image(systemName: "ellipsis")
+                  .font(.system(size: 18, weight: .semibold))
+                  .foregroundStyle(Color(red: 0.05, green: 0.38, blue: 0.79))
+                  .frame(width: 32, height: 32)
+                  .background(Color(red: 0.93, green: 0.96, blue: 1.0), in: Circle())
+              }
+              .buttonStyle(.plain)
+            } else {
             Menu {
               Button {
                 isNewConversationSheetPresented = true
@@ -251,13 +343,22 @@ struct ConversationsListView: View {
             } label: {
               ProfileAvatarView(label: authStore.currentUserLabel)
             }
+            }
           }
         }
       }
       .sheet(isPresented: $isNewConversationSheetPresented) {
-        NewConversationSheet { selectedUser in
-          try await startConversation(with: selectedUser)
-        }
+        NewConversationSheet(
+          onSelectUser: { selectedUser in
+            try await startConversation(with: selectedUser)
+          },
+          onCreateGroup: { selectedUsers, groupName in
+            try await startGroupConversation(with: selectedUsers, name: groupName)
+          },
+          onCreateChannel: authStore.isAdmin ? {
+            isCreateChannelSheetPresented = true
+          } : nil
+        )
       }
       .sheet(isPresented: $isCreateChannelSheetPresented) {
         CreateChannelSheet {
@@ -481,11 +582,36 @@ struct ConversationsListView: View {
   }
 
   @MainActor
+  private func startGroupConversation(with users: [DirectoryUser], name: String?) async throws {
+    let result = try await authStore.createGroupConversation(
+      memberIds: users.map(\.stackUserId),
+      name: name
+    )
+
+    if let existing = conversations.first(where: { $0.remoteConversationID == result.conversationId }) {
+      path.append(existing)
+      return
+    }
+
+    let fallbackName = users.map(\.displayName).prefix(3).joined(separator: ", ")
+    let conversation = Conversation(
+      messages: [],
+      summary: name ?? fallbackName,
+      remoteConversationID: result.conversationId,
+      participantDisplayName: name ?? fallbackName
+    )
+    modelContext.insert(conversation)
+    try modelContext.save()
+    path.append(conversation)
+  }
+
+  @MainActor
   private func openConversationFromPush(remoteConversationID: String) async {
     selectedFilter = .all
 
     if let existing = conversations.first(where: { $0.remoteConversationID == remoteConversationID }) {
-      path = [existing]
+      path = NavigationPath()
+      path.append(existing)
       return
     }
 
@@ -497,7 +623,8 @@ struct ConversationsListView: View {
     )
     modelContext.insert(conversation)
     try? modelContext.save()
-    path = [conversation]
+    path = NavigationPath()
+    path.append(conversation)
   }
 
   private func lastActivityDate(for item: HomeItem) -> Date {
@@ -509,12 +636,36 @@ struct ConversationsListView: View {
     }
   }
 
+  private func sortHomeItems(_ items: [HomeItem]) -> [HomeItem] {
+    items.sorted { lhs, rhs in
+      let lhsUnread = lhs.unreadCount > 0
+      let rhsUnread = rhs.unreadCount > 0
+      if lhsUnread != rhsUnread {
+        return lhsUnread && !rhsUnread
+      }
+      let lhsDate = lastActivityDate(for: lhs)
+      let rhsDate = lastActivityDate(for: rhs)
+      if lhsDate != rhsDate {
+        return lhsDate > rhsDate
+      }
+      return lhs.title.localizedCaseInsensitiveCompare(rhs.title) == .orderedAscending
+    }
+  }
+
   private func conversationNavigationRow(for conversation: Conversation) -> some View {
-    NavigationLink(value: conversation) {
+    let item = HomeItem.conversation(conversation)
+    return Button {
+      handlePrimaryTap(on: item)
+    } label: {
       ConversationRowView(conversation: conversation)
+        .overlaySelection(
+          isSelected: selectedHomeItemIDs.contains(item.selectionID),
+          isSelectionMode: isSelectionMode
+        )
         .swipeActions {
           Button(role: .destructive) {
             let remoteID = conversation.remoteConversationID
+            selectedHomeItemIDs.remove(item.selectionID)
             modelContext.delete(conversation)
             try? modelContext.save()
             if let remoteID {
@@ -540,6 +691,10 @@ struct ConversationsListView: View {
         }
     }
     .buttonStyle(.plain)
+    .simultaneousGesture(
+      LongPressGesture(minimumDuration: 0.45)
+        .onEnded { _ in selectFromLongPress(item) }
+    )
   }
 
   @MainActor
@@ -556,6 +711,143 @@ struct ConversationsListView: View {
       channels = try await authStore.fetchChannels(search: trimmedSearch)
     } catch {
       channels = []
+    }
+  }
+
+  private func channelSummary(for channelID: String) -> ChannelSummary {
+    if let existing = channels.first(where: { $0.id == channelID }) {
+      return existing
+    }
+    return ChannelSummary(
+      _id: channelID,
+      name: "Channel",
+      slug: nil,
+      description: nil,
+      type: "public",
+      createdBy: nil,
+      isArchived: false,
+      memberCount: 0,
+      role: "member",
+      muted: false,
+      unreadCount: 0
+    )
+  }
+
+  private func toggleSelection(for item: HomeItem) {
+    let id = item.selectionID
+    withAnimation(.snappy) {
+      if selectedHomeItemIDs.contains(id) {
+        selectedHomeItemIDs.remove(id)
+      } else {
+        selectedHomeItemIDs.insert(id)
+      }
+    }
+  }
+
+  private func handlePrimaryTap(on item: HomeItem) {
+    let id = item.selectionID
+    if longPressSelectionGuards.contains(id) {
+      longPressSelectionGuards.remove(id)
+      return
+    }
+
+    if isSelectionMode {
+      toggleSelection(for: item)
+    } else {
+      switch item {
+      case .conversation(let conversation):
+        path.append(conversation)
+      case .channel(let channel):
+        path.append(channel.id)
+      }
+    }
+  }
+
+  private func selectFromLongPress(_ item: HomeItem) {
+    let id = item.selectionID
+    longPressSelectionGuards.insert(id)
+
+    withAnimation(.snappy) {
+      _ = selectedHomeItemIDs.insert(id)
+    }
+
+    Task { @MainActor in
+      try? await Task.sleep(for: .milliseconds(450))
+      longPressSelectionGuards.remove(id)
+    }
+  }
+
+  private func toggleFavoriteChannel(_ id: String) {
+    withAnimation(.snappy) {
+      if favoriteChannelIDs.contains(id) {
+        favoriteChannelIDs.remove(id)
+      } else {
+        favoriteChannelIDs.insert(id)
+      }
+    }
+  }
+
+  private var selectionIsAllFavorite: Bool {
+    guard !selectedHomeItemIDs.isEmpty else { return false }
+    return selectedHomeItemIDs.allSatisfy { id in
+      if id.hasPrefix("channel:") {
+        return favoriteChannelIDs.contains(String(id.dropFirst("channel:".count)))
+      }
+      return conversations.contains { conversation in
+        HomeItem.conversation(conversation).selectionID == id && conversation.isFavorite
+      }
+    }
+  }
+
+  private var selectedConversationCount: Int {
+    conversations.filter { selectedHomeItemIDs.contains(HomeItem.conversation($0).selectionID) }.count
+  }
+
+  private func toggleFavoritesForSelection() {
+    let shouldRemove = selectionIsAllFavorite
+    for conversation in conversations {
+      let id = HomeItem.conversation(conversation).selectionID
+      guard selectedHomeItemIDs.contains(id) else { continue }
+      conversation.isFavorite = !shouldRemove
+    }
+
+    for selectedID in selectedHomeItemIDs where selectedID.hasPrefix("channel:") {
+      let channelID = String(selectedID.dropFirst("channel:".count))
+      if shouldRemove {
+        favoriteChannelIDs.remove(channelID)
+      } else {
+        favoriteChannelIDs.insert(channelID)
+      }
+    }
+
+    try? modelContext.save()
+    withAnimation(.snappy) {
+      selectedHomeItemIDs.removeAll()
+    }
+  }
+
+  private func deleteSelectedConversations() {
+    let selectedIDs = selectedHomeItemIDs
+    let selectedConversations = conversations.filter { selectedIDs.contains(HomeItem.conversation($0).selectionID) }
+    guard !selectedConversations.isEmpty else {
+      withAnimation(.snappy) {
+        selectedHomeItemIDs.removeAll()
+      }
+      return
+    }
+
+    for conversation in selectedConversations {
+      let remoteID = conversation.remoteConversationID
+      modelContext.delete(conversation)
+      if let remoteID {
+        Task {
+          try? await authStore.deleteConversation(conversationID: remoteID)
+        }
+      }
+    }
+    try? modelContext.save()
+    withAnimation(.snappy) {
+      selectedHomeItemIDs.removeAll()
     }
   }
 }
@@ -579,10 +871,22 @@ private struct ChannelSummaryRow: View {
             .foregroundStyle(FoundationChatTheme.ink)
         }
 
-        Text(channel.lastMessageContent ?? channel.description ?? "No messages yet")
-          .font(.system(size: 15, weight: .regular))
-          .foregroundStyle(Color(red: 0.45, green: 0.46, blue: 0.48))
-          .lineLimit(1)
+        HStack(spacing: 8) {
+          Text(channel.lastMessageContent ?? channel.description ?? "No messages yet")
+            .font(.system(size: 15, weight: .regular))
+            .foregroundStyle(Color(red: 0.45, green: 0.46, blue: 0.48))
+            .lineLimit(1)
+
+          Spacer(minLength: 8)
+
+          if channel.unreadCountValue > 0 {
+            Text(channel.unreadCountValue > 99 ? "99+" : "\(channel.unreadCountValue)")
+              .font(.system(size: 13, weight: .semibold))
+              .foregroundStyle(.white)
+              .frame(width: 20, height: 20)
+              .background(Color(red: 0.10, green: 0.72, blue: 0.04), in: Circle())
+          }
+        }
       }
     }
     .frame(height: 80)
@@ -594,6 +898,34 @@ private struct ChannelSummaryRow: View {
         .frame(height: 1)
         .padding(.leading, 76)
     }
+  }
+}
+
+private struct HomeRowSelectionOverlay: ViewModifier {
+  let isSelected: Bool
+  let isSelectionMode: Bool
+
+  func body(content: Content) -> some View {
+    content
+      .contentShape(Rectangle())
+      .background(isSelected ? Color(red: 0.05, green: 0.38, blue: 0.79).opacity(0.08) : Color.clear)
+      .overlay(alignment: .leading) {
+        if isSelectionMode {
+          Image(systemName: isSelected ? "checkmark.circle.fill" : "circle")
+            .font(.system(size: 21, weight: .semibold))
+            .foregroundStyle(isSelected ? Color(red: 0.05, green: 0.38, blue: 0.79) : Color.black.opacity(0.28))
+            .frame(width: 34, height: 34)
+            .background(Color.white.opacity(0.9), in: Circle())
+            .padding(.leading, 16)
+            .transition(.scale.combined(with: .opacity))
+        }
+      }
+  }
+}
+
+private extension View {
+  func overlaySelection(isSelected: Bool, isSelectionMode: Bool) -> some View {
+    modifier(HomeRowSelectionOverlay(isSelected: isSelected, isSelectionMode: isSelectionMode))
   }
 }
 
