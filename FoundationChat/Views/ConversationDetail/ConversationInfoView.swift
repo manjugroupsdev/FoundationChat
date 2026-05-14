@@ -579,15 +579,7 @@ private struct ParticipantInlineProfileView: View {
           detailRow("Employee ID", staff.employeeId)
         }
       } else {
-        HStack(spacing: 8) {
-          ProgressView()
-            .controlSize(.small)
-          Text("Loading user details")
-            .font(.subheadline)
-            .foregroundStyle(.secondary)
-        }
-        .frame(maxWidth: .infinity, alignment: .leading)
-        .padding(.vertical, 4)
+        ParticipantDetailsSkeleton()
       }
     }
   }
@@ -698,6 +690,47 @@ private struct ParticipantInlineProfileView: View {
       .compactMap(\.first)
     let result = String(parts).uppercased()
     return result.isEmpty ? "?" : result
+  }
+}
+
+private struct ParticipantDetailsSkeleton: View {
+  var body: some View {
+    VStack(spacing: 10) {
+      HStack(spacing: 10) {
+        ForEach(0..<3, id: \.self) { _ in
+          SkeletonBlock()
+            .frame(height: 54)
+        }
+      }
+
+      VStack(spacing: 0) {
+        ForEach(0..<4, id: \.self) { index in
+          HStack(spacing: 12) {
+            SkeletonBlock()
+              .frame(width: 88, height: 12)
+            SkeletonBlock()
+              .frame(height: 12)
+          }
+          .padding(.horizontal, 12)
+          .padding(.vertical, 10)
+
+          if index < 3 {
+            Divider()
+              .padding(.leading, 12)
+          }
+        }
+      }
+      .background(Color(.secondarySystemGroupedBackground), in: RoundedRectangle(cornerRadius: 14, style: .continuous))
+    }
+    .allowsHitTesting(false)
+  }
+}
+
+private struct SkeletonBlock: View {
+  var body: some View {
+    RoundedRectangle(cornerRadius: 8, style: .continuous)
+      .fill(Color(.systemGray5))
+      .redacted(reason: .placeholder)
   }
 }
 

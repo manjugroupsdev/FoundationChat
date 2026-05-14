@@ -80,6 +80,7 @@ struct ConversationsListView: View {
   @State private var searchText = ""
   @State private var selectedFilter: ChatFilter = .all
   @State private var isNewConversationSheetPresented = false
+  @State private var newConversationMode: NewConversationSheet.SelectionMode = .direct
   @State private var isCreateChannelSheetPresented = false
   @State private var channels: [ChannelSummary] = []
   @State private var favoriteChannelIDs: Set<String> = []
@@ -98,6 +99,8 @@ struct ConversationsListView: View {
     let trimmedSearch = searchText.trimmingCharacters(in: .whitespacesAndNewlines).lowercased()
 
     return sorted.filter { conversation in
+      guard hasVisibleChatActivity(conversation) else { return false }
+
       let filterMatch: Bool
       switch selectedFilter {
       case .all, .directChats:
@@ -125,6 +128,22 @@ struct ConversationsListView: View {
       .joined(separator: " ")
 
       return haystack.contains(trimmedSearch)
+    }
+  }
+
+  private func hasVisibleChatActivity(_ conversation: Conversation) -> Bool {
+    conversation.sortedMessages.contains { message in
+      if message.role == .system {
+        return false
+      }
+
+      let hasText = !message.content.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
+      let hasAttachment = message.attachementType != nil
+        || message.attachementMimeType != nil
+        || message.attachementURL != nil
+        || message.attachementFileName != nil
+
+      return hasText || hasAttachment || message.isDeleted
     }
   }
 
@@ -202,8 +221,10 @@ struct ConversationsListView: View {
               EmptyChatState(filter: selectedFilter) {
                 switch selectedFilter {
                 case .groups:
-                  isCreateChannelSheetPresented = true
+                  newConversationMode = .group
+                  isNewConversationSheetPresented = true
                 case .directChats:
+                  newConversationMode = .direct
                   isNewConversationSheetPresented = true
                 case .favoriteChats:
                   selectedFilter = .all
@@ -314,22 +335,24 @@ struct ConversationsListView: View {
             } else {
             Menu {
               Button {
+                newConversationMode = .direct
                 isNewConversationSheetPresented = true
               } label: {
-                Label("Direct Messages", systemImage: "message.fill")
+                Label("New Chat", systemImage: "message.fill")
               }
 
               Button {
-                selectedFilter = .groups
+                newConversationMode = .group
+                isNewConversationSheetPresented = true
               } label: {
-                Label("Group Chats", systemImage: "person.3.fill")
+                Label("Create Group", systemImage: "person.3.fill")
               }
 
               if authStore.isAdmin {
                 Button {
                   isCreateChannelSheetPresented = true
                 } label: {
-                  Label("Create Group", systemImage: "plus.bubble.fill")
+                  Label("Create Channel", systemImage: "plus.bubble.fill")
                 }
               }
             } label: {
@@ -349,6 +372,7 @@ struct ConversationsListView: View {
       }
       .sheet(isPresented: $isNewConversationSheetPresented) {
         NewConversationSheet(
+          initialMode: newConversationMode,
           onSelectUser: { selectedUser in
             try await startConversation(with: selectedUser)
           },

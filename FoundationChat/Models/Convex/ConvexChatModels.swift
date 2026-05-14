@@ -95,9 +95,29 @@ struct MessageAttachment: Decodable, Identifiable, Equatable, Sendable {
   let fileType: String?
   let fileSize: Int?
   let storageId: String?
+  let thumbnail: String?
   let url: String?
 
   var id: String { _id ?? messageId ?? storageId ?? fileName ?? UUID().uuidString }
+
+  private enum CodingKeys: String, CodingKey {
+    case _id
+    case id
+    case messageId
+    case fileName
+    case attachmentFileName
+    case fileType
+    case attachmentType
+    case attachmentMimeType
+    case fileSize
+    case attachmentFileSize
+    case storageId
+    case attachmentStorageId
+    case thumbnail
+    case attachmentThumbnail
+    case url
+    case attachmentUrl
+  }
 
   init(
     _id: String? = nil,
@@ -106,6 +126,7 @@ struct MessageAttachment: Decodable, Identifiable, Equatable, Sendable {
     fileType: String? = nil,
     fileSize: Int? = nil,
     storageId: String? = nil,
+    thumbnail: String? = nil,
     url: String? = nil
   ) {
     self._id = _id
@@ -114,7 +135,28 @@ struct MessageAttachment: Decodable, Identifiable, Equatable, Sendable {
     self.fileType = fileType
     self.fileSize = fileSize
     self.storageId = storageId
+    self.thumbnail = thumbnail
     self.url = url
+  }
+
+  init(from decoder: Decoder) throws {
+    let container = try decoder.container(keyedBy: CodingKeys.self)
+    _id = try container.decodeIfPresent(String.self, forKey: ._id)
+      ?? container.decodeIfPresent(String.self, forKey: .id)
+    messageId = try container.decodeIfPresent(String.self, forKey: .messageId)
+    fileName = try container.decodeIfPresent(String.self, forKey: .fileName)
+      ?? container.decodeIfPresent(String.self, forKey: .attachmentFileName)
+    fileType = try container.decodeIfPresent(String.self, forKey: .fileType)
+      ?? container.decodeIfPresent(String.self, forKey: .attachmentMimeType)
+      ?? container.decodeIfPresent(String.self, forKey: .attachmentType)
+    fileSize = try container.decodeIfPresent(Int.self, forKey: .fileSize)
+      ?? container.decodeIfPresent(Int.self, forKey: .attachmentFileSize)
+    storageId = try container.decodeIfPresent(String.self, forKey: .storageId)
+      ?? container.decodeIfPresent(String.self, forKey: .attachmentStorageId)
+    thumbnail = try container.decodeIfPresent(String.self, forKey: .thumbnail)
+      ?? container.decodeIfPresent(String.self, forKey: .attachmentThumbnail)
+    url = try container.decodeIfPresent(String.self, forKey: .url)
+      ?? container.decodeIfPresent(String.self, forKey: .attachmentUrl)
   }
 }
 
@@ -181,7 +223,7 @@ struct ConvexChatMessage: Decodable, Identifiable, Equatable, Sendable {
   var attachmentMimeType: String? { attachments?.first?.fileType }
   var attachmentTitle: String? { nil }
   var attachmentDescription: String? { nil }
-  var attachmentThumbnail: String? { nil }
+  var attachmentThumbnail: String? { attachments?.first?.thumbnail }
   var attachmentUrl: String? { attachments?.first?.url }
 
   var timestamp: Date {
@@ -191,20 +233,31 @@ struct ConvexChatMessage: Decodable, Identifiable, Equatable, Sendable {
 
   private enum CodingKeys: String, CodingKey {
     case _id
+    case id
     case messageId
     case channelId
     case conversationId
     case senderId
+    case senderStackUserId
     case senderName
     case body
+    case content
     case isEdited
     case isDeleted
     case replyCount
     case lastReplyAt
     case parentMessageId
+    case replyToId
     case _creationTime
+    case createdAt
     case sentAt
     case attachments
+    case attachmentType
+    case attachmentStorageId
+    case attachmentFileName
+    case attachmentMimeType
+    case attachmentThumbnail
+    case attachmentUrl
     case reactions
     case mentions
   }
@@ -246,21 +299,50 @@ struct ConvexChatMessage: Decodable, Identifiable, Equatable, Sendable {
   init(from decoder: Decoder) throws {
     let container = try decoder.container(keyedBy: CodingKeys.self)
     _id = try container.decodeIfPresent(String.self, forKey: ._id)
+      ?? container.decodeIfPresent(String.self, forKey: .id)
       ?? container.decodeIfPresent(String.self, forKey: .messageId)
       ?? UUID().uuidString
     channelId = try container.decodeIfPresent(String.self, forKey: .channelId)
     conversationId = try container.decodeIfPresent(String.self, forKey: .conversationId)
     senderId = try container.decodeIfPresent(String.self, forKey: .senderId)
+      ?? container.decodeIfPresent(String.self, forKey: .senderStackUserId)
     senderName = try container.decodeIfPresent(String.self, forKey: .senderName)
     body = try container.decodeIfPresent(String.self, forKey: .body)
+      ?? container.decodeIfPresent(String.self, forKey: .content)
     isEdited = try container.decodeIfPresent(Bool.self, forKey: .isEdited)
     isDeleted = try container.decodeIfPresent(Bool.self, forKey: .isDeleted)
     replyCount = try container.decodeIfPresent(Int.self, forKey: .replyCount)
     lastReplyAt = try container.decodeIfPresent(Double.self, forKey: .lastReplyAt)
     parentMessageId = try container.decodeIfPresent(String.self, forKey: .parentMessageId)
+      ?? container.decodeIfPresent(String.self, forKey: .replyToId)
     _creationTime = try container.decodeIfPresent(Double.self, forKey: ._creationTime)
+      ?? container.decodeIfPresent(Double.self, forKey: .createdAt)
       ?? container.decodeIfPresent(Double.self, forKey: .sentAt)
-    attachments = try container.decodeIfPresent([MessageAttachment].self, forKey: .attachments)
+    let decodedAttachments = try container.decodeIfPresent([MessageAttachment].self, forKey: .attachments)
+    if let decodedAttachments, !decodedAttachments.isEmpty {
+      attachments = decodedAttachments
+    } else {
+      let legacyAttachmentType = try container.decodeIfPresent(String.self, forKey: .attachmentType)
+      let legacyStorageId = try container.decodeIfPresent(String.self, forKey: .attachmentStorageId)
+      let legacyFileName = try container.decodeIfPresent(String.self, forKey: .attachmentFileName)
+      let legacyMimeType = try container.decodeIfPresent(String.self, forKey: .attachmentMimeType)
+      let legacyThumbnail = try container.decodeIfPresent(String.self, forKey: .attachmentThumbnail)
+      let legacyURL = try container.decodeIfPresent(String.self, forKey: .attachmentUrl)
+      if legacyAttachmentType != nil || legacyStorageId != nil || legacyFileName != nil || legacyURL != nil {
+        attachments = [
+          MessageAttachment(
+            messageId: _id,
+            fileName: legacyFileName,
+            fileType: legacyMimeType ?? legacyAttachmentType,
+            storageId: legacyStorageId,
+            thumbnail: legacyThumbnail,
+            url: legacyURL
+          )
+        ]
+      } else {
+        attachments = decodedAttachments
+      }
+    }
     reactions = try container.decodeIfPresent([MessageReactionInfo].self, forKey: .reactions)
     mentions = try container.decodeIfPresent([MessageMention].self, forKey: .mentions)
   }

@@ -1,6 +1,11 @@
 import SwiftUI
 
 struct NewConversationSheet: View {
+  enum SelectionMode {
+    case direct
+    case group
+  }
+
   @Environment(AuthStore.self) private var authStore
   @Environment(\.dismiss) private var dismiss
 
@@ -9,6 +14,7 @@ struct NewConversationSheet: View {
   let onCreateChannel: (() -> Void)?
 
   init(
+    initialMode: SelectionMode = .direct,
     onSelectUser: @escaping (DirectoryUser) async throws -> Void,
     onCreateGroup: @escaping ([DirectoryUser], String?) async throws -> Void = { _, _ in },
     onCreateChannel: (() -> Void)? = nil
@@ -16,6 +22,7 @@ struct NewConversationSheet: View {
     self.onSelectUser = onSelectUser
     self.onCreateGroup = onCreateGroup
     self.onCreateChannel = onCreateChannel
+    _isGroupMode = State(initialValue: initialMode == .group)
   }
 
   @State private var searchText = ""
@@ -28,51 +35,29 @@ struct NewConversationSheet: View {
   @State private var isSubmitting = false
 
   private var canStart: Bool {
-    isGroupMode ? selectedUsers.count >= 2 : selectedUsers.count == 1
+    selectedUsers.count >= 1
+  }
+
+  private var actionTitle: String {
+    if isSubmitting {
+      return isGroupMode && selectedUsers.count > 1 ? "Creating..." : "Starting..."
+    }
+
+    if isGroupMode && selectedUsers.count > 1 {
+      return "Create Group"
+    }
+
+    return "Start Conversation"
   }
 
   var body: some View {
     NavigationStack {
       VStack(spacing: 0) {
         VStack(spacing: 12) {
-          HStack(spacing: 10) {
-            Button {
-              withAnimation(.snappy) {
-                isGroupMode = false
-                selectedUsers.removeAll()
-              }
-            } label: {
-              Text("Direct")
-                .font(.system(size: 14, weight: .semibold))
-                .foregroundStyle(!isGroupMode ? .white : FoundationChatTheme.ink)
-                .frame(maxWidth: .infinity)
-                .frame(height: 36)
-                .background(!isGroupMode ? FoundationChatTheme.outgoingBubble : Color(.systemGray6), in: Capsule())
-            }
-            .buttonStyle(.plain)
-
-            Button {
-              withAnimation(.snappy) {
-                isGroupMode = true
-              }
-            } label: {
-              Text("Group")
-                .font(.system(size: 14, weight: .semibold))
-                .foregroundStyle(isGroupMode ? .white : FoundationChatTheme.ink)
-                .frame(maxWidth: .infinity)
-                .frame(height: 36)
-                .background(isGroupMode ? FoundationChatTheme.outgoingBubble : Color(.systemGray6), in: Capsule())
-            }
-            .buttonStyle(.plain)
-          }
-
           if isGroupMode {
-            TextField("Group name (optional)", text: $groupName)
-              .font(.system(size: 15, weight: .regular))
-              .textInputAutocapitalization(.words)
-              .padding(.horizontal, 12)
-              .frame(height: 44)
-              .background(Color(.systemGray6), in: RoundedRectangle(cornerRadius: 12, style: .continuous))
+            groupModeHeader
+          } else {
+            createGroupEntry
           }
 
           HStack(spacing: 8) {
@@ -100,42 +85,6 @@ struct NewConversationSheet: View {
           if isGroupMode, !selectedUsers.isEmpty {
             selectedPeopleStrip
           }
-
-          if let onCreateChannel {
-            Button {
-              dismiss()
-              onCreateChannel()
-            } label: {
-              HStack(spacing: 12) {
-                Image(systemName: "person.3.fill")
-                  .font(.system(size: 16, weight: .semibold))
-                  .foregroundStyle(.white)
-                  .frame(width: 34, height: 34)
-                  .background(Color(red: 0.10, green: 0.72, blue: 0.04), in: Circle())
-
-                VStack(alignment: .leading, spacing: 2) {
-                  Text("Create Group")
-                    .font(.system(size: 15, weight: .semibold))
-                  Text("Start a team space with multiple members")
-                    .font(.system(size: 12))
-                    .foregroundStyle(.secondary)
-                }
-
-                Spacer()
-                Image(systemName: "chevron.right")
-                  .font(.system(size: 13, weight: .semibold))
-                  .foregroundStyle(.secondary)
-              }
-              .foregroundStyle(.primary)
-              .padding(12)
-              .background(Color.white, in: RoundedRectangle(cornerRadius: 14, style: .continuous))
-              .overlay(
-                RoundedRectangle(cornerRadius: 14, style: .continuous)
-                  .stroke(Color.black.opacity(0.06), lineWidth: 1)
-              )
-            }
-            .buttonStyle(.plain)
-          }
         }
         .padding(.horizontal, 16)
         .padding(.top, 12)
@@ -146,7 +95,7 @@ struct NewConversationSheet: View {
         content
       }
       .background(Color(.systemGroupedBackground).ignoresSafeArea())
-      .navigationTitle("New Chat")
+      .navigationTitle(isGroupMode ? "Create Group" : "New Chat")
       .navigationBarTitleDisplayMode(.inline)
       .toolbar {
         ToolbarItem(placement: .cancellationAction) {
@@ -156,7 +105,7 @@ struct NewConversationSheet: View {
         }
 
         ToolbarItem(placement: .confirmationAction) {
-          Button(isSubmitting ? "Starting..." : "Start") {
+          Button(actionTitle) {
             Task {
               await start()
             }
@@ -170,6 +119,71 @@ struct NewConversationSheet: View {
     }
     .presentationDetents([.large])
     .presentationDragIndicator(.visible)
+  }
+
+  private var groupModeHeader: some View {
+    VStack(spacing: 10) {
+      HStack(spacing: 12) {
+        Image(systemName: "person.3.fill")
+          .font(.system(size: 16, weight: .semibold))
+          .foregroundStyle(.white)
+          .frame(width: 36, height: 36)
+          .background(FoundationChatTheme.outgoingBubble, in: Circle())
+
+        VStack(alignment: .leading, spacing: 2) {
+          Text(selectedUsers.count <= 1 ? "Select people" : "\(selectedUsers.count) selected")
+            .font(.system(size: 15, weight: .semibold))
+          Text(selectedUsers.count <= 1 ? "Choose one for a DM or more for a group" : "Add or remove people below")
+            .font(.system(size: 12))
+            .foregroundStyle(.secondary)
+        }
+
+        Spacer()
+      }
+
+      if selectedUsers.count > 1 {
+        TextField("Group name (optional)", text: $groupName)
+          .font(.system(size: 15, weight: .regular))
+          .textInputAutocapitalization(.words)
+          .padding(.horizontal, 12)
+          .frame(height: 44)
+          .background(Color(.systemGray6), in: RoundedRectangle(cornerRadius: 12, style: .continuous))
+      }
+    }
+  }
+
+  private var createGroupEntry: some View {
+    Button {
+      withAnimation(.snappy) {
+        isGroupMode = true
+        selectedUsers.removeAll()
+      }
+    } label: {
+      HStack(spacing: 12) {
+        Image(systemName: "person.3.fill")
+          .font(.system(size: 16, weight: .semibold))
+          .foregroundStyle(.white)
+          .frame(width: 38, height: 38)
+          .background(FoundationChatTheme.outgoingBubble, in: Circle())
+
+        VStack(alignment: .leading, spacing: 2) {
+          Text("Create Group")
+            .font(.system(size: 15, weight: .semibold))
+          Text("Select multiple people")
+            .font(.system(size: 12))
+            .foregroundStyle(.secondary)
+        }
+
+        Spacer()
+
+        Image(systemName: "chevron.right")
+          .font(.system(size: 13, weight: .semibold))
+          .foregroundStyle(.secondary)
+      }
+      .foregroundStyle(.primary)
+      .padding(.vertical, 2)
+    }
+    .buttonStyle(.plain)
   }
 
   @ViewBuilder
@@ -279,7 +293,6 @@ struct NewConversationSheet: View {
   private func toggle(_ user: DirectoryUser) {
     if !isGroupMode {
       selectedUsers = [user]
-      Task { await start() }
       return
     }
 
@@ -301,7 +314,7 @@ struct NewConversationSheet: View {
     errorMessage = nil
 
     do {
-      if isGroupMode {
+      if isGroupMode, selectedUsers.count > 1 {
         try await onCreateGroup(
           selectedUsers,
           groupName.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty ? nil : groupName
