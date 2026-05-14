@@ -909,14 +909,26 @@ private struct HomeRowSelectionOverlay: ViewModifier {
     content
       .contentShape(Rectangle())
       .background(isSelected ? Color(red: 0.05, green: 0.38, blue: 0.79).opacity(0.08) : Color.clear)
-      .overlay(alignment: .leading) {
+      .overlay(alignment: .topLeading) {
         if isSelectionMode {
-          Image(systemName: isSelected ? "checkmark.circle.fill" : "circle")
-            .font(.system(size: 21, weight: .semibold))
-            .foregroundStyle(isSelected ? Color(red: 0.05, green: 0.38, blue: 0.79) : Color.black.opacity(0.28))
-            .frame(width: 34, height: 34)
-            .background(Color.white.opacity(0.9), in: Circle())
-            .padding(.leading, 16)
+          ZStack {
+            Circle()
+              .fill(isSelected ? Color(red: 0.05, green: 0.38, blue: 0.79) : Color.white)
+              .frame(width: 22, height: 22)
+              .overlay(
+                Circle()
+                  .stroke(isSelected ? Color.white : Color.black.opacity(0.22), lineWidth: 2)
+              )
+
+            if isSelected {
+              Image(systemName: "checkmark")
+                .font(.system(size: 11, weight: .bold))
+                .foregroundStyle(.white)
+            }
+          }
+          .shadow(color: .black.opacity(0.08), radius: 2, y: 1)
+          .padding(.leading, 49)
+          .padding(.top, 48)
             .transition(.scale.combined(with: .opacity))
         }
       }
