@@ -16,6 +16,11 @@ struct ConvexSiteVisit: Decodable, Identifiable, Equatable, Sendable {
     let placeLng: Double?
     let scheduledStartTime: String?
     let scheduledEndTime: String?
+    let tripType: String?
+    let clientPlaceVisitId: String?
+    let leadName: String?
+    let leadPhone: String?
+    let cpVisit: ConvexCPVisitState?
 
     var id: String { _id }
 
@@ -29,6 +34,14 @@ struct ConvexSiteVisit: Decodable, Identifiable, Equatable, Sendable {
         default: return .scheduled
         }
     }
+}
+
+struct ConvexCPVisitState: Decodable, Equatable, Sendable {
+    let clientMet: Bool?
+    let clientMetAt: Double?
+    let clientNoShowReason: String?
+    let outcome: String?
+    let postponeReasons: [String]?
 }
 
 enum SiteVisitStatus: String, CaseIterable, Identifiable, Sendable {

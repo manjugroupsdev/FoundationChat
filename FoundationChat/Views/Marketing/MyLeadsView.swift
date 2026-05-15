@@ -66,7 +66,7 @@ struct MyLeadsView: View {
                             ProgressView()
                         } else {
                             Button("Load more") { loadMore() }
-                                .font(.subheadline)
+                                .font(AppModuleFont.rowBody)
                         }
                         Spacer()
                     }
@@ -85,7 +85,7 @@ struct MyLeadsView: View {
         .overlay(alignment: .bottom) {
             if let statusMessage {
                 Text(statusMessage)
-                    .font(.footnote.weight(.medium))
+                    .font(AppModuleFont.rowMetaSemibold)
                     .padding(.horizontal, 14)
                     .padding(.vertical, 8)
                     .background(.regularMaterial, in: Capsule())
@@ -212,20 +212,20 @@ private struct LeadRow: View {
             avatar
             VStack(alignment: .leading, spacing: 4) {
                 Text(lead.displayName)
-                    .font(.headline)
+                    .font(AppModuleFont.rowTitle)
                     .lineLimit(1)
                 HStack(spacing: 6) {
                     Image(systemName: "phone")
-                        .font(.caption2)
+                        .font(AppModuleFont.rowMeta)
                         .foregroundStyle(.secondary)
                     Text(lead.displayPhone)
-                        .font(.subheadline)
+                        .font(AppModuleFont.rowBody)
                         .foregroundStyle(.secondary)
                         .lineLimit(1)
                 }
                 if let source = lead.source, !source.isEmpty {
                     Text(source.capitalized)
-                        .font(.caption2)
+                        .font(AppModuleFont.rowMeta)
                         .foregroundStyle(.tertiary)
                 }
             }
@@ -240,7 +240,7 @@ private struct LeadRow: View {
             Circle()
                 .fill(avatarColor.opacity(0.15))
             Text(avatarInitials)
-                .font(.subheadline.weight(.semibold))
+                .font(AppModuleFont.rowTitle)
                 .foregroundStyle(avatarColor)
         }
         .frame(width: 40, height: 40)
@@ -263,7 +263,7 @@ private struct LeadRow: View {
 
     private var statusBadge: some View {
         Text(lead.statusLabel)
-            .font(.caption.weight(.semibold))
+            .font(AppModuleFont.rowMetaSemibold)
             .padding(.horizontal, 8)
             .padding(.vertical, 3)
             .background(statusColor.opacity(0.15), in: Capsule())

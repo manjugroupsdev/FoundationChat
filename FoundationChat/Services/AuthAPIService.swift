@@ -25,6 +25,14 @@ enum AuthAPIService {
     let error: String?
   }
 
+  private struct MyIAMPermissionsResponse: Decodable {
+    let success: Bool?
+    let total: Int?
+    let permissions: [String]
+    let isAdmin: Bool
+    let error: String?
+  }
+
   private struct LogoutResponse: Decodable {
     let success: Bool
     let message: String?
@@ -82,6 +90,27 @@ enum AuthAPIService {
     }
 
     return user
+  }
+
+  /// Fetch the signed-in user's IAM permissions. Mirrors Android
+  /// `GET /api/iam/my-permissions` used by App Library feature gates.
+  static func getMyIAMPermissions(token: String) async throws -> (permissions: [String], isAdmin: Bool) {
+    let url = URL(string: "\(baseURL)/api/iam/my-permissions")!
+    var request = URLRequest(url: url)
+    request.httpMethod = "GET"
+    request.setValue("Bearer \(token)", forHTTPHeaderField: "Authorization")
+
+    let (data, response) = try await URLSession.shared.data(for: request)
+    let decoded = try JSONDecoder().decode(MyIAMPermissionsResponse.self, from: data)
+
+    if decoded.success == false {
+      throw AuthAPIError.server(
+        decoded.error ?? "Failed to load permissions",
+        statusCode: (response as? HTTPURLResponse)?.statusCode ?? 0
+      )
+    }
+
+    return (decoded.permissions, decoded.isAdmin)
   }
 
   /// Logout / invalidate the session on the server.
