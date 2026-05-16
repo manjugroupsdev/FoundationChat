@@ -35,6 +35,36 @@ struct ConvexConversationParticipant: Decodable, Equatable, Sendable {
     let candidate = (name?.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty == false) ? name : nil
     return candidate ?? _id
   }
+
+  private enum CodingKeys: String, CodingKey {
+    case _id
+    case id
+    case stackUserId
+    case staffId
+    case name
+    case displayName
+    case profilePhoto
+    case imageUrl
+  }
+
+  init(_id: String, name: String? = nil, profilePhoto: String? = nil) {
+    self._id = _id
+    self.name = name
+    self.profilePhoto = profilePhoto
+  }
+
+  init(from decoder: Decoder) throws {
+    let container = try decoder.container(keyedBy: CodingKeys.self)
+    _id = try container.decodeIfPresent(String.self, forKey: ._id)
+      ?? container.decodeIfPresent(String.self, forKey: .id)
+      ?? container.decodeIfPresent(String.self, forKey: .stackUserId)
+      ?? container.decodeIfPresent(String.self, forKey: .staffId)
+      ?? ""
+    name = try container.decodeIfPresent(String.self, forKey: .name)
+      ?? container.decodeIfPresent(String.self, forKey: .displayName)
+    profilePhoto = try container.decodeIfPresent(String.self, forKey: .profilePhoto)
+      ?? container.decodeIfPresent(String.self, forKey: .imageUrl)
+  }
 }
 
 struct ConvexConversationLastMessage: Decodable, Equatable, Sendable {
@@ -57,23 +87,77 @@ struct ConvexConversationSummary: Decodable, Identifiable, Equatable, Sendable {
   let lastMessage: ConvexConversationLastMessage?
   let unreadCount: Int?
   let muted: Bool?
+  let otherParticipantRaw: ConvexConversationParticipant?
+  let participantStackUserIdsRaw: [String]?
+  let otherParticipantLastReadAt: Double?
 
   // Compat
   var id: String { _id }
   var unreadCountValue: Int { unreadCount ?? 0 }
 
   var participantStackUserIds: [String] {
-    participants?.map(\.stackUserId) ?? []
+    let participantIDs = participants?.map(\.stackUserId).filter { !$0.isEmpty } ?? []
+    return participantStackUserIdsRaw ?? participantIDs
   }
 
   var otherParticipant: ConvexConversationParticipant? {
-    participants?.first
+    otherParticipantRaw ?? participants?.first
   }
 
-  var otherParticipantLastReadDate: Date? { nil }
+  var otherParticipantLastReadDate: Date? {
+    guard let otherParticipantLastReadAt, otherParticipantLastReadAt > 0 else { return nil }
+    let seconds = otherParticipantLastReadAt > 10_000_000_000 ? otherParticipantLastReadAt / 1000 : otherParticipantLastReadAt
+    return Date(timeIntervalSince1970: seconds)
+  }
 
   var createdAt: Double { lastMessageAt ?? 0 }
   var updatedAt: Double { lastMessageAt ?? 0 }
+
+  private enum CodingKeys: String, CodingKey {
+    case _id
+    case id
+    case conversationId
+    case type
+    case displayName
+    case lastMessageAt
+    case latestActivityAt
+    case updatedAt
+    case createdAt
+    case lastMessagePreview
+    case lastMessageSenderId
+    case lastReadTime
+    case participants
+    case participantStackUserIds
+    case otherParticipant
+    case otherParticipantLastReadAt
+    case lastMessage
+    case unreadCount
+    case muted
+  }
+
+  init(from decoder: Decoder) throws {
+    let container = try decoder.container(keyedBy: CodingKeys.self)
+    _id = try container.decodeIfPresent(String.self, forKey: ._id)
+      ?? container.decodeIfPresent(String.self, forKey: .id)
+      ?? container.decodeIfPresent(String.self, forKey: .conversationId)
+      ?? UUID().uuidString
+    type = try container.decodeIfPresent(String.self, forKey: .type)
+    displayName = try container.decodeIfPresent(String.self, forKey: .displayName)
+    lastMessageAt = try container.decodeIfPresent(Double.self, forKey: .lastMessageAt)
+      ?? container.decodeIfPresent(Double.self, forKey: .latestActivityAt)
+      ?? container.decodeIfPresent(Double.self, forKey: .updatedAt)
+      ?? container.decodeIfPresent(Double.self, forKey: .createdAt)
+    lastMessagePreview = try container.decodeIfPresent(String.self, forKey: .lastMessagePreview)
+    lastMessageSenderId = try container.decodeIfPresent(String.self, forKey: .lastMessageSenderId)
+    lastReadTime = try container.decodeIfPresent(Double.self, forKey: .lastReadTime)
+    participants = try container.decodeIfPresent([ConvexConversationParticipant].self, forKey: .participants)
+    participantStackUserIdsRaw = try container.decodeIfPresent([String].self, forKey: .participantStackUserIds)
+    otherParticipantRaw = try container.decodeIfPresent(ConvexConversationParticipant.self, forKey: .otherParticipant)
+    otherParticipantLastReadAt = try container.decodeIfPresent(Double.self, forKey: .otherParticipantLastReadAt)
+    lastMessage = try container.decodeIfPresent(ConvexConversationLastMessage.self, forKey: .lastMessage)
+    unreadCount = try container.decodeIfPresent(Int.self, forKey: .unreadCount)
+    muted = try container.decodeIfPresent(Bool.self, forKey: .muted)
+  }
 }
 
 // MARK: - Start DM result

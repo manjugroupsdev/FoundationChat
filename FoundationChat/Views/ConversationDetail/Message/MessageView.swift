@@ -157,7 +157,6 @@ struct MessageView: View {
         LongPressGesture(minimumDuration: 0.45)
           .onEnded { _ in
             guard !message.isDeleted else { return }
-            onToggleSelection()
             onShowReactions()
           }
       )

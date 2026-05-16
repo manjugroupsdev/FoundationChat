@@ -167,6 +167,28 @@ struct TypingUser: Decodable, Identifiable, Equatable, Sendable {
     var stackUserId: String { staffId }
     var name: String? { staffName }
     var displayName: String { staffName ?? staffId }
+
+    private enum CodingKeys: String, CodingKey {
+        case staffId
+        case stackUserId
+        case id
+        case staffName
+        case name
+        case displayName
+        case expiresAt
+    }
+
+    init(from decoder: Decoder) throws {
+        let container = try decoder.container(keyedBy: CodingKeys.self)
+        staffId = try container.decodeIfPresent(String.self, forKey: .staffId)
+            ?? container.decodeIfPresent(String.self, forKey: .stackUserId)
+            ?? container.decodeIfPresent(String.self, forKey: .id)
+            ?? ""
+        staffName = try container.decodeIfPresent(String.self, forKey: .staffName)
+            ?? container.decodeIfPresent(String.self, forKey: .name)
+            ?? container.decodeIfPresent(String.self, forKey: .displayName)
+        expiresAt = try container.decodeIfPresent(Double.self, forKey: .expiresAt)
+    }
 }
 
 struct TypingResult: Decodable, Sendable {

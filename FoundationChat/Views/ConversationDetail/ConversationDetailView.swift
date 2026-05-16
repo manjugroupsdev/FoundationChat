@@ -25,6 +25,7 @@ struct ConversationDetailView: View {
   @State private var typingUsers: [TypingUser] = []
   @State private var otherParticipantPresence: UserPresenceInfo?
   @State private var remoteParticipants: [ConvexConversationParticipant] = []
+  @State private var remoteOtherParticipant: ConvexConversationParticipant?
   @State private var lastTypingSignalAt: Date?
   @State private var lastMarkedSeenAt: Date?
   @State private var pollingTask: Task<Void, Never>?
@@ -114,6 +115,9 @@ struct ConversationDetailView: View {
     if let lastSeen = conversation.otherParticipantLastReadAt {
       return "Last seen \(lastSeen.formatted(date: .omitted, time: .shortened))"
     }
+    if otherParticipantStackUserId != nil {
+      return "Last seen unavailable"
+    }
     return "Direct message"
   }
 
@@ -166,7 +170,7 @@ struct ConversationDetailView: View {
                 onShowReactions: {
                   guard message.remoteMessageID != nil, !message.isDeleted else { return }
                   withAnimation(.spring(response: 0.28, dampingFraction: 0.86)) {
-                    _ = selectedMessageIDs.insert(message.persistentModelID)
+                    reactionTarget = message
                   }
                 },
                 onToggleSelection: {
@@ -254,6 +258,7 @@ struct ConversationDetailView: View {
       typingUsers = []
       otherParticipantPresence = nil
       remoteParticipants = []
+      remoteOtherParticipant = nil
       startMessagesSubscription()
       startConversationStatusSubscription()
       startPolling()
@@ -882,6 +887,10 @@ struct ConversationDetailView: View {
     if remoteParticipants.isEmpty, let remoteConversationID = conversation.remoteConversationID {
       if let summary = try? await authStore.fetchConversation(conversationID: remoteConversationID) {
         remoteParticipants = summary.participants ?? []
+        remoteOtherParticipant = summary.otherParticipant
+        if let lastRead = summary.otherParticipantLastReadDate {
+          conversation.otherParticipantLastReadAt = lastRead
+        }
         cacheConversationUserData(from: summary)
       }
     }
@@ -896,6 +905,10 @@ struct ConversationDetailView: View {
 
   private var otherParticipantStackUserId: String? {
     let currentUserID = authStore.viewer?.subject
+    if let remoteOtherParticipant, !remoteOtherParticipant.stackUserId.isEmpty {
+      return remoteOtherParticipant.stackUserId
+    }
+
     if let participant = remoteParticipants.first(where: { participant in
       guard let currentUserID else { return true }
       return participant.stackUserId != currentUserID
@@ -1826,12 +1839,18 @@ private struct MessageReactionOverlay: View {
 
   var body: some View {
     ZStack {
-      Color.black.opacity(0.28)
+      Rectangle()
+        .fill(.regularMaterial)
         .ignoresSafeArea()
         .onTapGesture(perform: onDismiss)
 
+      Color.black.opacity(0.18)
+        .ignoresSafeArea()
+        .allowsHitTesting(false)
+
       VStack(spacing: 12) {
         ReactionPreviewBubble(message: message, isOutgoing: isOutgoing)
+          .transition(.scale(scale: 0.96).combined(with: .opacity))
 
         ReactionActionMenu(
           message: message,
@@ -1862,6 +1881,7 @@ private struct MessageReactionOverlay: View {
       .padding(.horizontal, 16)
       .frame(maxWidth: .infinity)
     }
+    .transition(.opacity)
   }
 
   private var decodedReactions: [MessageReactionInfo] {
@@ -1980,7 +2000,11 @@ private struct ReactionPreviewBubble: View {
       .frame(maxWidth: 260, alignment: .leading)
       .background(isOutgoing ? Color(red: 0.05, green: 0.38, blue: 0.79) : .white)
       .clipShape(RoundedRectangle(cornerRadius: 16, style: .continuous))
-      .shadow(color: .black.opacity(0.12), radius: 12, y: 6)
+      .overlay(
+        RoundedRectangle(cornerRadius: 16, style: .continuous)
+          .stroke(Color.white.opacity(isOutgoing ? 0.16 : 0.9), lineWidth: 1)
+      )
+      .shadow(color: .black.opacity(0.2), radius: 18, y: 8)
       .frame(maxWidth: .infinity, alignment: isOutgoing ? .trailing : .leading)
       .padding(.horizontal, 28)
   }
@@ -2505,6 +2529,7 @@ extension ConversationDetailView {
             conversation.unreadCount = remoteConversation.unreadCountValue
             conversation.otherParticipantLastReadAt = remoteConversation.otherParticipantLastReadDate
             remoteParticipants = remoteConversation.participants ?? []
+            remoteOtherParticipant = remoteConversation.otherParticipant
             cacheConversationUserData(from: remoteConversation)
             Task { @MainActor in
               await refreshConversationPresence()
@@ -2867,18 +2892,30 @@ extension ConversationDetailView {
     let previousSummary = message.reactionSummary
     let existing = decodedReactions(from: message)
     let hadReacted = existing.first(where: { $0.emoji == emoji })?.hasReacted == true
-    message.reactionSummary = encodeReactions(upsertReaction(emoji, hadReacted: hadReacted, in: existing))
+    let previousUserReactionEmojis = existing.filter(\.hasReacted).map(\.emoji)
+    message.reactionSummary = encodeReactions(replaceMyReaction(with: hadReacted ? nil : emoji, in: existing))
     try? modelContext.save()
 
     do {
-      _ = try await authStore.toggleMessageReaction(
-        messageId: remoteMessageID,
-        messageSource: "message",
-        emoji: emoji
-      )
+      for existingEmoji in previousUserReactionEmojis {
+        try await authStore.removeMessageReaction(
+          messageId: remoteMessageID,
+          messageSource: "dm",
+          emoji: existingEmoji
+        )
+      }
+
+      if !hadReacted {
+        try await authStore.addMessageReaction(
+          messageId: remoteMessageID,
+          messageSource: "dm",
+          emoji: emoji
+        )
+      }
+
       let reactions = try await authStore.fetchMessageReactions(
         messageId: remoteMessageID,
-        messageSource: "message"
+        messageSource: "dm"
       )
       message.reactionSummary = encodeReactions(reactions)
       try? modelContext.save()
@@ -2888,24 +2925,26 @@ extension ConversationDetailView {
     }
   }
 
-  private func upsertReaction(
-    _ emoji: String,
-    hadReacted: Bool,
+  private func replaceMyReaction(
+    with emoji: String?,
     in reactions: [MessageReactionInfo]
   ) -> [MessageReactionInfo] {
-    var updated = reactions
+    var updated = reactions.compactMap { reaction -> MessageReactionInfo? in
+      guard reaction.hasReacted else { return reaction }
+      let nextCount = max(0, reaction.count - 1)
+      guard nextCount > 0 else { return nil }
+      return MessageReactionInfo(emoji: reaction.emoji, count: nextCount, hasReacted: false)
+    }
+
+    guard let emoji else { return updated }
+
     if let index = updated.firstIndex(where: { $0.emoji == emoji }) {
       let old = updated[index]
-      let nextCount = max(0, old.count + (hadReacted ? -1 : 1))
-      if nextCount == 0 {
-        updated.remove(at: index)
-      } else {
-        updated[index] = MessageReactionInfo(
-          emoji: emoji,
-          count: nextCount,
-          hasReacted: !hadReacted
-        )
-      }
+      updated[index] = MessageReactionInfo(
+        emoji: emoji,
+        count: old.count + 1,
+        hasReacted: true
+      )
     } else {
       updated.append(MessageReactionInfo(emoji: emoji, count: 1, hasReacted: true))
     }

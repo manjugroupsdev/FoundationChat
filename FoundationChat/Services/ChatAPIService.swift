@@ -375,21 +375,21 @@ enum ChatAPIService {
   }
 
   static func addReaction(token: String, messageId: String, messageSource: String, emoji: String) async throws -> MessageReactionResult {
-    let body: [String: Any] = ["messageId": messageId, "emoji": emoji]
+    let body: [String: Any] = ["messageId": messageId, "messageSource": messageSource, "emoji": emoji]
     let data = try await post(path: "/api/chat/reactions/add", token: token, jsonBody: body)
     let wrapper = try decode(ReactionMutationResponse.self, from: data)
     return MessageReactionResult(added: wrapper.added ?? wrapper.success ?? true, removed: false)
   }
 
   static func removeReaction(token: String, messageId: String, messageSource: String, emoji: String) async throws -> MessageReactionResult {
-    let body: [String: Any] = ["messageId": messageId, "emoji": emoji]
+    let body: [String: Any] = ["messageId": messageId, "messageSource": messageSource, "emoji": emoji]
     let data = try await post(path: "/api/chat/reactions/remove", token: token, jsonBody: body)
     let wrapper = try decode(ReactionMutationResponse.self, from: data)
     return MessageReactionResult(added: false, removed: wrapper.removed ?? wrapper.success ?? true)
   }
 
   static func toggleReaction(token: String, messageId: String, messageSource: String, emoji: String) async throws -> MessageReactionResult {
-    let body: [String: Any] = ["messageId": messageId, "emoji": emoji]
+    let body: [String: Any] = ["messageId": messageId, "messageSource": messageSource, "emoji": emoji]
     let data = try await post(path: "/api/chat/reactions/toggle", token: token, jsonBody: body)
     let wrapper = try decode(ReactionMutationResponse.self, from: data)
     return MessageReactionResult(
