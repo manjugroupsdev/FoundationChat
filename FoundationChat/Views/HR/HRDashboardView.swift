@@ -1,73 +1,60 @@
 import Combine
 import SwiftUI
 
-/// HR tab. Page structure mirrors Android `HrDashboardFragment`:
-/// 1) Today status + total elapsed (= now − first punch-in) + primary clock action
-/// 2) Pay-period total
-/// 3) Attendance history list (latest first)
-///
-/// Visual language is intentionally minimal and Settings-like to feel native.
 struct HRDashboardView: View {
     @Environment(AuthStore.self) private var authStore
 
     @State private var todayAttendance: ConvexTodayAttendance?
     @State private var historyRecords: [ConvexAttendanceRecord] = []
-    @State private var isLoading: Bool = false
+    @State private var isLoading = false
     @State private var nowTick = Date()
     @State private var showPunchIn = false
     @State private var showPunchOut = false
+    @State private var errorMessage: String?
 
     private let timer = Timer.publish(every: 1, on: .main, in: .common).autoconnect()
 
-    private var hasPunchedIn: Bool { todayAttendance?.hasPunchedIn == true }
-    private var isOpen: Bool { todayAttendance?.isOpen == true }
+    private var hasPunchedIn: Bool {
+        todayAttendance?.hasPunchedIn == true || firstPunchIn(for: todayHistoryRecord) != nil
+    }
+
+    private var isOpen: Bool {
+        if todayAttendance?.isOpen == true {
+            return true
+        }
+        return firstPunchIn(for: todayHistoryRecord) != nil && lastPunchOut(for: todayHistoryRecord) == nil
+    }
 
     var body: some View {
         NavigationStack {
-            List {
-                Section {
-                    todayRow
-                    if isOpen || !hasPunchedIn {
-                        actionButtonRow
-                    }
-                } header: {
-                    Text("Today")
-                }
+            ZStack(alignment: .top) {
+                Color(red: 0.945, green: 0.953, blue: 0.973)
+                    .ignoresSafeArea()
 
-                Section {
-                    HStack {
-                        Text("Total worked")
-                        Spacer()
-                        Text(payPeriodHHMM)
-                            .font(.body.monospacedDigit())
-                            .foregroundStyle(.secondary)
-                    }
-                } header: {
-                    Text("This Pay Period")
-                }
-
-                Section {
-                    if historyRecords.isEmpty && !isLoading {
-                        ContentUnavailableView(
-                            "No Records",
-                            systemImage: "clock.badge.questionmark",
-                            description: Text("Your attendance entries will appear here.")
-                        )
-                    } else {
-                        ForEach(historyRecords) { record in
-                            historyRow(for: record)
+                ScrollView {
+                    VStack(spacing: 0) {
+                        ZStack(alignment: .top) {
+                            headerBackground
+                            androidHeader
                         }
+
+                        VStack(spacing: 12) {
+                            workingHourCard
+
+                            attendanceHistoryCards
+                        }
+                        .padding(.bottom, 120)
                     }
-                } header: {
-                    Text("Attendance")
                 }
+                .refreshable { await reloadAll() }
+
+                Color(red: 0.945, green: 0.953, blue: 0.973)
+                    .frame(height: 1)
+                    .ignoresSafeArea(edges: .top)
             }
-            .listStyle(.insetGrouped)
-            .navigationTitle("HR")
-            .navigationBarTitleDisplayMode(.large)
-            .refreshable { await reloadAll() }
+            .toolbar(.hidden, for: .navigationBar)
             .task { await reloadAll() }
-            .onReceive(timer) { date in nowTick = date }
+            .onReceive(timer) { nowTick = $0 }
             .sheet(isPresented: $showPunchIn) {
                 PunchFlowView(mode: .punchIn) { Task { await reloadAll() } }
             }
@@ -77,126 +64,279 @@ struct HRDashboardView: View {
         }
     }
 
-    // MARK: - Today row
+    private var headerBackground: some View {
+        LinearGradient(
+            colors: [Color(red: 0.043, green: 0.38, blue: 0.792), Color(red: 0.008, green: 0.286, blue: 0.616)],
+            startPoint: .top,
+            endPoint: .bottom
+        )
+        .frame(height: 250)
+        .clipShape(
+            .rect(
+                topLeadingRadius: 0,
+                bottomLeadingRadius: 24,
+                bottomTrailingRadius: 24,
+                topTrailingRadius: 0
+            )
+        )
+    }
 
-    private var todayRow: some View {
-        HStack(spacing: 12) {
-            ZStack {
-                Circle()
-                    .fill(isOpen ? Color.green.opacity(0.15) : Color.secondary.opacity(0.12))
-                    .frame(width: 36, height: 36)
-                Image(systemName: isOpen ? "play.circle.fill" : (hasPunchedIn ? "checkmark.circle.fill" : "clock"))
-                    .font(.title3)
-                    .foregroundStyle(isOpen ? .green : (hasPunchedIn ? .blue : .secondary))
+    private var androidHeader: some View {
+        HStack(alignment: .top) {
+            VStack(alignment: .leading, spacing: 4) {
+                Text(heroTitle)
+                    .font(.system(size: 24, weight: .semibold))
+                    .foregroundStyle(.white)
+                    .lineLimit(1)
+                    .minimumScaleFactor(0.75)
+                Text(heroSubtitle)
+                    .font(.system(size: 14, weight: .medium))
+                    .foregroundStyle(Color(red: 0.851, green: 0.839, blue: 0.996))
+                    .lineLimit(1)
+                    .minimumScaleFactor(0.7)
             }
+            .frame(maxWidth: .infinity, alignment: .leading)
+
+            Image("AttendanceHeaderIllustration")
+                .resizable()
+                .scaledToFit()
+                .frame(width: 91, height: 76)
+                .padding(.top, -18)
+        }
+        .padding(.horizontal, 28)
+        .padding(.top, 71)
+        .frame(height: 233, alignment: .top)
+        .animation(.snappy(duration: 0.25), value: isOpen)
+        .animation(.snappy(duration: 0.25), value: hasPunchedIn)
+    }
+
+    private var workingHourCard: some View {
+        VStack(alignment: .leading, spacing: 0) {
             VStack(alignment: .leading, spacing: 2) {
-                Text(statusLine)
-                    .font(.body)
-                    .foregroundStyle(.primary)
-                if let sub = statusSubtitle {
-                    Text(sub)
-                        .font(.caption)
-                        .foregroundStyle(.secondary)
-                }
+                Text("Total Working Hour")
+                    .font(.system(size: 14, weight: .semibold))
+                    .foregroundStyle(Color(red: 0.063, green: 0.094, blue: 0.157))
+                Text(androidPayPeriodLabel)
+                    .font(.system(size: 12, weight: .regular))
+                    .foregroundStyle(Color(red: 0.278, green: 0.329, blue: 0.404))
             }
-            Spacer()
-            Text(todayLiveDisplay)
-                .font(.title3.weight(.semibold).monospacedDigit())
-                .foregroundStyle(.primary)
+
+            HStack(spacing: 8) {
+                statTile(title: "Today", value: todayDisplayForCard)
+                statTile(title: "This Pay Period", value: payPeriodHHMM)
+            }
+            .padding(.top, 8)
+
+            actionButtons
+                .padding(.top, 12)
+        }
+        .padding(.horizontal, 16)
+        .padding(.top, 12)
+        .padding(.bottom, 16)
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .background(
+            Color.white
+                .clipShape(
+                    .rect(
+                        topLeadingRadius: 30,
+                        bottomLeadingRadius: 0,
+                        bottomTrailingRadius: 0,
+                        topTrailingRadius: 30
+                    )
+                )
+        )
+        .padding(.top, -89)
+        .overlay(alignment: .bottom) {
+            if isLoading {
+                ProgressView()
+                    .controlSize(.small)
+                    .padding(.bottom, 8)
+            }
+        }
+    }
+
+    private func statTile(title: String, value: String) -> some View {
+        VStack(alignment: .leading, spacing: 5) {
+            Text(title)
+                .font(.system(size: 12, weight: .medium))
+                .foregroundStyle(Color(red: 0.278, green: 0.329, blue: 0.404))
+                .lineLimit(1)
+                .minimumScaleFactor(0.75)
+
+            Text(value)
+                .font(.system(size: 22, weight: .regular, design: .default).monospacedDigit())
+                .foregroundStyle(Color(red: 0.086, green: 0.106, blue: 0.137))
+                .lineLimit(1)
+                .minimumScaleFactor(0.52)
                 .contentTransition(.numericText())
         }
-        .padding(.vertical, 6)
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .frame(height: 72, alignment: .center)
+        .padding(.horizontal, 12)
+        .background(Color(red: 0.976, green: 0.976, blue: 0.976), in: RoundedRectangle(cornerRadius: 8, style: .continuous))
+        .overlay(
+            RoundedRectangle(cornerRadius: 8, style: .continuous)
+                .stroke(Color(red: 0.922, green: 0.925, blue: 0.933), lineWidth: 1)
+        )
     }
-
-    private var statusLine: String {
-        if isOpen { return "Working" }
-        if hasPunchedIn { return "Day Complete" }
-        return "Not Clocked In"
-    }
-
-    private var statusSubtitle: String? {
-        if isOpen, let punchIn = firstPunchInDate ?? parseAttendanceDate(todayAttendance?.punchInTime) {
-            let f = DateFormatter()
-            f.dateFormat = "h:mm a"
-            return "Since \(f.string(from: punchIn))"
-        }
-        if hasPunchedIn,
-           let inDate = firstPunchInDate ?? parseAttendanceDate(todayAttendance?.punchInTime),
-           let outDate = parseAttendanceDate(todayAttendance?.punchOutTime) {
-            let f = DateFormatter()
-            f.dateFormat = "h:mm a"
-            return "\(f.string(from: inDate)) → \(f.string(from: outDate))"
-        }
-        return nil
-    }
-
-    // MARK: - Action button row
 
     @ViewBuilder
-    private var actionButtonRow: some View {
-        if !hasPunchedIn {
-            Button {
-                showPunchIn = true
-            } label: {
-                Label {
-                    Text("Clock In Now")
-                } icon: {
-                    Image(systemName: "play.fill")
-                        .symbolRenderingMode(.monochrome)
-                }
-                .font(.headline)
-                .foregroundStyle(.white)
-                .frame(maxWidth: .infinity)
-                .padding(.vertical, 6)
-            }
-            .buttonStyle(.borderedProminent)
-            .controlSize(.large)
-            .tint(.green)
-            .listRowBackground(Color.clear)
-            .listRowInsets(EdgeInsets(top: 6, leading: 0, bottom: 0, trailing: 0))
-        } else if isOpen {
-            HStack(spacing: 10) {
+    private var actionButtons: some View {
+        if isOpen {
+            HStack(spacing: 12) {
                 Button {
-                    // Mirrors Android: button shown but break flow not implemented.
+                    showPunchOut = true
                 } label: {
-                    Label("Take a Break", systemImage: "pause.fill")
-                        .font(.subheadline.weight(.semibold))
+                    Text("Take A Break")
+                        .font(.system(size: 13, weight: .medium))
+                        .foregroundStyle(Color(red: 0.412, green: 0.22, blue: 0.937))
                         .frame(maxWidth: .infinity)
-                        .padding(.vertical, 4)
+                        .frame(height: 48)
+                        .overlay(
+                            Capsule()
+                                .stroke(Color(red: 0.412, green: 0.22, blue: 0.937), lineWidth: 1.4)
+                        )
                 }
-                .buttonStyle(.bordered)
-                .controlSize(.large)
-                .tint(.orange)
-                .disabled(true)
+                .buttonStyle(.plain)
+                .sensoryFeedback(.impact, trigger: showPunchOut)
 
                 Button {
                     showPunchOut = true
                 } label: {
-                    Label {
-                        Text("Clock Out")
-                    } icon: {
-                        Image(systemName: "stop.fill")
-                            .symbolRenderingMode(.monochrome)
-                    }
-                    .font(.subheadline.weight(.semibold))
+                    Text("Clock Out")
+                        .font(.system(size: 13, weight: .medium))
+                        .foregroundStyle(.white)
+                        .frame(maxWidth: .infinity)
+                        .frame(height: 48)
+                        .background(androidGreen, in: Capsule())
+                }
+                .buttonStyle(.plain)
+                .sensoryFeedback(.impact, trigger: showPunchOut)
+            }
+        } else {
+            Button {
+                showPunchIn = true
+            } label: {
+                Text("Clock In Now")
+                    .font(.system(size: 14, weight: .medium))
                     .foregroundStyle(.white)
                     .frame(maxWidth: .infinity)
-                    .padding(.vertical, 4)
-                }
-                .buttonStyle(.borderedProminent)
-                .controlSize(.large)
-                .tint(.red)
+                    .frame(height: 48)
+                    .background(androidGreen, in: Capsule())
             }
-            .listRowBackground(Color.clear)
-            .listRowInsets(EdgeInsets(top: 6, leading: 0, bottom: 0, trailing: 0))
+            .buttonStyle(.plain)
+            .sensoryFeedback(.impact, trigger: showPunchIn)
         }
     }
 
-    // MARK: - Today total: now − first punch-in
+    private var attendanceHistoryCards: some View {
+        VStack(spacing: 12) {
+            if historyRecords.isEmpty && !isLoading {
+                VStack {
+                    ContentUnavailableView(
+                        "No Records",
+                        systemImage: "clock.badge.questionmark",
+                        description: Text("Your attendance entries will appear here.")
+                    )
+                    .padding(.vertical, 24)
+                }
+                .frame(maxWidth: .infinity)
+                .background(Color.white, in: RoundedRectangle(cornerRadius: 12, style: .continuous))
+                .padding(.horizontal, 12)
+            } else {
+                ForEach(historyRecords) { record in
+                    androidHistoryCard(for: record)
+                }
+            }
+        }
+        .padding(.top, 12)
+    }
 
-    /// Today's date string in "yyyy-MM-dd". Used to find today's record in the
-    /// history list, which contains `firstPunchIn` for the day (the today
-    /// snapshot endpoint only exposes the latest open session's punch-in time).
+    private func androidHistoryCard(for record: ConvexAttendanceRecord) -> some View {
+        VStack(alignment: .leading, spacing: 12) {
+            HStack(spacing: 8) {
+                Image(systemName: "calendar")
+                    .font(.system(size: 16, weight: .semibold))
+                    .foregroundStyle(Color(red: 0.412, green: 0.22, blue: 0.937))
+                Text(formatAndroidHistoryDate(record.date))
+                    .font(.system(size: 14, weight: .semibold))
+                    .foregroundStyle(Color(red: 0.063, green: 0.094, blue: 0.157))
+            }
+
+            HStack(alignment: .top, spacing: 14) {
+                VStack(alignment: .leading, spacing: 6) {
+                    Text("Total Hours")
+                        .font(.system(size: 12, weight: .medium))
+                        .foregroundStyle(Color(red: 0.278, green: 0.329, blue: 0.404))
+                    Text(historyTotalHMS(for: record))
+                        .font(.system(size: 16, weight: .medium).monospacedDigit())
+                        .foregroundStyle(Color(red: 0.204, green: 0.251, blue: 0.329))
+                        .lineLimit(1)
+                        .minimumScaleFactor(0.7)
+                }
+                .frame(maxWidth: .infinity, alignment: .leading)
+
+                VStack(alignment: .leading, spacing: 6) {
+                    Text("Clock in & Out")
+                        .font(.system(size: 12, weight: .medium))
+                        .foregroundStyle(Color(red: 0.278, green: 0.329, blue: 0.404))
+                    Text(formatAndroidTimeRange(in: firstPunchIn(for: record), out: lastPunchOut(for: record)))
+                        .font(.system(size: 16, weight: .medium))
+                        .foregroundStyle(Color(red: 0.204, green: 0.251, blue: 0.329))
+                        .lineLimit(1)
+                        .minimumScaleFactor(0.58)
+                }
+                .frame(maxWidth: .infinity, alignment: .leading)
+            }
+            .padding(12)
+            .background(Color(red: 0.976, green: 0.976, blue: 0.976), in: RoundedRectangle(cornerRadius: 16, style: .continuous))
+            .overlay(
+                RoundedRectangle(cornerRadius: 16, style: .continuous)
+                    .stroke(Color(red: 0.922, green: 0.925, blue: 0.933), lineWidth: 1)
+            )
+        }
+        .padding(.horizontal, 16)
+        .padding(.vertical, 12)
+        .background(Color.white, in: RoundedRectangle(cornerRadius: 12, style: .continuous))
+        .padding(.horizontal, 12)
+    }
+
+    private var heroTitle: String {
+        return "Let's Clock-In!"
+    }
+
+    private var heroSubtitle: String {
+        return "Don't miss your clock in schedule"
+    }
+
+    private var heroSymbol: String {
+        if isOpen { return "clock.badge.checkmark.fill" }
+        if hasPunchedIn { return "checkmark.seal.fill" }
+        return "calendar.badge.clock"
+    }
+
+    private var heroGradient: LinearGradient {
+        if isOpen {
+            return LinearGradient(colors: [Color(red: 0.13, green: 0.63, blue: 0.25), Color(red: 0.08, green: 0.48, blue: 0.22)], startPoint: .topLeading, endPoint: .bottomTrailing)
+        }
+        if hasPunchedIn {
+            return LinearGradient(colors: [Color(red: 0.45, green: 0.33, blue: 0.95), Color(red: 0.06, green: 0.42, blue: 0.82)], startPoint: .topLeading, endPoint: .bottomTrailing)
+        }
+        return LinearGradient(colors: [Color(red: 0.02, green: 0.38, blue: 0.78), Color(red: 0.03, green: 0.46, blue: 0.86)], startPoint: .topLeading, endPoint: .bottomTrailing)
+    }
+
+    private var heroShadowColor: Color {
+        isOpen ? .green : .blue
+    }
+
+    private var actionColor: Color {
+        isOpen ? .red : Color(red: 0.12, green: 0.74, blue: 0.02)
+    }
+
+    private var androidGreen: Color {
+        Color(red: 0.106, green: 0.765, blue: 0.008)
+    }
+
     private var todayDateKey: String {
         let f = DateFormatter()
         f.dateFormat = "yyyy-MM-dd"
@@ -208,17 +348,19 @@ struct HRDashboardView: View {
     }
 
     private var firstPunchInDate: Date? {
-        if let raw = todayHistoryRecord?.firstPunchIn,
-           let date = parseAttendanceDate(raw) { return date }
+        if let raw = firstPunchIn(for: todayHistoryRecord), let date = parseAttendanceDate(raw) { return date }
         return parseAttendanceDate(todayAttendance?.punchInTime)
     }
 
+    private var lastPunchOutDate: Date? {
+        if let raw = lastPunchOut(for: todayHistoryRecord), let date = parseAttendanceDate(raw) { return date }
+        return parseAttendanceDate(todayAttendance?.punchOutTime)
+    }
+
     private var todayTotalSeconds: TimeInterval {
-        // Live total = now − first punch-in (Android parity).
         if isOpen, let firstIn = firstPunchInDate {
             return max(0, nowTick.timeIntervalSince(firstIn))
         }
-        // Closed for the day — show whatever the server aggregated.
         let mins = todayHistoryRecord?.totalMinutes
             ?? todayAttendance?.cumulativeMinutes
             ?? todayAttendance?.totalMinutes
@@ -226,13 +368,61 @@ struct HRDashboardView: View {
         return TimeInterval(mins * 60)
     }
 
-    private var todayLiveDisplay: String {
+    private var todayDisplayForCard: String {
+        formatHrs(seconds: Int(todayTotalSeconds))
+    }
+
+    private var todayHistoryDisplay: String {
         formatHM(seconds: Int(todayTotalSeconds))
     }
 
+    private var payPeriodMinutes: Int {
+        historyRecords.reduce(0) { $0 + ($1.totalMinutes ?? $1.cumulativeMinutes ?? 0) }
+    }
+
     private var payPeriodHHMM: String {
-        let mins = historyRecords.reduce(0) { $0 + ($1.totalMinutes ?? $1.cumulativeMinutes ?? 0) }
+        formatHrs(seconds: payPeriodMinutes * 60)
+    }
+
+    private var payPeriodLabel: String {
+        let calendar = Calendar.current
+        let now = Date()
+        let comps = calendar.dateComponents([.year, .month], from: now)
+        let first = calendar.date(from: comps) ?? now
+        let last = calendar.date(byAdding: DateComponents(month: 1, day: -1), to: first) ?? now
+        let f = DateFormatter()
+        f.dateFormat = "d MMM yyyy"
+        return "Paid Period \(f.string(from: first)) - \(f.string(from: last))"
+    }
+
+    private var androidPayPeriodLabel: String {
+        payPeriodLabel.replacingOccurrences(of: "Paid Period", with: "Period")
+    }
+
+    private func historyTotal(for record: ConvexAttendanceRecord) -> String {
+        if Calendar.current.isDateInToday(parseDateOnly(record.date) ?? .distantPast), isOpen {
+            return todayHistoryDisplay
+        }
+        let mins = record.totalMinutes ?? record.cumulativeMinutes ?? 0
+        if mins <= 0 { return "--" }
         return formatHM(seconds: mins * 60)
+    }
+
+    private func historyTotalHMS(for record: ConvexAttendanceRecord) -> String {
+        let mins = record.totalMinutes ?? record.cumulativeMinutes ?? 0
+        let seconds = mins * 60
+        let h = seconds / 3600
+        let m = (seconds % 3600) / 60
+        let s = seconds % 60
+        return String(format: "%02d:%02d:%02d hrs", h, m, s)
+    }
+
+    private func firstPunchIn(for record: ConvexAttendanceRecord?) -> String? {
+        record?.firstPunchIn ?? record?.sessions?.first?.punchInTime
+    }
+
+    private func lastPunchOut(for record: ConvexAttendanceRecord?) -> String? {
+        record?.lastPunchOut ?? record?.sessions?.last?.punchOutTime
     }
 
     private func formatHM(seconds: Int) -> String {
@@ -241,41 +431,15 @@ struct HRDashboardView: View {
         return String(format: "%dh %02dm", h, m)
     }
 
-    // MARK: - History row
-
-    private func historyRow(for record: ConvexAttendanceRecord) -> some View {
-        HStack(spacing: 12) {
-            Image(systemName: "calendar")
-                .font(.subheadline)
-                .foregroundStyle(.secondary)
-                .frame(width: 22)
-            VStack(alignment: .leading, spacing: 2) {
-                Text(formatHistoryDate(record.date))
-                    .font(.body)
-                    .foregroundStyle(.primary)
-                Text(formatTimeRange(in: record.firstPunchIn, out: record.lastPunchOut))
-                    .font(.caption)
-                    .foregroundStyle(.secondary)
-            }
-            Spacer()
-            Text(historyTotal(for: record))
-                .font(.subheadline.weight(.medium).monospacedDigit())
-                .foregroundStyle(.primary)
-        }
-        .padding(.vertical, 2)
-    }
-
-    private func historyTotal(for record: ConvexAttendanceRecord) -> String {
-        let mins = record.totalMinutes ?? record.cumulativeMinutes ?? 0
-        if mins <= 0 { return "—" }
-        return formatHM(seconds: mins * 60)
+    private func formatHrs(seconds: Int) -> String {
+        let h = seconds / 3600
+        let m = (seconds % 3600) / 60
+        return String(format: "%02d:%02d Hrs", h, m)
     }
 
     private func formatHistoryDate(_ raw: String?) -> String {
-        guard let raw else { return "—" }
-        let inFormatter = DateFormatter()
-        inFormatter.dateFormat = "yyyy-MM-dd"
-        if let date = inFormatter.date(from: raw) {
+        guard let raw else { return "--" }
+        if let date = parseDateOnly(raw) {
             if Calendar.current.isDateInToday(date) { return "Today" }
             if Calendar.current.isDateInYesterday(date) { return "Yesterday" }
             let outFormatter = DateFormatter()
@@ -285,10 +449,33 @@ struct HRDashboardView: View {
         return raw
     }
 
+    private func formatAndroidHistoryDate(_ raw: String?) -> String {
+        guard let raw else { return "--" }
+        if let date = parseDateOnly(raw) {
+            let formatter = DateFormatter()
+            formatter.dateFormat = "d MMMM yyyy"
+            return formatter.string(from: date)
+        }
+        return raw
+    }
+
+    private func parseDateOnly(_ raw: String?) -> Date? {
+        guard let raw else { return nil }
+        let inFormatter = DateFormatter()
+        inFormatter.dateFormat = "yyyy-MM-dd"
+        return inFormatter.date(from: raw)
+    }
+
     private func formatTimeRange(in punchIn: String?, out punchOut: String?) -> String {
-        let i = formatClockTime(punchIn) ?? "—"
-        let o = formatClockTime(punchOut) ?? "in progress"
-        return "\(i) → \(o)"
+        let i = formatClockTime(punchIn) ?? "--"
+        let o = formatClockTime(punchOut) ?? (isOpen ? "in progress" : "--")
+        return "\(i) -> \(o)"
+    }
+
+    private func formatAndroidTimeRange(in punchIn: String?, out punchOut: String?) -> String {
+        let i = formatClockTimeLowercase(punchIn) ?? "--"
+        let o = formatClockTimeLowercase(punchOut) ?? (isOpen ? "in progress" : "--")
+        return "\(i) - \(o)"
     }
 
     private func formatClockTime(_ raw: String?) -> String? {
@@ -296,6 +483,13 @@ struct HRDashboardView: View {
         let f = DateFormatter()
         f.dateFormat = "h:mm a"
         return f.string(from: date)
+    }
+
+    private func formatClockTimeLowercase(_ raw: String?) -> String? {
+        guard let raw, let date = parseAttendanceDate(raw) else { return nil }
+        let f = DateFormatter()
+        f.dateFormat = "hh:mm a"
+        return f.string(from: date).lowercased()
     }
 
     private func parseAttendanceDate(_ raw: String?) -> Date? {
@@ -314,8 +508,6 @@ struct HRDashboardView: View {
         return nil
     }
 
-    // MARK: - Loading
-
     @MainActor
     private func reloadAll() async {
         await withTaskGroup(of: Void.self) { group in
@@ -330,7 +522,7 @@ struct HRDashboardView: View {
         do {
             todayAttendance = try await HRConvexAPIService.getTodayAttendance(token: token)
         } catch {
-            // Silent — keep existing state.
+            errorMessage = error.localizedDescription
         }
     }
 
@@ -346,14 +538,16 @@ struct HRDashboardView: View {
         let firstOfMonth = calendar.date(from: comps) ?? now
         let formatter = DateFormatter()
         formatter.dateFormat = "yyyy-MM-dd"
-        let from = formatter.string(from: firstOfMonth)
-        let to = formatter.string(from: now)
 
         do {
-            let records = try await HRConvexAPIService.getMyAttendance(token: token, fromDate: from, toDate: to)
+            let records = try await HRConvexAPIService.getMyAttendance(
+                token: token,
+                fromDate: formatter.string(from: firstOfMonth),
+                toDate: formatter.string(from: now)
+            )
             historyRecords = records.sorted { ($0.date ?? "") > ($1.date ?? "") }
         } catch {
-            // Silent — state shown in section.
+            errorMessage = error.localizedDescription
         }
     }
 }

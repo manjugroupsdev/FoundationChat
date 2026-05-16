@@ -206,8 +206,10 @@ struct ConversationDetailView: View {
     }
     .onChange(of: conversation.remoteConversationID) { _, _ in
       lastMarkedSeenAt = nil
+      lastPollTimestamp = 0
       startMessagesSubscription()
       startConversationStatusSubscription()
+      startPolling()
     }
     .onChange(of: newMessage) { _, _ in
       scheduleMentionDirectoryLoad()
@@ -2082,21 +2084,34 @@ extension ConversationDetailView {
   private func startPolling() {
     guard let remoteConversationID = conversation.remoteConversationID else { return }
     pollingTask?.cancel()
-    pollingTask = Task {
-      // Wait for initial load to complete before polling
+    pollingTask = Task { @MainActor in
       try? await Task.sleep(for: .seconds(3))
       while !Task.isCancelled {
         do {
-          let newMessages = try await authStore.pollMessages(conversationId: remoteConversationID, after: lastPollTimestamp)
-          if !newMessages.isEmpty {
-            applyRemoteMessages(newMessages)
-            if let last = newMessages.last?._creationTime {
-              lastPollTimestamp = last
+          let latestMessages = try await authStore.fetchMessages(conversationID: remoteConversationID)
+          let previousCount = conversation.messages.count
+          applyRemoteMessages(latestMessages)
+          markConversationAsSeenIfNeeded(latestMessages)
+          if conversation.messages.count > previousCount {
+            withAnimation {
+              scrollPosition.scrollTo(edge: .bottom)
             }
             try? modelContext.save()
           }
         } catch {
-          // Ignore polling errors silently
+          do {
+            let newMessages = try await authStore.pollMessages(conversationId: remoteConversationID, after: lastPollTimestamp)
+            if !newMessages.isEmpty {
+              applyRemoteMessages(newMessages)
+              markConversationAsSeenIfNeeded(newMessages)
+              if let last = newMessages.last?._creationTime {
+                lastPollTimestamp = last
+              }
+              try? modelContext.save()
+            }
+          } catch {
+            // Keep the open chat usable if the network has a transient failure.
+          }
         }
         try? await Task.sleep(for: .seconds(3))
       }

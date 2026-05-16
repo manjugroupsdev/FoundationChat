@@ -467,6 +467,13 @@ enum HRConvexAPIService {
         let error: String?
     }
 
+    private struct ProfilePhotoResponse: Decodable {
+        let success: Bool
+        let staff: AuthUser?
+        let user: AuthUser?
+        let error: String?
+    }
+
     /// `POST /api/staff/me/update` — update own profile. Mirrors Android `updateMyProfile`.
     /// Returns the refreshed `AuthUser` snapshot when the server includes one.
     static func updateMyProfile(
@@ -485,6 +492,37 @@ enum HRConvexAPIService {
         let wrapper = try decode(UpdateMyProfileResponse.self, from: data)
         guard wrapper.success else {
             throw HRConvexAPIError.server(wrapper.error ?? "Failed to update profile")
+        }
+        return wrapper.staff ?? wrapper.user
+    }
+
+    /// `POST /api/hr/staff/me/profile-photo` — set own profile photo storage id.
+    static func setMyProfilePhoto(token: String, storageId: String) async throws -> AuthUser? {
+        let data = try await post(
+            path: "/api/hr/staff/me/profile-photo",
+            token: token,
+            jsonBody: ["storageId": storageId]
+        )
+        let wrapper = try decode(ProfilePhotoResponse.self, from: data)
+        guard wrapper.success else {
+            throw HRConvexAPIError.server(wrapper.error ?? "Failed to update profile photo")
+        }
+        return wrapper.staff ?? wrapper.user
+    }
+
+    /// `DELETE /api/hr/staff/me/profile-photo` — remove own profile photo.
+    static func deleteMyProfilePhoto(token: String) async throws -> AuthUser? {
+        guard let url = URL(string: "\(baseURL)/api/hr/staff/me/profile-photo") else {
+            throw HRConvexAPIError.badURL
+        }
+        var request = URLRequest(url: url)
+        request.httpMethod = "DELETE"
+        request.setValue("Bearer \(token)", forHTTPHeaderField: "Authorization")
+        let (data, response) = try await URLSession.shared.data(for: request)
+        try checkHTTPError(data: data, response: response)
+        let wrapper = try decode(ProfilePhotoResponse.self, from: data)
+        guard wrapper.success else {
+            throw HRConvexAPIError.server(wrapper.error ?? "Failed to remove profile photo")
         }
         return wrapper.staff ?? wrapper.user
     }

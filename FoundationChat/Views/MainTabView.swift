@@ -29,7 +29,11 @@ struct MainTabView: View {
 
             HRDashboardView()
                 .tabItem {
-                    Label("HR", systemImage: "briefcase.fill")
+                    Label {
+                        Text("Attendance")
+                    } icon: {
+                        Image("AttendanceTabIcon")
+                    }
                 }
                 .tag(AppTab.hr)
 

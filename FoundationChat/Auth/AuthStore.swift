@@ -64,6 +64,14 @@ final class AuthStore {
     currentSession?.user.isAdmin == true
   }
 
+  var iamPermissions: Set<String> {
+    Set(currentSession?.user.iamPermissions ?? [])
+  }
+
+  func hasPermission(_ permission: String) -> Bool {
+    isAdmin || iamPermissions.contains(permission)
+  }
+
   // MARK: - Private
 
   private let tokenStore = KeychainTokenStore()
@@ -104,6 +112,7 @@ final class AuthStore {
       let refreshed = OtpSession(token: stored.token, user: freshUser)
       applySession(refreshed)
       try tokenStore.save(refreshed)
+      await refreshIAMPermissions()
     } catch {
       try? tokenStore.clear()
       currentSession = nil
@@ -145,8 +154,38 @@ final class AuthStore {
       applySession(session)
       try tokenStore.save(session)
       status = .signedIn
+      await refreshIAMPermissions()
     } catch {
       errorMessage = error.localizedDescription
+    }
+  }
+
+  func refreshIAMPermissions() async {
+    guard let t = token, currentSession?.token != "FCQA_STUB_TOKEN" else { return }
+    do {
+      let iam = try await AuthAPIService.getMyIAMPermissions(token: t)
+      guard let existing = currentSession?.user else { return }
+      let updated = AuthUser(
+        _id: existing._id,
+        staffId: existing.staffId,
+        employeeId: existing.employeeId,
+        name: existing.name,
+        phone: existing.phone,
+        email: existing.email,
+        role: existing.role,
+        roleLevel: existing.roleLevel,
+        iamPermissions: iam.permissions,
+        isAdmin: iam.isAdmin,
+        designation: existing.designation,
+        department: existing.department,
+        status: existing.status,
+        photo: existing.photo
+      )
+      let refreshed = OtpSession(token: t, user: updated)
+      applySession(refreshed)
+      try? tokenStore.save(refreshed)
+    } catch {
+      print("[auth] failed to refresh IAM permissions: \(error.localizedDescription)")
     }
   }
 
@@ -214,12 +253,14 @@ final class AuthStore {
     let existing = currentSession?.user
     let merged = AuthUser(
       _id: serverUser?._id ?? existing?._id ?? "",
+      staffId: serverUser?.staffId ?? existing?.staffId,
       employeeId: serverUser?.employeeId ?? existing?.employeeId,
       name: serverUser?.name ?? name ?? existing?.name,
       phone: serverUser?.phone ?? phone ?? existing?.phone,
       email: serverUser?.email ?? email ?? existing?.email,
       role: serverUser?.role ?? existing?.role,
       roleLevel: serverUser?.roleLevel ?? existing?.roleLevel,
+      iamPermissions: serverUser?.iamPermissions ?? existing?.iamPermissions,
       isAdmin: serverUser?.isAdmin ?? existing?.isAdmin,
       designation: serverUser?.designation ?? existing?.designation,
       department: serverUser?.department ?? existing?.department,
@@ -233,11 +274,86 @@ final class AuthStore {
     return merged
   }
 
+  @discardableResult
+  func refreshMyStaffProfile() async throws -> AuthUser {
+    let t = try requireToken()
+    let sessionUser = currentSession?.user
+    let fallbackId = sessionUser?._id.trimmingCharacters(in: .whitespacesAndNewlines)
+    guard let staffId = sessionUser?.staffId ?? (fallbackId?.isEmpty == false ? fallbackId : nil) else {
+      throw AuthStoreError.sessionNotAvailable
+    }
+    let staff = try await HRConvexAPIService.getStaffDetail(token: t, id: staffId)
+    let existing = currentSession?.user
+    let refreshedUser = AuthUser(
+      _id: existing?._id ?? staff._id,
+      staffId: staff._id,
+      employeeId: staff.employeeId ?? existing?.employeeId,
+      name: staff.name ?? existing?.name,
+      phone: staff.phone ?? existing?.phone,
+      email: staff.email ?? existing?.email,
+      role: existing?.role,
+      roleLevel: staff.roleLevel ?? existing?.roleLevel,
+      iamPermissions: existing?.iamPermissions,
+      isAdmin: existing?.isAdmin,
+      designation: staff.designation ?? existing?.designation,
+      department: staff.department ?? existing?.department,
+      status: staff.status ?? existing?.status,
+      photo: staff.photo
+    )
+    let refreshed = OtpSession(token: t, user: refreshedUser)
+    applySession(refreshed)
+    try? tokenStore.save(refreshed)
+    return refreshedUser
+  }
+
+  @discardableResult
+  func setProfilePhoto(storageId: String) async throws -> AuthUser {
+    let t = try requireToken()
+    let serverUser = try await HRConvexAPIService.setMyProfilePhoto(token: t, storageId: storageId)
+    return try await mergeProfilePhotoUpdate(serverUser: serverUser, fallbackPhoto: storageId)
+  }
+
+  @discardableResult
+  func deleteProfilePhoto() async throws -> AuthUser {
+    let t = try requireToken()
+    let serverUser = try await HRConvexAPIService.deleteMyProfilePhoto(token: t)
+    return try await mergeProfilePhotoUpdate(serverUser: serverUser, fallbackPhoto: nil, forceClearPhoto: true)
+  }
+
   /// Resolve a Convex storage id (e.g. profile photo) to a download URL.
   func resolveStorageURL(storageId: String) async throws -> URL? {
     let t = try requireToken()
     let urlString = try await HRConvexAPIService.getFileURL(token: t, storageId: storageId)
     return URL(string: urlString)
+  }
+
+  private func mergeProfilePhotoUpdate(
+    serverUser: AuthUser?,
+    fallbackPhoto: String?,
+    forceClearPhoto: Bool = false
+  ) async throws -> AuthUser {
+    let t = try requireToken()
+    let existing = currentSession?.user
+    let merged = AuthUser(
+      _id: serverUser?._id ?? existing?._id ?? "",
+      staffId: serverUser?.staffId ?? existing?.staffId,
+      employeeId: serverUser?.employeeId ?? existing?.employeeId,
+      name: serverUser?.name ?? existing?.name,
+      phone: serverUser?.phone ?? existing?.phone,
+      email: serverUser?.email ?? existing?.email,
+      role: serverUser?.role ?? existing?.role,
+      roleLevel: serverUser?.roleLevel ?? existing?.roleLevel,
+      iamPermissions: serverUser?.iamPermissions ?? existing?.iamPermissions,
+      isAdmin: serverUser?.isAdmin ?? existing?.isAdmin,
+      designation: serverUser?.designation ?? existing?.designation,
+      department: serverUser?.department ?? existing?.department,
+      status: serverUser?.status ?? existing?.status,
+      photo: forceClearPhoto ? nil : (serverUser?.photo ?? fallbackPhoto ?? existing?.photo)
+    )
+    let refreshed = OtpSession(token: t, user: merged)
+    applySession(refreshed)
+    try? tokenStore.save(refreshed)
+    return merged
   }
 
   // MARK: - Notifications
@@ -927,12 +1043,14 @@ final class AuthStore {
     guard UserDefaults.standard.bool(forKey: "FCQAStubAuth") else { return nil }
     let user = AuthUser(
       _id: "qa-stub-user",
+      staffId: "qa-stub-user",
       employeeId: "QA-STUB",
       name: "QA Stub",
       phone: "9999999999",
       email: "qa-stub@example.local",
       role: "staff",
       roleLevel: 0,
+      iamPermissions: [],
       isAdmin: false,
       designation: "QA Automation",
       department: "QA",

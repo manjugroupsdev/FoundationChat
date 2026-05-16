@@ -9,6 +9,7 @@ struct ProfileView: View {
 
   @State private var remotePhotoURL: URL?
   @State private var isPresentingEdit = false
+  @State private var hasLoadedStaffProfile = false
 
   var body: some View {
     List {
@@ -78,10 +79,15 @@ struct ProfileView: View {
     .task(id: authStore.viewer?.photo) {
       await loadRemoteAvatar()
     }
+    .task {
+      if !hasLoadedStaffProfile {
+        await refreshStaffProfile()
+      }
+    }
     .sheet(isPresented: $isPresentingEdit) {
       NavigationStack {
         ProfileEditView(onSaved: {
-          Task { await loadRemoteAvatar() }
+          Task { await refreshStaffProfile() }
         })
       }
     }
@@ -93,6 +99,12 @@ struct ProfileView: View {
       return
     }
     remotePhotoURL = try? await authStore.resolveStorageURL(storageId: storageId)
+  }
+
+  private func refreshStaffProfile() async {
+    hasLoadedStaffProfile = true
+    _ = try? await authStore.refreshMyStaffProfile()
+    await loadRemoteAvatar()
   }
 }
 

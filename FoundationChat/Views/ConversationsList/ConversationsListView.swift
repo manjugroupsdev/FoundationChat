@@ -87,6 +87,7 @@ struct ConversationsListView: View {
   @State private var selectedHomeItemIDs: Set<String> = []
   @State private var longPressSelectionGuards: Set<String> = []
   @State private var conversationsSubscription: AnyCancellable?
+  @State private var conversationsRefreshTask: Task<Void, Never>?
 
   private var filteredConversations: [Conversation] {
     let remoteBackedConversations = conversations.filter {
@@ -289,6 +290,7 @@ struct ConversationsListView: View {
       )
       .onAppear {
         startConversationsSubscription()
+        startConversationsRefresh()
         Task {
           await loadChannels(search: searchText)
         }
@@ -296,6 +298,8 @@ struct ConversationsListView: View {
       .onDisappear {
         conversationsSubscription?.cancel()
         conversationsSubscription = nil
+        conversationsRefreshTask?.cancel()
+        conversationsRefreshTask = nil
       }
       .toolbar {
         if isSelectionMode {
@@ -450,7 +454,11 @@ struct ConversationsListView: View {
             }
           },
           receiveValue: { remoteConversations in
-            applyRemoteConversations(remoteConversations ?? [])
+            let conversations = remoteConversations ?? []
+            applyRemoteConversations(conversations)
+            Task { @MainActor in
+              await refreshLatestMessagesForList(remoteConversations: conversations)
+            }
           }
         )
     } catch {
@@ -460,6 +468,48 @@ struct ConversationsListView: View {
         startConversationsSubscription()
       }
     }
+  }
+
+  @MainActor
+  private func startConversationsRefresh() {
+    conversationsRefreshTask?.cancel()
+    conversationsRefreshTask = Task { @MainActor in
+      while !Task.isCancelled {
+        do {
+          let remoteConversations = try await authStore.fetchConversations()
+          applyRemoteConversations(remoteConversations)
+          await refreshLatestMessagesForList(remoteConversations: remoteConversations)
+        } catch {
+          // Keep the cached list visible during transient network failures.
+        }
+        try? await Task.sleep(for: .seconds(5))
+      }
+    }
+  }
+
+  @MainActor
+  private func refreshLatestMessagesForList(remoteConversations: [ConvexConversationSummary]) async {
+    let recentConversationIDs = remoteConversations
+      .sorted { $0.createdAt > $1.createdAt }
+      .prefix(20)
+      .map(\.id)
+
+    for conversationID in recentConversationIDs {
+      guard let localConversation = conversations.first(where: { $0.remoteConversationID == conversationID }) else {
+        continue
+      }
+
+      do {
+        let messages = try await authStore.fetchMessages(conversationID: conversationID)
+        for message in messages {
+          upsertMessage(message, into: localConversation)
+        }
+      } catch {
+        continue
+      }
+    }
+
+    try? modelContext.save()
   }
 
   @MainActor

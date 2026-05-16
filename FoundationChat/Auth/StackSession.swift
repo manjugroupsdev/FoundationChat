@@ -3,12 +3,14 @@ import Foundation
 /// User returned from the auth API after OTP verification or session validation.
 struct AuthUser: Codable, Sendable, Equatable {
   let _id: String
+  let staffId: String?
   let employeeId: String?
   let name: String?
   let phone: String?
   let email: String?
   let role: String?
   let roleLevel: Int?
+  let iamPermissions: [String]?
   let isAdmin: Bool?
   let designation: String?
   let department: String?
@@ -17,12 +19,14 @@ struct AuthUser: Codable, Sendable, Equatable {
 
   init(
     _id: String,
+    staffId: String? = nil,
     employeeId: String? = nil,
     name: String? = nil,
     phone: String? = nil,
     email: String? = nil,
     role: String? = nil,
     roleLevel: Int? = nil,
+    iamPermissions: [String]? = nil,
     isAdmin: Bool? = nil,
     designation: String? = nil,
     department: String? = nil,
@@ -30,12 +34,14 @@ struct AuthUser: Codable, Sendable, Equatable {
     photo: String? = nil
   ) {
     self._id = _id
+    self.staffId = staffId
     self.employeeId = employeeId
     self.name = name
     self.phone = phone
     self.email = email
     self.role = role
     self.roleLevel = roleLevel
+    self.iamPermissions = iamPermissions
     self.isAdmin = isAdmin
     self.designation = designation
     self.department = department
