@@ -16,6 +16,8 @@ struct HomeView: View {
     @State private var loadError: String?
     @State private var visitToOpen: GeoTrackTodayVisit?
     @State private var appeared = false
+    @State private var headerEntryStarted = false
+    @State private var headerFloating = false
 
     private let geoAPI = GeoTrackAPIService.shared
 
@@ -29,10 +31,10 @@ struct HomeView: View {
                 ScrollView {
                     VStack(spacing: 0) {
                         blueHeader
-                            .offset(y: appeared ? 0 : -260)
-                            .animation(.smooth(duration: 0.62), value: appeared)
 
                         contentArea
+                            .offset(y: headerEntryStarted ? 0 : -150)
+                            .animation(.easeOut(duration: 0.72), value: headerEntryStarted)
                     }
                     .padding(.bottom, 28)
                 }
@@ -63,9 +65,11 @@ struct HomeView: View {
             .task {
                 await reload()
                 appeared = true
+                playHomeHeaderAnimation()
             }
             .onAppear {
                 guard appeared else { return }
+                playHomeHeaderAnimation()
                 Task { await reload() }
             }
         }
@@ -75,7 +79,7 @@ struct HomeView: View {
 
     private var headerTopFill: some View {
         HomePalette.headerBlue
-        .frame(height: 120)
+        .frame(height: 150)
         .frame(maxWidth: .infinity, alignment: .top)
         .ignoresSafeArea(edges: .top)
     }
@@ -102,12 +106,18 @@ struct HomeView: View {
                     .font(.system(size: 20, weight: .semibold))
                     .foregroundStyle(.white)
                     .padding(.top, 58)
+                    .opacity(headerEntryStarted ? 1 : 0)
+                    .offset(x: headerEntryStarted ? 0 : -30)
+                    .animation(.timingCurve(0.4, 0, 0.2, 1, duration: 0.38).delay(0.12), value: headerEntryStarted)
 
                 Text("Track your tasks, visits and\nattendance in one place.")
                     .font(.system(size: 13, weight: .medium))
                     .foregroundStyle(Color(red: 0.93, green: 0.92, blue: 1.0))
                     .lineSpacing(2)
                     .padding(.top, 7)
+                    .opacity(headerEntryStarted ? 1 : 0)
+                    .offset(x: headerEntryStarted ? 0 : -30)
+                    .animation(.timingCurve(0.4, 0, 0.2, 1, duration: 0.38).delay(0.20), value: headerEntryStarted)
 
                 Spacer()
 
@@ -124,6 +134,9 @@ struct HomeView: View {
                 }
                 .buttonStyle(.plain)
                 .padding(.bottom, 14)
+                .opacity(headerEntryStarted ? 1 : 0)
+                .offset(x: headerEntryStarted ? 0 : -30)
+                .animation(.timingCurve(0.4, 0, 0.2, 1, duration: 0.38).delay(0.30), value: headerEntryStarted)
             }
             .frame(maxWidth: .infinity, alignment: .leading)
             .padding(.leading, 16)
@@ -131,18 +144,15 @@ struct HomeView: View {
             homeHeaderActions
                 .padding(.top, 16)
                 .padding(.trailing, 12)
+                .opacity(headerEntryStarted ? 1 : 0)
+                .offset(y: headerEntryStarted ? 0 : -16)
+                .animation(.easeOut(duration: 0.36), value: headerEntryStarted)
 
-            decorativeStars
-
-            Image("HomeBannerCamera")
-                .resizable()
-                .scaledToFit()
-                .frame(width: 118, height: 100)
-                .padding(.top, 58)
-                .padding(.trailing, 6)
-                .accessibilityHidden(true)
+            bannerIllustration
+                .padding(.top, 78)
+                .padding(.trailing, 8)
         }
-        .frame(height: 184)
+        .frame(height: 222)
         .clipped()
     }
 
@@ -183,20 +193,82 @@ struct HomeView: View {
         .background(Color.white.opacity(0.18), in: Capsule())
     }
 
-    private var decorativeStars: some View {
+    private var bannerIllustration: some View {
         ZStack {
-            ForEach(HomeStar.allCases) { star in
-                Image(systemName: "sparkle")
-                    .font(.system(size: star.size, weight: .semibold))
-                    .foregroundStyle(Color.white.opacity(star.opacity))
-                    .rotationEffect(.degrees(star.rotation))
-                    .offset(x: star.x, y: star.y)
-            }
+            bannerImage(
+                name: "HomeBannerGlitter",
+                size: CGSize(width: 106, height: 52),
+                alignment: .top,
+                entryDelay: 0.16,
+                floatOffset: 4,
+                floatDelay: 1.0
+            )
+
+            bannerImage(
+                name: "HomeBannerMobile",
+                size: CGSize(width: 82, height: 108),
+                alignment: .center,
+                entryDelay: 0.20,
+                floatOffset: -6,
+                floatDelay: 0.75
+            )
+
+            bannerImage(
+                name: "HomeBannerProgress",
+                size: CGSize(width: 58, height: 37),
+                alignment: .bottomLeading,
+                entryDelay: 0.28,
+                floatOffset: 5,
+                floatDelay: 0.50
+            )
+            .padding(.bottom, 24)
+
+            bannerImage(
+                name: "HomeBannerSuitcase",
+                size: CGSize(width: 58, height: 60),
+                alignment: .bottomTrailing,
+                entryDelay: 0.36,
+                floatOffset: -5,
+                floatDelay: 1.50
+            )
+            .padding(.bottom, 16)
         }
-        .frame(width: 120, height: 100)
-        .padding(.top, 46)
-        .padding(.trailing, 22)
+        .frame(width: 126, height: 112)
         .accessibilityHidden(true)
+    }
+
+    private func bannerImage(
+        name: String,
+        size: CGSize,
+        alignment: Alignment,
+        entryDelay: Double,
+        floatOffset: CGFloat,
+        floatDelay: Double
+    ) -> some View {
+        Image(name)
+            .resizable()
+            .scaledToFit()
+            .frame(width: size.width, height: size.height)
+            .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: alignment)
+            .opacity(headerEntryStarted ? 1 : 0)
+            .scaleEffect(headerEntryStarted ? 1 : 0.92)
+            .offset(
+                x: headerEntryStarted ? 0 : 32,
+                y: headerEntryStarted ? (headerFloating ? floatOffset : 0) : 12
+            )
+            .animation(.easeOut(duration: 0.42).delay(entryDelay), value: headerEntryStarted)
+            .animation(.easeInOut(duration: 2.8).repeatForever(autoreverses: true).delay(floatDelay), value: headerFloating)
+    }
+
+    private func playHomeHeaderAnimation() {
+        headerFloating = false
+        headerEntryStarted = false
+        DispatchQueue.main.async {
+            headerEntryStarted = true
+        }
+        DispatchQueue.main.asyncAfter(deadline: .now() + 0.84) {
+            headerFloating = true
+        }
     }
 
     // MARK: - Content
