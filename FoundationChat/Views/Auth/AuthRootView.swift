@@ -3,6 +3,8 @@ import SwiftUI
 
 struct AuthRootView: View {
     @Environment(AuthStore.self) private var authStore
+    @Environment(\.scenePhase) private var scenePhase
+    @State private var geoTrackBootstrap = GeoTrackBootstrapCoordinator.shared
 
     var body: some View {
         Group {
@@ -32,13 +34,28 @@ struct AuthRootView: View {
             await authStore.restoreSessionIfNeeded()
             if authStore.status == .signedIn {
                 authStore.requestNotificationPermissions()
+                await geoTrackBootstrap.sync(reason: "session-restore", force: true)
             }
+        }
+        .sheet(isPresented: Binding(
+            get: { geoTrackBootstrap.shouldPresentConsent },
+            set: { _ in }
+        )) {
+            GeoTrackConsentView(
+                onConsent: {
+                    Task { await geoTrackBootstrap.handleConsentAccepted() }
+                },
+                onDecline: {
+                    geoTrackBootstrap.handleConsentDeclined()
+                }
+            )
         }
         .onReceive(NotificationCenter.default.publisher(for: .didRegisterForRemoteNotificationsToken)) {
             notification in
             guard let apnsToken = notification.object as? String else { return }
             Task {
                 await authStore.handleAPNSToken(apnsToken)
+                await geoTrackBootstrap.sync(reason: "push-token", force: true)
             }
         }
         .onChange(of: authStore.status) { _, newStatus in
@@ -47,6 +64,12 @@ struct AuthRootView: View {
                 if let existingToken = authStore.lastKnownAPNSToken {
                     Task { await authStore.handleAPNSToken(existingToken) }
                 }
+                Task { await geoTrackBootstrap.sync(reason: "signed-in", force: true) }
+            }
+        }
+        .onChange(of: scenePhase) { _, newPhase in
+            if newPhase == .active, authStore.status == .signedIn {
+                Task { await geoTrackBootstrap.sync(reason: "foreground") }
             }
         }
     }

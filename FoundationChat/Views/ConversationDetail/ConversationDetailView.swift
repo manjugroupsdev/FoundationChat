@@ -11,6 +11,7 @@ struct ConversationDetailView: View {
   @Environment(\.modelContext) private var modelContext
   @Environment(\.dismiss) private var dismiss
   @Environment(AuthStore.self) private var authStore
+  @Query private var allConversations: [Conversation]
 
   @State var newMessage: String = ""
   @State var conversation: Conversation
@@ -18,6 +19,13 @@ struct ConversationDetailView: View {
   @State var isGenerating: Bool = false
   @State private var messagesSubscription: AnyCancellable?
   @State private var conversationStatusSubscription: AnyCancellable?
+  @State private var typingPollTask: Task<Void, Never>?
+  @State private var presencePollTask: Task<Void, Never>?
+  @State private var typingExpiryTask: Task<Void, Never>?
+  @State private var typingUsers: [TypingUser] = []
+  @State private var otherParticipantPresence: UserPresenceInfo?
+  @State private var remoteParticipants: [ConvexConversationParticipant] = []
+  @State private var lastTypingSignalAt: Date?
   @State private var lastMarkedSeenAt: Date?
   @State private var pollingTask: Task<Void, Never>?
   @State private var lastPollTimestamp: Double = 0
@@ -30,6 +38,7 @@ struct ConversationDetailView: View {
   @State private var activeDetailSheet: ActiveDetailSheet?
   @State private var replyTarget: Message?
   @State private var pendingImageAttachment: PendingImageAttachment?
+  @State private var messageToForward: Message?
   @State private var reactionTarget: Message?
   @State private var selectedMessageIDs: Set<PersistentIdentifier> = []
   @State private var highlightedRemoteMessageID: String?
@@ -80,6 +89,28 @@ struct ConversationDetailView: View {
   }
 
   private var conversationSubtitle: String {
+    if !typingUsers.isEmpty {
+      return typingUsers.count == 1 ? "Typing..." : "Several people are typing..."
+    }
+
+    if let otherParticipantPresence {
+      switch otherParticipantPresence.presenceStatus {
+      case .online:
+        return "Online"
+      case .away, .busy:
+        if let statusText = otherParticipantPresence.customStatusText?.trimmingCharacters(in: .whitespacesAndNewlines),
+          !statusText.isEmpty
+        {
+          return statusText
+        }
+        return otherParticipantPresence.presenceStatus.displayName
+      case .offline:
+        if let lastSeenText = lastSeenText(from: otherParticipantPresence.lastHeartbeatAt) {
+          return lastSeenText
+        }
+      }
+    }
+
     if let lastSeen = conversation.otherParticipantLastReadAt {
       return "Last seen \(lastSeen.formatted(date: .omitted, time: .shortened))"
     }
@@ -166,7 +197,10 @@ struct ConversationDetailView: View {
             isInputFocused = true
             selectedMessageIDs.removeAll()
           },
-          onForward: {},
+          onForward: {
+            messageToForward = reactionTarget
+            selectedMessageIDs.removeAll()
+          },
           onCopy: {
             UIPasteboard.general.string = reactionTarget.content
             selectedMessageIDs.removeAll()
@@ -192,6 +226,8 @@ struct ConversationDetailView: View {
       startMessagesSubscription()
       startConversationStatusSubscription()
       startPolling()
+      startTypingPolling()
+      startPresencePolling()
       withAnimation {
         scrollPosition.scrollTo(edge: .bottom)
       }
@@ -203,16 +239,30 @@ struct ConversationDetailView: View {
       conversationStatusSubscription = nil
       pollingTask?.cancel()
       pollingTask = nil
+      typingPollTask?.cancel()
+      typingPollTask = nil
+      presencePollTask?.cancel()
+      presencePollTask = nil
+      typingExpiryTask?.cancel()
+      typingExpiryTask = nil
+      typingUsers = []
     }
     .onChange(of: conversation.remoteConversationID) { _, _ in
       lastMarkedSeenAt = nil
       lastPollTimestamp = 0
+      lastTypingSignalAt = nil
+      typingUsers = []
+      otherParticipantPresence = nil
+      remoteParticipants = []
       startMessagesSubscription()
       startConversationStatusSubscription()
       startPolling()
+      startTypingPolling()
+      startPresencePolling()
     }
     .onChange(of: newMessage) { _, _ in
       scheduleMentionDirectoryLoad()
+      sendTypingSignalIfNeeded()
     }
     .onChange(of: isInputFocused) { _, isFocused in
       guard isFocused else { return }
@@ -282,6 +332,31 @@ struct ConversationDetailView: View {
     }
     .sheet(item: $activeDetailSheet) { sheet in
       conversationDetailSheet(for: sheet)
+    }
+    .sheet(
+      isPresented: Binding(
+        get: { messageToForward != nil },
+        set: { isPresented in
+          if !isPresented {
+            messageToForward = nil
+          }
+        }
+      )
+    ) {
+      if let messageToForward {
+        ForwardMessageSheet(
+          message: messageToForward,
+          conversations: forwardableConversations,
+          currentConversationID: conversation.remoteConversationID,
+          onCancel: {
+            self.messageToForward = nil
+          },
+          onForward: { targets in
+            await forward(messageToForward, to: targets)
+            self.messageToForward = nil
+          }
+        )
+      }
     }
     .sheet(isPresented: $isAttachmentOptionsPresented) {
       AttachmentOptionsSheet(
@@ -405,6 +480,12 @@ struct ConversationDetailView: View {
                 .font(.system(size: 14, weight: .semibold))
                 .foregroundStyle(Color.black.opacity(0.8))
             )
+            .overlay(alignment: .bottomTrailing) {
+              if let otherParticipantPresence {
+                PresenceIndicatorView(status: otherParticipantPresence.presenceStatus, size: 10)
+                  .offset(x: 1, y: 1)
+              }
+            }
 
           VStack(spacing: 1) {
             Text(conversationTitle)
@@ -414,7 +495,7 @@ struct ConversationDetailView: View {
 
             Text(conversationSubtitle)
               .font(.system(size: 12, weight: .regular))
-              .foregroundStyle(Color.black.opacity(0.35))
+              .foregroundStyle(typingUsers.isEmpty ? Color.black.opacity(0.35) : Color(red: 0.05, green: 0.52, blue: 0.22))
               .lineLimit(1)
           }
           .frame(maxWidth: .infinity)
@@ -503,6 +584,13 @@ struct ConversationDetailView: View {
           Label("Copy", systemImage: "doc.on.doc")
         }
         .disabled(selectedMessages.allSatisfy { $0.content.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty })
+
+        Button {
+          forwardSelectedMessage()
+        } label: {
+          Label("Forward", systemImage: "arrowshape.turn.up.right")
+        }
+        .disabled(selectedMessages.count != 1 || selectedMessages.first?.isDeleted == true)
 
         Button {
           showReactionsForSelectedMessage()
@@ -605,6 +693,17 @@ struct ConversationDetailView: View {
     conversation.sortedMessages.filter { selectedMessageIDs.contains($0.persistentModelID) }
   }
 
+  private var forwardableConversations: [Conversation] {
+    allConversations
+      .filter { conversation in
+        guard let remoteID = conversation.remoteConversationID?.trimmingCharacters(in: .whitespacesAndNewlines) else {
+          return false
+        }
+        return !remoteID.isEmpty
+      }
+      .sorted { $0.lastMessageTimestamp > $1.lastMessageTimestamp }
+  }
+
   private func toggleMessageSelection(_ message: Message) {
     guard !message.isDeleted else { return }
     withAnimation(.spring(response: 0.25, dampingFraction: 0.9)) {
@@ -637,6 +736,13 @@ struct ConversationDetailView: View {
 
     guard !copiedText.isEmpty else { return }
     UIPasteboard.general.string = copiedText
+    selectedMessageIDs.removeAll()
+    reactionTarget = nil
+  }
+
+  private func forwardSelectedMessage() {
+    guard let message = selectedMessages.first, selectedMessages.count == 1, !message.isDeleted else { return }
+    messageToForward = message
     selectedMessageIDs.removeAll()
     reactionTarget = nil
   }
@@ -714,6 +820,110 @@ struct ConversationDetailView: View {
     return mentionUsers.compactMap { user in
       lowerText.contains("@\(user.displayName.lowercased())") ? user.stackUserId : nil
     }
+  }
+
+  private func sendTypingSignalIfNeeded() {
+    guard
+      let remoteConversationID = conversation.remoteConversationID,
+      isInputFocused,
+      !newMessage.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
+    else { return }
+
+    let now = Date()
+    if let lastTypingSignalAt, now.timeIntervalSince(lastTypingSignalAt) < 2 {
+      return
+    }
+    lastTypingSignalAt = now
+
+    Task {
+      try? await authStore.setTypingIndicator(conversationId: remoteConversationID)
+    }
+
+    typingExpiryTask?.cancel()
+    typingExpiryTask = Task { @MainActor in
+      try? await Task.sleep(for: .seconds(4))
+      if newMessage.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
+        lastTypingSignalAt = nil
+      }
+    }
+  }
+
+  @MainActor
+  private func startTypingPolling() {
+    guard let remoteConversationID = conversation.remoteConversationID else { return }
+    typingPollTask?.cancel()
+    typingPollTask = Task { @MainActor in
+      while !Task.isCancelled {
+        do {
+          let users = try await authStore.fetchTypingUsers(conversationId: remoteConversationID)
+          typingUsers = users.filter { $0.stackUserId != authStore.viewer?.subject }
+        } catch {
+          typingUsers = []
+        }
+        try? await Task.sleep(for: .seconds(2))
+      }
+    }
+  }
+
+  @MainActor
+  private func startPresencePolling() {
+    presencePollTask?.cancel()
+    presencePollTask = Task { @MainActor in
+      await refreshConversationPresence()
+      while !Task.isCancelled {
+        try? await Task.sleep(for: .seconds(15))
+        await refreshConversationPresence()
+      }
+    }
+  }
+
+  @MainActor
+  private func refreshConversationPresence() async {
+    if remoteParticipants.isEmpty, let remoteConversationID = conversation.remoteConversationID {
+      if let summary = try? await authStore.fetchConversation(conversationID: remoteConversationID) {
+        remoteParticipants = summary.participants ?? []
+        cacheConversationUserData(from: summary)
+      }
+    }
+
+    guard let otherParticipantStackUserId else { return }
+    do {
+      otherParticipantPresence = try await authStore.fetchPresence(for: [otherParticipantStackUserId]).first
+    } catch {
+      otherParticipantPresence = nil
+    }
+  }
+
+  private var otherParticipantStackUserId: String? {
+    let currentUserID = authStore.viewer?.subject
+    if let participant = remoteParticipants.first(where: { participant in
+      guard let currentUserID else { return true }
+      return participant.stackUserId != currentUserID
+    }) {
+      return participant.stackUserId
+    }
+
+    return conversation.sortedMessages
+      .map(\.senderStackUserId)
+      .compactMap { $0?.trimmingCharacters(in: .whitespacesAndNewlines) }
+      .first { senderID in
+        guard !senderID.isEmpty else { return false }
+        guard let currentUserID else { return true }
+        return senderID != currentUserID
+      }
+  }
+
+  private func lastSeenText(from rawTimestamp: Double) -> String? {
+    guard rawTimestamp > 0 else { return nil }
+    let seconds = rawTimestamp > 10_000_000_000 ? rawTimestamp / 1000 : rawTimestamp
+    let date = Date(timeIntervalSince1970: seconds)
+    if Calendar.current.isDateInToday(date) {
+      return "Last seen today at \(date.formatted(date: .omitted, time: .shortened))"
+    }
+    if Calendar.current.isDateInYesterday(date) {
+      return "Last seen yesterday at \(date.formatted(date: .omitted, time: .shortened))"
+    }
+    return "Last seen \(date.formatted(date: .abbreviated, time: .shortened))"
   }
 
   private var backSwipeGesture: some Gesture {
@@ -1441,6 +1651,169 @@ private struct CropCanvasView: View {
   }
 }
 
+private struct ForwardMessageSheet: View {
+  let message: Message
+  let conversations: [Conversation]
+  let currentConversationID: String?
+  let onCancel: () -> Void
+  let onForward: ([Conversation]) async -> Void
+
+  @State private var searchText = ""
+  @State private var selectedConversationIDs: Set<String> = []
+  @State private var isForwarding = false
+
+  private var filteredConversations: [Conversation] {
+    let trimmedSearch = searchText.trimmingCharacters(in: .whitespacesAndNewlines).lowercased()
+    guard !trimmedSearch.isEmpty else { return conversations }
+
+    return conversations.filter { conversation in
+      [
+        conversation.participantDisplayName,
+        conversation.summary,
+        conversation.sortedMessages.last?.content
+      ]
+      .compactMap { $0?.lowercased() }
+      .joined(separator: " ")
+      .contains(trimmedSearch)
+    }
+  }
+
+  private var selectedConversations: [Conversation] {
+    conversations.filter { conversation in
+      guard let remoteID = conversation.remoteConversationID else { return false }
+      return selectedConversationIDs.contains(remoteID)
+    }
+  }
+
+  private var previewText: String {
+    let text = message.content.trimmingCharacters(in: .whitespacesAndNewlines)
+    if !text.isEmpty { return text }
+    if message.attachementMimeType?.hasPrefix("image/") == true || message.attachementType == "image" {
+      return "Photo"
+    }
+    if message.attachementMimeType?.hasPrefix("video/") == true || message.attachementType == "video" {
+      return "Video"
+    }
+    if message.attachementType == "audio" {
+      return "Voice message"
+    }
+    return message.attachementFileName ?? "Message"
+  }
+
+  var body: some View {
+    NavigationStack {
+      List {
+        Section {
+          HStack(spacing: 10) {
+            Image(systemName: "arrowshape.turn.up.right.fill")
+              .font(.system(size: 15, weight: .semibold))
+              .foregroundStyle(Color(red: 0.05, green: 0.38, blue: 0.79))
+              .frame(width: 30, height: 30)
+              .background(Color(red: 0.91, green: 0.95, blue: 1.0), in: Circle())
+
+            Text(previewText)
+              .font(.system(size: 14, weight: .regular))
+              .foregroundStyle(Color.black.opacity(0.72))
+              .lineLimit(2)
+          }
+          .padding(.vertical, 4)
+        }
+
+        Section("Forward to") {
+          ForEach(filteredConversations, id: \.persistentModelID) { conversation in
+            Button {
+              toggle(conversation)
+            } label: {
+              HStack(spacing: 12) {
+                Circle()
+                  .fill(Color(red: 0.87, green: 0.91, blue: 0.98))
+                  .frame(width: 38, height: 38)
+                  .overlay {
+                    Text(String(title(for: conversation).prefix(1)).uppercased())
+                      .font(.system(size: 15, weight: .semibold))
+                      .foregroundStyle(Color(red: 0.05, green: 0.38, blue: 0.79))
+                  }
+
+                VStack(alignment: .leading, spacing: 3) {
+                  Text(title(for: conversation))
+                    .font(.system(size: 16, weight: .medium))
+                    .foregroundStyle(.primary)
+                    .lineLimit(1)
+
+                  Text(subtitle(for: conversation))
+                    .font(.system(size: 12))
+                    .foregroundStyle(.secondary)
+                    .lineLimit(1)
+                }
+
+                Spacer()
+
+                Image(systemName: isSelected(conversation) ? "checkmark.circle.fill" : "circle")
+                  .font(.system(size: 22, weight: .semibold))
+                  .foregroundStyle(isSelected(conversation) ? Color(red: 0.05, green: 0.38, blue: 0.79) : Color.secondary.opacity(0.45))
+              }
+              .contentShape(Rectangle())
+            }
+            .buttonStyle(.plain)
+          }
+        }
+      }
+      .searchable(text: $searchText, prompt: "Search chats")
+      .navigationTitle("Forward Message")
+      .navigationBarTitleDisplayMode(.inline)
+      .toolbar {
+        ToolbarItem(placement: .topBarLeading) {
+          Button("Cancel", action: onCancel)
+            .disabled(isForwarding)
+        }
+
+        ToolbarItem(placement: .topBarTrailing) {
+          Button {
+            isForwarding = true
+            Task {
+              await onForward(selectedConversations)
+              isForwarding = false
+            }
+          } label: {
+            if isForwarding {
+              ProgressView()
+            } else {
+              Text("Send")
+                .fontWeight(.semibold)
+            }
+          }
+          .disabled(selectedConversationIDs.isEmpty || isForwarding)
+        }
+      }
+    }
+  }
+
+  private func title(for conversation: Conversation) -> String {
+    conversation.participantDisplayName ?? conversation.summary ?? "Conversation"
+  }
+
+  private func subtitle(for conversation: Conversation) -> String {
+    if conversation.remoteConversationID == currentConversationID {
+      return "Current chat"
+    }
+    return conversation.sortedMessages.last?.content.nilIfBlank ?? "Direct message"
+  }
+
+  private func isSelected(_ conversation: Conversation) -> Bool {
+    guard let remoteID = conversation.remoteConversationID else { return false }
+    return selectedConversationIDs.contains(remoteID)
+  }
+
+  private func toggle(_ conversation: Conversation) {
+    guard let remoteID = conversation.remoteConversationID else { return }
+    if selectedConversationIDs.contains(remoteID) {
+      selectedConversationIDs.remove(remoteID)
+    } else {
+      selectedConversationIDs.insert(remoteID)
+    }
+  }
+}
+
 private struct MessageReactionOverlay: View {
   let message: Message
   let isOutgoing: Bool
@@ -1498,6 +1871,13 @@ private struct MessageReactionOverlay: View {
       guard parts.count >= 3, let count = Int(parts[1]) else { return nil }
       return MessageReactionInfo(emoji: String(parts[0]), count: count, hasReacted: parts[2] == "1")
     }
+  }
+}
+
+private extension String {
+  var nilIfBlank: String? {
+    let trimmed = trimmingCharacters(in: .whitespacesAndNewlines)
+    return trimmed.isEmpty ? nil : trimmed
   }
 }
 
@@ -2002,6 +2382,104 @@ extension ConversationDetailView {
   }
 
   @MainActor
+  private func forward(_ message: Message, to targets: [Conversation]) async {
+    guard !message.isDeleted, !targets.isEmpty else { return }
+
+    for target in targets {
+      guard let targetConversationID = target.remoteConversationID?.trimmingCharacters(in: .whitespacesAndNewlines),
+        !targetConversationID.isEmpty
+      else { continue }
+
+      let content = message.content == "This message was deleted" ? "" : message.content
+      let localForward = Message(
+        content: content,
+        role: .user,
+        timestamp: Date(),
+        senderStackUserId: authStore.viewer?.subject,
+        attachementType: message.attachementType,
+        attachementFileName: message.attachementFileName,
+        attachementMimeType: message.attachementMimeType,
+        attachementTitle: message.attachementTitle,
+        attachementDescription: message.attachementDescription,
+        attachementThumbnail: message.attachementThumbnail,
+        attachementURL: message.attachementURL
+      )
+      target.messages.append(localForward)
+      try? modelContext.save()
+
+      do {
+        if let attachmentData = try await forwardedAttachmentData(from: message),
+          let fileName = message.attachementFileName,
+          let mimeType = message.attachementMimeType ?? message.attachementType
+        {
+          let uploadURL = try await authStore.generateAttachmentUploadURL()
+          let storageId = try await authStore.uploadAttachmentData(
+            attachmentData,
+            uploadURL: uploadURL,
+            mimeType: mimeType
+          )
+          let savedMessage = try await authStore.sendMessage(
+            conversationID: targetConversationID,
+            role: .user,
+            content: content,
+            attachmentType: message.attachementType,
+            attachmentStorageId: storageId,
+            attachmentFileName: fileName,
+            attachmentMimeType: mimeType,
+            attachmentFileSize: attachmentData.count,
+            attachmentTitle: message.attachementTitle,
+            attachmentDescription: message.attachementDescription
+          )
+          sync(savedMessage: savedMessage, into: localForward)
+        } else {
+          let savedMessage = try await authStore.sendMessage(
+            conversationID: targetConversationID,
+            role: .user,
+            content: content
+          )
+          sync(savedMessage: savedMessage, into: localForward)
+        }
+      } catch {
+        target.messages.removeAll(where: { $0 === localForward })
+        if target === conversation {
+          conversation.messages.append(
+            Message(
+              content: "Failed to forward message: \(error.localizedDescription)",
+              role: .system,
+              timestamp: Date()
+            )
+          )
+        }
+      }
+    }
+
+    withAnimation {
+      scrollPosition.scrollTo(edge: .bottom)
+    }
+    try? modelContext.save()
+  }
+
+  private func forwardedAttachmentData(from message: Message) async throws -> Data? {
+    guard
+      message.attachementType != nil || message.attachementMimeType != nil,
+      let rawURL = message.attachementURL,
+      let url = URL(string: rawURL)
+    else { return nil }
+
+    if url.isFileURL {
+      return try Data(contentsOf: url)
+    }
+
+    let (data, response) = try await URLSession.shared.data(from: url)
+    if let httpResponse = response as? HTTPURLResponse,
+      !(200..<300).contains(httpResponse.statusCode)
+    {
+      return nil
+    }
+    return data
+  }
+
+  @MainActor
   private func startConversationStatusSubscription() {
     guard let remoteConversationID = conversation.remoteConversationID else { return }
 
@@ -2026,7 +2504,11 @@ extension ConversationDetailView {
             else { return }
             conversation.unreadCount = remoteConversation.unreadCountValue
             conversation.otherParticipantLastReadAt = remoteConversation.otherParticipantLastReadDate
+            remoteParticipants = remoteConversation.participants ?? []
             cacheConversationUserData(from: remoteConversation)
+            Task { @MainActor in
+              await refreshConversationPresence()
+            }
             try? modelContext.save()
           }
         )
@@ -2140,6 +2622,8 @@ extension ConversationDetailView {
     try? modelContext.save()
     newMessage = ""
     replyTarget = nil
+    lastTypingSignalAt = nil
+    typingExpiryTask?.cancel()
 
     if let remoteConversationID = conversation.remoteConversationID {
       do {

@@ -426,6 +426,106 @@ struct CreateCpVisitResponse: Decodable, Sendable {
     let error: String?
 }
 
+struct MarkClientMetRequest: Encodable, Sendable {
+    let id: String
+    let clientMet: Bool
+    let clientNoShowReason: String?
+
+    init(id: String, clientMet: Bool, clientNoShowReason: String? = nil) {
+        self.id = id
+        self.clientMet = clientMet
+        self.clientNoShowReason = clientNoShowReason
+    }
+}
+
+struct SetCpVisitOutcomeRequest: Encodable, Sendable {
+    let id: String
+    let outcome: String
+    let postponeReasons: [String]?
+    let notes: String?
+}
+
+struct SiteVisitAttendeeRequest: Encodable, Hashable, Sendable {
+    let name: String?
+    let relation: String?
+    let age: String?
+    let isVeg: Bool?
+}
+
+struct ConvertCpVisitToSiteVisitRequest: Encodable, Sendable {
+    let id: String
+    let projectId: String
+    let scheduledDate: String
+    let scheduledTime: String?
+    let telecallerId: String?
+    let convertedByStaffId: String?
+    let assignedTelecallerStaffId: String?
+    let inchargeStaffId: String?
+    let hodStaffId: String?
+    let avpStaffId: String?
+    let gmStaffId: String?
+    let seniorManagerStaffId: String?
+    let expectedAttendeeCount: Int?
+    let attendees: [SiteVisitAttendeeRequest]?
+    let pickupAddress: String?
+    let pickupTime: String?
+    let travelMode: String?
+    let vehiclePreference: String?
+    let foodPreferences: String?
+    let notes: String?
+
+    init(
+        id: String,
+        projectId: String,
+        scheduledDate: String,
+        scheduledTime: String? = nil,
+        telecallerId: String? = nil,
+        convertedByStaffId: String? = nil,
+        assignedTelecallerStaffId: String? = nil,
+        inchargeStaffId: String? = nil,
+        hodStaffId: String? = nil,
+        avpStaffId: String? = nil,
+        gmStaffId: String? = nil,
+        seniorManagerStaffId: String? = nil,
+        expectedAttendeeCount: Int? = nil,
+        attendees: [SiteVisitAttendeeRequest]? = nil,
+        pickupAddress: String? = nil,
+        pickupTime: String? = nil,
+        travelMode: String? = nil,
+        vehiclePreference: String? = nil,
+        foodPreferences: String? = nil,
+        notes: String? = nil
+    ) {
+        self.id = id
+        self.projectId = projectId
+        self.scheduledDate = scheduledDate
+        self.scheduledTime = scheduledTime
+        self.telecallerId = telecallerId
+        self.convertedByStaffId = convertedByStaffId
+        self.assignedTelecallerStaffId = assignedTelecallerStaffId
+        self.inchargeStaffId = inchargeStaffId
+        self.hodStaffId = hodStaffId
+        self.avpStaffId = avpStaffId
+        self.gmStaffId = gmStaffId
+        self.seniorManagerStaffId = seniorManagerStaffId
+        self.expectedAttendeeCount = expectedAttendeeCount
+        self.attendees = attendees
+        self.pickupAddress = pickupAddress
+        self.pickupTime = pickupTime
+        self.travelMode = travelMode
+        self.vehiclePreference = vehiclePreference
+        self.foodPreferences = foodPreferences
+        self.notes = notes
+    }
+}
+
+struct ConvertCpVisitToSiteVisitResponse: Decodable, Sendable {
+    let success: Bool
+    let siteVisitId: String?
+    let visitId: String?
+    let error: String?
+}
+
 private extension String {
     var nilIfBlank: String? {
         let trimmed = trimmingCharacters(in: .whitespacesAndNewlines)

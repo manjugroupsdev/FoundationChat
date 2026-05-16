@@ -118,12 +118,13 @@ struct AppLibraryView: View {
                 .frame(height: 161)
 
                 AppLibraryFilterStrip(selectedFilter: $selectedFilter)
+                    .padding(.top, 14)
                     .opacity(navDidAppear ? 1 : 0)
                     .offset(y: navDidAppear ? 0 : 18)
                     .animation(.spring(response: 0.38, dampingFraction: 0.86).delay(0.06), value: navDidAppear)
             }
         }
-        .frame(height: 235)
+        .frame(height: 249)
     }
 }
 

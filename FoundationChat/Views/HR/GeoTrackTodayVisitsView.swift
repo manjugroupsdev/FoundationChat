@@ -48,7 +48,15 @@ struct GeoTrackTodayVisitsView: View {
                 placeName: visit.placeName ?? "Destination",
                 placeAddress: visit.placeAddress,
                 destination: coordinate(for: visit),
-                initialStatus: visit.status
+                initialStatus: visit.status,
+                tripType: visit.tripType,
+                clientPlaceVisitId: visit.clientPlaceVisitId,
+                cpClientMet: visit.cpVisit?.clientMet,
+                cpOutcome: visit.cpVisit?.outcome,
+                requiresOpenAttendance: true,
+                onTripChanged: {
+                    Task { await load() }
+                }
             )
         }
     }

@@ -49,12 +49,24 @@ struct HomeView: View {
                     placeName: visit.displayName,
                     placeAddress: visit.placeAddress,
                     destination: coordinate(for: visit),
-                    initialStatus: visit.status
+                    initialStatus: visit.status,
+                    tripType: visit.tripType,
+                    clientPlaceVisitId: visit.clientPlaceVisitId,
+                    cpClientMet: visit.cpVisit?.clientMet,
+                    cpOutcome: visit.cpVisit?.outcome,
+                    requiresOpenAttendance: true,
+                    onTripChanged: {
+                        Task { await reload() }
+                    }
                 )
             }
             .task {
                 await reload()
                 appeared = true
+            }
+            .onAppear {
+                guard appeared else { return }
+                Task { await reload() }
             }
         }
     }
@@ -226,6 +238,7 @@ struct HomeView: View {
                             time: formatVisitTimeOrDate(visit),
                             distance: visit.hasMappedLocation ? "Open route" : "Not mapped",
                             state: tripState(for: visit),
+                            etaText: etaText(for: visit),
                             canOpen: canOpen(visit)
                         ) {
                             guard canOpen(visit) else { return }
@@ -331,6 +344,9 @@ struct HomeView: View {
         if ["completed", "complete", "done", "closed"].contains(status) {
             return .complete
         }
+        if visit.needsCpOutcomeDetails {
+            return .reaching
+        }
         if ["in-progress", "in_progress", "ongoing", "started", "active", "arrived"].contains(status) {
             return status == "arrived" ? .reaching : .enroute
         }
@@ -341,7 +357,15 @@ struct HomeView: View {
     }
 
     private func canOpen(_ visit: GeoTrackTodayVisit) -> Bool {
-        !["completed", "complete", "done", "closed"].contains(visit.status.lowercased())
+        let state = tripState(for: visit)
+        return state != .complete && state != .clockInFirst
+    }
+
+    private func etaText(for visit: GeoTrackTodayVisit) -> String {
+        if visit.needsCpOutcomeDetails {
+            return "Within \(visit.reachingRadiusMeters ?? 500)m"
+        }
+        return tripState(for: visit).eta
     }
 
     private func coordinate(for visit: GeoTrackTodayVisit) -> CLLocationCoordinate2D? {
@@ -411,6 +435,11 @@ struct HomeView: View {
     // MARK: - Formatting
 
     private func formatVisitTimeOrDate(_ visit: GeoTrackTodayVisit) -> String {
+        let start = visit.scheduledStartTime.flatMap(formatTimeValue)
+        let end = visit.scheduledEndTime.flatMap(formatTimeValue)
+        if let start, let end { return "\(start) - \(end)" }
+        if let start { return start }
+        if let end { return end }
         if let time = formatTimeValue(visit.scheduledDate) {
             return time
         }
@@ -474,6 +503,7 @@ private struct HomeTripCard: View {
     let time: String
     let distance: String
     let state: HomeTripState
+    let etaText: String
     let canOpen: Bool
     let action: () -> Void
 
@@ -553,7 +583,7 @@ private struct HomeTripCard: View {
 
             VStack(spacing: 16) {
                 statRow(icon: "clock", label: "Time", value: time)
-                statRow(icon: "timer", label: "ETA", value: state.eta)
+                statRow(icon: "timer", label: "ETA", value: etaText)
             }
             .frame(maxWidth: .infinity)
         }
@@ -759,11 +789,26 @@ private enum HomeStar: CaseIterable, Identifiable {
 
 private extension GeoTrackTodayVisit {
     var displayName: String {
-        (placeName?.trimmingCharacters(in: .whitespacesAndNewlines)).flatMap { $0.isEmpty ? nil : $0 } ?? "Scheduled Visit"
+        placeName?.nilIfBlank
+            ?? leadName?.nilIfBlank
+            ?? "Scheduled Visit"
     }
 
     var hasMappedLocation: Bool {
         placeLat != nil && placeLng != nil
+    }
+
+    var needsCpOutcomeDetails: Bool {
+        clientPlaceVisitId?.nilIfBlank != nil
+            && status.lowercased() == "arrived"
+            && cpVisit?.outcome?.nilIfBlank == nil
+    }
+}
+
+private extension String {
+    var nilIfBlank: String? {
+        let trimmed = trimmingCharacters(in: .whitespacesAndNewlines)
+        return trimmed.isEmpty ? nil : trimmed
     }
 }
 
