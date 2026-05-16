@@ -305,6 +305,7 @@ struct ConvexChatMessage: Decodable, Identifiable, Equatable, Sendable {
   var attachmentStorageId: String? { attachments?.first?.storageId }
   var attachmentFileName: String? { attachments?.first?.fileName }
   var attachmentMimeType: String? { attachments?.first?.fileType }
+  var attachmentFileSize: Int? { attachments?.first?.fileSize }
   var attachmentTitle: String? { nil }
   var attachmentDescription: String? { nil }
   var attachmentThumbnail: String? { attachments?.first?.thumbnail }
@@ -626,6 +627,7 @@ struct ChannelChatMessage: Decodable, Identifiable, Equatable, Sendable {
   var attachmentType: String? { attachments?.first?.fileType }
   var attachmentFileName: String? { attachments?.first?.fileName }
   var attachmentMimeType: String? { attachments?.first?.fileType }
+  var attachmentFileSize: Int? { attachments?.first?.fileSize }
   var attachmentUrl: String? { attachments?.first?.url }
 
   init(

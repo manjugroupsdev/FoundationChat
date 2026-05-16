@@ -599,6 +599,7 @@ struct ConversationsListView: View {
       existing.attachementType = remoteMessage.attachmentType
       existing.attachementFileName = remoteMessage.attachmentFileName
       existing.attachementMimeType = remoteMessage.attachmentMimeType
+      existing.attachementFileSize = remoteMessage.attachmentFileSize
       existing.attachementTitle = remoteMessage.attachmentTitle
       existing.attachementDescription = remoteMessage.attachmentDescription
       existing.attachementThumbnail = remoteMessage.attachmentThumbnail
@@ -619,6 +620,7 @@ struct ConversationsListView: View {
       pendingMessage.attachementType = remoteMessage.attachmentType
       pendingMessage.attachementFileName = remoteMessage.attachmentFileName
       pendingMessage.attachementMimeType = remoteMessage.attachmentMimeType
+      pendingMessage.attachementFileSize = remoteMessage.attachmentFileSize
       pendingMessage.attachementTitle = remoteMessage.attachmentTitle
       pendingMessage.attachementDescription = remoteMessage.attachmentDescription
       pendingMessage.attachementThumbnail = remoteMessage.attachmentThumbnail
@@ -638,6 +640,7 @@ struct ConversationsListView: View {
       attachementType: remoteMessage.attachmentType,
       attachementFileName: remoteMessage.attachmentFileName,
       attachementMimeType: remoteMessage.attachmentMimeType,
+      attachementFileSize: remoteMessage.attachmentFileSize,
       attachementTitle: remoteMessage.attachmentTitle,
       attachementDescription: remoteMessage.attachmentDescription,
       attachementThumbnail: remoteMessage.attachmentThumbnail,
@@ -678,6 +681,7 @@ struct ConversationsListView: View {
     message.attachementType = nil
     message.attachementFileName = nil
     message.attachementMimeType = nil
+    message.attachementFileSize = nil
     message.attachementTitle = nil
     message.attachementDescription = nil
     message.attachementThumbnail = nil

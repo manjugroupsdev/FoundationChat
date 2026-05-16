@@ -21,51 +21,49 @@ struct CpVisitsView: View {
     }
 
     var body: some View {
-        VStack(spacing: 0) {
+        ScrollView {
             filterPills
 
-            ScrollView {
-                if isLoading && visits.isEmpty {
-                    skeletonList
-                        .padding(.horizontal, 16)
-                        .padding(.top, 16)
-                } else if filteredVisits.isEmpty {
-                    emptyState
-                } else {
-                    LazyVStack(spacing: 12) {
-                        ForEach(filteredVisits) { visit in
-                            if visit.isOpenableCpVisit {
-                                NavigationLink {
-                                    TripNavigationView(
-                                        visitId: visit.id,
-                                        placeName: visit.placeName ?? visit.leadName ?? "CP Visit",
-                                        placeAddress: visit.placeAddress,
-                                        destination: coordinate(for: visit),
-                                        initialStatus: visit.status,
-                                        tripType: visit.tripType,
-                                        clientPlaceVisitId: visit.clientPlaceVisitId,
-                                        cpClientMet: visit.cpVisit?.clientMet,
-                                        cpOutcome: visit.cpVisit?.outcome,
-                                        onTripChanged: {
-                                            Task { await load() }
-                                        }
-                                    )
-                                } label: {
-                                    CpVisitCard(visit: visit, isClockedIn: isClockedIn)
-                                }
-                                .buttonStyle(.plain)
-                            } else {
-                                CpVisitCard(visit: visit, isClockedIn: isClockedIn)
-                            }
-                        }
-                    }
+            if isLoading && visits.isEmpty {
+                skeletonList
                     .padding(.horizontal, 16)
                     .padding(.top, 16)
-                    .padding(.bottom, 32)
+            } else if filteredVisits.isEmpty {
+                emptyState
+            } else {
+                LazyVStack(spacing: 12) {
+                    ForEach(filteredVisits) { visit in
+                        if visit.isOpenableCpVisit {
+                            NavigationLink {
+                                TripNavigationView(
+                                    visitId: visit.id,
+                                    placeName: visit.placeName ?? visit.leadName ?? "CP Visit",
+                                    placeAddress: visit.placeAddress,
+                                    destination: coordinate(for: visit),
+                                    initialStatus: visit.status,
+                                    tripType: visit.tripType,
+                                    clientPlaceVisitId: visit.clientPlaceVisitId,
+                                    cpClientMet: visit.cpVisit?.clientMet,
+                                    cpOutcome: visit.cpVisit?.outcome,
+                                    onTripChanged: {
+                                        Task { await load() }
+                                    }
+                                )
+                            } label: {
+                                CpVisitCard(visit: visit, isClockedIn: isClockedIn)
+                            }
+                            .buttonStyle(.plain)
+                        } else {
+                            CpVisitCard(visit: visit, isClockedIn: isClockedIn)
+                        }
+                    }
                 }
+                .padding(.horizontal, 16)
+                .padding(.top, 16)
+                .padding(.bottom, 32)
             }
-            .refreshable { await load() }
         }
+        .refreshable { await load() }
         .background(Color(hex: 0xF1F3F8).ignoresSafeArea())
         .navigationTitle("Cp Visits")
         .navigationBarTitleDisplayMode(.inline)
