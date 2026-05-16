@@ -1,6 +1,7 @@
 import AVFoundation
 import AVKit
 import Combine
+import QuickLook
 import SwiftUI
 import UIKit
 
@@ -8,20 +9,47 @@ struct MessageAttachementView: View {
   let message: Message
   let isOutgoing: Bool
   @State private var isPresentingFullscreenImage = false
+  @State private var previewAttachment: NativeAttachmentPreview?
 
   private var isImageAttachment: Bool {
-    message.attachementType == "image"
-      || message.attachementMimeType?.hasPrefix("image/") == true
+    attachmentHints.contains("image")
+      || message.attachementMimeType?.lowercased().hasPrefix("image/") == true
+      || Self.imageExtensions.contains(fileExtensionHint)
   }
 
   private var isVideoAttachment: Bool {
-    message.attachementType == "video"
-      || message.attachementMimeType?.hasPrefix("video/") == true
+    !isAudioAttachment && (
+      attachmentHints.contains("video")
+      || message.attachementMimeType?.lowercased().hasPrefix("video/") == true
+      || Self.videoExtensions.contains(fileExtensionHint)
+    )
   }
 
   private var isAudioAttachment: Bool {
-    message.attachementType == "audio"
-      || message.attachementMimeType?.hasPrefix("audio/") == true
+    attachmentHints.contains { hint in
+      hint == "audio" || hint == "voice" || hint.hasPrefix("audio/") || hint.contains("audio")
+    } || Self.audioExtensions.contains(fileExtensionHint)
+  }
+
+  private var attachmentHints: [String] {
+    [
+      message.attachementType,
+      message.attachementMimeType,
+      message.attachementFileName,
+      message.attachementTitle,
+    ]
+    .compactMap { $0?.trimmingCharacters(in: .whitespacesAndNewlines).lowercased() }
+    .filter { !$0.isEmpty }
+  }
+
+  private var fileExtensionHint: String {
+    if let name = message.attachementFileName, !name.isEmpty {
+      return URL(fileURLWithPath: name).pathExtension.lowercased()
+    }
+    if let url = attachmentURL, !url.pathExtension.isEmpty {
+      return url.pathExtension.lowercased()
+    }
+    return ""
   }
 
   private var mediaURL: URL? {
@@ -75,12 +103,6 @@ struct MessageAttachementView: View {
       .fullScreenCover(isPresented: $isPresentingFullscreenImage) {
         FullscreenImageViewer(imageURL: mediaURL)
       }
-    } else if isVideoAttachment, let previewURL = mediaURL, let attachmentURL {
-      VideoInlinePreview(previewURL: previewURL, videoURL: attachmentURL, isPendingUpload: isPendingUpload)
-        .clipShape(.rect(cornerRadius: 16))
-    } else if isVideoAttachment, let mediaURL {
-      VideoInlinePreview(previewURL: mediaURL, videoURL: mediaURL, isPendingUpload: isPendingUpload)
-        .clipShape(.rect(cornerRadius: 16))
     } else if isAudioAttachment, let attachmentURL {
       AudioAttachmentPlaybackView(
         url: attachmentURL,
@@ -89,6 +111,12 @@ struct MessageAttachementView: View {
         durationOverride: audioDurationHint,
         isPendingUpload: isPendingUpload
       )
+    } else if isVideoAttachment, let previewURL = mediaURL, let attachmentURL {
+      VideoInlinePreview(previewURL: previewURL, videoURL: attachmentURL, isPendingUpload: isPendingUpload)
+        .clipShape(.rect(cornerRadius: 16))
+    } else if isVideoAttachment, let mediaURL {
+      VideoInlinePreview(previewURL: mediaURL, videoURL: mediaURL, isPendingUpload: isPendingUpload)
+        .clipShape(.rect(cornerRadius: 16))
     } else if let displayFileName {
       HStack(spacing: 8) {
         Image(systemName: "doc")
@@ -111,9 +139,184 @@ struct MessageAttachementView: View {
       .clipShape(.rect(cornerRadius: 12))
       .onTapGesture {
         if let attachmentURL {
-          UIApplication.shared.open(attachmentURL)
+          previewAttachment = NativeAttachmentPreview(url: attachmentURL, fileName: displayFileName)
         }
       }
+      .sheet(item: $previewAttachment) { item in
+        NativeAttachmentPreviewSheet(item: item)
+      }
+    }
+  }
+
+  private static let imageExtensions: Set<String> = ["jpg", "jpeg", "png", "gif", "heic", "heif", "webp"]
+  private static let videoExtensions: Set<String> = ["mov", "mp4", "m4v", "avi", "webm"]
+  private static let audioExtensions: Set<String> = ["m4a", "mp3", "wav", "aac", "caf", "aiff", "aif", "mp4", "webm", "ogg", "opus"]
+}
+
+private struct NativeAttachmentPreview: Identifiable {
+  let id = UUID()
+  let url: URL
+  let fileName: String?
+}
+
+private struct NativeAttachmentPreviewSheet: View {
+  let item: NativeAttachmentPreview
+
+  @Environment(\.dismiss) private var dismiss
+  @State private var localURL: URL?
+  @State private var errorMessage: String?
+
+  var body: some View {
+    NavigationStack {
+      Group {
+        if let localURL {
+          NativeQuickLookController(url: localURL)
+        } else if let errorMessage {
+          ContentUnavailableView(
+            "Cannot Preview",
+            systemImage: "exclamationmark.triangle",
+            description: Text(errorMessage)
+          )
+        } else {
+          VStack(spacing: 12) {
+            ProgressView()
+            Text("Loading Preview")
+              .font(.subheadline.weight(.medium))
+              .foregroundStyle(.secondary)
+          }
+          .frame(maxWidth: .infinity, maxHeight: .infinity)
+          .background(Color(.systemBackground))
+        }
+      }
+      .navigationTitle(item.fileName ?? "Attachment")
+      .navigationBarTitleDisplayMode(.inline)
+      .toolbar {
+        ToolbarItem(placement: .topBarLeading) {
+          Button("Close") { dismiss() }
+        }
+        ToolbarItem(placement: .topBarTrailing) {
+          ShareLink(item: item.url) {
+            Image(systemName: "square.and.arrow.up")
+          }
+        }
+      }
+    }
+    .task(id: item.id) {
+      await preparePreview()
+    }
+  }
+
+  @MainActor
+  private func preparePreview() async {
+    errorMessage = nil
+    localURL = nil
+
+    if item.url.isFileURL {
+      localURL = item.url
+      return
+    }
+
+    do {
+      let (downloadedURL, response) = try await URLSession.shared.download(from: item.url)
+      let destination = FileManager.default.temporaryDirectory
+        .appendingPathComponent(previewFileName(response: response))
+
+      if FileManager.default.fileExists(atPath: destination.path) {
+        try FileManager.default.removeItem(at: destination)
+      }
+      try FileManager.default.moveItem(at: downloadedURL, to: destination)
+      localURL = destination
+    } catch {
+      if Task.isCancelled || (error as? URLError)?.code == .cancelled {
+        return
+      }
+      errorMessage = error.localizedDescription
+    }
+  }
+
+  private func previewFileName(response: URLResponse) -> String {
+    let rawName = item.fileName?.trimmingCharacters(in: .whitespacesAndNewlines)
+    let fallbackName = item.url.lastPathComponent.isEmpty ? "Attachment" : item.url.lastPathComponent
+    let name = (rawName?.isEmpty == false ? rawName : fallbackName) ?? "Attachment"
+
+    if !URL(fileURLWithPath: name).pathExtension.isEmpty {
+      return "\(UUID().uuidString)-\(name)"
+    }
+
+    let fallbackExtension = Self.fileExtension(for: response.mimeType)
+    guard !fallbackExtension.isEmpty else {
+      return "\(UUID().uuidString)-\(name)"
+    }
+    return "\(UUID().uuidString)-\(name).\(fallbackExtension)"
+  }
+
+  private static func fileExtension(for mimeType: String?) -> String {
+    switch mimeType?.lowercased() {
+    case "application/pdf":
+      return "pdf"
+    case "application/msword":
+      return "doc"
+    case "application/vnd.openxmlformats-officedocument.wordprocessingml.document":
+      return "docx"
+    case "application/vnd.ms-excel":
+      return "xls"
+    case "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet":
+      return "xlsx"
+    case "application/vnd.ms-powerpoint":
+      return "ppt"
+    case "application/vnd.openxmlformats-officedocument.presentationml.presentation":
+      return "pptx"
+    case "text/plain":
+      return "txt"
+    case "text/csv":
+      return "csv"
+    case "image/jpeg":
+      return "jpg"
+    case "image/png":
+      return "png"
+    case "audio/mp4", "audio/x-m4a", "audio/m4a":
+      return "m4a"
+    case "audio/mpeg", "audio/mp3":
+      return "mp3"
+    case "video/mp4":
+      return "mp4"
+    default:
+      return ""
+    }
+  }
+}
+
+private struct NativeQuickLookController: UIViewControllerRepresentable {
+  let url: URL
+
+  func makeUIViewController(context: Context) -> QLPreviewController {
+    let controller = QLPreviewController()
+    controller.dataSource = context.coordinator
+    return controller
+  }
+
+  func updateUIViewController(_ uiViewController: QLPreviewController, context: Context) {
+    context.coordinator.url = url
+    uiViewController.reloadData()
+  }
+
+  func makeCoordinator() -> Coordinator {
+    Coordinator(url: url)
+  }
+
+  final class Coordinator: NSObject, QLPreviewControllerDataSource {
+    var url: URL
+
+    init(url: URL) {
+      self.url = url
+    }
+
+    func numberOfPreviewItems(in controller: QLPreviewController) -> Int {
+      1
+    }
+
+    func previewController(_ controller: QLPreviewController, previewItemAt index: Int) -> QLPreviewItem {
+      url as NSURL
     }
   }
 }

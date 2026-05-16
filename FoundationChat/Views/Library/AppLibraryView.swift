@@ -154,10 +154,6 @@ private struct AppLibraryTableSection: View {
             }
             .background(Color(.secondarySystemGroupedBackground), in: RoundedRectangle(cornerRadius: 12))
 
-            Text(section.subtitle)
-                .font(AppModuleFont.rowMeta)
-                .foregroundStyle(.secondary)
-                .padding(.horizontal, 16)
         }
     }
 }
