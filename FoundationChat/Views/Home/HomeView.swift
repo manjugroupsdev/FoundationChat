@@ -28,18 +28,19 @@ struct HomeView: View {
 
                 headerTopFill
 
-                ScrollView {
-                    VStack(spacing: 0) {
-                        blueHeader
+                VStack(spacing: 0) {
+                    blueHeader
+                        .zIndex(1)
 
+                    ScrollView {
                         contentArea
                             .offset(y: headerEntryStarted ? 0 : -150)
                             .animation(.easeOut(duration: 0.72), value: headerEntryStarted)
+                            .padding(.bottom, 28)
                     }
-                    .padding(.bottom, 28)
+                    .scrollIndicators(.hidden)
+                    .refreshable { await reload() }
                 }
-                .scrollIndicators(.hidden)
-                .refreshable { await reload() }
             }
             .navigationTitle("")
             .navigationBarTitleDisplayMode(.inline)
@@ -471,10 +472,23 @@ struct HomeView: View {
             formatter.dateFormat = "yyyy-MM-dd"
             todayVisits = try await geoAPI.todayVisits(date: formatter.string(from: Date()))
             loadError = nil
+        } catch is CancellationError {
+            loadError = nil
         } catch {
+            if isCancellationError(error) {
+                loadError = nil
+                return
+            }
             todayVisits = []
             loadError = error.localizedDescription
         }
+    }
+
+    private func isCancellationError(_ error: Error) -> Bool {
+        if let urlError = error as? URLError, urlError.code == .cancelled {
+            return true
+        }
+        return (error as NSError).code == NSURLErrorCancelled
     }
 
     @MainActor
@@ -580,7 +594,10 @@ private struct HomeTripCard: View {
     let action: () -> Void
 
     var body: some View {
-        Button(action: action) {
+        Button {
+            guard canOpen else { return }
+            action()
+        } label: {
             VStack(spacing: 0) {
                 header
                 statsGrid
@@ -599,7 +616,6 @@ private struct HomeTripCard: View {
             )
         }
         .buttonStyle(.plain)
-        .disabled(!canOpen)
         .contentShape(RoundedRectangle(cornerRadius: 12))
     }
 
@@ -723,7 +739,7 @@ private enum HomeTripState: Equatable {
         case .ready: return "Start"
         case .enroute: return "Enroute"
         case .reaching: return "Reaching"
-        case .complete: return "Complete"
+        case .complete: return "Completed"
         case .clockInFirst: return "Clock in"
         }
     }
@@ -733,7 +749,7 @@ private enum HomeTripState: Equatable {
         case .ready: return "Start Trip"
         case .enroute: return "Enroute"
         case .reaching: return "Complete Trip"
-        case .complete: return "Complete"
+        case .complete: return "Completed"
         case .clockInFirst: return "Clock In First"
         }
     }
@@ -756,7 +772,8 @@ private enum HomeTripState: Equatable {
         switch self {
         case .ready: return Color(red: 0.09, green: 0.61, blue: 0.18)
         case .enroute, .reaching: return Color(red: 0.71, green: 0.28, blue: 0.03)
-        case .complete, .clockInFirst: return HomePalette.textSecondary
+        case .complete: return Color(red: 0.09, green: 0.61, blue: 0.18)
+        case .clockInFirst: return HomePalette.textSecondary
         }
     }
 
@@ -772,7 +789,8 @@ private enum HomeTripState: Equatable {
         switch self {
         case .ready, .reaching: return .white
         case .enroute: return Color(red: 0.71, green: 0.28, blue: 0.03)
-        case .complete, .clockInFirst: return HomePalette.textSecondary
+        case .complete: return Color(hex: 0x1F7A3F)
+        case .clockInFirst: return HomePalette.textSecondary
         }
     }
 
