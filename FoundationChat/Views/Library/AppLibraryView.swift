@@ -22,6 +22,8 @@ struct AppLibraryView: View {
                 Color(.systemGroupedBackground)
                     .ignoresSafeArea()
 
+                appHeaderTopFill
+
                 ScrollView(showsIndicators: false) {
                     VStack(spacing: 0) {
                         header
@@ -59,6 +61,13 @@ struct AppLibraryView: View {
                 }
             }
         }
+    }
+
+    private var appHeaderTopFill: some View {
+        Color(hex: 0x0B61CA)
+            .frame(height: 150)
+            .frame(maxWidth: .infinity, alignment: .top)
+            .ignoresSafeArea(edges: .top)
     }
 
     private func restartEntranceAnimation() {

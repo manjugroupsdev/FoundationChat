@@ -39,18 +39,19 @@ struct HRDashboardView: View {
                         }
 
                         VStack(spacing: 12) {
+                            attendanceRefreshIndicator
+
                             workingHourCard
 
                             attendanceHistoryCards
                         }
+                        .padding(.top, -89)
                         .padding(.bottom, 120)
                     }
                 }
-                .refreshable { await reloadAll() }
 
-                Color(red: 0.945, green: 0.953, blue: 0.973)
-                    .frame(height: 1)
-                    .ignoresSafeArea(edges: .top)
+                attendanceTopFill
+                    .zIndex(2)
             }
             .toolbar(.hidden, for: .navigationBar)
             .task { await reloadAll() }
@@ -62,6 +63,23 @@ struct HRDashboardView: View {
                 PunchFlowView(mode: .punchOut) { Task { await reloadAll() } }
             }
         }
+    }
+
+    @ViewBuilder
+    private var attendanceRefreshIndicator: some View {
+        if isLoading {
+            ProgressView()
+                .controlSize(.small)
+                .frame(maxWidth: .infinity)
+                .frame(height: 36)
+        }
+    }
+
+    private var attendanceTopFill: some View {
+        Color(hex: 0x0B61CA)
+            .frame(height: 74)
+            .frame(maxWidth: .infinity, alignment: .top)
+            .ignoresSafeArea(edges: .top)
     }
 
     private var headerBackground: some View {
@@ -145,14 +163,6 @@ struct HRDashboardView: View {
                     )
                 )
         )
-        .padding(.top, -89)
-        .overlay(alignment: .bottom) {
-            if isLoading {
-                ProgressView()
-                    .controlSize(.small)
-                    .padding(.bottom, 8)
-            }
-        }
     }
 
     private func statTile(title: String, value: String) -> some View {

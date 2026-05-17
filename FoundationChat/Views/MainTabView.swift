@@ -19,11 +19,39 @@ struct MainTabView: View {
     @State private var openConversationIDFromPush: String?
     @State private var openChannelIDFromPush: String?
 
+    init() {
+        Self.configureTabBarColors()
+    }
+
+    private static func configureTabBarColors() {
+        let active = UIColor(red: 0.106, green: 0.792, blue: 0.043, alpha: 1)
+        let inactive = UIColor(red: 0.6, green: 0.615, blue: 0.635, alpha: 1)
+        let tabBar = UITabBar.appearance()
+        let appearance = UITabBarAppearance()
+        appearance.configureWithDefaultBackground()
+        [appearance.stackedLayoutAppearance,
+         appearance.inlineLayoutAppearance,
+         appearance.compactInlineLayoutAppearance].forEach { itemAppearance in
+            itemAppearance.normal.iconColor = inactive
+            itemAppearance.normal.titleTextAttributes = [.foregroundColor: inactive]
+            itemAppearance.selected.iconColor = active
+            itemAppearance.selected.titleTextAttributes = [.foregroundColor: active]
+        }
+        tabBar.standardAppearance = appearance
+        tabBar.scrollEdgeAppearance = appearance
+        tabBar.tintColor = active
+        tabBar.unselectedItemTintColor = inactive
+    }
+
     var body: some View {
         TabView(selection: $selectedTab) {
             HomeView()
                 .tabItem {
-                    Label("Home", systemImage: "house.fill")
+                    Label {
+                        Text("Home")
+                    } icon: {
+                        Image("AndroidNavHomeIcon")
+                    }
                 }
                 .tag(AppTab.home)
 
@@ -32,7 +60,7 @@ struct MainTabView: View {
                     Label {
                         Text("Attendance")
                     } icon: {
-                        Image("AttendanceTabIcon")
+                        Image("AndroidNavAttendanceIcon")
                     }
                 }
                 .tag(AppTab.hr)
@@ -44,15 +72,26 @@ struct MainTabView: View {
                 openConversationIDFromPush = nil
             }
             .tabItem {
-                Label("Chat", systemImage: "message.fill")
+                Label {
+                    Text("Chat")
+                } icon: {
+                    Image("AndroidNavChatIcon")
+                }
             }
             .tag(AppTab.chats)
 
             AppLibraryView()
                 .tabItem {
-                    Label("Apps", systemImage: "square.grid.2x2.fill")
+                    Label {
+                        Text("Apps")
+                    } icon: {
+                        Image("AndroidNavAppsIcon")
+                    }
                 }
                 .tag(AppTab.apps)
+        }
+        .onAppear {
+            Self.configureTabBarColors()
         }
         .onReceive(NotificationCenter.default.publisher(for: .didReceivePushNavigationRoute)) { notification in
             guard let route = notification.object as? PushNavigationRoute else { return }
