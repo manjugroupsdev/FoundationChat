@@ -7,6 +7,7 @@ struct AppLibraryView: View {
     @State private var selectedFilter: AppLibraryFilter = .all
     @State private var listDidAppear = false
     @State private var navDidAppear = false
+    @State private var isRefreshingPermissions = false
 
     private var visibleSections: [AppLibrarySection] {
         AppLibrarySection.makeSections(
@@ -22,32 +23,31 @@ struct AppLibraryView: View {
                 Color(.systemGroupedBackground)
                     .ignoresSafeArea()
 
-                ScrollView(showsIndicators: false) {
-                    VStack(spacing: 0) {
-                        header
+                appHeaderTopFill
 
+                VStack(spacing: 0) {
+                    header
+                        .zIndex(1)
+
+                    AppLibraryLoadingStrip(isLoading: isRefreshingPermissions)
+
+                    ScrollView(showsIndicators: false) {
                         LazyVStack(spacing: 24) {
-                            ForEach(Array(visibleSections.enumerated()), id: \.element.id) { index, section in
-                                AppLibraryTableSection(section: section)
-                                    .opacity(listDidAppear ? 1 : 0)
-                                    .offset(y: listDidAppear ? 0 : 22)
-                                    .animation(
-                                        .spring(response: 0.42, dampingFraction: 0.9)
-                                            .delay(0.08 + Double(index) * 0.05),
-                                        value: listDidAppear
-                                    )
-                            }
+                            appSections
                         }
                         .padding(.horizontal, 16)
                         .padding(.top, 20)
                         .padding(.bottom, 120)
+                    }
+                    .refreshable {
+                        await refreshPermissions()
                     }
                 }
                 .ignoresSafeArea(edges: .top)
             }
             .toolbar(.hidden, for: .navigationBar)
             .task {
-                await authStore.refreshIAMPermissions()
+                await refreshPermissions()
             }
             .onAppear {
                 restartEntranceAnimation()
@@ -59,6 +59,26 @@ struct AppLibraryView: View {
                 }
             }
         }
+    }
+
+    private var appSections: some View {
+        ForEach(Array(visibleSections.enumerated()), id: \.element.id) { index, section in
+            AppLibraryTableSection(section: section)
+                .opacity(listDidAppear ? 1 : 0)
+                .offset(y: listDidAppear ? 0 : 22)
+                .animation(
+                    .spring(response: 0.42, dampingFraction: 0.9)
+                        .delay(0.08 + Double(index) * 0.05),
+                    value: listDidAppear
+                )
+        }
+    }
+
+    private var appHeaderTopFill: some View {
+        Color(hex: 0x0B61CA)
+            .frame(height: 150)
+            .frame(maxWidth: .infinity, alignment: .top)
+            .ignoresSafeArea(edges: .top)
     }
 
     private func restartEntranceAnimation() {
@@ -73,57 +93,77 @@ struct AppLibraryView: View {
         }
     }
 
+    @MainActor
+    private func refreshPermissions() async {
+        isRefreshingPermissions = true
+        defer { isRefreshingPermissions = false }
+        await authStore.refreshIAMPermissions()
+    }
+
     private var header: some View {
-        GeometryReader { proxy in
-            let minY = proxy.frame(in: .global).minY
-            let scrollY = max(0, -minY)
-            let fade = max(0, min(1, 1 - scrollY / 300))
+        VStack(spacing: 0) {
+            ZStack(alignment: .top) {
+                LinearGradient(
+                    colors: [Color(hex: 0x0B61CA), Color(hex: 0x02499D)],
+                    startPoint: .top,
+                    endPoint: .bottom
+                )
+                .clipShape(.rect(bottomLeadingRadius: 24, bottomTrailingRadius: 24))
 
-            VStack(spacing: 0) {
-                ZStack(alignment: .top) {
-                    LinearGradient(
-                        colors: [Color(hex: 0x0B61CA), Color(hex: 0x02499D)],
-                        startPoint: .top,
-                        endPoint: .bottom
-                    )
-                    .clipShape(.rect(bottomLeadingRadius: 24, bottomTrailingRadius: 24))
+                HStack(alignment: .top) {
+                    VStack(alignment: .leading, spacing: 5) {
+                        Text("App Library")
+                            .font(AppModuleFont.screenTitle)
+                            .foregroundStyle(.white)
 
-                    HStack(alignment: .top) {
-                        VStack(alignment: .leading, spacing: 5) {
-                            Text("App Library")
-                                .font(AppModuleFont.screenTitle)
-                                .foregroundStyle(.white)
-
-                            Text("Everything grouped for quick access")
-                                .font(AppModuleFont.rowBody)
-                                .foregroundStyle(Color(hex: 0xD9D6FE))
-                                .lineLimit(2)
-                        }
-                        .frame(maxWidth: 234, alignment: .leading)
-                        .opacity(fade)
-                        .offset(y: scrollY * 0.25)
-
-                        Spacer(minLength: 8)
-
-                        Image("AppLibraryIconAppsHeader")
-                            .resizable()
-                            .scaledToFit()
-                            .frame(width: 119, height: 89)
-                            .opacity(fade)
-                            .offset(y: scrollY * 0.45)
+                        Text("Everything grouped for quick access")
+                            .font(AppModuleFont.rowBody)
+                            .foregroundStyle(Color(hex: 0xD9D6FE))
+                            .lineLimit(2)
                     }
-                    .padding(.top, 71)
-                    .padding(.horizontal, 24)
-                }
-                .frame(height: 161)
+                    .frame(maxWidth: 234, alignment: .leading)
 
-                AppLibraryFilterStrip(selectedFilter: $selectedFilter)
-                    .opacity(navDidAppear ? 1 : 0)
-                    .offset(y: navDidAppear ? 0 : 18)
-                    .animation(.spring(response: 0.38, dampingFraction: 0.86).delay(0.06), value: navDidAppear)
+                    Spacer(minLength: 8)
+
+                    Image("AppLibraryIconAppsHeader")
+                        .resizable()
+                        .scaledToFit()
+                        .frame(width: 119, height: 89)
+                }
+                .padding(.top, 71)
+                .padding(.horizontal, 24)
+            }
+            .frame(height: 161)
+
+            AppLibraryFilterStrip(selectedFilter: $selectedFilter)
+                .padding(.top, 14)
+                .padding(.bottom, 14)
+                .background(Color(.systemGroupedBackground))
+                .opacity(navDidAppear ? 1 : 0)
+                .offset(y: navDidAppear ? 0 : 18)
+                .animation(.spring(response: 0.38, dampingFraction: 0.86).delay(0.06), value: navDidAppear)
+        }
+        .background(Color(.systemGroupedBackground))
+    }
+}
+
+private struct AppLibraryLoadingStrip: View {
+    let isLoading: Bool
+
+    var body: some View {
+        ZStack(alignment: .leading) {
+            Rectangle()
+                .fill(Color(.systemGroupedBackground))
+
+            if isLoading {
+                ProgressView()
+                    .progressViewStyle(.linear)
+                    .tint(Color(hex: 0x0B61CA))
+                    .transition(.opacity)
             }
         }
-        .frame(height: 235)
+        .frame(height: 4)
+        .animation(.easeOut(duration: 0.18), value: isLoading)
     }
 }
 

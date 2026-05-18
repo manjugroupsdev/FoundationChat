@@ -210,6 +210,7 @@ final class AuthStore {
     let normalized = apnsToken.trimmingCharacters(in: .whitespacesAndNewlines).lowercased()
     guard !normalized.isEmpty else { return }
     lastKnownAPNSToken = normalized
+    PushTokenCache.lastKnownToken = normalized
 
     // Register with backend if signed in
     guard let t = token, registeredAPNSToken != normalized else { return }
@@ -811,6 +812,11 @@ final class AuthStore {
 
   func clearTypingIndicator(conversationId: String? = nil, channelId: String? = nil) async throws {
     // Typing auto-expires after 5s server-side — no explicit clear endpoint.
+  }
+
+  func fetchTypingUsers(conversationId: String? = nil, channelId: String? = nil) async throws -> [TypingUser] {
+    let t = try requireToken()
+    return try await ChatAPIService.getTyping(token: t, channelId: channelId, conversationId: conversationId)
   }
 
   func subscribeTypingUsers(conversationId: String? = nil, channelId: String? = nil) throws -> AnyPublisher<[TypingUser]?, Never> {

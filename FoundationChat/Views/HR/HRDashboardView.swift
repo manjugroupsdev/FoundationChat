@@ -31,26 +31,23 @@ struct HRDashboardView: View {
                 Color(red: 0.945, green: 0.953, blue: 0.973)
                     .ignoresSafeArea()
 
-                ScrollView {
-                    VStack(spacing: 0) {
-                        ZStack(alignment: .top) {
-                            headerBackground
-                            androidHeader
-                        }
+                VStack(spacing: 0) {
+                    fixedAttendanceHeader
+                        .zIndex(1)
 
-                        VStack(spacing: 12) {
-                            workingHourCard
+                    HRDashboardLoadingStrip(isLoading: isLoading)
 
-                            attendanceHistoryCards
-                        }
+                    ScrollView {
+                        attendanceHistoryCards
                         .padding(.bottom, 120)
                     }
+                    .refreshable {
+                        await reloadAll()
+                    }
                 }
-                .refreshable { await reloadAll() }
 
-                Color(red: 0.945, green: 0.953, blue: 0.973)
-                    .frame(height: 1)
-                    .ignoresSafeArea(edges: .top)
+                attendanceTopFill
+                    .zIndex(2)
             }
             .toolbar(.hidden, for: .navigationBar)
             .task { await reloadAll() }
@@ -62,6 +59,25 @@ struct HRDashboardView: View {
                 PunchFlowView(mode: .punchOut) { Task { await reloadAll() } }
             }
         }
+    }
+
+    private var fixedAttendanceHeader: some View {
+        VStack(spacing: 0) {
+            ZStack(alignment: .top) {
+                headerBackground
+                androidHeader
+            }
+
+            workingHourCard
+                .padding(.top, -89)
+        }
+    }
+
+    private var attendanceTopFill: some View {
+        Color(hex: 0x0B61CA)
+            .frame(height: 74)
+            .frame(maxWidth: .infinity, alignment: .top)
+            .ignoresSafeArea(edges: .top)
     }
 
     private var headerBackground: some View {
@@ -145,14 +161,6 @@ struct HRDashboardView: View {
                     )
                 )
         )
-        .padding(.top, -89)
-        .overlay(alignment: .bottom) {
-            if isLoading {
-                ProgressView()
-                    .controlSize(.small)
-                    .padding(.bottom, 8)
-            }
-        }
     }
 
     private func statTile(title: String, value: String) -> some View {
@@ -549,6 +557,26 @@ struct HRDashboardView: View {
         } catch {
             errorMessage = error.localizedDescription
         }
+    }
+}
+
+private struct HRDashboardLoadingStrip: View {
+    let isLoading: Bool
+
+    var body: some View {
+        ZStack(alignment: .leading) {
+            Rectangle()
+                .fill(Color(red: 0.945, green: 0.953, blue: 0.973))
+
+            if isLoading {
+                ProgressView()
+                    .progressViewStyle(.linear)
+                    .tint(Color(hex: 0x0B61CA))
+                    .transition(.opacity)
+            }
+        }
+        .frame(height: 4)
+        .animation(.easeOut(duration: 0.18), value: isLoading)
     }
 }
 

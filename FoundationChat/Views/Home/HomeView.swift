@@ -16,6 +16,8 @@ struct HomeView: View {
     @State private var loadError: String?
     @State private var visitToOpen: GeoTrackTodayVisit?
     @State private var appeared = false
+    @State private var headerEntryStarted = false
+    @State private var headerFloating = false
 
     private let geoAPI = GeoTrackAPIService.shared
 
@@ -26,18 +28,19 @@ struct HomeView: View {
 
                 headerTopFill
 
-                ScrollView {
-                    VStack(spacing: 0) {
-                        blueHeader
-                            .offset(y: appeared ? 0 : -260)
-                            .animation(.smooth(duration: 0.62), value: appeared)
+                VStack(spacing: 0) {
+                    blueHeader
+                        .zIndex(1)
 
+                    ScrollView {
                         contentArea
+                            .offset(y: headerEntryStarted ? 0 : -150)
+                            .animation(.easeOut(duration: 0.72), value: headerEntryStarted)
+                            .padding(.bottom, 28)
                     }
-                    .padding(.bottom, 28)
+                    .scrollIndicators(.hidden)
+                    .refreshable { await reload() }
                 }
-                .scrollIndicators(.hidden)
-                .refreshable { await reload() }
             }
             .navigationTitle("")
             .navigationBarTitleDisplayMode(.inline)
@@ -49,12 +52,26 @@ struct HomeView: View {
                     placeName: visit.displayName,
                     placeAddress: visit.placeAddress,
                     destination: coordinate(for: visit),
-                    initialStatus: visit.status
+                    initialStatus: visit.status,
+                    tripType: visit.tripType,
+                    clientPlaceVisitId: visit.clientPlaceVisitId,
+                    cpClientMet: visit.cpVisit?.clientMet,
+                    cpOutcome: visit.cpVisit?.outcome,
+                    requiresOpenAttendance: true,
+                    onTripChanged: {
+                        Task { await reload() }
+                    }
                 )
             }
             .task {
                 await reload()
                 appeared = true
+                playHomeHeaderAnimation()
+            }
+            .onAppear {
+                guard appeared else { return }
+                playHomeHeaderAnimation()
+                Task { await reload() }
             }
         }
     }
@@ -63,7 +80,7 @@ struct HomeView: View {
 
     private var headerTopFill: some View {
         HomePalette.headerBlue
-        .frame(height: 120)
+        .frame(height: 150)
         .frame(maxWidth: .infinity, alignment: .top)
         .ignoresSafeArea(edges: .top)
     }
@@ -90,12 +107,18 @@ struct HomeView: View {
                     .font(.system(size: 20, weight: .semibold))
                     .foregroundStyle(.white)
                     .padding(.top, 58)
+                    .opacity(headerEntryStarted ? 1 : 0)
+                    .offset(x: headerEntryStarted ? 0 : -30)
+                    .animation(.timingCurve(0.4, 0, 0.2, 1, duration: 0.38).delay(0.12), value: headerEntryStarted)
 
                 Text("Track your tasks, visits and\nattendance in one place.")
                     .font(.system(size: 13, weight: .medium))
                     .foregroundStyle(Color(red: 0.93, green: 0.92, blue: 1.0))
                     .lineSpacing(2)
                     .padding(.top, 7)
+                    .opacity(headerEntryStarted ? 1 : 0)
+                    .offset(x: headerEntryStarted ? 0 : -30)
+                    .animation(.timingCurve(0.4, 0, 0.2, 1, duration: 0.38).delay(0.20), value: headerEntryStarted)
 
                 Spacer()
 
@@ -112,6 +135,9 @@ struct HomeView: View {
                 }
                 .buttonStyle(.plain)
                 .padding(.bottom, 14)
+                .opacity(headerEntryStarted ? 1 : 0)
+                .offset(x: headerEntryStarted ? 0 : -30)
+                .animation(.timingCurve(0.4, 0, 0.2, 1, duration: 0.38).delay(0.30), value: headerEntryStarted)
             }
             .frame(maxWidth: .infinity, alignment: .leading)
             .padding(.leading, 16)
@@ -119,18 +145,15 @@ struct HomeView: View {
             homeHeaderActions
                 .padding(.top, 16)
                 .padding(.trailing, 12)
+                .opacity(headerEntryStarted ? 1 : 0)
+                .offset(y: headerEntryStarted ? 0 : -16)
+                .animation(.easeOut(duration: 0.36), value: headerEntryStarted)
 
-            decorativeStars
-
-            Image("HomeBannerCamera")
-                .resizable()
-                .scaledToFit()
-                .frame(width: 118, height: 100)
-                .padding(.top, 58)
-                .padding(.trailing, 6)
-                .accessibilityHidden(true)
+            bannerIllustration
+                .padding(.top, 78)
+                .padding(.trailing, 8)
         }
-        .frame(height: 184)
+        .frame(height: 222)
         .clipped()
     }
 
@@ -171,20 +194,82 @@ struct HomeView: View {
         .background(Color.white.opacity(0.18), in: Capsule())
     }
 
-    private var decorativeStars: some View {
+    private var bannerIllustration: some View {
         ZStack {
-            ForEach(HomeStar.allCases) { star in
-                Image(systemName: "sparkle")
-                    .font(.system(size: star.size, weight: .semibold))
-                    .foregroundStyle(Color.white.opacity(star.opacity))
-                    .rotationEffect(.degrees(star.rotation))
-                    .offset(x: star.x, y: star.y)
-            }
+            bannerImage(
+                name: "HomeBannerGlitter",
+                size: CGSize(width: 106, height: 52),
+                alignment: .top,
+                entryDelay: 0.16,
+                floatOffset: 4,
+                floatDelay: 1.0
+            )
+
+            bannerImage(
+                name: "HomeBannerMobile",
+                size: CGSize(width: 82, height: 108),
+                alignment: .center,
+                entryDelay: 0.20,
+                floatOffset: -6,
+                floatDelay: 0.75
+            )
+
+            bannerImage(
+                name: "HomeBannerProgress",
+                size: CGSize(width: 58, height: 37),
+                alignment: .bottomLeading,
+                entryDelay: 0.28,
+                floatOffset: 5,
+                floatDelay: 0.50
+            )
+            .padding(.bottom, 24)
+
+            bannerImage(
+                name: "HomeBannerSuitcase",
+                size: CGSize(width: 58, height: 60),
+                alignment: .bottomTrailing,
+                entryDelay: 0.36,
+                floatOffset: -5,
+                floatDelay: 1.50
+            )
+            .padding(.bottom, 16)
         }
-        .frame(width: 120, height: 100)
-        .padding(.top, 46)
-        .padding(.trailing, 22)
+        .frame(width: 126, height: 112)
         .accessibilityHidden(true)
+    }
+
+    private func bannerImage(
+        name: String,
+        size: CGSize,
+        alignment: Alignment,
+        entryDelay: Double,
+        floatOffset: CGFloat,
+        floatDelay: Double
+    ) -> some View {
+        Image(name)
+            .resizable()
+            .scaledToFit()
+            .frame(width: size.width, height: size.height)
+            .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: alignment)
+            .opacity(headerEntryStarted ? 1 : 0)
+            .scaleEffect(headerEntryStarted ? 1 : 0.92)
+            .offset(
+                x: headerEntryStarted ? 0 : 32,
+                y: headerEntryStarted ? (headerFloating ? floatOffset : 0) : 12
+            )
+            .animation(.easeOut(duration: 0.42).delay(entryDelay), value: headerEntryStarted)
+            .animation(.easeInOut(duration: 2.8).repeatForever(autoreverses: true).delay(floatDelay), value: headerFloating)
+    }
+
+    private func playHomeHeaderAnimation() {
+        headerFloating = false
+        headerEntryStarted = false
+        DispatchQueue.main.async {
+            headerEntryStarted = true
+        }
+        DispatchQueue.main.asyncAfter(deadline: .now() + 0.84) {
+            headerFloating = true
+        }
     }
 
     // MARK: - Content
@@ -226,6 +311,7 @@ struct HomeView: View {
                             time: formatVisitTimeOrDate(visit),
                             distance: visit.hasMappedLocation ? "Open route" : "Not mapped",
                             state: tripState(for: visit),
+                            etaText: etaText(for: visit),
                             canOpen: canOpen(visit)
                         ) {
                             guard canOpen(visit) else { return }
@@ -331,6 +417,9 @@ struct HomeView: View {
         if ["completed", "complete", "done", "closed"].contains(status) {
             return .complete
         }
+        if visit.needsCpOutcomeDetails {
+            return .reaching
+        }
         if ["in-progress", "in_progress", "ongoing", "started", "active", "arrived"].contains(status) {
             return status == "arrived" ? .reaching : .enroute
         }
@@ -341,7 +430,15 @@ struct HomeView: View {
     }
 
     private func canOpen(_ visit: GeoTrackTodayVisit) -> Bool {
-        !["completed", "complete", "done", "closed"].contains(visit.status.lowercased())
+        let state = tripState(for: visit)
+        return state != .complete && state != .clockInFirst
+    }
+
+    private func etaText(for visit: GeoTrackTodayVisit) -> String {
+        if visit.needsCpOutcomeDetails {
+            return "Within \(visit.reachingRadiusMeters ?? 500)m"
+        }
+        return tripState(for: visit).eta
     }
 
     private func coordinate(for visit: GeoTrackTodayVisit) -> CLLocationCoordinate2D? {
@@ -375,10 +472,23 @@ struct HomeView: View {
             formatter.dateFormat = "yyyy-MM-dd"
             todayVisits = try await geoAPI.todayVisits(date: formatter.string(from: Date()))
             loadError = nil
+        } catch is CancellationError {
+            loadError = nil
         } catch {
+            if isCancellationError(error) {
+                loadError = nil
+                return
+            }
             todayVisits = []
             loadError = error.localizedDescription
         }
+    }
+
+    private func isCancellationError(_ error: Error) -> Bool {
+        if let urlError = error as? URLError, urlError.code == .cancelled {
+            return true
+        }
+        return (error as NSError).code == NSURLErrorCancelled
     }
 
     @MainActor
@@ -411,6 +521,11 @@ struct HomeView: View {
     // MARK: - Formatting
 
     private func formatVisitTimeOrDate(_ visit: GeoTrackTodayVisit) -> String {
+        let start = visit.scheduledStartTime.flatMap(formatTimeValue)
+        let end = visit.scheduledEndTime.flatMap(formatTimeValue)
+        if let start, let end { return "\(start) - \(end)" }
+        if let start { return start }
+        if let end { return end }
         if let time = formatTimeValue(visit.scheduledDate) {
             return time
         }
@@ -474,11 +589,15 @@ private struct HomeTripCard: View {
     let time: String
     let distance: String
     let state: HomeTripState
+    let etaText: String
     let canOpen: Bool
     let action: () -> Void
 
     var body: some View {
-        Button(action: action) {
+        Button {
+            guard canOpen else { return }
+            action()
+        } label: {
             VStack(spacing: 0) {
                 header
                 statsGrid
@@ -497,7 +616,6 @@ private struct HomeTripCard: View {
             )
         }
         .buttonStyle(.plain)
-        .disabled(!canOpen)
         .contentShape(RoundedRectangle(cornerRadius: 12))
     }
 
@@ -553,7 +671,7 @@ private struct HomeTripCard: View {
 
             VStack(spacing: 16) {
                 statRow(icon: "clock", label: "Time", value: time)
-                statRow(icon: "timer", label: "ETA", value: state.eta)
+                statRow(icon: "timer", label: "ETA", value: etaText)
             }
             .frame(maxWidth: .infinity)
         }
@@ -621,7 +739,7 @@ private enum HomeTripState: Equatable {
         case .ready: return "Start"
         case .enroute: return "Enroute"
         case .reaching: return "Reaching"
-        case .complete: return "Complete"
+        case .complete: return "Completed"
         case .clockInFirst: return "Clock in"
         }
     }
@@ -631,7 +749,7 @@ private enum HomeTripState: Equatable {
         case .ready: return "Start Trip"
         case .enroute: return "Enroute"
         case .reaching: return "Complete Trip"
-        case .complete: return "Complete"
+        case .complete: return "Completed"
         case .clockInFirst: return "Clock In First"
         }
     }
@@ -654,7 +772,8 @@ private enum HomeTripState: Equatable {
         switch self {
         case .ready: return Color(red: 0.09, green: 0.61, blue: 0.18)
         case .enroute, .reaching: return Color(red: 0.71, green: 0.28, blue: 0.03)
-        case .complete, .clockInFirst: return HomePalette.textSecondary
+        case .complete: return Color(red: 0.09, green: 0.61, blue: 0.18)
+        case .clockInFirst: return HomePalette.textSecondary
         }
     }
 
@@ -670,7 +789,8 @@ private enum HomeTripState: Equatable {
         switch self {
         case .ready, .reaching: return .white
         case .enroute: return Color(red: 0.71, green: 0.28, blue: 0.03)
-        case .complete, .clockInFirst: return HomePalette.textSecondary
+        case .complete: return Color(hex: 0x1F7A3F)
+        case .clockInFirst: return HomePalette.textSecondary
         }
     }
 
@@ -759,11 +879,26 @@ private enum HomeStar: CaseIterable, Identifiable {
 
 private extension GeoTrackTodayVisit {
     var displayName: String {
-        (placeName?.trimmingCharacters(in: .whitespacesAndNewlines)).flatMap { $0.isEmpty ? nil : $0 } ?? "Scheduled Visit"
+        placeName?.nilIfBlank
+            ?? leadName?.nilIfBlank
+            ?? "Scheduled Visit"
     }
 
     var hasMappedLocation: Bool {
         placeLat != nil && placeLng != nil
+    }
+
+    var needsCpOutcomeDetails: Bool {
+        clientPlaceVisitId?.nilIfBlank != nil
+            && status.lowercased() == "arrived"
+            && cpVisit?.outcome?.nilIfBlank == nil
+    }
+}
+
+private extension String {
+    var nilIfBlank: String? {
+        let trimmed = trimmingCharacters(in: .whitespacesAndNewlines)
+        return trimmed.isEmpty ? nil : trimmed
     }
 }
 

@@ -7,6 +7,162 @@ struct GeoTrackBaseResponse: Decodable, Sendable {
     let error: String?
 }
 
+// MARK: - Tracking Bootstrap / Device Sync
+
+struct TrackingDeviceSyncRequest: Encodable, Sendable {
+    let deviceId: String
+    let platform: String
+    let appVersion: String
+    let pushToken: String?
+    let notificationPermission: Bool
+    let fineLocationPermission: Bool
+    let backgroundLocationPermission: Bool
+    let activityRecognitionPermission: Bool
+    let batteryOptimizationIgnored: Bool?
+    let manufacturer: String?
+    let model: String?
+
+    init(
+        deviceId: String,
+        platform: String = "ios",
+        appVersion: String,
+        pushToken: String? = nil,
+        notificationPermission: Bool,
+        fineLocationPermission: Bool,
+        backgroundLocationPermission: Bool,
+        activityRecognitionPermission: Bool,
+        batteryOptimizationIgnored: Bool? = nil,
+        manufacturer: String? = "Apple",
+        model: String? = nil
+    ) {
+        self.deviceId = deviceId
+        self.platform = platform
+        self.appVersion = appVersion
+        self.pushToken = pushToken
+        self.notificationPermission = notificationPermission
+        self.fineLocationPermission = fineLocationPermission
+        self.backgroundLocationPermission = backgroundLocationPermission
+        self.activityRecognitionPermission = activityRecognitionPermission
+        self.batteryOptimizationIgnored = batteryOptimizationIgnored
+        self.manufacturer = manufacturer
+        self.model = model
+    }
+}
+
+struct TrackingBootstrapResponse: Decodable, Sendable {
+    let success: Bool
+    let data: TrackingBootstrapData?
+    let error: String?
+}
+
+struct TrackingDeviceSyncResponse: Decodable, Sendable {
+    let success: Bool
+    let device: TrackingDevice?
+    let bootstrap: TrackingBootstrapData?
+    let error: String?
+}
+
+struct TrackingConsentRecord: Decodable, Sendable {
+    let staffId: String?
+    let consentVersionKey: String?
+    let policyKey: String?
+    let status: String?
+    let appVersion: String?
+    let actedAt: Int64?
+    let source: String?
+}
+
+struct TrackingAssignmentInfo: Decodable, Sendable {
+    let policyKey: String?
+    let scopeType: String?
+}
+
+struct TrackingAssignments: Decodable, Sendable {
+    let attendance: TrackingAssignmentInfo?
+    let siteVisit: TrackingAssignmentInfo?
+}
+
+struct TrackingPolicy: Decodable, Sendable {
+    let key: String?
+    let label: String?
+    let consentVersionKey: String?
+    let requiresConsent: Bool?
+    let requiresFineLocation: Bool?
+    let requiresBackgroundLocation: Bool?
+    let requiresActivityRecognition: Bool?
+    let requiresNotificationPermission: Bool?
+    let samplingMovingSeconds: Int?
+    let samplingStationarySeconds: Int?
+    let routeOptimizationEnabled: Bool?
+    let routeDeviationThresholdMeters: Int?
+}
+
+struct TrackingSession: Decodable, Sendable {
+    let id: String?
+    let staffId: String?
+    let policyKey: String?
+    let contextType: String?
+    let contextId: String?
+    let sessionState: String?
+    let deviceId: String?
+    let startedAt: Int64?
+    let endedAt: Int64?
+    let lastHeartbeatAt: Int64?
+    let lastLocationAt: Int64?
+    let routeExpectedDistanceMeters: Int?
+    let routeActualDistanceMeters: Int?
+    let routeVarianceMeters: Int?
+
+    enum CodingKeys: String, CodingKey {
+        case id = "_id"
+        case staffId, policyKey, contextType, contextId, sessionState, deviceId,
+             startedAt, endedAt, lastHeartbeatAt, lastLocationAt,
+             routeExpectedDistanceMeters, routeActualDistanceMeters, routeVarianceMeters
+    }
+}
+
+struct TrackingDevice: Decodable, Sendable {
+    let id: String?
+    let staffId: String?
+    let deviceId: String
+    let platform: String?
+    let appVersion: String?
+    let pushToken: String?
+    let notificationPermission: Bool?
+    let fineLocationPermission: Bool?
+    let backgroundLocationPermission: Bool?
+    let activityRecognitionPermission: Bool?
+    let status: String?
+    let lastSyncedAt: Int64?
+
+    enum CodingKeys: String, CodingKey {
+        case id = "_id"
+        case staffId, deviceId, platform, appVersion, pushToken,
+             notificationPermission, fineLocationPermission,
+             backgroundLocationPermission, activityRecognitionPermission,
+             status, lastSyncedAt
+    }
+}
+
+struct ConsentVersionInfo: Decodable, Sendable {
+    let key: String
+    let title: String?
+    let body: String?
+    let locale: String?
+}
+
+struct TrackingBootstrapData: Decodable, Sendable {
+    let staffId: String
+    let assignment: TrackingAssignments?
+    let consentVersion: ConsentVersionInfo?
+    let consent: TrackingConsentRecord?
+    let activeSession: TrackingSession?
+    let currentPolicy: TrackingPolicy?
+    let device: TrackingDevice?
+    let shouldTrack: Bool
+    let shouldPromptConsent: Bool
+}
+
 // MARK: - Location Point (push-batch)
 
 /// Matches the Convex locationPointValidator exactly.
@@ -289,22 +445,87 @@ struct GeoTrackTodayVisit: Decodable, Sendable {
     let clientPlaceId: String
     let scheduledDate: String
     let status: String
+    let mobileStatus: String?
+    let reachingRadiusMeters: Int?
     let placeName: String?
     let placeAddress: String?
     let placeType: String?
     let placeLat: Double?
     let placeLng: Double?
+    let tripType: String?
+    let clientPlaceVisitId: String?
+    let leadName: String?
+    let leadPhone: String?
+    let cpVisit: GeoTrackCPVisitState?
+    let scheduledStartTime: String?
+    let scheduledEndTime: String?
 
     enum CodingKeys: String, CodingKey {
         case id = "_id"
-        case clientPlaceId, scheduledDate, status, placeName, placeAddress, placeType, placeLat, placeLng
+        case clientPlaceId, scheduledDate, status, mobileStatus, reachingRadiusMeters
+        case placeName, placeAddress, placeType, placeLat, placeLng
+        case tripType, clientPlaceVisitId, leadName, leadPhone, cpVisit
+        case scheduledStartTime, scheduledEndTime
     }
+}
+
+struct GeoTrackCPVisitState: Decodable, Sendable {
+    let clientMet: Bool?
+    let clientMetAt: Double?
+    let clientNoShowReason: String?
+    let outcome: String?
+    let postponeReasons: [String]?
 }
 
 struct GeoTrackTodayVisitsResponse: Decodable, Sendable {
     let success: Bool
     let error: String?
     let data: [GeoTrackTodayVisit]?
+}
+
+// MARK: - Place Search / Directions
+
+struct GeoTrackPlaceSuggestion: Decodable, Identifiable, Sendable {
+    let id: String
+    let name: String
+    let address: String?
+    let lat: Double?
+    let lng: Double?
+}
+
+struct GeoTrackPlaceSearchResponse: Decodable, Sendable {
+    let success: Bool
+    let data: [GeoTrackPlaceSuggestion]?
+    let error: String?
+}
+
+struct GeoTrackRouteRequest: Encodable, Sendable {
+    let originLat: Double
+    let originLng: Double
+    let destLat: Double
+    let destLng: Double
+}
+
+struct GeoTrackRouteResponse: Decodable, Sendable {
+    let success: Bool
+    let encodedPolyline: String?
+    let distanceMeters: Double?
+    let durationSeconds: Double?
+    let error: String?
+}
+
+struct GeoTrackGeocodeAddressRequest: Encodable, Sendable {
+    let address: String
+}
+
+struct GeoTrackGeocodeAddressResponse: Decodable, Sendable {
+    let success: Bool
+    let lat: Double?
+    let lng: Double?
+    let formattedAddress: String?
+    let placeId: String?
+    let name: String?
+    let error: String?
 }
 
 // MARK: - Visit Create
@@ -348,12 +569,20 @@ struct GeoTrackCompleteVisitRequest: Encodable, Sendable {
     let lat: Double?
     let lng: Double?
     let remarks: String?
+    let arrivalPhotoStorageId: String?
 
-    init(visitId: String, lat: Double? = nil, lng: Double? = nil, remarks: String? = nil) {
+    init(
+        visitId: String,
+        lat: Double? = nil,
+        lng: Double? = nil,
+        remarks: String? = nil,
+        arrivalPhotoStorageId: String? = nil
+    ) {
         self.visitId = visitId
         self.lat = lat
         self.lng = lng
         self.remarks = remarks
+        self.arrivalPhotoStorageId = arrivalPhotoStorageId
     }
 }
 

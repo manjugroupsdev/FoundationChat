@@ -12,6 +12,7 @@ final class Message {
   var attachementType: String?
   var attachementFileName: String?
   var attachementMimeType: String?
+  var attachementFileSize: Int?
   var attachementTitle: String?
   var attachementDescription: String?
   var attachementThumbnail: String?
@@ -30,6 +31,7 @@ final class Message {
     attachementType: String? = nil,
     attachementFileName: String? = nil,
     attachementMimeType: String? = nil,
+    attachementFileSize: Int? = nil,
     attachementTitle: String? = nil,
     attachementDescription: String? = nil,
     attachementThumbnail: String? = nil,
@@ -48,6 +50,7 @@ final class Message {
     self.attachementType = attachementType
     self.attachementFileName = attachementFileName
     self.attachementMimeType = attachementMimeType
+    self.attachementFileSize = attachementFileSize
     self.attachementTitle = attachementTitle
     self.attachementDescription = attachementDescription
     self.attachementThumbnail = attachementThumbnail

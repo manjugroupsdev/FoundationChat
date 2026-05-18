@@ -118,34 +118,32 @@ struct MessageAttachementView: View {
       VideoInlinePreview(previewURL: mediaURL, videoURL: mediaURL, isPendingUpload: isPendingUpload)
         .clipShape(.rect(cornerRadius: 16))
     } else if let displayFileName {
-      HStack(spacing: 8) {
-        Image(systemName: "doc")
-          .foregroundStyle(isOutgoing ? .white.opacity(0.95) : .primary)
-        Text(displayFileName)
-          .foregroundStyle(isOutgoing ? .white : .primary)
-          .font(.subheadline)
-          .lineLimit(2)
-        if let attachmentURL {
-          ShareLink(item: attachmentURL) {
-            Image(systemName: "square.and.arrow.up")
-              .foregroundStyle(isOutgoing ? .white.opacity(0.95) : .primary)
+      DocumentAttachmentCard(
+        fileName: displayFileName,
+        fileExtension: fileExtensionHint,
+        mimeType: message.attachementMimeType,
+        fileSize: attachmentFileSize,
+        url: attachmentURL,
+        isOutgoing: isOutgoing,
+        onOpen: {
+          if let attachmentURL {
+            previewAttachment = NativeAttachmentPreview(url: attachmentURL, fileName: displayFileName)
           }
-          .buttonStyle(.plain)
         }
-      }
-      .padding(.horizontal, 10)
-      .padding(.vertical, 8)
-      .background(isOutgoing ? .white.opacity(0.18) : Color.black.opacity(0.04))
-      .clipShape(.rect(cornerRadius: 12))
-      .onTapGesture {
-        if let attachmentURL {
-          previewAttachment = NativeAttachmentPreview(url: attachmentURL, fileName: displayFileName)
-        }
-      }
+      )
       .sheet(item: $previewAttachment) { item in
         NativeAttachmentPreviewSheet(item: item)
       }
     }
+  }
+
+  private var attachmentFileSize: Int? {
+    if let size = message.attachementFileSize, size > 0 {
+      return size
+    }
+    guard let attachmentURL, attachmentURL.isFileURL else { return nil }
+    let values = try? attachmentURL.resourceValues(forKeys: [.fileSizeKey])
+    return values?.fileSize
   }
 
   private static let imageExtensions: Set<String> = ["jpg", "jpeg", "png", "gif", "heic", "heif", "webp"]
@@ -157,6 +155,135 @@ private struct NativeAttachmentPreview: Identifiable {
   let id = UUID()
   let url: URL
   let fileName: String?
+}
+
+private struct DocumentAttachmentCard: View {
+  let fileName: String
+  let fileExtension: String
+  let mimeType: String?
+  let fileSize: Int?
+  let url: URL?
+  let isOutgoing: Bool
+  let onOpen: () -> Void
+
+  private var documentKind: String {
+    let ext = fileExtension.trimmingCharacters(in: .whitespacesAndNewlines).uppercased()
+    if !ext.isEmpty { return ext }
+    if mimeType?.lowercased() == "application/pdf" { return "PDF" }
+    return "FILE"
+  }
+
+  private var metadataText: String {
+    if let fileSize, fileSize > 0 {
+      return "\(documentKind) · \(Self.byteFormatter.string(fromByteCount: Int64(fileSize)))"
+    }
+    return documentKind
+  }
+
+  private var cardBackground: Color {
+    isOutgoing ? Color(red: 0.02, green: 0.42, blue: 0.82) : .white
+  }
+
+  private var topPanelBackground: Color {
+    isOutgoing ? .white.opacity(0.10) : Color.black.opacity(0.035)
+  }
+
+  private var dividerColor: Color {
+    isOutgoing ? .white.opacity(0.20) : Color.black.opacity(0.10)
+  }
+
+  private var primaryText: Color {
+    isOutgoing ? .white : Color.black.opacity(0.92)
+  }
+
+  private var secondaryText: Color {
+    isOutgoing ? .white.opacity(0.72) : Color.black.opacity(0.56)
+  }
+
+  var body: some View {
+    VStack(spacing: 0) {
+      Button(action: onOpen) {
+        HStack(spacing: 14) {
+          ZStack {
+            Circle()
+              .fill(isOutgoing ? .white.opacity(0.22) : Color(red: 0.91, green: 0.94, blue: 0.98))
+              .frame(width: 54, height: 54)
+
+            RoundedRectangle(cornerRadius: 13, style: .continuous)
+              .fill(isOutgoing ? .white.opacity(0.92) : Color(red: 0.87, green: 0.93, blue: 1.0))
+              .frame(width: 41, height: 34)
+
+            Text(documentKind)
+              .font(.system(size: 15, weight: .semibold))
+              .foregroundStyle(Color(red: 0.02, green: 0.42, blue: 0.82))
+              .lineLimit(1)
+              .minimumScaleFactor(0.68)
+          }
+          .accessibilityHidden(true)
+
+          VStack(alignment: .leading, spacing: 4) {
+            Text(fileName)
+              .font(.system(size: 17, weight: .semibold))
+              .foregroundStyle(primaryText)
+              .lineLimit(2)
+              .multilineTextAlignment(.leading)
+
+            Text(metadataText)
+              .font(.system(size: 15, weight: .regular))
+              .foregroundStyle(secondaryText)
+              .lineLimit(1)
+          }
+          .frame(maxWidth: .infinity, alignment: .leading)
+        }
+        .padding(.horizontal, 14)
+        .padding(.vertical, 14)
+        .contentShape(Rectangle())
+      }
+      .buttonStyle(.plain)
+      .background(topPanelBackground)
+
+      Divider()
+        .background(dividerColor)
+
+      HStack(spacing: 0) {
+        Button("Open", action: onOpen)
+          .frame(maxWidth: .infinity)
+
+        Rectangle()
+          .fill(dividerColor)
+          .frame(width: 1)
+
+        if let url {
+          ShareLink(item: url) {
+            Text("Save as...")
+              .frame(maxWidth: .infinity)
+          }
+        } else {
+          Text("Save as...")
+            .foregroundStyle(Color.black.opacity(0.28))
+            .frame(maxWidth: .infinity)
+        }
+      }
+      .font(.system(size: 17, weight: .regular))
+      .foregroundStyle(primaryText)
+      .frame(height: 46)
+    }
+    .frame(maxWidth: 286)
+    .background(cardBackground)
+    .clipShape(RoundedRectangle(cornerRadius: 18, style: .continuous))
+    .overlay(
+      RoundedRectangle(cornerRadius: 18, style: .continuous)
+        .stroke(isOutgoing ? .white.opacity(0.16) : Color.black.opacity(0.08), lineWidth: 1)
+    )
+    .shadow(color: .black.opacity(0.06), radius: 7, y: 2)
+  }
+
+  private static let byteFormatter: ByteCountFormatter = {
+    let formatter = ByteCountFormatter()
+    formatter.allowedUnits = [.useKB, .useMB, .useGB]
+    formatter.countStyle = .file
+    return formatter
+  }()
 }
 
 private struct NativeAttachmentPreviewSheet: View {

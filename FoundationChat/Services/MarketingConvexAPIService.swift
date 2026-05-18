@@ -56,6 +56,11 @@ enum MarketingConvexAPIService {
         let error: String?
     }
 
+    private struct BaseMutationResponse: Decodable {
+        let success: Bool
+        let error: String?
+    }
+
     private struct InventoryUnitIdRequest: Encodable {
         let id: String
     }
@@ -191,6 +196,40 @@ enum MarketingConvexAPIService {
         let wrapper = try decode(CreateCpVisitResponse.self, from: data)
         guard wrapper.success else { throw MarketingAPIError.server(wrapper.error ?? "Failed to create CP visit") }
         return wrapper
+    }
+
+    static func markClientMet(token: String, request: MarkClientMetRequest) async throws {
+        let data = try await post(path: "/api/marketing/clientPlaceVisits/markClientMet", token: token, body: request)
+        let wrapper = try decode(BaseMutationResponse.self, from: data)
+        guard wrapper.success else { throw MarketingAPIError.server(wrapper.error ?? "Failed to record client met") }
+    }
+
+    static func setCpVisitOutcome(token: String, request: SetCpVisitOutcomeRequest) async throws {
+        let data = try await post(path: "/api/marketing/clientPlaceVisits/setOutcome", token: token, body: request)
+        let wrapper = try decode(BaseMutationResponse.self, from: data)
+        guard wrapper.success else { throw MarketingAPIError.server(wrapper.error ?? "Failed to set outcome") }
+    }
+
+    static func convertCpVisitToSiteVisit(
+        token: String,
+        request: ConvertCpVisitToSiteVisitRequest
+    ) async throws -> ConvertCpVisitToSiteVisitResponse {
+        let data = try await post(path: "/api/marketing/clientPlaceVisits/convertToSiteVisit", token: token, body: request)
+        let wrapper = try decode(ConvertCpVisitToSiteVisitResponse.self, from: data)
+        guard wrapper.success else { throw MarketingAPIError.server(wrapper.error ?? "Failed to create site visit") }
+        return wrapper
+    }
+
+    static func getCpVisitDetail(token: String, id: String) async throws -> CpVisitDetail {
+        let data = try await get(
+            path: "/api/marketing/clientPlaceVisits/get",
+            token: token,
+            queryItems: [URLQueryItem(name: "id", value: id)]
+        )
+        let wrapper = try decode(CpVisitDetailResponse.self, from: data)
+        guard wrapper.success else { throw MarketingAPIError.server(wrapper.error ?? "Failed to load visit detail") }
+        guard let visit = wrapper.visit else { throw MarketingAPIError.server("Visit detail missing") }
+        return visit
     }
 
     // MARK: - HTTP

@@ -11,7 +11,7 @@ struct SiteVisitsListView: View {
     @State private var isLoading = false
     @State private var loadFailed = false
     @State private var errorMessage: String?
-    @State private var selectedStatus: SiteVisitStatus = .all
+    @State private var selectedStatus: SiteVisitStatus = .scheduled
     @State private var searchText = ""
     @State private var hasLoadedOnce = false
 
@@ -26,13 +26,15 @@ struct SiteVisitsListView: View {
     private var filteredVisits: [ConvexSiteVisit] {
         let trimmed = searchText.trimmingCharacters(in: .whitespacesAndNewlines).lowercased()
         return visits.filter { visit in
+            let isProperSiteVisit = (visit.tripType ?? "").lowercased() != "client_place"
+                && visit.clientPlaceVisitId == nil
             let matchesStatus = selectedStatus == .all || visit.statusBucket == selectedStatus
             let matchesQuery: Bool = {
                 guard !trimmed.isEmpty else { return true }
                 let haystacks = [visit.placeName, visit.placeAddress, visit.placeType, visit.status]
                 return haystacks.contains { $0?.lowercased().contains(trimmed) == true }
             }()
-            return matchesStatus && matchesQuery
+            return isProperSiteVisit && matchesStatus && matchesQuery
         }
     }
 
@@ -164,7 +166,9 @@ struct SiteVisitsListView: View {
                 fromDate: fromDate,
                 toDate: toDate
             )
-            visits = result.sorted { ($0.scheduledDate ?? "") > ($1.scheduledDate ?? "") }
+            visits = result
+                .filter { ($0.tripType ?? "").lowercased() != "client_place" && $0.clientPlaceVisitId == nil }
+                .sorted { ($0.scheduledDate ?? "") > ($1.scheduledDate ?? "") }
         } catch {
             loadFailed = true
             errorMessage = error.localizedDescription

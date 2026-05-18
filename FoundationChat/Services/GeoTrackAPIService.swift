@@ -128,6 +128,28 @@ final class GeoTrackAPIService {
         }
     }
 
+    // MARK: - Tracking Bootstrap / Device Sync
+
+    /// GET /api/tracking/bootstrap?deviceId=...
+    func trackingBootstrap(deviceId: String? = nil) async throws -> TrackingBootstrapData? {
+        var query: [URLQueryItem] = []
+        if let deviceId, !deviceId.isEmpty {
+            query.append(URLQueryItem(name: "deviceId", value: deviceId))
+        }
+        let request = try makeGETRequest(path: "/api/tracking/bootstrap", queryItems: query)
+        let result: TrackingBootstrapResponse = try await perform(request)
+        if let err = result.error { throw GeoTrackAPIError.serverError(err) }
+        return result.data
+    }
+
+    /// POST /api/tracking/device/sync
+    func syncTrackingDevice(_ body: TrackingDeviceSyncRequest) async throws -> TrackingDeviceSyncResponse {
+        let request = try makeRequest(path: "/api/tracking/device/sync", method: "POST", body: body)
+        let result: TrackingDeviceSyncResponse = try await perform(request)
+        if let err = result.error { throw GeoTrackAPIError.serverError(err) }
+        return result
+    }
+
     // MARK: - Location Tracking
 
     /// POST /api/geotrack/push-batch
@@ -299,6 +321,51 @@ final class GeoTrackAPIService {
         return result.data ?? []
     }
 
+    /// GET /api/tracking/places/search?q=...
+    func searchPlaces(query: String) async throws -> [GeoTrackPlaceSuggestion] {
+        let trimmed = query.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !trimmed.isEmpty else { return [] }
+        let request = try makeGETRequest(
+            path: "/api/tracking/places/search",
+            queryItems: [URLQueryItem(name: "q", value: trimmed)]
+        )
+        let result: GeoTrackPlaceSearchResponse = try await perform(request)
+        if let err = result.error { throw GeoTrackAPIError.serverError(err) }
+        return result.data ?? []
+    }
+
+    /// POST /api/geotrack/route
+    func route(
+        originLat: Double,
+        originLng: Double,
+        destLat: Double,
+        destLng: Double
+    ) async throws -> GeoTrackRouteResponse {
+        let body = GeoTrackRouteRequest(
+            originLat: originLat,
+            originLng: originLng,
+            destLat: destLat,
+            destLng: destLng
+        )
+        let request = try makeRequest(path: "/api/geotrack/route", method: "POST", body: body)
+        let result: GeoTrackRouteResponse = try await perform(request)
+        if !result.success, let err = result.error { throw GeoTrackAPIError.serverError(err) }
+        return result
+    }
+
+    /// POST /api/geotrack/geocode-address
+    func geocodeAddress(_ address: String) async throws -> GeoTrackGeocodeAddressResponse {
+        let trimmed = address.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !trimmed.isEmpty else {
+            throw GeoTrackAPIError.serverError("Address is empty")
+        }
+        let body = GeoTrackGeocodeAddressRequest(address: trimmed)
+        let request = try makeRequest(path: "/api/geotrack/geocode-address", method: "POST", body: body)
+        let result: GeoTrackGeocodeAddressResponse = try await perform(request)
+        if !result.success, let err = result.error { throw GeoTrackAPIError.serverError(err) }
+        return result
+    }
+
     // MARK: - Visit Lifecycle
 
     /// POST /api/geotrack/visit/create
@@ -334,13 +401,15 @@ final class GeoTrackAPIService {
         visitId: String,
         lat: Double? = nil,
         lng: Double? = nil,
-        remarks: String? = nil
+        remarks: String? = nil,
+        arrivalPhotoStorageId: String? = nil
     ) async throws {
         let body = GeoTrackCompleteVisitRequest(
             visitId: visitId,
             lat: lat,
             lng: lng,
-            remarks: remarks
+            remarks: remarks,
+            arrivalPhotoStorageId: arrivalPhotoStorageId
         )
         let request = try makeRequest(path: "/api/geotrack/visit/complete", method: "POST", body: body)
         let result: GeoTrackBaseResponse = try await perform(request)

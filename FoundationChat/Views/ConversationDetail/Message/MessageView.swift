@@ -58,12 +58,40 @@ struct MessageView: View {
       || message.attachementMimeType?.hasPrefix("video/") == true
   }
 
+  private var isAudioAttachment: Bool {
+    let fileExtension = (message.attachementFileName ?? message.attachementURL ?? "")
+      .split(separator: ".")
+      .last
+      .map(String.init)?
+      .lowercased()
+
+    return message.attachementType == "audio"
+      || message.attachementType == "voice"
+      || message.attachementMimeType?.hasPrefix("audio/") == true
+      || ["m4a", "mp3", "wav", "aac", "caf", "aiff", "aif", "ogg", "opus"].contains(fileExtension ?? "")
+  }
+
   private var isMediaAttachment: Bool {
     isImageAttachment || isVideoAttachment
   }
 
+  private var isDocumentAttachment: Bool {
+    !isMediaAttachment
+      && !isAudioAttachment
+      && !message.isDeleted
+      && (
+        message.attachementFileName?.isEmpty == false
+          || message.attachementURL?.isEmpty == false
+          || message.attachementMimeType?.isEmpty == false
+      )
+  }
+
   private var shouldRenderImageWithoutBubble: Bool {
     isImageAttachment && !hasTextContent && !message.isDeleted
+  }
+
+  private var shouldRenderDocumentWithoutBubble: Bool {
+    isDocumentAttachment && !hasTextContent
   }
 
   private var reactions: [MessageReactionInfo] {
@@ -90,7 +118,7 @@ struct MessageView: View {
             .padding(.leading, 14)
         }
         VStack(alignment: isOutgoing ? .trailing : .leading, spacing: 6) {
-          if shouldRenderImageWithoutBubble {
+          if shouldRenderImageWithoutBubble || shouldRenderDocumentWithoutBubble {
             MessageAttachementView(message: message, isOutgoing: isOutgoing)
           } else {
             VStack(alignment: .leading, spacing: 8) {
@@ -157,7 +185,6 @@ struct MessageView: View {
         LongPressGesture(minimumDuration: 0.45)
           .onEnded { _ in
             guard !message.isDeleted else { return }
-            onToggleSelection()
             onShowReactions()
           }
       )
