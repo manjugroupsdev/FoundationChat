@@ -17,6 +17,8 @@ struct CompleteCpVisitSheet: View {
     @State private var timingNotes = ""
     @State private var projectDetails = ""
     @State private var otherPostponeNotes = ""
+    @State private var bookingSub: BookingSub = .client
+    @State private var booking = BookingDraft()
 
     @State private var projects: [MarketingProject] = []
     @State private var salesStaff: [ConvexStaffListItem] = []
@@ -60,6 +62,10 @@ struct CompleteCpVisitSheet: View {
 
                     outcomeChips
                         .padding(.top, 2)
+
+                    if selectedOutcome == .booking {
+                        bookingSection
+                    }
 
                     if selectedOutcome == .siteVisit {
                         siteVisitSection
@@ -132,6 +138,9 @@ struct CompleteCpVisitSheet: View {
                         isSelected: selectedOutcome == outcome
                     ) {
                         selectedOutcome = outcome
+                        if outcome == .booking {
+                            bookingSub = .client
+                        }
                         if outcome != .postponed {
                             selectedPostponeReasons = []
                         }
@@ -230,6 +239,200 @@ struct CompleteCpVisitSheet: View {
             fieldEditor("Food preferences", text: $foodPreferences)
         }
         .padding(.top, 4)
+    }
+
+    private var bookingSection: some View {
+        VStack(alignment: .leading, spacing: 12) {
+            HStack {
+                Label("Booking details", systemImage: "checkmark.seal.fill")
+                    .font(.system(size: 14, weight: .semibold))
+                    .foregroundStyle(Color(hex: 0x101828))
+                Spacer()
+                Text("Draft")
+                    .font(.system(size: 12, weight: .semibold))
+                    .foregroundStyle(Color(hex: 0x0369A1))
+                    .padding(.horizontal, 10)
+                    .frame(height: 28)
+                    .background(Color(hex: 0xE0F2FE), in: Capsule())
+            }
+
+            ScrollView(.horizontal, showsIndicators: false) {
+                HStack(spacing: 8) {
+                    ForEach(BookingSub.allCases) { sub in
+                        ChipButton(title: sub.title, isSelected: bookingSub == sub) {
+                            withAnimation(.easeOut(duration: 0.16)) {
+                                bookingSub = sub
+                            }
+                        }
+                    }
+                }
+            }
+
+            bookingSubBody
+
+            HStack(alignment: .top, spacing: 8) {
+                Image(systemName: "info.circle.fill")
+                    .font(.system(size: 14, weight: .semibold))
+                    .foregroundStyle(Color(hex: 0x0B61CA))
+                Text("Saved as visit outcome notes until the dedicated booking-create flow is connected to this CP visit path.")
+                    .font(.system(size: 12))
+                    .foregroundStyle(Color(hex: 0x667085))
+            }
+            .padding(12)
+            .background(Color(hex: 0xF0F6FF), in: RoundedRectangle(cornerRadius: 12))
+        }
+        .padding(.top, 4)
+    }
+
+    @ViewBuilder
+    private var bookingSubBody: some View {
+        switch bookingSub {
+        case .client:
+            bookingClientFields
+        case .professional:
+            bookingProfessionalFields
+        case .office:
+            bookingOfficeFields
+        case .booking:
+            bookingDetailsFields
+        case .charges:
+            bookingChargesFields
+        case .payment:
+            bookingPaymentFields
+        case .staff:
+            bookingStaffFields
+        }
+    }
+
+    private var bookingClientFields: some View {
+        VStack(alignment: .leading, spacing: 10) {
+            sectionLabel("Booking · Client Details")
+            BookingTextField("Phone", text: $booking.phone, keyboard: .phonePad)
+            BookingTextField("Title", text: $booking.title)
+            BookingTextField("Name", text: $booking.name)
+            BookingTextField("Father/Spouse", text: $booking.fatherOrSpouse)
+            BookingTextField("DOB", text: $booking.dob)
+            BookingTextField("Anniversary", text: $booking.anniversary)
+            BookingTextField("Alt number", text: $booking.altNumber, keyboard: .phonePad)
+            BookingTextField("WhatsApp", text: $booking.whatsapp, keyboard: .phonePad)
+            BookingTextField("Email", text: $booking.email, keyboard: .emailAddress)
+            BookingTextField("Nationality", text: $booking.nationality)
+            BookingTextField("Home Address", text: $booking.homeAddress, axis: .vertical)
+            BookingTextField("Pincode", text: $booking.pincode, keyboard: .numberPad)
+            BookingTextField("State", text: $booking.state)
+            BookingTextField("District", text: $booking.district)
+            BookingTextField("Location", text: $booking.location)
+        }
+    }
+
+    private var bookingProfessionalFields: some View {
+        VStack(alignment: .leading, spacing: 10) {
+            sectionLabel("Booking · Professional Details")
+            BookingTextField("Profession", text: $booking.profession)
+            BookingTextField("Designation", text: $booking.designation)
+            BookingTextField("Income Per Annum", text: $booking.incomePerAnnum, keyboard: .decimalPad)
+        }
+    }
+
+    private var bookingOfficeFields: some View {
+        VStack(alignment: .leading, spacing: 10) {
+            sectionLabel("Booking · Office Details")
+            BookingTextField("Office Name", text: $booking.officeName)
+            BookingTextField("Office Email", text: $booking.officeEmail, keyboard: .emailAddress)
+            BookingTextField("Office Mobile", text: $booking.officeMobile, keyboard: .phonePad)
+            BookingTextField("Office Phone", text: $booking.officePhone, keyboard: .phonePad)
+            BookingTextField("Office Address", text: $booking.officeAddress, axis: .vertical)
+        }
+    }
+
+    private var bookingDetailsFields: some View {
+        VStack(alignment: .leading, spacing: 10) {
+            sectionLabel("Booking · Booking Details")
+            BookingTextField("Booking Type", text: $booking.bookingType)
+            BookingTextField("Source Type", text: $booking.sourceType)
+            BookingTextField("CEF No", text: $booking.cefNo)
+            BookingTextField("Booking Date", text: $booking.bookingDate)
+            BookingTextField("Project", text: $booking.project)
+            BookingTextField("Plot", text: $booking.plot)
+            BookingTextField("Property Type", text: $booking.propertyType)
+            BookingTextField("Booking Mode", text: $booking.bookingMode)
+            Toggle("Is Against Client Visit", isOn: $booking.isAgainstClientVisit)
+                .font(.system(size: 13, weight: .medium))
+            Toggle("Duplicate Bookings", isOn: $booking.duplicateBookings)
+                .font(.system(size: 13, weight: .medium))
+        }
+    }
+
+    private var bookingChargesFields: some View {
+        VStack(alignment: .leading, spacing: 10) {
+            sectionLabel("Booking · Charges Details")
+            BookingTextField("Booking Cost", text: $booking.bookingCost, keyboard: .decimalPad)
+            BookingTextField("Guideline Value", text: $booking.guidelineValue, keyboard: .decimalPad)
+            BookingTextField("Special Consideration", text: $booking.specialConsideration, axis: .vertical)
+            BookingTextField("Discount Approved By", text: $booking.discountApprovedBy)
+            BookingTextField("SC Reason", text: $booking.scReason, axis: .vertical)
+            BookingTextField("SC Validity (days)", text: $booking.scValidity, keyboard: .numberPad)
+            BookingTextField("Promotional Offers", text: $booking.promotionalOffers, axis: .vertical)
+            BookingTextField("Promotional Offers T&C", text: $booking.promotionalOffersTnc)
+            BookingTextField("Promotional Offers Value", text: $booking.promotionalOffersValue, keyboard: .decimalPad)
+            BookingTextField("Offer Validity Period (days)", text: $booking.offerValidityPeriod, keyboard: .numberPad)
+        }
+    }
+
+    private var bookingPaymentFields: some View {
+        VStack(alignment: .leading, spacing: 10) {
+            sectionLabel("Booking · Payment Details")
+            BookingTextField("Registration Charges", text: $booking.registrationCharges, keyboard: .decimalPad)
+            BookingTextField("GST Amount", text: $booking.gstAmount, keyboard: .decimalPad)
+            Toggle("GST If Applicable", isOn: $booking.gstApplicable)
+                .font(.system(size: 13, weight: .medium))
+            BookingTextField("Document Charges", text: $booking.documentCharges, keyboard: .decimalPad)
+            BookingTextField("Other Charges", text: $booking.otherCharges, keyboard: .decimalPad)
+            Toggle("Other Charges If Applicable", isOn: $booking.otherChargesApplicable)
+                .font(.system(size: 13, weight: .medium))
+            BookingTextField("Advance Amount", text: $booking.advanceAmount, keyboard: .decimalPad)
+            BookingTextField("Payment Mode", text: $booking.paymentMode)
+            Toggle("Flexi Payment", isOn: $booking.flexiPayment)
+                .font(.system(size: 13, weight: .medium))
+            BookingTextField("Allotment Due Amount", text: $booking.allotmentDueAmount, keyboard: .decimalPad)
+            BookingTextField("Allotment Due Date", text: $booking.allotmentDueDate)
+            BookingTextField("2nd Payment Mode", text: $booking.secondPaymentMode)
+            BookingTextField("2nd Payment Date", text: $booking.secondPaymentDate)
+            BookingTextField("3rd Payment Mode", text: $booking.thirdPaymentMode)
+            BookingTextField("3rd Payment Date", text: $booking.thirdPaymentDate)
+            BookingTextField("4th Payment Mode", text: $booking.fourthPaymentMode)
+            BookingTextField("4th Payment Date", text: $booking.fourthPaymentDate)
+            BookingTextField("Preferred Registration Date", text: $booking.preferredRegistrationDate)
+        }
+    }
+
+    private var bookingStaffFields: some View {
+        VStack(alignment: .leading, spacing: 10) {
+            sectionLabel("Booking · Staff Details")
+            BookingTextField("AVP", text: $booking.avp)
+            BookingTextField("General Manager", text: $booking.generalManager)
+            BookingTextField("Senior Manager", text: $booking.seniorManager)
+            BookingTextField("BDO", text: $booking.bdo)
+            BookingTextField("Telecaller", text: $booking.telecaller)
+            BookingTextField("Aadhar", text: $booking.aadhar, keyboard: .numberPad)
+            BookingTextField("Pancard", text: $booking.pancard)
+            BookingTextField("Reference Name 1", text: $booking.referenceName1)
+            BookingTextField("Reference Mobile 1", text: $booking.referenceMobile1, keyboard: .phonePad)
+            BookingTextField("Reference Profession 1", text: $booking.referenceProfession1)
+            BookingTextField("Reference Name 2", text: $booking.referenceName2)
+            BookingTextField("Reference Mobile 2", text: $booking.referenceMobile2, keyboard: .phonePad)
+            BookingTextField("Reference Profession 2", text: $booking.referenceProfession2)
+            BookingTextField("Document to be prepared in", text: $booking.documentLanguage)
+            PickerField(
+                title: "Save as: \(booking.saveAs.title)",
+                options: BookingSaveAs.allCases,
+                label: { $0.title },
+                selection: Binding(
+                    get: { booking.saveAs },
+                    set: { booking.saveAs = $0 ?? .draft }
+                )
+            )
+        }
     }
 
     private var postponeSection: some View {
@@ -414,6 +617,8 @@ struct CompleteCpVisitSheet: View {
 
     private func buildOutcomeNotes(for outcome: CpVisitOutcome) -> String? {
         switch outcome {
+        case .booking:
+            return booking.serializedNotes
         case .postponed:
             return [
                 budgetConcern.nilIfBlank.map { "Budget concern: \($0)" },
@@ -426,7 +631,7 @@ struct CompleteCpVisitSheet: View {
             .nilIfBlank
         case .notInterested, .wait:
             return notes.nilIfBlank
-        case .booking, .siteVisit:
+        case .siteVisit:
             return nil
         }
     }
@@ -493,12 +698,231 @@ private enum TravelMode: String, CaseIterable, Identifiable {
     var title: String { self == .cab ? "Cab required" : "Own vehicle" }
 }
 
+private enum BookingSub: String, CaseIterable, Identifiable {
+    case client
+    case professional
+    case office
+    case booking
+    case charges
+    case payment
+    case staff
+
+    var id: String { rawValue }
+
+    var title: String {
+        switch self {
+        case .client: return "Client"
+        case .professional: return "Professional"
+        case .office: return "Office"
+        case .booking: return "Booking"
+        case .charges: return "Charges"
+        case .payment: return "Payment"
+        case .staff: return "Staff"
+        }
+    }
+}
+
+private enum BookingSaveAs: String, CaseIterable, Identifiable, Hashable {
+    case draft
+    case confirmed
+
+    var id: String { rawValue }
+    var title: String { self == .draft ? "Draft" : "Confirmed" }
+}
+
+private struct BookingDraft {
+    var phone = ""
+    var title = ""
+    var name = ""
+    var fatherOrSpouse = ""
+    var dob = ""
+    var anniversary = ""
+    var altNumber = ""
+    var whatsapp = ""
+    var email = ""
+    var nationality = ""
+    var homeAddress = ""
+    var pincode = ""
+    var state = ""
+    var district = ""
+    var location = ""
+
+    var profession = ""
+    var designation = ""
+    var incomePerAnnum = ""
+
+    var officeName = ""
+    var officeEmail = ""
+    var officeMobile = ""
+    var officePhone = ""
+    var officeAddress = ""
+
+    var bookingType = ""
+    var sourceType = ""
+    var cefNo = ""
+    var bookingDate = ""
+    var project = ""
+    var plot = ""
+    var propertyType = ""
+    var bookingMode = ""
+    var isAgainstClientVisit = true
+    var duplicateBookings = true
+
+    var bookingCost = ""
+    var guidelineValue = ""
+    var specialConsideration = ""
+    var discountApprovedBy = ""
+    var scReason = ""
+    var scValidity = ""
+    var promotionalOffers = ""
+    var promotionalOffersTnc = ""
+    var promotionalOffersValue = ""
+    var offerValidityPeriod = ""
+
+    var registrationCharges = ""
+    var gstAmount = ""
+    var gstApplicable = true
+    var documentCharges = ""
+    var otherCharges = ""
+    var otherChargesApplicable = true
+    var advanceAmount = ""
+    var paymentMode = ""
+    var flexiPayment = true
+    var allotmentDueAmount = ""
+    var allotmentDueDate = ""
+    var secondPaymentMode = ""
+    var secondPaymentDate = ""
+    var thirdPaymentMode = ""
+    var thirdPaymentDate = ""
+    var fourthPaymentMode = ""
+    var fourthPaymentDate = ""
+    var preferredRegistrationDate = ""
+
+    var avp = ""
+    var generalManager = ""
+    var seniorManager = ""
+    var bdo = ""
+    var telecaller = ""
+    var aadhar = ""
+    var pancard = ""
+    var referenceName1 = ""
+    var referenceMobile1 = ""
+    var referenceProfession1 = ""
+    var referenceName2 = ""
+    var referenceMobile2 = ""
+    var referenceProfession2 = ""
+    var documentLanguage = ""
+    var saveAs: BookingSaveAs = .draft
+
+    var serializedNotes: String? {
+        var sections: [String] = []
+
+        func section(_ title: String, _ rows: [(String, String?)]) {
+            let body = rows.compactMap { label, value -> String? in
+                guard let value = value?.nilIfBlank else { return nil }
+                return "\(label): \(value)"
+            }
+            guard !body.isEmpty else { return }
+            sections.append((["[\(title)]"] + body).joined(separator: "\n"))
+        }
+
+        section("Booking · Client Details", [
+            ("Phone", phone), ("Title", title), ("Name", name),
+            ("Father/Spouse", fatherOrSpouse), ("DOB", dob),
+            ("Anniversary", anniversary), ("Alt number", altNumber),
+            ("WhatsApp", whatsapp), ("Email", email), ("Nationality", nationality),
+            ("Home Address", homeAddress), ("Pincode", pincode),
+            ("State", state), ("District", district), ("Location", location)
+        ])
+        section("Booking · Professional Details", [
+            ("Profession", profession), ("Designation", designation),
+            ("Income Per Annum", incomePerAnnum)
+        ])
+        section("Booking · Office Details", [
+            ("Office Name", officeName), ("Office Email", officeEmail),
+            ("Office Mobile", officeMobile), ("Office Phone", officePhone),
+            ("Office Address", officeAddress)
+        ])
+        section("Booking · Booking Details", [
+            ("Booking Type", bookingType), ("Source Type", sourceType),
+            ("CEF No", cefNo), ("Booking Date", bookingDate),
+            ("Project", project), ("Plot", plot), ("Property Type", propertyType),
+            ("Booking Mode", bookingMode),
+            ("Is Against Client Visit", isAgainstClientVisit ? "Yes" : "No (Online Sales)"),
+            ("Duplicate Bookings", duplicateBookings ? "Yes" : "No")
+        ])
+        section("Booking · Charges Details", [
+            ("Booking Cost", bookingCost), ("Guideline Value", guidelineValue),
+            ("Special Consideration", specialConsideration),
+            ("Discount Approved By", discountApprovedBy), ("SC Reason", scReason),
+            ("SC Validity (days)", scValidity), ("Promotional Offers", promotionalOffers),
+            ("Promotional Offers T&C", promotionalOffersTnc),
+            ("Promotional Offers Value", promotionalOffersValue),
+            ("Offer Validity Period (days)", offerValidityPeriod)
+        ])
+        section("Booking · Payment Details", [
+            ("Registration Charges", registrationCharges), ("GST Amount", gstAmount),
+            ("GST If Applicable", gstApplicable ? "Yes" : "No"),
+            ("Document Charges", documentCharges), ("Other Charges", otherCharges),
+            ("Other Charges If Applicable", otherChargesApplicable ? "Yes" : "No"),
+            ("Advance Amount", advanceAmount), ("Payment Mode", paymentMode),
+            ("Flexi Payment", flexiPayment ? "Yes" : "No"),
+            ("Allotment Due Amount", allotmentDueAmount),
+            ("Allotment Due Date", allotmentDueDate),
+            ("2nd Payment Mode", secondPaymentMode), ("2nd Payment Date", secondPaymentDate),
+            ("3rd Payment Mode", thirdPaymentMode), ("3rd Payment Date", thirdPaymentDate),
+            ("4th Payment Mode", fourthPaymentMode), ("4th Payment Date", fourthPaymentDate),
+            ("Preferred Registration Date", preferredRegistrationDate)
+        ])
+        section("Booking · Staff Details", [
+            ("AVP", avp), ("General Manager", generalManager),
+            ("Senior Manager", seniorManager), ("BDO", bdo), ("Telecaller", telecaller),
+            ("Aadhar", aadhar), ("Pancard", pancard),
+            ("Reference Name 1", referenceName1), ("Reference Mobile 1", referenceMobile1),
+            ("Reference Profession 1", referenceProfession1),
+            ("Reference Name 2", referenceName2), ("Reference Mobile 2", referenceMobile2),
+            ("Reference Profession 2", referenceProfession2),
+            ("Document to be prepared in", documentLanguage), ("Save as", saveAs.title)
+        ])
+
+        return sections.joined(separator: "\n\n").nilIfBlank
+    }
+}
+
 private struct CpVisitorDraft: Identifiable, Hashable {
     let id = UUID()
     var name = ""
     var relation = ""
     var age = ""
     var isVeg = true
+}
+
+private struct BookingTextField: View {
+    let title: String
+    @Binding var text: String
+    let keyboard: UIKeyboardType
+    let axis: Axis
+
+    init(
+        _ title: String,
+        text: Binding<String>,
+        keyboard: UIKeyboardType = .default,
+        axis: Axis = .horizontal
+    ) {
+        self.title = title
+        self._text = text
+        self.keyboard = keyboard
+        self.axis = axis
+    }
+
+    var body: some View {
+        TextField(title, text: $text, axis: axis)
+            .keyboardType(keyboard)
+            .textInputAutocapitalization(keyboard == .emailAddress ? .never : .sentences)
+            .autocorrectionDisabled(keyboard == .emailAddress)
+            .lineLimit(axis == .vertical ? 2...4 : 1...1)
+            .cpFieldStyle()
+    }
 }
 
 private struct ChipButton: View {

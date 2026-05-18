@@ -45,6 +45,7 @@ struct TripNavigationView: View {
     @State private var routeWarning: String?
 
     @State private var arrivalInProgress = false
+    @State private var arrivalSwipeResetToken = 0
     @State private var showCamera = false
     @State private var capturedImage: UIImage?
     @State private var pendingStorageId: String?
@@ -155,6 +156,7 @@ struct TripNavigationView: View {
         .sheet(isPresented: $showCpClientSeenSheet, onDismiss: {
             if !arrivalInProgress && !visitCompletedSuccessfully {
                 arrivalStatusText = nil
+                resetArrivalSwipe()
             }
         }) {
             CpClientSeenSheet(
@@ -174,6 +176,7 @@ struct TripNavigationView: View {
             if !visitCompletedSuccessfully {
                 arrivalInProgress = false
                 arrivalStatusText = nil
+                resetArrivalSwipe()
             }
         }) {
             if let id = resolvedVisitId {
@@ -195,6 +198,7 @@ struct TripNavigationView: View {
             if !visitCompletedSuccessfully {
                 arrivalInProgress = false
                 arrivalStatusText = nil
+                resetArrivalSwipe()
             }
         }) {
             if let cpVisitId = clientPlaceVisitId {
@@ -466,42 +470,73 @@ struct TripNavigationView: View {
 
     private var actionButtons: some View {
         VStack(spacing: 10) {
-            Button {
-                if hasActiveVisit {
-                    if isCpVisit && tripProgressStage == .reached && shouldCollectCpOutcome {
+            if hasActiveVisit {
+                if isCpVisit && tripProgressStage == .reached && shouldCollectCpOutcome {
+                    Button {
                         showCpCompletionSheet = true
-                    } else {
+                    } label: {
+                        HStack {
+                            if arrivalInProgress {
+                                ProgressView().tint(.white)
+                            } else {
+                                Image(systemName: "checkmark.circle.fill")
+                            }
+                            Text(primaryActionTitle)
+                                .font(.system(size: 14, weight: .semibold))
+                        }
+                        .frame(maxWidth: .infinity)
+                        .frame(height: 48)
+                    }
+                    .buttonStyle(.plain)
+                    .foregroundStyle(.white)
+                    .background(
+                        LinearGradient(
+                            colors: [Color(hex: 0x1ECB09), Color(hex: 0x3D9D02)],
+                            startPoint: .top,
+                            endPoint: .bottom
+                        ),
+                        in: RoundedRectangle(cornerRadius: 12)
+                    )
+                    .disabled(arrivalInProgress)
+                } else {
+                    SwipeToConfirmTripButton(
+                        title: primaryActionTitle,
+                        busyTitle: arrivalStatusText ?? "Working...",
+                        isBusy: arrivalInProgress,
+                        resetToken: arrivalSwipeResetToken
+                    ) {
                         onArrivalSwipeConfirmed()
                     }
-                } else {
+                    .disabled(arrivalInProgress)
+                }
+            } else {
+                Button {
                     Task { await ensureVisitStarted() }
-                }
-            } label: {
-                HStack {
-                    if arrivalInProgress || isLoadingStart {
-                        ProgressView().tint(.white)
-                    } else if hasActiveVisit {
-                        Image(systemName: "checkmark.circle.fill")
-                    } else {
-                        Image(systemName: "play.fill")
+                } label: {
+                    HStack {
+                        if isLoadingStart {
+                            ProgressView().tint(.white)
+                        } else {
+                            Image(systemName: "play.fill")
+                        }
+                        Text(primaryActionTitle)
+                            .font(.system(size: 14, weight: .semibold))
                     }
-                    Text(primaryActionTitle)
-                        .font(.system(size: 14, weight: .semibold))
+                    .frame(maxWidth: .infinity)
+                    .frame(height: 48)
                 }
-                .frame(maxWidth: .infinity)
-                .frame(height: 48)
+                .buttonStyle(.plain)
+                .foregroundStyle(.white)
+                .background(
+                    LinearGradient(
+                        colors: [Color(hex: 0x1ECB09), Color(hex: 0x3D9D02)],
+                        startPoint: .top,
+                        endPoint: .bottom
+                    ),
+                    in: RoundedRectangle(cornerRadius: 12)
+                )
+                .disabled(isLoadingStart)
             }
-            .buttonStyle(.plain)
-            .foregroundStyle(.white)
-            .background(
-                LinearGradient(
-                    colors: [Color(hex: 0x1ECB09), Color(hex: 0x3D9D02)],
-                    startPoint: .top,
-                    endPoint: .bottom
-                ),
-                in: RoundedRectangle(cornerRadius: 12)
-            )
-            .disabled(arrivalInProgress || isLoadingStart)
         }
         .padding(.horizontal, 16)
         .padding(.top, 2)
@@ -608,6 +643,7 @@ struct TripNavigationView: View {
     private func onArrivalSwipeConfirmed() {
         guard let _ = resolvedVisitId, visitStarted else {
             errorMessage = "Trip is still starting"
+            resetArrivalSwipe()
             return
         }
         guard !arrivalInProgress else { return }
@@ -628,6 +664,7 @@ struct TripNavigationView: View {
             guard let dest = effectiveDestination, let loc = locationManager.currentLocation else {
                 arrivalInProgress = false
                 errorMessage = "Could not verify you are near the client place."
+                resetArrivalSwipe()
                 return
             }
             let distance = CLLocation(latitude: loc.coordinate.latitude, longitude: loc.coordinate.longitude)
@@ -635,6 +672,7 @@ struct TripNavigationView: View {
             guard distance <= 500 else {
                 arrivalInProgress = false
                 errorMessage = "You are \(formatDistance(distance)) away. Move within 500 m to complete."
+                resetArrivalSwipe()
                 return
             }
             arrivalStatusText = nil
@@ -657,6 +695,7 @@ struct TripNavigationView: View {
     private func requestArrivalOtpThenOpenCamera() async {
         guard let id = resolvedVisitId else {
             arrivalInProgress = false
+            resetArrivalSwipe()
             return
         }
         arrivalStatusText = "Checking location..."
@@ -686,6 +725,7 @@ struct TripNavigationView: View {
             arrivalInProgress = false
             arrivalStatusText = nil
             errorMessage = error.localizedDescription
+            resetArrivalSwipe()
         }
     }
 
@@ -705,6 +745,7 @@ struct TripNavigationView: View {
             arrivalStatusText = nil
             errorMessage = error.localizedDescription
             capturedImage = nil
+            resetArrivalSwipe()
         }
     }
 
@@ -712,6 +753,7 @@ struct TripNavigationView: View {
         guard let id = resolvedVisitId, let cpVisitId = clientPlaceVisitId else {
             arrivalInProgress = false
             cpNoPathPhotoCapture = false
+            resetArrivalSwipe()
             return
         }
         arrivalStatusText = "Uploading photo…"
@@ -750,6 +792,7 @@ struct TripNavigationView: View {
             arrivalStatusText = nil
             errorMessage = error.localizedDescription
             capturedImage = nil
+            resetArrivalSwipe()
         }
     }
 
@@ -797,7 +840,12 @@ struct TripNavigationView: View {
             arrivalStatusText = nil
             arrivalInProgress = false
             errorMessage = "Failed to complete: \(error.localizedDescription)"
+            resetArrivalSwipe()
         }
+    }
+
+    private func resetArrivalSwipe() {
+        arrivalSwipeResetToken += 1
     }
 
     // MARK: - Maps + helpers
@@ -1134,6 +1182,89 @@ private struct TripProgressLine: View {
             .frame(height: 2)
             .frame(maxWidth: .infinity)
             .padding(.bottom, 18)
+    }
+}
+
+private struct SwipeToConfirmTripButton: View {
+    let title: String
+    let busyTitle: String
+    let isBusy: Bool
+    let resetToken: Int
+    let onConfirm: () -> Void
+
+    @State private var offset: CGFloat = 0
+    @State private var isLocked = false
+
+    private let height: CGFloat = 48
+    private let inset: CGFloat = 4
+    private let thumbSize: CGFloat = 40
+    private let confirmThreshold: CGFloat = 0.85
+
+    var body: some View {
+        GeometryReader { proxy in
+            let travel = max(0, proxy.size.width - thumbSize - inset * 2)
+            ZStack(alignment: .leading) {
+                Capsule()
+                    .fill(.white)
+                    .overlay(Capsule().stroke(Color(hex: 0xE5E7EB), lineWidth: 1))
+
+                Text(isBusy ? busyTitle : title)
+                    .font(.system(size: 14, weight: .semibold))
+                    .foregroundStyle(Color(hex: 0x19B900))
+                    .frame(maxWidth: .infinity)
+                    .opacity(isLocked && !isBusy ? 0 : 1 - min(offset / max(travel, 1), 1))
+
+                Image(systemName: "chevron.right.2")
+                    .font(.system(size: 13, weight: .bold))
+                    .foregroundStyle(Color(hex: 0x19B900))
+                    .frame(width: 24, height: 24)
+                    .frame(maxWidth: .infinity, alignment: .trailing)
+                    .padding(.trailing, 12)
+                    .opacity(isBusy ? 0 : 1 - min(offset / max(travel, 1), 1))
+
+                Circle()
+                    .fill(.white)
+                    .frame(width: thumbSize, height: thumbSize)
+                    .shadow(color: .black.opacity(0.12), radius: 4, x: 0, y: 2)
+                    .overlay(
+                        Image(systemName: isBusy ? "hourglass" : "chevron.right.2")
+                            .font(.system(size: 13, weight: .bold))
+                            .foregroundStyle(Color(hex: 0x19B900))
+                    )
+                    .padding(.leading, inset)
+                    .offset(x: offset)
+                    .gesture(
+                        DragGesture(minimumDistance: 0)
+                            .onChanged { value in
+                                guard !isBusy && !isLocked else { return }
+                                offset = min(max(value.translation.width, 0), travel)
+                            }
+                            .onEnded { _ in
+                                guard !isBusy && !isLocked else { return }
+                                if offset >= travel * confirmThreshold {
+                                    isLocked = true
+                                    withAnimation(.easeOut(duration: 0.12)) {
+                                        offset = travel
+                                    }
+                                    onConfirm()
+                                } else {
+                                    withAnimation(.easeOut(duration: 0.18)) {
+                                        offset = 0
+                                    }
+                                }
+                            }
+                    )
+            }
+            .onChange(of: resetToken) { _, _ in
+                isLocked = false
+                withAnimation(.easeOut(duration: 0.16)) {
+                    offset = 0
+                }
+            }
+        }
+        .frame(height: height)
+        .accessibilityLabel(title)
+        .accessibilityHint("Swipe right to confirm")
     }
 }
 

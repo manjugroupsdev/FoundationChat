@@ -220,6 +220,18 @@ enum MarketingConvexAPIService {
         return wrapper
     }
 
+    static func getCpVisitDetail(token: String, id: String) async throws -> CpVisitDetail {
+        let data = try await get(
+            path: "/api/marketing/clientPlaceVisits/get",
+            token: token,
+            queryItems: [URLQueryItem(name: "id", value: id)]
+        )
+        let wrapper = try decode(CpVisitDetailResponse.self, from: data)
+        guard wrapper.success else { throw MarketingAPIError.server(wrapper.error ?? "Failed to load visit detail") }
+        guard let visit = wrapper.visit else { throw MarketingAPIError.server("Visit detail missing") }
+        return visit
+    }
+
     // MARK: - HTTP
 
     private static func get(path: String, token: String, queryItems: [URLQueryItem] = []) async throws -> Data {

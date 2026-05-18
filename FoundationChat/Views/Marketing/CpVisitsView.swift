@@ -53,6 +53,13 @@ struct CpVisitsView: View {
                                 CpVisitCard(visit: visit, isClockedIn: isClockedIn)
                             }
                             .buttonStyle(.plain)
+                        } else if visit.isCompletedCpVisit {
+                            NavigationLink {
+                                CompletedCpVisitDetailView(summary: visit)
+                            } label: {
+                                CpVisitCard(visit: visit, isClockedIn: isClockedIn)
+                            }
+                            .buttonStyle(.plain)
                         } else {
                             CpVisitCard(visit: visit, isClockedIn: isClockedIn)
                         }
@@ -581,6 +588,527 @@ private enum CpVisitFilter: String, CaseIterable, Identifiable {
     }
 }
 
+private struct CompletedCpVisitDetailView: View {
+    @Environment(AuthStore.self) private var authStore
+
+    let summary: ConvexSiteVisit
+
+    @State private var detail: CpVisitDetail?
+    @State private var isLoading = false
+    @State private var errorMessage: String?
+
+    private var detailIds: [String] {
+        var ids: [String] = []
+        if let clientPlaceVisitId = summary.clientPlaceVisitId?.blankToNil {
+            ids.append(clientPlaceVisitId)
+        } else if (summary.tripType ?? "").lowercased() == "client_place" {
+            ids.append(summary.id)
+        }
+        var seen = Set<String>()
+        return ids.filter { seen.insert($0).inserted }
+    }
+
+    var body: some View {
+        ScrollView {
+            VStack(alignment: .leading, spacing: 14) {
+                headerCard
+                statusCard
+                visitInfoCard
+                if let detail {
+                    enrichedCards(detail)
+                }
+                if isLoading {
+                    HStack(spacing: 8) {
+                        ProgressView().controlSize(.small)
+                        Text("Loading visit proof…")
+                            .font(.system(size: 13))
+                            .foregroundStyle(Color(hex: 0x667085))
+                    }
+                    .padding(.horizontal, 16)
+                }
+                if let errorMessage {
+                    Text(errorMessage)
+                        .font(.system(size: 12, weight: .medium))
+                        .foregroundStyle(Color(hex: 0xB42318))
+                        .padding(12)
+                        .frame(maxWidth: .infinity, alignment: .leading)
+                        .background(Color(hex: 0xFEE4E2), in: RoundedRectangle(cornerRadius: 12))
+                }
+            }
+            .padding(16)
+        }
+        .background(Color(hex: 0xF1F3F8).ignoresSafeArea())
+        .navigationTitle("Completed Visit")
+        .navigationBarTitleDisplayMode(.inline)
+        .task { await loadDetail() }
+        .refreshable { await loadDetail(force: true) }
+    }
+
+    private var headerCard: some View {
+        VStack(alignment: .leading, spacing: 12) {
+            HStack(alignment: .top, spacing: 12) {
+                Text(displayName.first.map { String($0).uppercased() } ?? "C")
+                    .font(.system(size: 22, weight: .semibold))
+                    .foregroundStyle(Color(hex: 0x0B61CA))
+                    .frame(width: 52, height: 52)
+                    .background(Color(hex: 0xEAF2FF), in: Circle())
+
+                VStack(alignment: .leading, spacing: 5) {
+                    Text(displayName)
+                        .font(.system(size: 19, weight: .semibold))
+                        .foregroundStyle(Color(hex: 0x101828))
+                    Text(primaryPhone)
+                        .font(.system(size: 13, weight: .medium))
+                        .foregroundStyle(Color(hex: 0x667085))
+                    Text(primaryAddress)
+                        .font(.system(size: 13))
+                        .foregroundStyle(Color(hex: 0x667085))
+                        .lineLimit(3)
+                }
+            }
+        }
+        .completedCard()
+    }
+
+    private var statusCard: some View {
+        VStack(alignment: .leading, spacing: 12) {
+            HStack {
+                Label(clientMetTitle, systemImage: clientMetIcon)
+                    .font(.system(size: 15, weight: .semibold))
+                    .foregroundStyle(clientMetTint)
+                Spacer()
+                Text(outcomeTitle)
+                    .font(.system(size: 12, weight: .semibold))
+                    .foregroundStyle(outcomeTint)
+                    .padding(.horizontal, 10)
+                    .frame(height: 28)
+                    .background(outcomeTint.opacity(0.12), in: Capsule())
+            }
+            Text(statusSubtitle)
+                .font(.system(size: 13))
+                .foregroundStyle(Color(hex: 0x667085))
+            if let reasons = (detail?.postponeReasons ?? summary.cpVisit?.postponeReasons), !reasons.isEmpty {
+                FlowChipRow(items: reasons, tint: Color(hex: 0xB54708))
+            }
+        }
+        .completedCard()
+    }
+
+    private var visitInfoCard: some View {
+        VStack(alignment: .leading, spacing: 12) {
+            Text("Visit Information")
+                .font(.system(size: 15, weight: .semibold))
+                .foregroundStyle(Color(hex: 0x101828))
+            twoColumnRow("Date", formattedDate(summary.scheduledDate), "Time", formattedTime)
+            twoColumnRow("Trip Type", tripTypeTitle, "Location", isGeoMapped ? "Geo-mapped" : "Not mapped")
+            if let notes = detail?.notes?.blankToNil, !isBookingOutcome {
+                Divider()
+                Text(notes)
+                    .font(.system(size: 13))
+                    .foregroundStyle(Color(hex: 0x475467))
+            }
+        }
+        .completedCard()
+    }
+
+    @ViewBuilder
+    private func enrichedCards(_ detail: CpVisitDetail) -> some View {
+        tripDetailsCard(detail)
+        if isBookingOutcome, let notes = detail.notes?.blankToNil {
+            bookingNotesCard(notes)
+        }
+        if detail.arrivalProof != nil || detail.fieldVisit != nil {
+            proofCard(detail)
+        }
+        peopleCard(detail)
+        timelineCard(detail)
+    }
+
+    private func tripDetailsCard(_ detail: CpVisitDetail) -> some View {
+        VStack(alignment: .leading, spacing: 12) {
+            Text("Trip Details")
+                .font(.system(size: 15, weight: .semibold))
+            twoColumnRow(
+                "Status",
+                detail.fieldVisit?.status?.replacingOccurrences(of: "_", with: " ").capitalized ?? detail.status ?? "-",
+                "Distance",
+                distanceText(detail.fieldVisit?.distanceMeters)
+            )
+            twoColumnRow(
+                "Started",
+                formatEpoch(detail.fieldVisit?.startedAt),
+                "Completed",
+                formatEpoch(detail.fieldVisit?.completedAt ?? detail.completedAt)
+            )
+            twoColumnRow(
+                "Duration",
+                durationText(detail.fieldVisit?.durationMinutes),
+                "Field Visit ID",
+                detail.fieldVisitId?.blankToNil ?? detail.fieldVisit?.id?.blankToNil ?? "-"
+            )
+        }
+        .completedCard()
+    }
+
+    private func bookingNotesCard(_ notes: String) -> some View {
+        VStack(alignment: .leading, spacing: 12) {
+            Text("Booking Details")
+                .font(.system(size: 15, weight: .semibold))
+            ForEach(parseNoteSections(notes)) { section in
+                VStack(alignment: .leading, spacing: 8) {
+                    Text(section.title)
+                        .font(.system(size: 13, weight: .semibold))
+                        .foregroundStyle(Color(hex: 0x0369A1))
+                    ForEach(section.rows) { row in
+                        detailRow(row.label, row.value)
+                    }
+                }
+                .padding(12)
+                .background(Color(hex: 0xF8FAFC), in: RoundedRectangle(cornerRadius: 12))
+            }
+        }
+        .completedCard()
+    }
+
+    private func proofCard(_ detail: CpVisitDetail) -> some View {
+        VStack(alignment: .leading, spacing: 12) {
+            Text("Arrival Proof")
+                .font(.system(size: 15, weight: .semibold))
+            if let photoUrl = detail.arrivalProof?.photoUrl, let url = URL(string: photoUrl) {
+                AsyncImage(url: url) { phase in
+                    switch phase {
+                    case .success(let image):
+                        image.resizable().scaledToFill()
+                    case .failure:
+                        Color(hex: 0xF2F4F7).overlay(Image(systemName: "photo"))
+                    default:
+                        Color(hex: 0xF2F4F7).overlay(ProgressView())
+                    }
+                }
+                .frame(height: 170)
+                .clipShape(RoundedRectangle(cornerRadius: 12))
+            }
+            twoColumnRow("OTP Requested", formatEpoch(detail.arrivalProof?.otpRequestedAt), "OTP Verified", formatEpoch(detail.arrivalProof?.otpVerifiedAt))
+            twoColumnRow("GPS", gpsText(detail.arrivalProof), "Distance", distanceText(detail.arrivalProof?.distanceFromPlaceMeters))
+        }
+        .completedCard()
+    }
+
+    private func peopleCard(_ detail: CpVisitDetail) -> some View {
+        VStack(alignment: .leading, spacing: 10) {
+            Text("People")
+                .font(.system(size: 15, weight: .semibold))
+            detailRow("Assigned Staff", detail.assignedStaff?.staffName ?? detail.assignedStaff?.staffCode)
+            detailRow("Telecaller", detail.telecaller?.staffName ?? detail.telecaller?.staffCode)
+            detailRow("Origin", detail.origin?.replacingOccurrences(of: "_", with: " ").capitalized)
+            detailRow("Lead City", detail.lead?.city)
+            detailRow("Preferred Area", detail.lead?.preferredArea)
+        }
+        .completedCard()
+    }
+
+    private func timelineCard(_ detail: CpVisitDetail) -> some View {
+        let events: [(String, Int64?)] = [
+            ("Created", detail.createdAt),
+            ("Assigned", detail.assignedAt),
+            ("Field visit started", detail.fieldVisit?.startedAt),
+            ("OTP verified", detail.arrivalProof?.otpVerifiedAt),
+            ("Client met", detail.clientMetAt),
+            ("Completed", detail.completedAt)
+        ]
+        return VStack(alignment: .leading, spacing: 10) {
+            Text("Timeline")
+                .font(.system(size: 15, weight: .semibold))
+            ForEach(events.filter { $0.1 != nil }, id: \.0) { event in
+                HStack {
+                    Text(event.0)
+                        .font(.system(size: 13, weight: .medium))
+                    Spacer()
+                    Text(formatEpoch(event.1))
+                        .font(.system(size: 12))
+                        .foregroundStyle(Color(hex: 0x667085))
+                }
+            }
+        }
+        .completedCard()
+    }
+
+    private func twoColumnRow(_ leftLabel: String, _ leftValue: String, _ rightLabel: String, _ rightValue: String) -> some View {
+        HStack(spacing: 12) {
+            detailColumn(leftLabel, leftValue)
+            detailColumn(rightLabel, rightValue)
+        }
+    }
+
+    private func detailColumn(_ label: String, _ value: String) -> some View {
+        VStack(alignment: .leading, spacing: 4) {
+            Text(label)
+                .font(.system(size: 11, weight: .semibold))
+                .foregroundStyle(Color(hex: 0x667085))
+            Text(value)
+                .font(.system(size: 13, weight: .medium))
+                .foregroundStyle(Color(hex: 0x101828))
+                .lineLimit(2)
+        }
+        .frame(maxWidth: .infinity, alignment: .leading)
+    }
+
+    private func detailRow(_ label: String, _ value: String?) -> some View {
+        HStack {
+            Text(label)
+                .font(.system(size: 13))
+                .foregroundStyle(Color(hex: 0x667085))
+            Spacer()
+            Text(value?.blankToNil ?? "-")
+                .font(.system(size: 13, weight: .medium))
+                .foregroundStyle(Color(hex: 0x101828))
+                .multilineTextAlignment(.trailing)
+        }
+    }
+
+    @MainActor
+    private func loadDetail(force: Bool = false) async {
+        guard detail == nil || force else { return }
+        guard !detailIds.isEmpty else { return }
+        guard let token = authStore.currentSession?.token else {
+            errorMessage = "Not signed in."
+            return
+        }
+        isLoading = true
+        errorMessage = nil
+        defer { isLoading = false }
+        var lastError: Error?
+        for id in detailIds {
+            do {
+                detail = try await MarketingConvexAPIService.getCpVisitDetail(token: token, id: id)
+                return
+            } catch {
+                lastError = error
+            }
+        }
+        if let lastError {
+            let message = lastError.localizedDescription
+            if !message.contains("404") {
+                errorMessage = message
+            }
+        }
+    }
+
+    private var displayName: String {
+        detail?.client?.clientName?.blankToNil
+            ?? detail?.lead?.contactName?.blankToNil
+            ?? detail?.clientPlace?.name?.blankToNil
+            ?? summary.leadName?.blankToNil
+            ?? summary.placeName?.blankToNil
+            ?? "Client"
+    }
+
+    private var primaryPhone: String {
+        detail?.client?.mobileNumber?.blankToNil
+            ?? detail?.lead?.mobileNumber?.blankToNil
+            ?? summary.leadPhone?.blankToNil
+            ?? "-"
+    }
+
+    private var primaryAddress: String {
+        [
+            detail?.clientPlace?.address,
+            detail?.clientPlace?.landmark,
+            detail?.clientPlace?.city,
+            detail?.clientPlace?.state,
+            detail?.clientPlace?.pincode
+        ]
+        .compactMap { $0?.blankToNil }
+        .joined(separator: ", ")
+        .blankToNil
+            ?? detail?.clientPlace?.formattedAddress?.blankToNil
+            ?? summary.placeAddress?.blankToNil
+            ?? "Address not mapped"
+    }
+
+    private var clientMetTitle: String {
+        switch detail?.clientMet ?? summary.cpVisit?.clientMet {
+        case true: return "Client met"
+        case false: return "Client not seen"
+        default: return "Visit completed"
+        }
+    }
+
+    private var clientMetIcon: String {
+        (detail?.clientMet ?? summary.cpVisit?.clientMet) == false ? "xmark.circle.fill" : "checkmark.seal.fill"
+    }
+
+    private var clientMetTint: Color {
+        (detail?.clientMet ?? summary.cpVisit?.clientMet) == false ? Color(hex: 0xB42318) : Color(hex: 0x1F7A3F)
+    }
+
+    private var outcomeTitle: String {
+        switch (detail?.outcome ?? summary.cpVisit?.outcome ?? "").lowercased() {
+        case "converted_to_booking": return "Converted to Booking"
+        case "converted_to_site_visit": return "Converted to Site Visit"
+        case "postponed": return "Postponed"
+        case "not_interested": return "Not Interested"
+        case "interested": return "Interested"
+        default: return "Completed"
+        }
+    }
+
+    private var outcomeTint: Color {
+        switch (detail?.outcome ?? summary.cpVisit?.outcome ?? "").lowercased() {
+        case "postponed": return Color(hex: 0xB54708)
+        case "not_interested": return Color(hex: 0xB42318)
+        default: return Color(hex: 0x0369A1)
+        }
+    }
+
+    private var isBookingOutcome: Bool {
+        (detail?.outcome ?? summary.cpVisit?.outcome ?? "").lowercased() == "converted_to_booking"
+    }
+
+    private var statusSubtitle: String {
+        if let at = detail?.clientMetAt ?? summary.cpVisit?.clientMetAt.map(Int64.init) {
+            return "Outcome recorded on \(formatEpoch(at))"
+        }
+        return "Outcome captured for this client visit"
+    }
+
+    private var formattedTime: String {
+        let start = summary.scheduledStartTime?.blankToNil ?? detail?.scheduledTime?.blankToNil
+        let end = summary.scheduledEndTime?.blankToNil
+        if let start, let end { return "\(start) - \(end)" }
+        return start ?? "-"
+    }
+
+    private var tripTypeTitle: String {
+        switch (summary.tripType ?? "").lowercased() {
+        case "client_place": return "Client place"
+        case "internal": return "Internal"
+        case "": return "Client visit"
+        default: return (summary.tripType ?? "").replacingOccurrences(of: "_", with: " ").capitalized
+        }
+    }
+
+    private var isGeoMapped: Bool {
+        summary.placeLat != nil && summary.placeLng != nil
+    }
+
+    private func formattedDate(_ raw: String?) -> String {
+        guard let raw = raw?.blankToNil else { return "-" }
+        let parser = DateFormatter()
+        parser.locale = Locale(identifier: "en_US_POSIX")
+        parser.dateFormat = "yyyy-MM-dd"
+        guard let date = parser.date(from: raw) else { return raw }
+        let formatter = DateFormatter()
+        formatter.dateFormat = "dd MMM yyyy"
+        return formatter.string(from: date)
+    }
+
+    private func formatEpoch(_ millis: Int64?) -> String {
+        guard let millis, millis > 0 else { return "-" }
+        let formatter = DateFormatter()
+        formatter.dateFormat = "dd MMM yyyy, hh:mm a"
+        return formatter.string(from: Date(timeIntervalSince1970: TimeInterval(millis) / 1000))
+    }
+
+    private func gpsText(_ proof: CpVisitArrivalProof?) -> String {
+        guard let lat = proof?.gpsLat, let lng = proof?.gpsLng else { return "-" }
+        return String(format: "%.5f, %.5f", lat, lng)
+    }
+
+    private func distanceText(_ meters: Double?) -> String {
+        guard let meters else { return "-" }
+        if meters >= 1000 { return String(format: "%.1f km", meters / 1000) }
+        return "\(Int(meters.rounded())) m"
+    }
+
+    private func durationText(_ minutes: Double?) -> String {
+        guard let minutes else { return "-" }
+        if minutes >= 60 {
+            let hours = Int(minutes / 60)
+            let mins = Int(minutes.rounded()) % 60
+            return mins == 0 ? "\(hours) hr" : "\(hours) hr \(mins) min"
+        }
+        return "\(Int(minutes.rounded())) min"
+    }
+
+    private func parseNoteSections(_ notes: String) -> [CompletedNoteSection] {
+        var sections: [CompletedNoteSection] = []
+        var currentTitle = "Details"
+        var currentRows: [CompletedNoteRow] = []
+
+        func flush() {
+            guard !currentRows.isEmpty else { return }
+            sections.append(CompletedNoteSection(title: currentTitle, rows: currentRows))
+            currentRows = []
+        }
+
+        for rawLine in notes.components(separatedBy: .newlines) {
+            let line = rawLine.trimmingCharacters(in: .whitespacesAndNewlines)
+            guard !line.isEmpty else { continue }
+            if line.hasPrefix("[") && line.hasSuffix("]") {
+                flush()
+                currentTitle = String(line.dropFirst().dropLast())
+                continue
+            }
+            let parts = line.split(separator: ":", maxSplits: 1).map(String.init)
+            if parts.count == 2 {
+                currentRows.append(CompletedNoteRow(label: parts[0], value: parts[1].trimmingCharacters(in: .whitespaces)))
+            } else {
+                currentRows.append(CompletedNoteRow(label: "Note", value: line))
+            }
+        }
+        flush()
+        if sections.isEmpty {
+            return [CompletedNoteSection(title: "Details", rows: [CompletedNoteRow(label: "Notes", value: notes)])]
+        }
+        return sections
+    }
+}
+
+private struct CompletedNoteSection: Identifiable {
+    let id = UUID()
+    let title: String
+    let rows: [CompletedNoteRow]
+}
+
+private struct CompletedNoteRow: Identifiable {
+    let id = UUID()
+    let label: String
+    let value: String
+}
+
+private struct FlowChipRow: View {
+    let items: [String]
+    let tint: Color
+
+    var body: some View {
+        ScrollView(.horizontal, showsIndicators: false) {
+            HStack(spacing: 8) {
+                ForEach(items, id: \.self) { item in
+                    Text(item)
+                        .font(.system(size: 12, weight: .semibold))
+                        .foregroundStyle(tint)
+                        .padding(.horizontal, 10)
+                        .frame(height: 28)
+                        .background(tint.opacity(0.12), in: Capsule())
+                }
+            }
+        }
+    }
+}
+
+private extension View {
+    func completedCard() -> some View {
+        padding(16)
+            .frame(maxWidth: .infinity, alignment: .leading)
+            .background(.white, in: RoundedRectangle(cornerRadius: 14))
+            .overlay(
+                RoundedRectangle(cornerRadius: 14)
+                    .stroke(Color(hex: 0xEAECF0), lineWidth: 1)
+            )
+    }
+}
+
 private struct CreateCpVisitSheet: View {
     @Environment(AuthStore.self) private var authStore
     @Environment(\.dismiss) private var dismiss
@@ -689,7 +1217,10 @@ private extension String {
     }
 
     var isInProgress: Bool {
-        ["in-progress", "in_progress", "ongoing", "started", "active", "arrived"].contains(self)
+        [
+            "picked_up", "on_site", "dropped", "in-progress", "in_progress",
+            "client_started", "ongoing", "started", "active", "arrived"
+        ].contains(self)
     }
 
     var isCompleted: Bool {
@@ -697,7 +1228,7 @@ private extension String {
     }
 
     var isCancelled: Bool {
-        ["cancelled", "canceled"].contains(self)
+        ["cancelled", "canceled", "no_show"].contains(self)
     }
 }
 
@@ -715,6 +1246,12 @@ private extension ConvexSiteVisit {
     var isOpenableCpVisit: Bool {
         let normalizedStatus = (status ?? "").lowercased()
         return !normalizedStatus.isCompleted && !normalizedStatus.isCancelled
+    }
+
+    var isCompletedCpVisit: Bool {
+        let normalizedStatus = (status ?? "").lowercased()
+        return normalizedStatus.isCompleted
+            && ((tripType ?? "").lowercased() == "client_place" || clientPlaceVisitId != nil)
     }
 
     func matchesCpSearch(_ query: String) -> Bool {
