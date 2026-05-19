@@ -1209,10 +1209,10 @@ private struct SwipeToConfirmTripButton: View {
                     .overlay(Capsule().stroke(Color(hex: 0xE5E7EB), lineWidth: 1))
 
                 Text(isBusy ? busyTitle : title)
+                    .frame(maxWidth: .infinity)
                     .font(.system(size: 14, weight: .semibold))
                     .foregroundStyle(Color(hex: 0x19B900))
-                    .frame(maxWidth: .infinity)
-                    .opacity(isLocked && !isBusy ? 0 : 1 - min(offset / max(travel, 1), 1))
+                    .opacity(isLocked && !isBusy ? 0 : 1.0 - min(offset / max(travel, 1.0), 1.0))
 
                 Image(systemName: "chevron.right.2")
                     .font(.system(size: 13, weight: .bold))
@@ -1220,7 +1220,7 @@ private struct SwipeToConfirmTripButton: View {
                     .frame(width: 24, height: 24)
                     .frame(maxWidth: .infinity, alignment: .trailing)
                     .padding(.trailing, 12)
-                    .opacity(isBusy ? 0 : 1 - min(offset / max(travel, 1), 1))
+                    .opacity(isBusy ? 0 : 1.0 - min(offset / max(travel, 1.0), 1.0))
 
                 Circle()
                     .fill(.white)
