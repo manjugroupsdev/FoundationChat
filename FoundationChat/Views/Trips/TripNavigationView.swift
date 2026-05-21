@@ -150,8 +150,9 @@ struct TripNavigationView: View {
         .navigationTitle("Trip Details")
         .navigationBarTitleDisplayMode(.inline)
         .toolbar(.hidden, for: .tabBar)
-        .sheet(isPresented: $showCamera) {
+        .fullScreenCover(isPresented: $showCamera) {
             PunchCameraView(capturedImage: $capturedImage)
+                .ignoresSafeArea()
         }
         .sheet(isPresented: $showCpClientSeenSheet, onDismiss: {
             if !arrivalInProgress && !visitCompletedSuccessfully {
@@ -376,11 +377,12 @@ struct TripNavigationView: View {
             }
         }
         .padding(.horizontal, 14)
-        .padding(.vertical, 14)
-        .background(.white, in: RoundedRectangle(cornerRadius: 14))
+        .padding(.top, 14)
+        .padding(.bottom, 16)
+        .background(.white, in: RoundedRectangle(cornerRadius: 12))
         .overlay(
-            RoundedRectangle(cornerRadius: 14)
-                .stroke(Color(hex: 0xEEF0F5), lineWidth: 1)
+            RoundedRectangle(cornerRadius: 12)
+                .stroke(Color(hex: 0xF2F4F7), lineWidth: 1)
         )
     }
 
@@ -421,14 +423,14 @@ struct TripNavigationView: View {
     }
 
     private var tripProgressCard: some View {
-        VStack(alignment: .leading, spacing: 14) {
+        VStack(alignment: .leading, spacing: 13) {
             HStack {
                 Text("Trip Progress")
-                    .font(.system(size: 15, weight: .semibold))
-                    .foregroundStyle(Color(hex: 0x101828))
+                    .font(.system(size: 13, weight: .medium))
+                    .foregroundStyle(Color(hex: 0x1C1C1E))
                 Spacer()
                 Text(tripProgressStage.stateLabel)
-                    .font(.system(size: 12, weight: .semibold))
+                    .font(.system(size: 13, weight: .medium))
                     .foregroundStyle(tripProgressStage.stateColor)
             }
 
@@ -458,12 +460,8 @@ struct TripNavigationView: View {
                 )
             }
         }
-        .padding(14)
-        .background(.white, in: RoundedRectangle(cornerRadius: 14))
-        .overlay(
-            RoundedRectangle(cornerRadius: 14)
-                .stroke(Color(hex: 0xEEF0F5), lineWidth: 1)
-        )
+        .padding(16)
+        .background(Color(hex: 0xF0F9F0), in: RoundedRectangle(cornerRadius: 8))
     }
 
     // MARK: - Action Buttons
@@ -491,11 +489,11 @@ struct TripNavigationView: View {
                     .foregroundStyle(.white)
                     .background(
                         LinearGradient(
-                            colors: [Color(hex: 0x1ECB09), Color(hex: 0x3D9D02)],
+                            colors: [Color(hex: 0x1BCA0B), Color(hex: 0x3D9D02)],
                             startPoint: .top,
                             endPoint: .bottom
                         ),
-                        in: RoundedRectangle(cornerRadius: 12)
+                        in: Capsule()
                     )
                     .disabled(arrivalInProgress)
                 } else {
@@ -529,11 +527,11 @@ struct TripNavigationView: View {
                 .foregroundStyle(.white)
                 .background(
                     LinearGradient(
-                        colors: [Color(hex: 0x1ECB09), Color(hex: 0x3D9D02)],
+                        colors: [Color(hex: 0x1BCA0B), Color(hex: 0x3D9D02)],
                         startPoint: .top,
                         endPoint: .bottom
                     ),
-                    in: RoundedRectangle(cornerRadius: 12)
+                    in: Capsule()
                 )
                 .disabled(isLoadingStart)
             }
@@ -1157,7 +1155,7 @@ private struct TripProgressStep: View {
             ZStack {
                 Circle()
                     .fill(state.iconBackground)
-                    .frame(width: 34, height: 34)
+                    .frame(width: 32, height: 32)
                     .overlay(Circle().stroke(state.borderColor, lineWidth: state == .active ? 1.4 : 0))
                 Image(systemName: systemImage)
                     .font(.system(size: 13, weight: .semibold))

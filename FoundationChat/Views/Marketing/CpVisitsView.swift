@@ -10,7 +10,7 @@ struct CpVisitsView: View {
     @State private var errorMessage: String?
     @State private var showCreateSheet = false
     @State private var searchText = ""
-    @State private var selectedFilter: CpVisitFilter = .scheduled
+    @State private var selectedFilter: CpVisitFilter = .pending
     @State private var isClockedIn = false
 
     private var filteredVisits: [ConvexSiteVisit] {
@@ -72,7 +72,7 @@ struct CpVisitsView: View {
         }
         .refreshable { await load() }
         .background(Color(hex: 0xF1F3F8).ignoresSafeArea())
-        .navigationTitle("Cp Visits")
+        .navigationTitle("CP Visits")
         .navigationBarTitleDisplayMode(.inline)
         .searchable(
             text: $searchText,
@@ -100,7 +100,7 @@ struct CpVisitsView: View {
 
     private var topBar: some View {
         ZStack {
-            Text("Cp Visits")
+            Text("CP Visits")
                 .font(.system(size: 17, weight: .semibold))
                 .foregroundStyle(Color(hex: 0x101828))
 
@@ -197,12 +197,12 @@ struct CpVisitsView: View {
         if errorMessage != nil { return "Couldn't Load" }
         if !searchText.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty { return "No Matches Found" }
         switch selectedFilter {
-        case .scheduled: return "No Cp Visits Yet"
+        case .pending: return "No Pending CP Visits"
         case .postponed: return "Nothing Postponed"
         case .inProgress: return "No Visits In Progress"
         case .completed: return "No Completed Visits"
         case .cancelled: return "No Cancelled Visits"
-        case .all: return "No Cp Visits Yet"
+        case .all: return "No CP Visits Yet"
         }
     }
 
@@ -211,7 +211,20 @@ struct CpVisitsView: View {
         if !searchText.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
             return "Try a different search term or switch filters to see other client place visits."
         }
-        return "Stay organized by creating or joining teams. Groups help you manage tasks, track progress, and collaborate with your team in one place."
+        switch selectedFilter {
+        case .pending:
+            return "Pending client-place visits assigned to you will appear here."
+        case .postponed:
+            return "Postponed CP visits will appear here when a follow-up is needed."
+        case .inProgress:
+            return "Trips you have started or reached will appear here until completion."
+        case .completed:
+            return "Completed CP visits will appear here with their captured outcome."
+        case .cancelled:
+            return "Cancelled CP visits will appear here for review."
+        case .all:
+            return "Create or receive CP visits to start tracking client-place work."
+        }
     }
 
     private var skeletonList: some View {
@@ -550,7 +563,7 @@ private struct CpVisitCard: View {
 
 private enum CpVisitFilter: String, CaseIterable, Identifiable {
     case all
-    case scheduled
+    case pending
     case postponed
     case inProgress
     case completed
@@ -561,7 +574,7 @@ private enum CpVisitFilter: String, CaseIterable, Identifiable {
     var title: String {
         switch self {
         case .all: return "All"
-        case .scheduled: return "Scheduled"
+        case .pending: return "Pending"
         case .postponed: return "Postponed"
         case .inProgress: return "In progress"
         case .completed: return "Completed"
@@ -574,7 +587,7 @@ private enum CpVisitFilter: String, CaseIterable, Identifiable {
         switch self {
         case .all:
             return true
-        case .scheduled:
+        case .pending:
             return !status.isCompleted && !status.isCancelled && !status.isInProgress && !visit.isPostponedCpVisit
         case .postponed:
             return visit.isPostponedCpVisit && !status.isCancelled && !status.isCompleted

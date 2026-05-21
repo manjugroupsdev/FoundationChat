@@ -7,6 +7,7 @@ struct PunchCameraView: UIViewControllerRepresentable {
 
     func makeUIViewController(context: Context) -> UIImagePickerController {
         let picker = UIImagePickerController()
+        picker.modalPresentationStyle = .fullScreen
         if UIImagePickerController.isSourceTypeAvailable(.camera) {
             picker.sourceType = .camera
             if UIImagePickerController.isCameraDeviceAvailable(.front) {
@@ -41,14 +42,16 @@ struct PunchCameraView: UIViewControllerRepresentable {
             self.picker = picker
             let bounds = UIScreen.main.bounds
             let overlay = UIView(frame: bounds)
+            overlay.autoresizingMask = [.flexibleWidth, .flexibleHeight]
             overlay.backgroundColor = .clear
 
-            let bar = UIView(frame: CGRect(x: 0, y: bounds.height - 140, width: bounds.width, height: 140))
+            let bar = UIView()
+            bar.translatesAutoresizingMaskIntoConstraints = false
             bar.backgroundColor = UIColor.black.withAlphaComponent(0.55)
             overlay.addSubview(bar)
 
             let shutter = UIButton(type: .system)
-            shutter.frame = CGRect(x: bounds.width / 2 - 35, y: 30, width: 70, height: 70)
+            shutter.translatesAutoresizingMaskIntoConstraints = false
             shutter.layer.cornerRadius = 35
             shutter.backgroundColor = .white
             shutter.layer.borderWidth = 4
@@ -57,7 +60,7 @@ struct PunchCameraView: UIViewControllerRepresentable {
             bar.addSubview(shutter)
 
             let cancel = UIButton(type: .system)
-            cancel.frame = CGRect(x: 16, y: 50, width: 80, height: 30)
+            cancel.translatesAutoresizingMaskIntoConstraints = false
             cancel.setTitle("Cancel", for: .normal)
             cancel.setTitleColor(.white, for: .normal)
             cancel.titleLabel?.font = .systemFont(ofSize: 17, weight: .medium)
@@ -65,12 +68,35 @@ struct PunchCameraView: UIViewControllerRepresentable {
             cancel.addTarget(self, action: #selector(cancelTapped), for: .touchUpInside)
             bar.addSubview(cancel)
 
-            let hint = UILabel(frame: CGRect(x: 0, y: 110, width: bounds.width, height: 22))
+            let hint = UILabel()
+            hint.translatesAutoresizingMaskIntoConstraints = false
             hint.text = "Front camera only"
             hint.textAlignment = .center
             hint.textColor = UIColor.white.withAlphaComponent(0.85)
             hint.font = .systemFont(ofSize: 12, weight: .regular)
             bar.addSubview(hint)
+
+            NSLayoutConstraint.activate([
+                bar.leadingAnchor.constraint(equalTo: overlay.leadingAnchor),
+                bar.trailingAnchor.constraint(equalTo: overlay.trailingAnchor),
+                bar.bottomAnchor.constraint(equalTo: overlay.bottomAnchor),
+                bar.heightAnchor.constraint(equalToConstant: 140),
+
+                shutter.centerXAnchor.constraint(equalTo: bar.centerXAnchor),
+                shutter.topAnchor.constraint(equalTo: bar.topAnchor, constant: 30),
+                shutter.widthAnchor.constraint(equalToConstant: 70),
+                shutter.heightAnchor.constraint(equalToConstant: 70),
+
+                cancel.leadingAnchor.constraint(equalTo: bar.safeAreaLayoutGuide.leadingAnchor, constant: 16),
+                cancel.centerYAnchor.constraint(equalTo: shutter.centerYAnchor),
+                cancel.widthAnchor.constraint(equalToConstant: 96),
+                cancel.heightAnchor.constraint(equalToConstant: 36),
+
+                hint.leadingAnchor.constraint(equalTo: bar.leadingAnchor, constant: 16),
+                hint.trailingAnchor.constraint(equalTo: bar.trailingAnchor, constant: -16),
+                hint.topAnchor.constraint(equalTo: shutter.bottomAnchor, constant: 10),
+                hint.heightAnchor.constraint(equalToConstant: 22)
+            ])
 
             return overlay
         }
