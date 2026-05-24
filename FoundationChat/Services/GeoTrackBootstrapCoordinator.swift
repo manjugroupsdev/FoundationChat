@@ -128,15 +128,7 @@ final class GeoTrackBootstrapCoordinator {
 
     private func isClockedInForToday() async -> Bool {
         guard let token = geoAPI.tokenProvider?() else { return false }
-        let formatter = DateFormatter()
-        formatter.dateFormat = "yyyy-MM-dd"
-        let today = formatter.string(from: Date())
-
-        async let attendance = try? HRConvexAPIService.getTodayAttendance(token: token)
-        async let sessions = try? HRConvexAPIService.getDaySessions(token: token, date: today)
-        let todayAttendance = await attendance
-        let daySessions = await sessions
-        return (todayAttendance ?? nil)?.isOpen == true || (daySessions ?? nil)?.hasOpenSession == true
+        return await AttendanceTrackingGate.isClockedInForToday(token: token)
     }
 
     private func makeDeviceSyncRequest() async -> TrackingDeviceSyncRequest {

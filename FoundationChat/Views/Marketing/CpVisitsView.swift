@@ -270,14 +270,7 @@ struct CpVisitsView: View {
     }
 
     private func loadClockInState(token: String) async -> Bool {
-        let formatter = DateFormatter()
-        formatter.dateFormat = "yyyy-MM-dd"
-        let today = formatter.string(from: Date())
-        async let attendance = try? HRConvexAPIService.getTodayAttendance(token: token)
-        async let sessions = try? HRConvexAPIService.getDaySessions(token: token, date: today)
-        let todayAttendance = await attendance
-        let daySessions = await sessions
-        return todayAttendance?.isOpen == true || daySessions?.hasOpenSession == true
+        await AttendanceTrackingGate.isClockedInForToday(token: token)
     }
 
     private func coordinate(for visit: ConvexSiteVisit) -> CLLocationCoordinate2D? {
@@ -961,6 +954,7 @@ private struct CompletedCpVisitDetailView: View {
         case "converted_to_site_visit": return "Converted to Site Visit"
         case "postponed": return "Postponed"
         case "not_interested": return "Not Interested"
+        case "rejected": return "Rejected"
         case "interested": return "Interested"
         default: return "Completed"
         }
@@ -969,7 +963,7 @@ private struct CompletedCpVisitDetailView: View {
     private var outcomeTint: Color {
         switch (detail?.outcome ?? summary.cpVisit?.outcome ?? "").lowercased() {
         case "postponed": return Color(hex: 0xB54708)
-        case "not_interested": return Color(hex: 0xB42318)
+        case "not_interested", "rejected": return Color(hex: 0xB42318)
         default: return Color(hex: 0x0369A1)
         }
     }

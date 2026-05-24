@@ -909,12 +909,12 @@ struct TripNavigationView: View {
     private var shouldCollectCpOutcome: Bool {
         guard let clientPlaceVisitId, !clientPlaceVisitId.isEmpty else { return false }
         guard cpClientMet != true || (cpOutcome ?? "").isEmpty else { return false }
-        return (tripType ?? "").lowercased() == "client_place"
+        return true
     }
 
     private var isCpVisit: Bool {
         guard clientPlaceVisitId?.isEmpty == false else { return false }
-        return (tripType ?? "").lowercased() == "client_place"
+        return true
     }
 
     private func formatDistance(_ meters: Double) -> String {
@@ -1061,14 +1061,7 @@ struct TripNavigationView: View {
     }
 
     private func hasOpenAttendanceSession(token: String) async -> Bool {
-        let formatter = DateFormatter()
-        formatter.dateFormat = "yyyy-MM-dd"
-        let today = formatter.string(from: Date())
-        async let attendance = try? HRConvexAPIService.getTodayAttendance(token: token)
-        async let sessions = try? HRConvexAPIService.getDaySessions(token: token, date: today)
-        let todayAttendance = await attendance
-        let daySessions = await sessions
-        return todayAttendance?.isOpen == true || daySessions?.hasOpenSession == true
+        await AttendanceTrackingGate.isClockedInForToday(token: token)
     }
 
     private func updateMapForKnownDestination() {

@@ -70,6 +70,13 @@ struct CpVisitDetailResponse: Decodable, Sendable {
     let error: String?
 }
 
+struct MyMarketingCpVisitsResponse: Decodable, Sendable {
+    let success: Bool
+    let total: Int?
+    let visits: [CpVisitDetail]
+    let error: String?
+}
+
 struct CpVisitDetail: Decodable, Identifiable, Sendable {
     let id: String
     let leadId: String?
@@ -99,6 +106,8 @@ struct CpVisitDetail: Decodable, Identifiable, Sendable {
     let isBookingCompleted: Bool?
     let createdAt: Int64?
     let updatedAt: Int64?
+    let proposedSiteVisit: ProposedSiteVisit?
+    let attendees: [CpVisitAttendee]?
     let lead: CpVisitLead?
     let client: CpVisitClient?
     let telecaller: CpVisitStaff?
@@ -115,8 +124,36 @@ struct CpVisitDetail: Decodable, Identifiable, Sendable {
         case convertedBookingId, fieldVisitId, notes, completedAt, cancelledAt
         case expectedAttendeeCount, foodPreferences, vehiclePreference, isBookingCompleted
         case createdAt, updatedAt, lead, client, telecaller, assignedStaff, clientPlace
-        case fieldVisit, arrivalProof
+        case proposedSiteVisit, attendees, fieldVisit, arrivalProof
     }
+}
+
+struct ProposedSiteVisit: Decodable, Sendable {
+    let projectId: String?
+    let scheduledDate: String?
+    let scheduledTime: String?
+    let inchargeStaffId: String?
+    let hodStaffId: String?
+    let bdoStaffId: String?
+    let avpStaffId: String?
+    let gmStaffId: String?
+    let seniorManagerStaffId: String?
+
+    var isMeaningful: Bool {
+        [
+            projectId, scheduledDate, scheduledTime, inchargeStaffId, hodStaffId,
+            bdoStaffId, avpStaffId, gmStaffId, seniorManagerStaffId
+        ]
+        .contains { $0?.nilIfBlank != nil }
+    }
+}
+
+struct CpVisitAttendee: Decodable, Sendable {
+    let name: String?
+    let relation: String?
+    let age: String?
+    let isVeg: Bool?
+    let notes: String?
 }
 
 struct CpVisitLead: Decodable, Sendable {
@@ -217,6 +254,13 @@ private extension KeyedDecodingContainer {
             }
         }
         return nil
+    }
+}
+
+private extension String {
+    var nilIfBlank: String? {
+        let trimmed = trimmingCharacters(in: .whitespacesAndNewlines)
+        return trimmed.isEmpty ? nil : trimmed
     }
 }
 

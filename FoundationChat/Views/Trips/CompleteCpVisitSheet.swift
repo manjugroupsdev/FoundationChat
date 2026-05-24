@@ -45,6 +45,9 @@ struct CompleteCpVisitSheet: View {
     @State private var isLoadingProjects = false
     @State private var isLoadingStaff = false
     @State private var isSaving = false
+    @State private var isLockedSvMode = false
+    @State private var isDetectingLockedSvMode = false
+    @State private var showRejectReasonSheet = false
     @State private var errorMessage: String?
 
     private let titleOptions = ["Mr", "Mrs", "Ms", "Dr", "Prof"]
@@ -130,33 +133,38 @@ struct CompleteCpVisitSheet: View {
                             .foregroundStyle(.red)
                     }
 
-                    Button {
-                        Task { await submit() }
-                    } label: {
-                        if isSaving {
-                            ProgressView()
-                                .tint(.white)
-                                .frame(maxWidth: .infinity)
-                                .frame(height: 48)
-                        } else {
-                            Text(ctaTitle)
-                                .font(.system(size: 14, weight: .semibold))
-                                .frame(maxWidth: .infinity)
-                                .frame(height: 52)
+                    if isLockedSvMode {
+                        lockedSvFooter
+                            .padding(.top, 6)
+                    } else {
+                        Button {
+                            Task { await submit() }
+                        } label: {
+                            if isSaving {
+                                ProgressView()
+                                    .tint(.white)
+                                    .frame(maxWidth: .infinity)
+                                    .frame(height: 48)
+                            } else {
+                                Text(ctaTitle)
+                                    .font(.system(size: 14, weight: .semibold))
+                                    .frame(maxWidth: .infinity)
+                                    .frame(height: 52)
+                            }
                         }
+                        .buttonStyle(.plain)
+                        .foregroundStyle(.white)
+                        .background(
+                            LinearGradient(
+                                colors: [Color(hex: 0x1ECB09), Color(hex: 0x3D9D02)],
+                                startPoint: .top,
+                                endPoint: .bottom
+                            ),
+                            in: RoundedRectangle(cornerRadius: 26)
+                        )
+                        .padding(.top, 6)
+                        .disabled(isSaving)
                     }
-                    .buttonStyle(.plain)
-                    .foregroundStyle(.white)
-                    .background(
-                        LinearGradient(
-                            colors: [Color(hex: 0x1ECB09), Color(hex: 0x3D9D02)],
-                            startPoint: .top,
-                            endPoint: .bottom
-                        ),
-                        in: RoundedRectangle(cornerRadius: 26)
-                    )
-                    .padding(.top, 6)
-                    .disabled(isSaving)
                 }
                 .padding(.horizontal, 20)
                 .padding(.top, 18)
@@ -174,6 +182,17 @@ struct CompleteCpVisitSheet: View {
             .task {
                 selectedOutcome = CpVisitOutcome(rawValue: initialOutcome ?? "")
                 await loadInitialData()
+                await detectAndApplyLockedSvMode()
+            }
+            .sheet(isPresented: $showRejectReasonSheet) {
+                CpRejectReasonSheet(
+                    isSaving: isSaving,
+                    onSubmit: { reason in
+                        await submitLockedRejection(reason: reason)
+                    }
+                )
+                .presentationDetents([.medium, .large])
+                .presentationDragIndicator(.visible)
             }
         }
     }
@@ -182,6 +201,7 @@ struct CompleteCpVisitSheet: View {
         HStack(spacing: 0) {
             ForEach(Array(CpVisitOutcome.allCases.enumerated()), id: \.element.id) { index, outcome in
                 Button {
+                    guard !isLockedSvMode || outcome == .siteVisit else { return }
                     selectedOutcome = outcome
                     if outcome == .booking {
                         bookingSub = .client
@@ -193,8 +213,10 @@ struct CompleteCpVisitSheet: View {
                         isSelected: selectedOutcome == outcome
                     )
                     .frame(maxWidth: .infinity)
+                    .opacity(isLockedSvMode && outcome != .siteVisit ? 0.35 : 1)
                 }
                 .buttonStyle(.plain)
+                .disabled(isLockedSvMode && outcome != .siteVisit)
 
                 if index < CpVisitOutcome.allCases.count - 1 {
                     Rectangle()
@@ -204,6 +226,45 @@ struct CompleteCpVisitSheet: View {
             }
         }
         .padding(.top, 14)
+    }
+
+    private var lockedSvFooter: some View {
+        HStack(spacing: 10) {
+            Button {
+                errorMessage = nil
+                showRejectReasonSheet = true
+            } label: {
+                Label("Reject It", systemImage: "xmark")
+                    .font(.system(size: 13, weight: .semibold))
+                    .frame(maxWidth: .infinity, minHeight: 46)
+            }
+            .buttonStyle(.plain)
+            .foregroundStyle(Color(hex: 0xB42318))
+            .background(.white, in: RoundedRectangle(cornerRadius: 23))
+            .overlay(
+                RoundedRectangle(cornerRadius: 23)
+                    .stroke(Color(hex: 0xFDA29B), lineWidth: 1)
+            )
+            .disabled(isSaving)
+
+            Button {
+                Task { await submit() }
+            } label: {
+                if isSaving {
+                    ProgressView()
+                        .tint(.white)
+                        .frame(maxWidth: .infinity, minHeight: 46)
+                } else {
+                    Label("Confirm It", systemImage: "checkmark")
+                        .font(.system(size: 13, weight: .semibold))
+                        .frame(maxWidth: .infinity, minHeight: 46)
+                }
+            }
+            .buttonStyle(.plain)
+            .foregroundStyle(.white)
+            .background(Color(hex: 0x1ECB09), in: RoundedRectangle(cornerRadius: 23))
+            .disabled(isSaving)
+        }
     }
 
     private func resetOutcomeToBookingFindClient() {
@@ -645,6 +706,85 @@ struct CompleteCpVisitSheet: View {
         }
     }
 
+    @MainActor
+    private func detectAndApplyLockedSvMode() async {
+        guard !isLockedSvMode, !isDetectingLockedSvMode else { return }
+        guard let token = authStore.currentSession?.token else { return }
+        isDetectingLockedSvMode = true
+        defer { isDetectingLockedSvMode = false }
+
+        do {
+            let visits = try await MarketingConvexAPIService.getMyMarketingCpVisits(token: token)
+            guard let visit = visits.first(where: { $0.id == cpVisitId }) else { return }
+
+            let proposed = visit.proposedSiteVisit
+            let leadFlaggedSvFixed = visit.lead?.followUpStatus?
+                .lowercased()
+                .replacingOccurrences(of: "-", with: "_")
+                .contains("sv_fixed") == true
+            let hasSvFixParty =
+                (visit.expectedAttendeeCount ?? 0) > 0 ||
+                (visit.attendees?.isEmpty == false) ||
+                visit.foodPreferences?.nilIfBlank != nil ||
+                visit.vehiclePreference?.nilIfBlank != nil
+
+            guard proposed?.isMeaningful == true || leadFlaggedSvFixed || hasSvFixParty else { return }
+            applyLockedSvMode(visit: visit, proposed: proposed)
+        } catch {
+            // Locked mode is progressive enhancement. If detection fails, keep the normal CP flow usable.
+        }
+    }
+
+    @MainActor
+    private func applyLockedSvMode(visit: CpVisitDetail, proposed: ProposedSiteVisit?) {
+        isLockedSvMode = true
+        selectedOutcome = .siteVisit
+        errorMessage = nil
+
+        if let projectId = proposed?.projectId?.nilIfBlank {
+            selectedProject = projects.first { $0.id == projectId }
+        }
+        if let date = parseServerDate(proposed?.scheduledDate ?? visit.scheduledDate) {
+            siteVisitDate = date
+        }
+        if let time = parseServerTime(proposed?.scheduledTime ?? visit.scheduledTime) {
+            siteVisitTime = time
+        }
+
+        selectedIncharge = staff(with: proposed?.inchargeStaffId)
+        selectedHod = staff(with: proposed?.hodStaffId)
+        selectedAvp = staff(with: proposed?.avpStaffId)
+        selectedGm = staff(with: proposed?.gmStaffId)
+        selectedSeniorManager = staff(with: proposed?.seniorManagerStaffId)
+
+        let count = visit.expectedAttendeeCount ?? visit.attendees?.count ?? 0
+        if count > 0 {
+            visitorCount = "\(count)"
+            syncVisitorRows(count: count)
+            if let attendees = visit.attendees {
+                for (index, attendee) in attendees.prefix(visitors.count).enumerated() {
+                    visitors[index].name = attendee.name ?? ""
+                    visitors[index].relation = attendee.relation ?? ""
+                    visitors[index].age = attendee.age ?? ""
+                    visitors[index].isVeg = attendee.isVeg ?? true
+                }
+            }
+        }
+        foodPreferences = visit.foodPreferences ?? ""
+        pickupAddress = visit.clientPlace?.address?.nilIfBlank
+            ?? visit.clientPlace?.formattedAddress?.nilIfBlank
+            ?? visit.lead?.preferredArea?.nilIfBlank
+            ?? pickupAddress
+        if let vehicle = visit.vehiclePreference?.nilIfBlank {
+            travelMode = vehicle.lowercased().contains("own") ? .ownVehicle : .cab
+        }
+    }
+
+    private func staff(with id: String?) -> ConvexStaffListItem? {
+        guard let id = id?.nilIfBlank else { return nil }
+        return salesStaff.first { $0.id == id }
+    }
+
     private func syncVisitorRows(count rawCount: Int) {
         let count = min(max(rawCount, 0), 12)
         if visitors.count < count {
@@ -748,6 +888,42 @@ struct CompleteCpVisitSheet: View {
         }
     }
 
+    private func submitLockedRejection(reason: String) async {
+        let trimmed = reason.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !trimmed.isEmpty else {
+            errorMessage = "Please share a reason for the rejection"
+            return
+        }
+        guard let token = authStore.currentSession?.token else {
+            errorMessage = "Not signed in"
+            return
+        }
+
+        isSaving = true
+        defer { isSaving = false }
+
+        do {
+            try await MarketingConvexAPIService.markClientMet(
+                token: token,
+                request: MarkClientMetRequest(id: cpVisitId, clientMet: true)
+            )
+            try await MarketingConvexAPIService.setCpVisitOutcome(
+                token: token,
+                request: SetCpVisitOutcomeRequest(
+                    id: cpVisitId,
+                    outcome: "rejected",
+                    postponeReasons: nil,
+                    notes: trimmed
+                )
+            )
+            showRejectReasonSheet = false
+            onCompleted()
+            dismiss()
+        } catch {
+            errorMessage = error.localizedDescription
+        }
+    }
+
     private func dismissKeyboard() {
         UIApplication.shared.sendAction(#selector(UIResponder.resignFirstResponder), to: nil, from: nil, for: nil)
     }
@@ -813,6 +989,26 @@ struct CompleteCpVisitSheet: View {
         let formatter = DateFormatter()
         formatter.dateFormat = "HH:mm"
         return formatter.string(from: date)
+    }
+
+    private func parseServerDate(_ raw: String?) -> Date? {
+        guard let raw = raw?.nilIfBlank else { return nil }
+        let formatter = DateFormatter()
+        formatter.locale = Locale(identifier: "en_US_POSIX")
+        formatter.dateFormat = "yyyy-MM-dd"
+        if let date = formatter.date(from: raw) { return date }
+        return ISO8601DateFormatter().date(from: raw)
+    }
+
+    private func parseServerTime(_ raw: String?) -> Date? {
+        guard let raw = raw?.nilIfBlank else { return nil }
+        let formatter = DateFormatter()
+        formatter.locale = Locale(identifier: "en_US_POSIX")
+        for pattern in ["HH:mm", "HH:mm:ss", "h:mm a", "hh:mm a"] {
+            formatter.dateFormat = pattern
+            if let date = formatter.date(from: raw) { return date }
+        }
+        return nil
     }
 }
 
@@ -1067,6 +1263,93 @@ private struct CpVisitorDraft: Identifiable, Hashable {
     var relation = ""
     var age = ""
     var isVeg = true
+}
+
+private struct CpRejectReasonSheet: View {
+    let isSaving: Bool
+    let onSubmit: (String) async -> Void
+
+    @Environment(\.dismiss) private var dismiss
+    @State private var reason = ""
+    @State private var errorMessage: String?
+
+    var body: some View {
+        ScrollView {
+            VStack(alignment: .leading, spacing: 18) {
+                VStack(alignment: .leading, spacing: 4) {
+                    Text("Rejection Case")
+                        .font(.system(size: 17, weight: .semibold))
+                        .foregroundStyle(Color(hex: 0x101828))
+                    Text("Rejection Scenario Will Happen")
+                        .font(.system(size: 13))
+                        .foregroundStyle(Color(hex: 0x667085))
+                }
+
+                lockedOutcomeTabs
+
+                VStack(alignment: .leading, spacing: 8) {
+                    Text("Rejection Reason")
+                        .font(.system(size: 13, weight: .medium))
+                        .foregroundStyle(Color(hex: 0x344054))
+                    TextField("Tell Valid Reason For Rejection", text: $reason, axis: .vertical)
+                        .font(.system(size: 13))
+                        .lineLimit(3...6)
+                        .padding(14)
+                        .background(Color(hex: 0xF5F6FA), in: RoundedRectangle(cornerRadius: 12))
+                }
+
+                if let errorMessage {
+                    Text(errorMessage)
+                        .font(.system(size: 12, weight: .medium))
+                        .foregroundStyle(Color(hex: 0xB42318))
+                }
+
+                Button {
+                    let trimmed = reason.trimmingCharacters(in: .whitespacesAndNewlines)
+                    guard !trimmed.isEmpty else {
+                        errorMessage = "Please share a reason for the rejection"
+                        return
+                    }
+                    errorMessage = nil
+                    Task { await onSubmit(trimmed) }
+                } label: {
+                    if isSaving {
+                        ProgressView()
+                            .tint(.white)
+                            .frame(maxWidth: .infinity, minHeight: 52)
+                    } else {
+                        Text("Submit Now")
+                            .font(.system(size: 14, weight: .semibold))
+                            .frame(maxWidth: .infinity, minHeight: 52)
+                    }
+                }
+                .buttonStyle(.plain)
+                .foregroundStyle(.white)
+                .background(Color(hex: 0x1ECB09), in: RoundedRectangle(cornerRadius: 26))
+                .disabled(isSaving)
+            }
+            .padding(.horizontal, 20)
+            .padding(.top, 20)
+            .padding(.bottom, 24)
+        }
+        .background(.white)
+    }
+
+    private var lockedOutcomeTabs: some View {
+        HStack(spacing: 0) {
+            ForEach(Array(CpVisitOutcome.allCases.enumerated()), id: \.element.id) { index, outcome in
+                OutcomeTabView(outcome: outcome, isSelected: outcome == .siteVisit)
+                    .frame(maxWidth: .infinity)
+                    .opacity(outcome == .siteVisit ? 1 : 0.55)
+
+                if index < CpVisitOutcome.allCases.count - 1 {
+                    Rectangle()
+                        .fill(Color(hex: 0xF3F3F5))
+                        .frame(width: 1, height: 28)
+                }
+            }
+        }
+    }
 }
 
 private struct OutcomeTabView: View {

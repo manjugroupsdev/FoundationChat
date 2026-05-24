@@ -502,15 +502,7 @@ struct HomeView: View {
             hasOpenSession = false
             return
         }
-
-        let formatter = DateFormatter()
-        formatter.dateFormat = "yyyy-MM-dd"
-        let today = formatter.string(from: Date())
-        async let attendance = try? HRConvexAPIService.getTodayAttendance(token: token)
-        async let sessions = try? HRConvexAPIService.getDaySessions(token: token, date: today)
-        let todayAttendance = await attendance
-        let daySessions = await sessions
-        hasOpenSession = (todayAttendance ?? nil)?.isOpen == true || (daySessions ?? nil)?.hasOpenSession == true
+        hasOpenSession = await AttendanceTrackingGate.isClockedInForToday(token: token)
     }
 
     @MainActor

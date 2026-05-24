@@ -317,10 +317,11 @@ private struct AppLibrarySection: Identifiable {
                 id: "project",
                 filter: .project,
                 title: "Project Management",
-                subtitle: "Projects • Tasks",
+                subtitle: "Projects • Tasks • Expenses",
                 icon: "AppLibraryIconAppsCatPm",
                 items: [
-                    .init(title: "Tasks", icon: "AppLibraryIconAppsTasks", destination: .tasks)
+                    .init(title: "Tasks", icon: "AppLibraryIconAppsTasks", destination: .tasks),
+                    .init(title: "Expenses", icon: "AppLibraryIconAppsLoans", destination: .expenses)
                 ]
             ),
             .init(
@@ -355,6 +356,7 @@ private enum AppLibraryDestination {
     case inventory
     case newBooking
     case tasks
+    case expenses
     case settings
 
     @ViewBuilder
@@ -380,6 +382,8 @@ private enum AppLibraryDestination {
             BookingCreateView()
         case .tasks:
             TasksListView()
+        case .expenses:
+            ProjectExpensesView()
         case .settings:
             ProfileView()
         }
