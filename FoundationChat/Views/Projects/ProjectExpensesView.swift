@@ -325,6 +325,7 @@ struct ProjectExpensesView: View {
             }
             await refreshExpenses()
         } catch {
+            guard !isCancellation(error) else { return }
             errorMessage = error.localizedDescription
         }
     }
@@ -344,8 +345,21 @@ struct ProjectExpensesView: View {
             expenses = page.expenses
             totals = page.totals
         } catch {
+            guard !isCancellation(error) else { return }
             errorMessage = error.localizedDescription
         }
+    }
+
+    private func isCancellation(_ error: Error) -> Bool {
+        if error is CancellationError { return true }
+        if let urlError = error as? URLError, urlError.code == .cancelled { return true }
+
+        let nsError = error as NSError
+        if nsError.domain == NSURLErrorDomain, nsError.code == NSURLErrorCancelled {
+            return true
+        }
+
+        return error.localizedDescription.trimmingCharacters(in: .whitespacesAndNewlines).lowercased() == "cancelled"
     }
 
     private func playEntryAnimation() {
