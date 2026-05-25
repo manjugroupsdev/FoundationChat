@@ -232,6 +232,24 @@ enum MarketingConvexAPIService {
         return visit
     }
 
+    static func getMyMarketingCpVisits(
+        token: String,
+        fromDate: String? = nil,
+        toDate: String? = nil
+    ) async throws -> [CpVisitDetail] {
+        var items: [URLQueryItem] = []
+        if let fromDate, !fromDate.isEmpty {
+            items.append(URLQueryItem(name: "fromDate", value: fromDate))
+        }
+        if let toDate, !toDate.isEmpty {
+            items.append(URLQueryItem(name: "toDate", value: toDate))
+        }
+        let data = try await get(path: "/api/marketing/clientPlaceVisits/my", token: token, queryItems: items)
+        let wrapper = try decode(MyMarketingCpVisitsResponse.self, from: data)
+        guard wrapper.success else { throw MarketingAPIError.server(wrapper.error ?? "Failed to load CP visits") }
+        return wrapper.visits
+    }
+
     // MARK: - HTTP
 
     private static func get(path: String, token: String, queryItems: [URLQueryItem] = []) async throws -> Data {

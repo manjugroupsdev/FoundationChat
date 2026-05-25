@@ -17,9 +17,11 @@ enum TasksConvexAPIService {
         let success: Bool
         let summary: ConvexTaskSummary?
         let total: Int?
+        let notStarted: Int?
         let pending: Int?
         let inProgress: Int?
         let completed: Int?
+        let delayed: Int?
         let overallPercent: Double?
         let overallProgress: Double?
         let error: String?
@@ -34,6 +36,20 @@ enum TasksConvexAPIService {
     private struct TaskActionResponse: Decodable {
         let success: Bool
         let taskId: String?
+        let updateId: String?
+        let task: ConvexTask?
+        let error: String?
+    }
+
+    private struct TaskResourcesResponse: Decodable {
+        let success: Bool
+        let resources: [TaskResourceEntry]?
+        let error: String?
+    }
+
+    private struct TaskTimelineResponse: Decodable {
+        let success: Bool
+        let updates: [ConvexTaskUpdate]?
         let error: String?
     }
 
@@ -57,9 +73,11 @@ enum TasksConvexAPIService {
         if let summary = wrapper.summary { return summary }
         return ConvexTaskSummary(
             total: wrapper.total,
+            notStarted: wrapper.notStarted,
             pending: wrapper.pending,
             inProgress: wrapper.inProgress,
             completed: wrapper.completed,
+            delayed: wrapper.delayed,
             overallPercent: wrapper.overallPercent,
             overallProgress: wrapper.overallProgress
         )
@@ -73,6 +91,28 @@ enum TasksConvexAPIService {
             throw HRConvexAPIError.server(wrapper.error ?? "Task not found")
         }
         return task
+    }
+
+    static func getTaskResources(token: String, taskId: String) async throws -> [TaskResourceEntry] {
+        let path = "/api/projects/tasks/resources?taskId=\(urlEncode(taskId))"
+        let data = try await get(path: path, token: token)
+        let wrapper = try JSONDecoder().decode(TaskResourcesResponse.self, from: data)
+        guard wrapper.success else {
+            throw HRConvexAPIError.server(wrapper.error ?? "Failed to load resources")
+        }
+        return wrapper.resources ?? []
+    }
+
+    static func getTaskTimeline(token: String, taskId: String) async throws -> [ConvexTaskUpdate] {
+        let path = "/api/projects/tasks/updates?taskId=\(urlEncode(taskId))"
+        let data = try await get(path: path, token: token)
+        let wrapper = try JSONDecoder().decode(TaskTimelineResponse.self, from: data)
+        guard wrapper.success else {
+            throw HRConvexAPIError.server(wrapper.error ?? "Failed to load timeline")
+        }
+        return (wrapper.updates ?? []).sorted {
+            ($0.creationTime ?? 0) > ($1.creationTime ?? 0)
+        }
     }
 
     // MARK: - Writes
@@ -104,16 +144,69 @@ enum TasksConvexAPIService {
         }
     }
 
-    static func addUpdate(token: String, taskId: String, comment: String) async throws {
-        let body: [String: Any] = [
-            "id": taskId,
-            "comment": comment
+    static func updateTask(
+        token: String,
+        taskId: String,
+        status: String?,
+        progress: Int?,
+        actualStartDate: String?,
+        actualEndDate: String?
+    ) async throws {
+        var body: [String: Any] = ["id": taskId]
+        if let status { body["status"] = status }
+        if let progress { body["progress"] = progress }
+        if let actualStartDate { body["actualStartDate"] = actualStartDate }
+        if let actualEndDate { body["actualEndDate"] = actualEndDate }
+        let data = try await post(path: "/api/projects/tasks/update", token: token, jsonBody: body)
+        let wrapper = try JSONDecoder().decode(TaskActionResponse.self, from: data)
+        guard wrapper.success else {
+            throw HRConvexAPIError.server(wrapper.error ?? "Failed to update task")
+        }
+    }
+
+    static func addTimelineUpdate(
+        token: String,
+        taskId: String,
+        date: String,
+        todaysUpdate: String?,
+        blocker: String?,
+        tomorrowsPlan: String?,
+        progressSnapshot: Int,
+        images: [TaskUpdateImage]? = nil
+    ) async throws {
+        var body: [String: Any] = [
+            "taskId": taskId,
+            "date": date,
+            "progressSnapshot": progressSnapshot
         ]
+        if let todaysUpdate, !todaysUpdate.isEmpty { body["todaysUpdate"] = todaysUpdate }
+        if let blocker, !blocker.isEmpty { body["blocker"] = blocker }
+        if let tomorrowsPlan, !tomorrowsPlan.isEmpty { body["tomorrowsPlan"] = tomorrowsPlan }
+        if let images, !images.isEmpty {
+            body["images"] = images.map { image in
+                var payload: [String: Any] = ["storageId": image.storageId]
+                if let url = image.url, !url.isEmpty { payload["url"] = url }
+                if let name = image.name, !name.isEmpty { payload["name"] = name }
+                return payload
+            }
+        }
         let data = try await post(path: "/api/projects/tasks/add-update", token: token, jsonBody: body)
         let wrapper = try JSONDecoder().decode(TaskActionResponse.self, from: data)
         guard wrapper.success else {
             throw HRConvexAPIError.server(wrapper.error ?? "Failed to add update")
         }
+    }
+
+    static func addUpdate(token: String, taskId: String, comment: String) async throws {
+        try await addTimelineUpdate(
+            token: token,
+            taskId: taskId,
+            date: AppModuleFormatters.ymd.string(from: Date()),
+            todaysUpdate: comment,
+            blocker: nil,
+            tomorrowsPlan: nil,
+            progressSnapshot: 0
+        )
     }
 
     // MARK: - HTTP helpers
