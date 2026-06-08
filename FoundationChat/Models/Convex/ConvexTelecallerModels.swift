@@ -32,6 +32,12 @@ struct ConvexLead: Decodable, Identifiable, Equatable, Sendable {
         phone ?? alternatePhone ?? "--"
     }
 
+    var callPhone: String? {
+        if let phone, !phone.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty { return phone }
+        if let alternatePhone, !alternatePhone.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty { return alternatePhone }
+        return nil
+    }
+
     var statusLabel: String {
         guard let status, !status.isEmpty else { return "New" }
         return status.replacingOccurrences(of: "_", with: " ").capitalized

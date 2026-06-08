@@ -429,21 +429,24 @@ struct InventoryLayoutMapView: View {
     @State private var units: [InventoryUnit] = []
     @State private var isLoading = false
     @State private var errorMessage: String?
+    @State private var detailUnit: InventoryUnit?
 
-    private var rectUnits: [InventoryUnit] {
+    private var visualUnits: [InventoryUnit] {
         units.filter {
-            $0.layoutCoordinates?.shape == "rect"
-                && $0.layoutCoordinates?.x != nil
-                && $0.layoutCoordinates?.y != nil
-                && $0.layoutCoordinates?.width != nil
-                && $0.layoutCoordinates?.height != nil
+            guard let coordinates = $0.layoutCoordinates else { return false }
+            let hasRect = coordinates.x != nil
+                && coordinates.y != nil
+                && coordinates.width != nil
+                && coordinates.height != nil
+            let hasPolygon = (coordinates.points?.count ?? 0) >= 3
+            return hasRect || hasPolygon
         }
     }
 
     var body: some View {
         VStack(spacing: 16) {
             HStack {
-                Text("\(rectUnits.count) rect unit\(rectUnits.count == 1 ? "" : "s")")
+                Text("\(visualUnits.count) mapped unit\(visualUnits.count == 1 ? "" : "s")")
                     .font(AppModuleFont.rowTitle)
                 Spacer()
             }
@@ -452,14 +455,16 @@ struct InventoryLayoutMapView: View {
             if isLoading {
                 ProgressView("Loading layout…")
                     .frame(maxWidth: .infinity, maxHeight: .infinity)
-            } else if rectUnits.isEmpty {
+            } else if visualUnits.isEmpty {
                 ContentUnavailableView(
                     "No Layout",
                     systemImage: "map",
                     description: Text(errorMessage ?? "No layout coordinates published yet.")
                 )
             } else {
-                UnitMapCanvas(units: rectUnits)
+                UnitMapCanvas(units: visualUnits) { unit in
+                    detailUnit = unit
+                }
                     .frame(minHeight: 420)
                     .background(Color(.secondarySystemGroupedBackground), in: RoundedRectangle(cornerRadius: 16))
                     .padding()
@@ -470,6 +475,11 @@ struct InventoryLayoutMapView: View {
         .navigationBarTitleDisplayMode(.inline)
         .task { await load() }
         .refreshable { await load() }
+        .sheet(item: $detailUnit) { unit in
+            NavigationStack {
+                InventoryUnitDetailView(unit: unit)
+            }
+        }
     }
 
     @MainActor
@@ -488,46 +498,100 @@ struct InventoryLayoutMapView: View {
 
 private struct UnitMapCanvas: View {
     let units: [InventoryUnit]
+    let onSelect: (InventoryUnit) -> Void
 
     var body: some View {
-        Canvas { context, size in
-            let rects = units.compactMap { unit -> (InventoryUnit, CGRect)? in
-                guard let c = unit.layoutCoordinates,
-                      let x = c.x, let y = c.y, let width = c.width, let height = c.height
-                else { return nil }
-                return (unit, CGRect(x: x, y: y, width: width, height: height))
-            }
-            guard let bounds = rects.map(\.1).reduce(nil, { current, rect in
-                current?.union(rect) ?? rect
-            }) else { return }
+        GeometryReader { proxy in
+            let renderItems = makeRenderItems(size: proxy.size)
 
-            let padding: CGFloat = 16
-            let scale = min(
-                (size.width - padding * 2) / max(bounds.width, 1),
-                (size.height - padding * 2) / max(bounds.height, 1)
-            )
-            let offsetX = padding - bounds.minX * scale
-            let offsetY = padding - bounds.minY * scale
+            ZStack {
+                Canvas { context, _ in
+                    for item in renderItems {
+                        let path = item.path
+                        context.fill(path, with: .color(fillColor(for: item.unit.status)))
+                        context.stroke(path, with: .color(Color(hex: 0x475467)), lineWidth: 1.5)
+                        if let label = item.unit.unitNumber {
+                            context.draw(
+                                Text(label)
+                                    .font(AppModuleFont.rowMetaSemibold)
+                                    .foregroundStyle(Color(hex: 0x101828)),
+                                at: CGPoint(x: item.frame.midX, y: item.frame.midY)
+                            )
+                        }
+                    }
+                }
 
-            for (unit, source) in rects {
-                let rect = CGRect(
-                    x: source.minX * scale + offsetX,
-                    y: source.minY * scale + offsetY,
-                    width: source.width * scale,
-                    height: source.height * scale
-                )
-                let path = Path(roundedRect: rect, cornerRadius: 4)
-                context.fill(path, with: .color(fillColor(for: unit.status)))
-                context.stroke(path, with: .color(Color(hex: 0x475467)), lineWidth: 1.5)
-                if let label = unit.unitNumber {
-                    context.draw(
-                        Text(label).font(AppModuleFont.rowMetaSemibold).foregroundStyle(Color(hex: 0x101828)),
-                        at: CGPoint(x: rect.midX, y: rect.midY)
-                    )
+                ForEach(renderItems) { item in
+                    Button {
+                        onSelect(item.unit)
+                    } label: {
+                        Color.clear
+                    }
+                    .buttonStyle(.plain)
+                    .frame(width: max(item.frame.width, 28), height: max(item.frame.height, 28))
+                    .position(x: item.frame.midX, y: item.frame.midY)
+                    .accessibilityLabel("Open \(item.unit.unitNumber ?? "unit") details")
                 }
             }
         }
         .padding(4)
+    }
+
+    private func makeRenderItems(size: CGSize) -> [UnitMapRenderItem] {
+        let sources = units.compactMap { unit -> UnitMapSource? in
+            guard let coordinates = unit.layoutCoordinates else { return nil }
+            if let points = coordinates.points, points.count >= 3 {
+                let cgPoints = points.map { CGPoint(x: $0.x, y: $0.y) }
+                let bounds = boundingRect(for: cgPoints)
+                return UnitMapSource(unit: unit, rect: bounds, points: cgPoints)
+            }
+            guard let x = coordinates.x,
+                  let y = coordinates.y,
+                  let width = coordinates.width,
+                  let height = coordinates.height
+            else { return nil }
+            return UnitMapSource(unit: unit, rect: CGRect(x: x, y: y, width: width, height: height), points: nil)
+        }
+        guard let bounds = sources.map(\.rect).reduce(nil, { current, rect in
+            current?.union(rect) ?? rect
+        }) else { return [] }
+
+        let padding: CGFloat = 16
+        let drawableWidth = max(size.width - padding * 2, 1)
+        let drawableHeight = max(size.height - padding * 2, 1)
+        let scale = min(drawableWidth / max(bounds.width, 1), drawableHeight / max(bounds.height, 1))
+        let offsetX = padding - bounds.minX * scale
+        let offsetY = padding - bounds.minY * scale
+
+        return sources.map { source in
+            if let points = source.points {
+                let transformed = points.map {
+                    CGPoint(x: $0.x * scale + offsetX, y: $0.y * scale + offsetY)
+                }
+                var path = Path()
+                if let first = transformed.first {
+                    path.move(to: first)
+                    transformed.dropFirst().forEach { path.addLine(to: $0) }
+                    path.closeSubpath()
+                }
+                return UnitMapRenderItem(unit: source.unit, path: path, frame: boundingRect(for: transformed).insetBy(dx: -2, dy: -2))
+            }
+
+            let rect = CGRect(
+                x: source.rect.minX * scale + offsetX,
+                y: source.rect.minY * scale + offsetY,
+                width: source.rect.width * scale,
+                height: source.rect.height * scale
+            )
+            return UnitMapRenderItem(unit: source.unit, path: Path(roundedRect: rect, cornerRadius: 4), frame: rect)
+        }
+    }
+
+    private func boundingRect(for points: [CGPoint]) -> CGRect {
+        guard let first = points.first else { return .zero }
+        return points.dropFirst().reduce(CGRect(origin: first, size: .zero)) { rect, point in
+            rect.union(CGRect(origin: point, size: .zero))
+        }
     }
 
     private func fillColor(for status: String) -> Color {
@@ -539,4 +603,17 @@ private struct UnitMapCanvas: View {
         default: return Color(hex: 0xF2F4F7)
         }
     }
+}
+
+private struct UnitMapSource {
+    let unit: InventoryUnit
+    let rect: CGRect
+    let points: [CGPoint]?
+}
+
+private struct UnitMapRenderItem: Identifiable {
+    var id: String { unit.id }
+    let unit: InventoryUnit
+    let path: Path
+    let frame: CGRect
 }

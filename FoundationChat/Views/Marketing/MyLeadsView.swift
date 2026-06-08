@@ -41,9 +41,15 @@ struct MyLeadsView: View {
                 )
             } else {
                 ForEach(filteredLeads) { lead in
-                    LeadRow(lead: lead)
+                    LeadRow(
+                        lead: lead,
+                        isDialing: dialingPhone == sanitizedPhone(lead.phone ?? lead.alternatePhone ?? ""),
+                        onCall: {
+                            call(lead.phone ?? lead.alternatePhone ?? "")
+                        }
+                    )
                         .swipeActions(edge: .trailing, allowsFullSwipe: true) {
-                            if let phone = lead.phone, !phone.isEmpty {
+                            if let phone = lead.callPhone, !phone.isEmpty {
                                 Button {
                                     call(phone)
                                 } label: {
@@ -172,6 +178,10 @@ struct MyLeadsView: View {
         }
     }
 
+    private func sanitizedPhone(_ phone: String) -> String {
+        phone.filter(\.isNumber)
+    }
+
     private func call(_ phone: String) {
         let digits = phone.filter(\.isNumber)
         guard digits.count >= 10 else {
@@ -206,6 +216,8 @@ struct MyLeadsView: View {
 
 private struct LeadRow: View {
     let lead: ConvexLead
+    let isDialing: Bool
+    let onCall: () -> Void
 
     var body: some View {
         HStack(spacing: 12) {
@@ -230,7 +242,23 @@ private struct LeadRow: View {
                 }
             }
             Spacer()
-            statusBadge
+            VStack(alignment: .trailing, spacing: 8) {
+                statusBadge
+                Button(action: onCall) {
+                    if isDialing {
+                        ProgressView()
+                            .controlSize(.small)
+                    } else {
+                        Label("Call", systemImage: "phone.fill")
+                            .labelStyle(.iconOnly)
+                    }
+                }
+                .buttonStyle(.borderedProminent)
+                .controlSize(.small)
+                .tint(Color(hex: 0x12B76A))
+                .disabled(isDialing || lead.callPhone == nil)
+                .accessibilityLabel("Call \(lead.displayName)")
+            }
         }
         .padding(.vertical, 4)
     }

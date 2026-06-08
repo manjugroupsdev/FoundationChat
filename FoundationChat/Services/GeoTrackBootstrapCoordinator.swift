@@ -27,6 +27,7 @@ final class GeoTrackBootstrapCoordinator {
     private(set) var lastBootstrap: TrackingBootstrapData?
     private(set) var lastError: String?
     private(set) var shouldPresentConsent = false
+    private(set) var shouldPresentPermissionHelp = false
 
     var deviceId: String {
         if let existing = userDefaults.string(forKey: DefaultsKey.deviceId), !existing.isEmpty {
@@ -65,8 +66,10 @@ final class GeoTrackBootstrapCoordinator {
             let attendanceActive = await isClockedInForToday()
             try await apply(bootstrap: bootstrap, attendanceActive: attendanceActive)
             lastError = nil
+            shouldPresentPermissionHelp = false
         } catch {
             lastError = error.localizedDescription
+            shouldPresentPermissionHelp = isPermissionError(error)
         }
     }
 
@@ -79,6 +82,10 @@ final class GeoTrackBootstrapCoordinator {
         shouldPresentConsent = false
         userDefaults.set(false, forKey: DefaultsKey.shouldTrackNow)
         tracker?.cancelTrip()
+    }
+
+    func dismissPermissionHelp() {
+        shouldPresentPermissionHelp = false
     }
 
     private func apply(bootstrap: TrackingBootstrapData?, attendanceActive: Bool) async throws {
@@ -95,7 +102,7 @@ final class GeoTrackBootstrapCoordinator {
 
         if attendanceActive, bootstrap?.shouldPromptConsent == true {
             shouldPresentConsent = true
-            tracker?.cancelTrip()
+            await tracker?.stopAndFinalize()
             return
         }
 
@@ -104,7 +111,7 @@ final class GeoTrackBootstrapCoordinator {
         guard shouldTrack,
               bootstrap?.activeSession?.id?.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty == false
         else {
-            tracker?.cancelTrip()
+            await tracker?.stopAndFinalize()
             return
         }
 
@@ -128,7 +135,7 @@ final class GeoTrackBootstrapCoordinator {
 
     private func isClockedInForToday() async -> Bool {
         guard let token = geoAPI.tokenProvider?() else { return false }
-        return await AttendanceTrackingGate.isClockedInForToday(token: token)
+        return await AttendanceTrackingGate.hasOpenSessionForToday(token: token)
     }
 
     private func makeDeviceSyncRequest() async -> TrackingDeviceSyncRequest {
@@ -174,6 +181,14 @@ final class GeoTrackBootstrapCoordinator {
     private func appVersionString() -> String {
         let version = Bundle.main.infoDictionary?["CFBundleShortVersionString"] as? String ?? "1.0"
         return "\(version)-ios"
+    }
+
+    private func isPermissionError(_ error: any Error) -> Bool {
+        let message = error.localizedDescription.lowercased()
+        return message.contains("location")
+            || message.contains("permission")
+            || message.contains("denied")
+            || message.contains("settings")
     }
 }
 

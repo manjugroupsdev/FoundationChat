@@ -1,18 +1,33 @@
 import Combine
 import SwiftUI
 
+enum HRDashboardRoute: Hashable {
+    case leaves
+    case permissions
+}
+
 struct HRDashboardView: View {
     @Environment(AuthStore.self) private var authStore
 
+    let openRoute: HRDashboardRoute?
+    var onOpenRouteHandled: () -> Void
+
+    @State private var path = NavigationPath()
     @State private var todayAttendance: ConvexTodayAttendance?
     @State private var historyRecords: [ConvexAttendanceRecord] = []
     @State private var isLoading = false
     @State private var nowTick = Date()
     @State private var showPunchIn = false
     @State private var showPunchOut = false
+    @State private var showClockOutConfirm = false
     @State private var errorMessage: String?
 
     private let timer = Timer.publish(every: 1, on: .main, in: .common).autoconnect()
+
+    init(openRoute: HRDashboardRoute? = nil, onOpenRouteHandled: @escaping () -> Void = {}) {
+        self.openRoute = openRoute
+        self.onOpenRouteHandled = onOpenRouteHandled
+    }
 
     private var hasPunchedIn: Bool {
         todayAttendance?.hasPunchedIn == true || firstPunchIn(for: todayHistoryRecord) != nil
@@ -25,8 +40,16 @@ struct HRDashboardView: View {
         return firstPunchIn(for: todayHistoryRecord) != nil && lastPunchOut(for: todayHistoryRecord) == nil
     }
 
+    private var availableShortcuts: [HRDashboardShortcut] {
+        HRDashboardShortcut.allCases.filter { shortcut in
+            shortcut.permissionGroups.contains { group in
+                group.isEmpty || group.contains { authStore.hasPermission($0) }
+            }
+        }
+    }
+
     var body: some View {
-        NavigationStack {
+        NavigationStack(path: $path) {
             ZStack(alignment: .top) {
                 Color(red: 0.945, green: 0.953, blue: 0.973)
                     .ignoresSafeArea()
@@ -38,7 +61,10 @@ struct HRDashboardView: View {
                     HRDashboardLoadingStrip(isLoading: isLoading)
 
                     ScrollView {
-                        attendanceHistoryCards
+                        VStack(spacing: 14) {
+                            dashboardErrorBanner
+                            attendanceHistoryCards
+                        }
                         .padding(.bottom, 120)
                     }
                     .refreshable {
@@ -50,13 +76,37 @@ struct HRDashboardView: View {
                     .zIndex(2)
             }
             .toolbar(.hidden, for: .navigationBar)
+            .navigationDestination(for: HRDashboardRoute.self) { route in
+                switch route {
+                case .leaves:
+                    LeavesListView()
+                case .permissions:
+                    ConvexPermissionListView()
+                }
+            }
             .task { await reloadAll() }
+            .task(id: openRoute) {
+                guard let openRoute else { return }
+                path = NavigationPath()
+                path.append(openRoute)
+                onOpenRouteHandled()
+            }
             .onReceive(timer) { nowTick = $0 }
             .sheet(isPresented: $showPunchIn) {
                 PunchFlowView(mode: .punchIn) { Task { await reloadAll() } }
             }
             .sheet(isPresented: $showPunchOut) {
                 PunchFlowView(mode: .punchOut) { Task { await reloadAll() } }
+            }
+            .sheet(isPresented: $showClockOutConfirm) {
+                ClockOutConfirmSheet {
+                    showClockOutConfirm = false
+                    showPunchOut = true
+                } onCancel: {
+                    showClockOutConfirm = false
+                }
+                .presentationDetents([.height(280)])
+                .presentationDragIndicator(.hidden)
             }
         }
     }
@@ -190,55 +240,50 @@ struct HRDashboardView: View {
 
     @ViewBuilder
     private var actionButtons: some View {
-        if isOpen {
-            HStack(spacing: 12) {
-                Button {
-                    showPunchOut = true
-                } label: {
-                    Text("Take A Break")
-                        .font(.system(size: 13, weight: .medium))
-                        .foregroundStyle(Color(red: 0.412, green: 0.22, blue: 0.937))
-                        .frame(maxWidth: .infinity)
-                        .frame(height: 48)
-                        .overlay(
-                            Capsule()
-                                .stroke(Color(red: 0.412, green: 0.22, blue: 0.937), lineWidth: 1.4)
-                        )
-                }
-                .buttonStyle(.plain)
-                .sensoryFeedback(.impact, trigger: showPunchOut)
-
-                Button {
-                    showPunchOut = true
-                } label: {
-                    Text("Clock Out")
-                        .font(.system(size: 13, weight: .medium))
-                        .foregroundStyle(.white)
-                        .frame(maxWidth: .infinity)
-                        .frame(height: 48)
-                        .background(androidGreen, in: Capsule())
-                }
-                .buttonStyle(.plain)
-                .sensoryFeedback(.impact, trigger: showPunchOut)
+        if hasPunchedIn {
+            Button {
+                showClockOutConfirm = true
+            } label: {
+                Text("Clock Out")
+                    .font(.system(size: 14, weight: .medium))
+                    .frame(maxWidth: .infinity)
             }
+            .buttonStyle(.borderedProminent)
+            .controlSize(.large)
+            .tint(androidGreen)
+            .sensoryFeedback(.impact, trigger: showPunchOut)
         } else {
             Button {
                 showPunchIn = true
             } label: {
                 Text("Clock In Now")
                     .font(.system(size: 14, weight: .medium))
-                    .foregroundStyle(.white)
                     .frame(maxWidth: .infinity)
-                    .frame(height: 48)
-                    .background(androidGreen, in: Capsule())
             }
-            .buttonStyle(.plain)
+            .buttonStyle(.borderedProminent)
+            .controlSize(.large)
+            .tint(androidGreen)
             .sensoryFeedback(.impact, trigger: showPunchIn)
         }
     }
 
     private var attendanceHistoryCards: some View {
         VStack(spacing: 12) {
+            HStack {
+                Text("Attendance History")
+                    .font(.system(size: 15, weight: .semibold))
+                    .foregroundStyle(Color(red: 0.063, green: 0.094, blue: 0.157))
+                Spacer()
+                NavigationLink {
+                    ConvexAttendanceListView()
+                } label: {
+                    Text("View All")
+                        .font(.system(size: 12, weight: .semibold))
+                        .foregroundStyle(Color(hex: 0x0B61CA))
+                }
+            }
+            .padding(.horizontal, 16)
+
             if historyRecords.isEmpty && !isLoading {
                 VStack {
                     ContentUnavailableView(
@@ -258,6 +303,64 @@ struct HRDashboardView: View {
             }
         }
         .padding(.top, 12)
+    }
+
+    @ViewBuilder
+    private var dashboardErrorBanner: some View {
+        if let errorMessage {
+            HStack(spacing: 10) {
+                Image(systemName: "exclamationmark.triangle.fill")
+                    .foregroundStyle(Color(hex: 0xB42318))
+                Text(errorMessage)
+                    .font(.system(size: 12, weight: .medium))
+                    .foregroundStyle(Color(hex: 0x7A271A))
+                    .frame(maxWidth: .infinity, alignment: .leading)
+                Button {
+                    self.errorMessage = nil
+                } label: {
+                    Image(systemName: "xmark")
+                        .font(.system(size: 11, weight: .bold))
+                }
+                .buttonStyle(.plain)
+                .foregroundStyle(Color(hex: 0x7A271A))
+            }
+            .padding(12)
+            .background(Color(hex: 0xFEF3F2), in: RoundedRectangle(cornerRadius: 12, style: .continuous))
+            .overlay(
+                RoundedRectangle(cornerRadius: 12, style: .continuous)
+                    .stroke(Color(hex: 0xFECDCA), lineWidth: 1)
+            )
+            .padding(.horizontal, 12)
+            .padding(.top, 12)
+        }
+    }
+
+    @ViewBuilder
+    private var hrShortcutsSection: some View {
+        let shortcuts = availableShortcuts
+        if !shortcuts.isEmpty {
+            VStack(alignment: .leading, spacing: 10) {
+                Text("HR Shortcuts")
+                    .font(.system(size: 15, weight: .semibold))
+                    .foregroundStyle(Color(red: 0.063, green: 0.094, blue: 0.157))
+                    .padding(.horizontal, 4)
+
+                LazyVGrid(columns: [GridItem(.flexible()), GridItem(.flexible())], spacing: 10) {
+                    ForEach(shortcuts) { shortcut in
+                        NavigationLink {
+                            shortcut.destination.view
+                        } label: {
+                            HRShortcutCard(shortcut: shortcut)
+                        }
+                        .buttonStyle(.plain)
+                    }
+                }
+            }
+            .padding(12)
+            .background(Color.white, in: RoundedRectangle(cornerRadius: 12, style: .continuous))
+            .padding(.horizontal, 12)
+            .padding(.top, errorMessage == nil ? 12 : 0)
+        }
     }
 
     private func androidHistoryCard(for record: ConvexAttendanceRecord) -> some View {
@@ -310,10 +413,14 @@ struct HRDashboardView: View {
     }
 
     private var heroTitle: String {
+        if isOpen { return "You're Clocked In" }
+        if hasPunchedIn { return "Clocked Out" }
         return "Let's Clock-In!"
     }
 
     private var heroSubtitle: String {
+        if isOpen { return "Have a productive day ahead" }
+        if hasPunchedIn { return "Tap Clock Out again to update — final time locks at midnight" }
         return "Don't miss your clock in schedule"
     }
 
@@ -518,6 +625,7 @@ struct HRDashboardView: View {
 
     @MainActor
     private func reloadAll() async {
+        await authStore.refreshIAMPermissions()
         await withTaskGroup(of: Void.self) { group in
             group.addTask { await self.loadToday() }
             group.addTask { await self.loadMonthHistory() }
@@ -530,6 +638,7 @@ struct HRDashboardView: View {
         do {
             todayAttendance = try await HRConvexAPIService.getTodayAttendance(token: token)
         } catch {
+            guard !Self.isCancellation(error) else { return }
             errorMessage = error.localizedDescription
         }
     }
@@ -555,8 +664,179 @@ struct HRDashboardView: View {
             )
             historyRecords = records.sorted { ($0.date ?? "") > ($1.date ?? "") }
         } catch {
+            guard !Self.isCancellation(error) else { return }
             errorMessage = error.localizedDescription
         }
+    }
+
+    private static func isCancellation(_ error: Error) -> Bool {
+        if error is CancellationError { return true }
+        return (error as NSError).code == NSURLErrorCancelled
+    }
+}
+
+private struct HRDashboardShortcut: Identifiable {
+    let id: String
+    let title: String
+    let subtitle: String
+    let icon: String
+    let tint: Color
+    let destination: HRDashboardShortcutDestination
+    let permissionGroups: [[String]]
+
+    static let allCases: [HRDashboardShortcut] = [
+        .init(
+            id: "attendance",
+            title: "Attendance",
+            subtitle: "History",
+            icon: "calendar.badge.clock",
+            tint: Color(hex: 0x0B61CA),
+            destination: .attendance,
+            permissionGroups: [["attendance.view", "attendance.viewAll"]]
+        ),
+        .init(
+            id: "attendanceReview",
+            title: "Review",
+            subtitle: "Attendance",
+            icon: "checklist.checked",
+            tint: Color(hex: 0x079455),
+            destination: .attendanceReview,
+            permissionGroups: [["attendance.approve", "attendance.viewAll"]]
+        ),
+        .init(
+            id: "leave",
+            title: "Leave",
+            subtitle: "Requests",
+            icon: "calendar.badge.plus",
+            tint: Color(hex: 0x6941C6),
+            destination: .leave,
+            permissionGroups: [["leaves.view", "leaves.viewAll", "leaves.approve"]]
+        ),
+        .init(
+            id: "leaveReview",
+            title: "Leave Review",
+            subtitle: "Approvals",
+            icon: "checklist.checked",
+            tint: Color(hex: 0x067647),
+            destination: .leaveReview,
+            permissionGroups: [["leaves.approve", "leaves.viewAll"]]
+        ),
+        .init(
+            id: "permissions",
+            title: "Permissions",
+            subtitle: "Time off",
+            icon: "clock.badge.questionmark",
+            tint: Color(hex: 0xDC6803),
+            destination: .permissions,
+            permissionGroups: [["permissions.view", "permissions.viewAll", "permissions.approve"]]
+        ),
+        .init(
+            id: "permissionReview",
+            title: "Permission Review",
+            subtitle: "Approvals",
+            icon: "checklist.checked",
+            tint: Color(hex: 0xB54708),
+            destination: .permissionReview,
+            permissionGroups: [["permissions.approve", "permissions.viewAll"]]
+        ),
+        .init(
+            id: "loans",
+            title: "Loans",
+            subtitle: "HR finance",
+            icon: "indianrupeesign.circle",
+            tint: Color(hex: 0x039855),
+            destination: .loans,
+            permissionGroups: [["loans.view", "loans.manage", "loans.approve"]]
+        ),
+        .init(
+            id: "staff",
+            title: "Staff",
+            subtitle: "Directory",
+            icon: "person.2.fill",
+            tint: Color(hex: 0x1570EF),
+            destination: .staff,
+            permissionGroups: [["staff.view"]]
+        ),
+        .init(
+            id: "geotrack",
+            title: "GeoTrack Live",
+            subtitle: "Tracking",
+            icon: "location.viewfinder",
+            tint: Color(hex: 0xC11574),
+            destination: .geoTrackLive,
+            permissionGroups: [["attendance.liveTracking"]]
+        )
+    ]
+}
+
+private enum HRDashboardShortcutDestination {
+    case attendance
+    case attendanceReview
+    case leave
+    case leaveReview
+    case permissions
+    case permissionReview
+    case loans
+    case staff
+    case geoTrackLive
+
+    @ViewBuilder
+    var view: some View {
+        switch self {
+        case .attendance:
+            ConvexAttendanceListView()
+        case .attendanceReview:
+            AttendanceReviewView()
+        case .leave:
+            LeavesListView()
+        case .leaveReview:
+            LeaveApprovalsView()
+        case .permissions:
+            ConvexPermissionListView()
+        case .permissionReview:
+            PermissionApprovalsView()
+        case .loans:
+            LoansView()
+        case .staff:
+            StaffListView()
+        case .geoTrackLive:
+            GeoTrackLiveStatusView()
+        }
+    }
+}
+
+private struct HRShortcutCard: View {
+    let shortcut: HRDashboardShortcut
+
+    var body: some View {
+        HStack(spacing: 10) {
+            Image(systemName: shortcut.icon)
+                .font(.system(size: 18, weight: .semibold))
+                .foregroundStyle(shortcut.tint)
+                .frame(width: 38, height: 38)
+                .background(shortcut.tint.opacity(0.12), in: RoundedRectangle(cornerRadius: 10, style: .continuous))
+
+            VStack(alignment: .leading, spacing: 3) {
+                Text(shortcut.title)
+                    .font(.system(size: 13, weight: .semibold))
+                    .foregroundStyle(Color(red: 0.063, green: 0.094, blue: 0.157))
+                    .lineLimit(1)
+                    .minimumScaleFactor(0.78)
+                Text(shortcut.subtitle)
+                    .font(.system(size: 11, weight: .medium))
+                    .foregroundStyle(Color(red: 0.278, green: 0.329, blue: 0.404))
+                    .lineLimit(1)
+            }
+
+            Spacer(minLength: 0)
+        }
+        .padding(12)
+        .frame(minHeight: 64)
+        .background(Color(red: 0.976, green: 0.976, blue: 0.976), in: RoundedRectangle(cornerRadius: 12, style: .continuous))
+        .overlay(
+            RoundedRectangle(cornerRadius: 12, style: .continuous)
+                .stroke(Color(red: 0.922, green: 0.925, blue: 0.933), lineWidth: 1)
+        )
     }
 }
 

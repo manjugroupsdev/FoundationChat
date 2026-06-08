@@ -642,6 +642,7 @@ enum ChatAPIService {
   private static func checkHTTPError(data: Data, response: URLResponse) throws {
     guard let http = response as? HTTPURLResponse else { return }
     if http.statusCode == 401 {
+      SessionInvalidationBus.emit()
       // Try to extract error message
       if let json = try? JSONSerialization.jsonObject(with: data) as? [String: Any],
          let error = json["error"] as? String {

@@ -562,6 +562,29 @@ struct GeoTrackStartVisitRequest: Encodable, Sendable {
     }
 }
 
+// MARK: - MMS Fleet Driver Trip
+
+struct MmsFleetDriverSiteVisitRequest: Encodable, Sendable {
+    let siteVisitId: String
+}
+
+struct MmsFleetDriverStartRequest: Encodable, Sendable {
+    let siteVisitId: String
+    let photoIds: [String]
+    let startKm: Double?
+}
+
+struct MmsFleetDriverEndRequest: Encodable, Sendable {
+    let siteVisitId: String
+    let photoIds: [String]
+    let endKm: Double?
+}
+
+struct MmsFleetDriverActionResponse: Decodable, Sendable {
+    let success: Bool
+    let error: String?
+}
+
 // MARK: - Visit Complete
 
 struct GeoTrackCompleteVisitRequest: Encodable, Sendable {

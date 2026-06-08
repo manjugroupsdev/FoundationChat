@@ -1,4 +1,8 @@
+import PhotosUI
 import SwiftUI
+#if canImport(UIKit)
+import UIKit
+#endif
 
 struct ProjectExpensesView: View {
     @Environment(AuthStore.self) private var authStore
@@ -55,7 +59,7 @@ struct ProjectExpensesView: View {
         }
         .sheet(isPresented: $showingCreateExpense) {
             if let selectedProject {
-                ExpenseCreationSheet(project: selectedProject) {
+                ExpenseCreationSheet(project: selectedProject, projects: projects) {
                     await refreshExpenses()
                 }
                 .presentationDetents([.large])
@@ -65,7 +69,7 @@ struct ProjectExpensesView: View {
             ExpenseDetailSheet(expense: expense) {
                 await refreshExpenses()
             }
-            .presentationDetents([.medium, .large])
+            .presentationDetents([.height(390), .medium])
         }
         .alert("Error", isPresented: errorAlertBinding, actions: {
             Button("OK", role: .cancel) { errorMessage = nil }
@@ -102,11 +106,10 @@ struct ProjectExpensesView: View {
                 } label: {
                     Image(systemName: "chevron.backward")
                         .font(.system(size: 24, weight: .medium))
-                        .foregroundStyle(.white)
-                        .frame(width: 44, height: 44, alignment: .leading)
-                        .contentShape(Rectangle())
+                        .frame(width: 36, height: 36)
                 }
-                .buttonStyle(.plain)
+                .buttonStyle(.bordered)
+                .tint(.white)
                 .accessibilityLabel("Back")
 
                 Text("Expenses")
@@ -156,7 +159,7 @@ struct ProjectExpensesView: View {
                         .frame(height: 48)
                         .background(.white, in: Capsule())
                     }
-                    .buttonStyle(.plain)
+                    .buttonStyle(.bordered)
                     .disabled(projects.isEmpty)
 
                     Button {
@@ -164,11 +167,10 @@ struct ProjectExpensesView: View {
                     } label: {
                         Image(systemName: "calendar")
                             .font(.system(size: 22, weight: .semibold))
-                            .foregroundStyle(Color(hex: 0x0B61CA))
-                            .frame(width: 48, height: 48)
-                            .background(.white, in: Circle())
+                            .frame(width: 36, height: 36)
                     }
-                    .buttonStyle(.plain)
+                    .buttonStyle(.borderedProminent)
+                    .tint(.white)
                     .accessibilityLabel("Date filter")
                 }
                 .padding(.top, 20)
@@ -297,13 +299,11 @@ struct ProjectExpensesView: View {
             }
         } label: {
             Text("Add Expense")
-                .font(.system(size: 16, weight: .bold))
-                .foregroundStyle(.white)
-                .frame(maxWidth: .infinity)
-                .frame(height: 56)
-                .background(Color(hex: 0x1BCA0B), in: Capsule())
         }
-        .buttonStyle(.plain)
+        .buttonStyle(.borderedProminent)
+        .controlSize(.large)
+        .tint(Color(hex: 0x1BCA0B))
+        .frame(maxWidth: .infinity)
         .padding(16)
     }
 
@@ -581,7 +581,7 @@ private struct ExpenseDateFilterSheet: View {
                         .foregroundStyle(Color(hex: 0x0B61CA))
                         .frame(width: 44, height: 44)
                 }
-                .buttonStyle(.plain)
+                .buttonStyle(.bordered)
 
                 Spacer()
 
@@ -597,7 +597,7 @@ private struct ExpenseDateFilterSheet: View {
                         .foregroundStyle(Color(hex: 0x0B61CA))
                         .frame(width: 44, height: 44)
                 }
-                .buttonStyle(.plain)
+                .buttonStyle(.bordered)
             }
 
             LazyVGrid(columns: Array(repeating: GridItem(.flexible(), spacing: 4), count: 7), spacing: 12) {
@@ -635,13 +635,11 @@ private struct ExpenseDateFilterSheet: View {
                 dismiss()
             } label: {
                 Text("Submit Date")
-                    .font(.system(size: 15, weight: .bold))
-                    .foregroundStyle(.white)
-                    .frame(maxWidth: .infinity)
-                    .frame(height: 48)
-                    .background(Color(hex: 0x18B900), in: Capsule())
             }
-            .buttonStyle(.plain)
+            .buttonStyle(.borderedProminent)
+            .controlSize(.large)
+            .tint(Color(hex: 0x18B900))
+            .frame(maxWidth: .infinity)
             .padding(.top, 8)
         }
         .padding(.horizontal, 24)
@@ -735,17 +733,22 @@ private struct ExpenseCreationSheet: View {
     @Environment(\.dismiss) private var dismiss
 
     let project: ProjectSummary
+    let projects: [ProjectSummary]
     let onCreated: () async -> Void
 
-    @State private var category: ProjectExpenseCategory?
+    @State private var selectedProject: ProjectSummary?
+    @State private var category: ProjectExpenseCategory? = .labour
     @State private var date = Date()
-    @State private var didSelectDate = false
+    @State private var didSelectDate = true
     @State private var showingDatePicker = false
     @State private var amount = ""
     @State private var notes = ""
-    @State private var paymentMethod = "Cash"
+    @State private var paymentMethod = ""
     @State private var isSaving = false
+    @State private var isLoadingPhotos = false
     @State private var errorMessage: String?
+    @State private var selectedPhotoItems: [PhotosPickerItem] = []
+    @State private var selectedPhotoData: [Data] = []
 
     private let categories: [ProjectExpenseCategory] = [.labour, .materials, .equipment, .other]
     private let paymentMethods = ["Cash", "UPI", "Bank Transfer", "Card", "Cheque", "Other"]
@@ -756,8 +759,28 @@ private struct ExpenseCreationSheet: View {
                 VStack(alignment: .leading, spacing: 14) {
                 sheetHeader(title: "Expense Creation", subtitle: "In this you can able to create expenses")
 
-                fieldLabel("Project")
-                readOnlyField(title: project.displayName)
+                fieldLabel("Project *")
+                Menu {
+                    ForEach(projects) { item in
+                        Button {
+                            selectedProject = item
+                        } label: {
+                            if selectedProject?.id == item.id {
+                                Label(item.displayName, systemImage: "checkmark")
+                            } else {
+                                Text(item.displayName)
+                            }
+                        }
+                    }
+                } label: {
+                    pickerField(
+                        icon: "building.2",
+                        iconColor: Color(hex: 0x0B61CA),
+                        title: selectedProject?.displayName ?? project.displayName,
+                        showsChevron: true
+                    )
+                }
+                .buttonStyle(.bordered)
 
                 fieldLabel("Expense Category *")
                 Menu {
@@ -767,7 +790,7 @@ private struct ExpenseCreationSheet: View {
                 } label: {
                     pickerField(icon: "xmark.circle", iconColor: Color(hex: 0x2563EB), title: category?.title ?? "Enter Expense")
                 }
-                .buttonStyle(.plain)
+                .buttonStyle(.bordered)
 
                 VStack(alignment: .leading, spacing: 8) {
                     fieldLabel("Date")
@@ -776,7 +799,7 @@ private struct ExpenseCreationSheet: View {
                     } label: {
                         pickerField(icon: "calendar", iconColor: Color(hex: 0x0B61CA), title: didSelectDate ? displayDate(date) : "Select Date")
                     }
-                    .buttonStyle(.plain)
+                    .buttonStyle(.bordered)
                 }
 
                 iconTextField(label: "Money *", icon: "indianrupeesign.circle", placeholder: "Enter Money", text: $amount, keyboard: .decimalPad)
@@ -794,6 +817,8 @@ private struct ExpenseCreationSheet: View {
                     .buttonStyle(.plain)
                 }
 
+                photosBlock
+
                 if let errorMessage {
                     Text(errorMessage)
                         .font(.system(size: 12, weight: .medium))
@@ -810,20 +835,30 @@ private struct ExpenseCreationSheet: View {
             Button {
                 saveExpense()
             } label: {
-                Text(isSaving ? "Saving..." : "Save It")
-                    .font(.system(size: 16, weight: .medium))
-                    .foregroundStyle(.white)
-                    .frame(maxWidth: .infinity)
-                    .frame(height: 48)
-                    .background(Color(hex: 0x18B900), in: Capsule())
+                if isSaving {
+                    ProgressView()
+                } else {
+                    Text("Save It")
+                }
             }
-            .buttonStyle(.plain)
+            .buttonStyle(.borderedProminent)
+            .controlSize(.large)
+            .tint(Color(hex: 0x18B900))
+            .frame(maxWidth: .infinity)
             .disabled(isSaving)
             .padding(.horizontal, 16)
             .padding(.vertical, 18)
             .background(Color(hex: 0xF2F4F7))
         }
         .background(Color.white)
+        .onAppear {
+            if selectedProject == nil {
+                selectedProject = project
+            }
+        }
+        .onChange(of: selectedPhotoItems) { _, _ in
+            Task { await loadSelectedPhotos() }
+        }
         .sheet(isPresented: $showingDatePicker) {
             VStack(alignment: .leading, spacing: 18) {
                 RoundedRectangle(cornerRadius: 2)
@@ -846,13 +881,11 @@ private struct ExpenseCreationSheet: View {
                     showingDatePicker = false
                 } label: {
                     Text("Submit Date")
-                        .font(.system(size: 16, weight: .bold))
-                        .foregroundStyle(.white)
-                        .frame(maxWidth: .infinity)
-                        .frame(height: 50)
-                        .background(Color(hex: 0x18B900), in: Capsule())
                 }
-                .buttonStyle(.plain)
+                .buttonStyle(.borderedProminent)
+                .controlSize(.large)
+                .tint(Color(hex: 0x18B900))
+                .frame(maxWidth: .infinity)
             }
             .padding(.horizontal, 20)
             .padding(.bottom, 20)
@@ -986,6 +1019,99 @@ private struct ExpenseCreationSheet: View {
         }
     }
 
+    private var photosBlock: some View {
+        VStack(alignment: .leading, spacing: 10) {
+            HStack {
+                fieldLabel("Photos")
+                Spacer()
+                Text("\(selectedPhotoData.count) \(selectedPhotoData.count == 1 ? "Photo" : "Photos")")
+                    .font(.system(size: 12, weight: .medium))
+                    .foregroundStyle(Color(hex: 0x0B61CA))
+            }
+
+            ScrollView(.horizontal, showsIndicators: false) {
+                HStack(spacing: 10) {
+                    ForEach(Array(selectedPhotoData.enumerated()), id: \.offset) { index, data in
+                        selectedPhotoThumbnail(data: data) {
+                            selectedPhotoData.remove(at: index)
+                            if selectedPhotoItems.indices.contains(index) {
+                                selectedPhotoItems.remove(at: index)
+                            }
+                        }
+                    }
+
+                    PhotosPicker(selection: $selectedPhotoItems, maxSelectionCount: 6, matching: .images) {
+                        ZStack {
+                            RoundedRectangle(cornerRadius: 16, style: .continuous)
+                                .fill(Color(hex: 0xF8FAFC))
+                            RoundedRectangle(cornerRadius: 16, style: .continuous)
+                                .stroke(Color(hex: 0x98A2B3), style: StrokeStyle(lineWidth: 1, dash: [5, 4]))
+
+                            if isLoadingPhotos {
+                                ProgressView()
+                            } else {
+                                Image(systemName: "plus")
+                                    .font(.system(size: 28, weight: .semibold))
+                                    .foregroundStyle(Color(hex: 0x667085))
+                            }
+                        }
+                        .frame(width: 72, height: 72)
+                    }
+                    .buttonStyle(.bordered)
+                    .disabled(isSaving || isLoadingPhotos)
+                    .accessibilityLabel("Add receipt photo")
+                }
+            }
+        }
+    }
+
+    private func selectedPhotoThumbnail(data: Data, onRemove: @escaping () -> Void) -> some View {
+        ZStack(alignment: .topTrailing) {
+            Group {
+                #if canImport(UIKit)
+                if let image = UIImage(data: data) {
+                    Image(uiImage: image)
+                        .resizable()
+                        .scaledToFill()
+                } else {
+                    Color(hex: 0xF8FAFC)
+                }
+                #else
+                Color(hex: 0xF8FAFC)
+                #endif
+            }
+            .frame(width: 72, height: 72)
+            .clipShape(RoundedRectangle(cornerRadius: 16, style: .continuous))
+            .overlay {
+                RoundedRectangle(cornerRadius: 16, style: .continuous)
+                    .stroke(Color(hex: 0xE5E7EB), lineWidth: 1)
+            }
+
+            Button(action: onRemove) {
+                Image(systemName: "xmark")
+                    .font(.system(size: 10, weight: .bold))
+            }
+            .buttonStyle(.borderedProminent)
+            .controlSize(.small)
+            .tint(.black.opacity(0.72))
+            .offset(x: 6, y: -6)
+            .accessibilityLabel("Remove receipt photo")
+        }
+    }
+
+    private func loadSelectedPhotos() async {
+        isLoadingPhotos = true
+        defer { isLoadingPhotos = false }
+
+        var loaded: [Data] = []
+        for item in selectedPhotoItems {
+            if let data = try? await item.loadTransferable(type: Data.self), !data.isEmpty {
+                loaded.append(data)
+            }
+        }
+        selectedPhotoData = loaded
+    }
+
     private func saveExpense() {
         guard let token = authStore.currentSession?.token else {
             errorMessage = "Not signed in"
@@ -995,9 +1121,17 @@ private struct ExpenseCreationSheet: View {
             errorMessage = "Select an expense category"
             return
         }
+        guard let selectedProject else {
+            errorMessage = "Select a project"
+            return
+        }
         let cleanedAmount = amount.replacingOccurrences(of: ",", with: "").trimmingCharacters(in: .whitespacesAndNewlines)
         guard let value = Double(cleanedAmount), value > 0 else {
             errorMessage = "Enter a valid amount"
+            return
+        }
+        guard !paymentMethod.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else {
+            errorMessage = "Select payment method"
             return
         }
 
@@ -1005,14 +1139,17 @@ private struct ExpenseCreationSheet: View {
             isSaving = true
             defer { isSaving = false }
             do {
+                let receipts = try await uploadSelectedReceipts(token: token)
                 _ = try await ProjectConvexAPIService.createExpense(
                     token: token,
-                    projectId: project.id,
+                    projectId: selectedProject.id,
                     category: category.rawValue,
                     amount: value,
                     date: AppModuleFormatters.ymd.string(from: date),
                     paymentMethod: paymentMethod,
-                    notes: notes.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty ? nil : notes.trimmingCharacters(in: .whitespacesAndNewlines)
+                    notes: notes.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty ? nil : notes.trimmingCharacters(in: .whitespacesAndNewlines),
+                    receipts: receipts.isEmpty ? nil : receipts,
+                    paid: true
                 )
                 await onCreated()
                 dismiss()
@@ -1021,6 +1158,17 @@ private struct ExpenseCreationSheet: View {
                 errorMessage = message == "Forbidden" ? "You are not assigned to this project" : message
             }
         }
+    }
+
+    private func uploadSelectedReceipts(token: String) async throws -> [ExpenseReceipt] {
+        guard !selectedPhotoData.isEmpty else { return [] }
+
+        var receipts: [ExpenseReceipt] = []
+        for (index, data) in selectedPhotoData.enumerated() {
+            let storageId = try await HRConvexAPIService.uploadPhoto(token: token, imageData: data)
+            receipts.append(ExpenseReceipt(storageId: storageId, url: nil, name: "expense_receipt_\(index + 1).jpg"))
+        }
+        return receipts
     }
 
     private func displayDate(_ date: Date) -> String {
@@ -1039,7 +1187,6 @@ private struct ExpenseDetailSheet: View {
 
     @State private var loadedExpense: ProjectExpense?
     @State private var isLoading = false
-    @State private var isSaving = false
     @State private var errorMessage: String?
 
     private var displayExpense: ProjectExpense { loadedExpense ?? expense }
@@ -1051,26 +1198,26 @@ private struct ExpenseDetailSheet: View {
                 .fill(Color(hex: 0xD9D9D9))
                 .frame(width: 42, height: 4)
                 .frame(maxWidth: .infinity)
-                .padding(.top, 8)
-                .padding(.bottom, 18)
+                .padding(.top, 6)
+                .padding(.bottom, 14)
 
             Text("Expense Details")
-                .font(.system(size: 16, weight: .bold))
+                .font(.system(size: 18, weight: .bold))
                 .foregroundStyle(Color(hex: 0x101828))
-                .padding(.bottom, 10)
+                .padding(.bottom, 14)
 
             Divider()
                 .overlay(Color(hex: 0xF2F4F7))
                 .padding(.horizontal, -20)
-                .padding(.bottom, 16)
+                .padding(.bottom, 14)
 
-            HStack(alignment: .center, spacing: 12) {
+            HStack(alignment: .center, spacing: 14) {
                 ZStack {
                     Circle()
                         .fill(category.color)
-                        .frame(width: 44, height: 44)
+                        .frame(width: 52, height: 52)
                     Image(systemName: "wallet.pass.fill")
-                        .font(.system(size: 20, weight: .semibold))
+                        .font(.system(size: 22, weight: .semibold))
                         .foregroundStyle(.white)
                 }
 
@@ -1079,16 +1226,15 @@ private struct ExpenseDetailSheet: View {
                         .font(.system(size: 26, weight: .bold))
                         .foregroundStyle(Color(hex: 0x101828))
                     Text(displayExpense.paid ? "Paid" : "Pending")
-                        .font(.system(size: 11, weight: .semibold))
+                        .font(.system(size: 13, weight: .medium))
                         .foregroundStyle(displayExpense.paid ? Color(hex: 0x16A34A) : Color(hex: 0xF97316))
-                        .padding(.horizontal, 10)
-                        .frame(height: 18)
+                        .frame(width: 86, height: 24)
                         .background(displayExpense.paid ? Color(hex: 0xDDFAD7) : Color(hex: 0xFFFAEB), in: Capsule())
                 }
 
                 Spacer()
             }
-            .padding(.bottom, 18)
+            .padding(.bottom, 16)
 
             detailRow("Amount", value: formatRs(displayExpense.amount))
             detailRow("Date", value: displayDate(displayExpense.date))
@@ -1097,13 +1243,14 @@ private struct ExpenseDetailSheet: View {
             if let notes = displayExpense.notes?.projectExpenseNilIfBlank {
                 VStack(alignment: .leading, spacing: 10) {
                     Text("Notes")
-                        .font(.system(size: 16, weight: .bold))
+                        .font(.system(size: 15, weight: .bold))
                         .foregroundStyle(Color(hex: 0x101828))
                     Text(notes)
-                        .font(.system(size: 16, weight: .regular))
+                        .font(.system(size: 15, weight: .regular))
                         .foregroundStyle(Color(hex: 0x101828))
+                        .fixedSize(horizontal: false, vertical: true)
                 }
-                .padding(.top, 14)
+                .padding(.top, 12)
             }
 
             if let errorMessage {
@@ -1114,21 +1261,10 @@ private struct ExpenseDetailSheet: View {
             }
 
             Spacer(minLength: 0)
-
-            Button {
-                togglePaid()
-            } label: {
-                Text(isSaving ? "Updating..." : (displayExpense.paid ? "Mark Unpaid" : "Mark Paid"))
-                    .font(.system(size: 17, weight: .bold))
-                    .foregroundStyle(.white)
-                    .frame(maxWidth: .infinity)
-                    .frame(height: 56)
-                    .background(displayExpense.paid ? Color(hex: 0xF97316) : Color(hex: 0x10C900), in: Capsule())
-            }
-            .buttonStyle(.plain)
-            .disabled(isSaving)
         }
-        .padding(20)
+        .padding(.horizontal, 22)
+        .padding(.top, 8)
+        .padding(.bottom, 20)
         .background(Color.white)
         .task { await loadExpense() }
     }
@@ -1137,15 +1273,15 @@ private struct ExpenseDetailSheet: View {
         VStack(spacing: 0) {
             HStack {
             Text(title)
-                    .font(.system(size: 16, weight: .bold))
+                    .font(.system(size: 17, weight: .bold))
                     .foregroundStyle(Color(hex: 0x101828))
             Spacer()
             Text(value)
-                    .font(.system(size: 16, weight: .regular))
+                    .font(.system(size: 17, weight: .regular))
                 .foregroundStyle(Color(hex: 0x101828))
                 .multilineTextAlignment(.trailing)
             }
-            .frame(height: 48)
+            .frame(height: 54)
 
             Divider()
                 .overlay(Color(hex: 0xF2F4F7))
@@ -1160,24 +1296,6 @@ private struct ExpenseDetailSheet: View {
             loadedExpense = try await ProjectConvexAPIService.getExpense(token: token, id: expense.id)
         } catch {
             errorMessage = error.localizedDescription
-        }
-    }
-
-    private func togglePaid() {
-        guard let token = authStore.currentSession?.token else {
-            errorMessage = "Not signed in"
-            return
-        }
-        Task {
-            isSaving = true
-            defer { isSaving = false }
-            do {
-                try await ProjectConvexAPIService.markExpensePaid(token: token, id: displayExpense.id, paid: !displayExpense.paid)
-                await onChanged()
-                dismiss()
-            } catch {
-                errorMessage = error.localizedDescription
-            }
         }
     }
 

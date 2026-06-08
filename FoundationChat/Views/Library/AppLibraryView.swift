@@ -1,7 +1,7 @@
 import SwiftUI
 
-/// Native iOS counterpart to Android `AppLibraryFragment`: keeps the App
-/// Library header while presenting the modules as iOS-style grouped tables.
+/// Native iOS counterpart to Android `AppLibraryFragment`: sticky blue header,
+/// filter pills, and section cards with module rows.
 struct AppLibraryView: View {
     @Environment(AuthStore.self) private var authStore
     @State private var selectedFilter: AppLibraryFilter = .all
@@ -10,10 +10,7 @@ struct AppLibraryView: View {
     @State private var isRefreshingPermissions = false
 
     private var visibleSections: [AppLibrarySection] {
-        AppLibrarySection.makeSections(
-            showsInventory: authStore.hasPermission("projects.view"),
-            showsNewBooking: authStore.hasPermission("marketing.bookings.create")
-        )
+        AppLibrarySection.makeSections(authStore: authStore)
         .filter { selectedFilter == .all || $0.filter == selectedFilter }
     }
 
@@ -171,11 +168,25 @@ private struct AppLibraryTableSection: View {
     let section: AppLibrarySection
 
     var body: some View {
-        VStack(alignment: .leading, spacing: 7) {
-            Text(section.title.uppercased())
-                .font(AppModuleFont.rowMetaSemibold)
-                .foregroundStyle(.secondary)
-                .padding(.horizontal, 16)
+        VStack(alignment: .leading, spacing: 16) {
+            HStack(spacing: 12) {
+                Image(section.icon)
+                    .resizable()
+                    .scaledToFit()
+                    .frame(width: 40, height: 40)
+
+                VStack(alignment: .leading, spacing: 2) {
+                    Text(section.title)
+                        .font(.system(size: 16, weight: .semibold))
+                        .foregroundStyle(Color(hex: 0x111111))
+
+                    Text(section.subtitle)
+                        .font(.system(size: 12, weight: .regular))
+                        .foregroundStyle(Color(hex: 0x6B7280))
+                }
+
+                Spacer(minLength: 0)
+            }
 
             VStack(spacing: 0) {
                 ForEach(Array(section.items.enumerated()), id: \.element.id) { index, item in
@@ -188,13 +199,14 @@ private struct AppLibraryTableSection: View {
 
                     if index != section.items.count - 1 {
                         Divider()
-                            .padding(.leading, 58)
+                            .padding(.leading, 44)
                     }
                 }
             }
-            .background(Color(.secondarySystemGroupedBackground), in: RoundedRectangle(cornerRadius: 12))
-
         }
+        .padding(16)
+        .background(.white, in: RoundedRectangle(cornerRadius: 16, style: .continuous))
+        .shadow(color: .black.opacity(0.04), radius: 12, x: 0, y: 4)
     }
 }
 
@@ -206,11 +218,11 @@ private struct NativeAppLibraryRow: View {
             Image(item.icon)
                 .resizable()
                 .scaledToFit()
-                .frame(width: 30, height: 30)
+                .frame(width: 32, height: 32)
 
             Text(item.title)
-                .font(AppModuleFont.rowBody)
-                .foregroundStyle(.primary)
+                .font(.system(size: 14, weight: .medium))
+                .foregroundStyle(Color(hex: 0x111111))
 
             Spacer(minLength: 8)
 
@@ -218,14 +230,13 @@ private struct NativeAppLibraryRow: View {
                 .font(AppModuleFont.rowMetaSemibold)
                 .foregroundStyle(Color(.tertiaryLabel))
         }
-        .padding(.horizontal, 16)
-        .frame(minHeight: 54)
+        .padding(.vertical, 12)
         .contentShape(Rectangle())
     }
 }
 
 private enum AppLibraryFilter: String, CaseIterable, Identifiable {
-    case all, hr, marketing, project, settings
+    case all, hr, marketing, project, land, settings
 
     var id: String { rawValue }
 
@@ -235,6 +246,7 @@ private enum AppLibraryFilter: String, CaseIterable, Identifiable {
         case .hr: return "HR"
         case .marketing: return "Marketing"
         case .project: return "Project"
+        case .land: return "Land"
         case .settings: return "Settings"
         }
     }
@@ -245,6 +257,7 @@ private enum AppLibraryFilter: String, CaseIterable, Identifiable {
         case .hr: return "AppLibraryIconAppsPillHr"
         case .marketing: return "AppLibraryIconAppsPillMarketing"
         case .project: return "AppLibraryIconAppsPillProject"
+        case .land: return "AppLibraryIconAppsPillProject"
         case .settings: return "AppLibraryIconAppsPillSettings"
         }
     }
@@ -255,6 +268,7 @@ private enum AppLibraryFilter: String, CaseIterable, Identifiable {
         case .hr: return "person"
         case .marketing: return "megaphone"
         case .project: return "folder"
+        case .land: return "map"
         case .settings: return "gearshape"
         }
     }
@@ -265,6 +279,7 @@ private enum AppLibraryFilter: String, CaseIterable, Identifiable {
         case .hr: return "person.fill"
         case .marketing: return "megaphone.fill"
         case .project: return "folder.fill"
+        case .land: return "map.fill"
         case .settings: return "gearshape.fill"
         }
     }
@@ -278,18 +293,71 @@ private struct AppLibrarySection: Identifiable {
     let icon: String
     let items: [AppLibraryItem]
 
-    static func makeSections(showsInventory: Bool, showsNewBooking: Bool) -> [AppLibrarySection] {
-        var marketingItems: [AppLibraryItem] = [
-            .init(title: "CP Visits", icon: "AppLibraryIconAppsDealer", destination: .cpVisits),
-            .init(title: "Leads", icon: "AppLibraryIconAppsLeads", destination: .leads),
-            .init(title: "Dialer", icon: "AppLibraryIconAppsLeads", destination: .dialer)
+    static func makeSections(authStore: AuthStore) -> [AppLibrarySection] {
+        func canAny(_ permissions: [String]) -> Bool {
+            permissions.isEmpty || permissions.contains { authStore.hasPermission($0) }
+        }
+
+        let hrItems: [AppLibraryItem] = [
+            canAny(["attendance.view", "attendance.viewAll"])
+                ? .init(title: "Attendance", icon: "AppLibraryIconAppsAttendance", destination: .attendance)
+                : nil,
+            canAny(["leaves.view", "leaves.viewAll", "leaves.approve"])
+                ? .init(title: "Leave", icon: "AppLibraryIconAppsLeave", destination: .leave)
+                : nil,
+            canAny(["permissions.view", "permissions.viewAll", "permissions.approve"])
+                ? .init(title: "Permissions", icon: "AppLibraryIconAppsPermissions", destination: .permissions)
+                : nil,
+            canAny(["loans.view", "loans.manage", "loans.approve"])
+                ? .init(title: "Loans", icon: "AppLibraryIconAppsLoans", destination: .loans)
+                : nil,
+            canAny(["attendance.approve", "attendance.viewAll"])
+                ? .init(title: "Attendance Approvals", icon: "AppLibraryIconAppsAttendance", destination: .attendanceReview)
+                : nil
+        ].compactMap(\.self)
+
+        let marketingItems: [AppLibraryItem] = [
+            canAny(["marketing.cpVisits.view", "cpvisits.view", "sitevisits.view", "marketing.view"])
+                ? .init(title: "CP Visits", icon: "AppLibraryIconAppsDealer", destination: .cpVisits)
+                : nil,
+            canAny(["marketing.siteVisits.view", "sitevisits.view", "marketing.view"])
+                ? .init(title: "Site Visits", icon: "AppLibraryIconAppsFieldVisits", destination: .siteVisits)
+                : nil,
+            canAny(["telecaller.leads.view", "leads.view", "marketing.view"])
+                ? .init(title: "Leads", icon: "AppLibraryIconAppsLeads", destination: .leads)
+                : nil,
+            canAny(["telecaller.dialer.view", "dialer.view", "marketing.view"])
+                ? .init(title: "Dialer", icon: "AppLibraryIconAppsLeads", destination: .dialer)
+                : nil,
+            canAny(["projects.view", "marketing.inventory.view", "inventory.view", "marketing.view"])
+                ? .init(title: "Inventory", icon: "AppLibraryIconAppsFieldVisits", destination: .inventory)
+                : nil,
+            canAny(["marketing.bookings.create", "bookings.view", "marketing.view"])
+                ? .init(title: "Booking", icon: "AppLibraryIconAppsDealer", destination: .bookings)
+                : nil
+        ].compactMap(\.self)
+
+        let projectItems: [AppLibraryItem] = [
+            canAny(["tasks.view", "projects.tasks.view", "projects.view"])
+                ? .init(title: "Tasks", icon: "AppLibraryIconAppsTasks", destination: .tasks)
+                : nil,
+            canAny(["projects.expenses.view", "expenses.view", "projects.view"])
+                ? .init(title: "Expenses", icon: "AppLibraryIconAppsLoans", destination: .expenses)
+                : nil
+        ].compactMap(\.self)
+
+        let landItems: [AppLibraryItem] = [
+            canAny(["land.inspection.view", "land.view"])
+                ? .init(title: "Inspection", icon: "AppLibraryIconAppsFieldVisits", destination: .landInspection)
+                : nil,
+            canAny(["land.queries.view", "land.view"])
+                ? .init(title: "Queries", icon: "AppLibraryIconAppsLeads", destination: .landQueries)
+                : nil
+        ].compactMap(\.self)
+
+        let settingsItems: [AppLibraryItem] = [
+            AppLibraryItem(title: "Profile", icon: "AppLibraryIconAppsSettingsCard", destination: .settings)
         ]
-        if showsInventory {
-            marketingItems.append(.init(title: "Inventory", icon: "AppLibraryIconAppsFieldVisits", destination: .inventory))
-        }
-        if showsNewBooking {
-            marketingItems.append(.init(title: "New Booking", icon: "AppLibraryIconAppsDealer", destination: .newBooking))
-        }
 
         return [
             .init(
@@ -298,12 +366,7 @@ private struct AppLibrarySection: Identifiable {
                 title: "HR",
                 subtitle: "People • Policies • Operations",
                 icon: "AppLibraryIconAppsCatHr",
-                items: [
-                    .init(title: "Attendance", icon: "AppLibraryIconAppsAttendance", destination: .attendance),
-                    .init(title: "Leave", icon: "AppLibraryIconAppsLeave", destination: .leave),
-                    .init(title: "Permissions", icon: "AppLibraryIconAppsPermissions", destination: .permissions),
-                    .init(title: "Loans", icon: "AppLibraryIconAppsLoans", destination: .loans)
-                ]
+                items: hrItems
             ),
             .init(
                 id: "marketing",
@@ -316,25 +379,28 @@ private struct AppLibrarySection: Identifiable {
             .init(
                 id: "project",
                 filter: .project,
-                title: "Project Management",
+                title: "Project",
                 subtitle: "Projects • Tasks • Expenses",
                 icon: "AppLibraryIconAppsCatPm",
-                items: [
-                    .init(title: "Tasks", icon: "AppLibraryIconAppsTasks", destination: .tasks),
-                    .init(title: "Expenses", icon: "AppLibraryIconAppsLoans", destination: .expenses)
-                ]
+                items: projectItems
+            ),
+            .init(
+                id: "land",
+                filter: .land,
+                title: "Land",
+                subtitle: "Inspection • Queries",
+                icon: "AppLibraryIconAppsCatMarketing",
+                items: landItems
             ),
             .init(
                 id: "configuration",
                 filter: .settings,
-                title: "Configuration",
-                subtitle: "Personal Settings • Configuration",
+                title: "Settings",
+                subtitle: "Personal Settings",
                 icon: "AppLibraryIconAppsCatConfig",
-                items: [
-                    .init(title: "Settings", icon: "AppLibraryIconAppsSettingsCard", destination: .settings)
-                ]
+                items: settingsItems
             )
-        ]
+        ].filter { !$0.items.isEmpty }
     }
 }
 
@@ -347,16 +413,20 @@ private struct AppLibraryItem: Identifiable {
 
 private enum AppLibraryDestination {
     case attendance
+    case attendanceReview
     case leave
     case permissions
     case loans
+    case siteVisits
     case cpVisits
     case leads
     case dialer
     case inventory
-    case newBooking
+    case bookings
     case tasks
     case expenses
+    case landInspection
+    case landQueries
     case settings
 
     @ViewBuilder
@@ -364,12 +434,16 @@ private enum AppLibraryDestination {
         switch self {
         case .attendance:
             ConvexAttendanceListView()
+        case .attendanceReview:
+            AttendanceReviewView()
         case .leave:
             LeavesListView()
         case .permissions:
             ConvexPermissionListView()
         case .loans:
             LoansView()
+        case .siteVisits:
+            SiteVisitsView()
         case .cpVisits:
             CpVisitsView()
         case .leads:
@@ -378,12 +452,16 @@ private enum AppLibraryDestination {
             DialerView()
         case .inventory:
             InventoryProjectsListView()
-        case .newBooking:
-            BookingCreateView()
+        case .bookings:
+            BookingsListView()
         case .tasks:
             TasksListView()
         case .expenses:
             ProjectExpensesView()
+        case .landInspection:
+            LandInspectionView()
+        case .landQueries:
+            LandQueriesView()
         case .settings:
             ProfileView()
         }

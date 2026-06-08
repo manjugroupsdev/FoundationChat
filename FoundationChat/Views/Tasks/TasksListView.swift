@@ -33,7 +33,6 @@ struct TasksListView: View {
                     .zIndex(1)
 
                 contentSheet
-                    .padding(.top, -20)
             }
             .ignoresSafeArea(edges: .top)
         }

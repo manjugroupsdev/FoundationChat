@@ -43,11 +43,24 @@ final class PendingLocationPoint: NSManagedObject {
     }
 }
 
+final class PendingTamperEvent: NSManagedObject {
+    @NSManaged var localId: UUID
+    @NSManaged var eventType: String
+    @NSManaged var metadataJSON: String
+    @NSManaged var recordedAt: Int64
+}
+
 // MARK: - PendingPoint (value type for passing across concurrency boundaries)
 
 struct PendingPoint: Sendable {
     let id: UUID
     let point: GeoTrackLocationPoint
+}
+
+struct PendingTamperEventValue: Sendable {
+    let id: UUID
+    let eventType: GeoTrackTamperEventType
+    let metadata: [String: String]
 }
 
 // MARK: - GeoTrackPersistence
@@ -69,6 +82,10 @@ final class GeoTrackPersistence {
             let desc = NSPersistentStoreDescription()
             desc.type = NSInMemoryStoreType
             container.persistentStoreDescriptions = [desc]
+        }
+        container.persistentStoreDescriptions.forEach { description in
+            description.shouldMigrateStoreAutomatically = true
+            description.shouldInferMappingModelAutomatically = true
         }
         container.loadPersistentStores { _, error in
             if let error {
@@ -105,6 +122,19 @@ final class GeoTrackPersistence {
         }
     }
 
+    func insertTamperEvent(eventType: GeoTrackTamperEventType, metadata: [String: String]) async throws {
+        let ctx = container.newBackgroundContext()
+        try await ctx.perform {
+            let entity = PendingTamperEvent(context: ctx)
+            entity.localId = UUID()
+            entity.eventType = eventType.rawValue
+            let data = try JSONEncoder().encode(metadata)
+            entity.metadataJSON = String(data: data, encoding: .utf8) ?? "{}"
+            entity.recordedAt = Int64(Date().timeIntervalSince1970 * 1000)
+            try ctx.save()
+        }
+    }
+
     // MARK: - Fetch Unsent
 
     /// Returns up to `limit` unsent points ordered by recordedAt ASC.
@@ -121,6 +151,24 @@ final class GeoTrackPersistence {
         }
     }
 
+    func fetchUnsentTamperEvents(limit: Int = 50) async throws -> [PendingTamperEventValue] {
+        let ctx = container.newBackgroundContext()
+        return try await ctx.perform {
+            let request = NSFetchRequest<PendingTamperEvent>(entityName: "PendingTamperEvent")
+            request.sortDescriptors = [NSSortDescriptor(key: "recordedAt", ascending: true)]
+            request.fetchLimit = limit
+            let results = try ctx.fetch(request)
+            return results.compactMap { event in
+                guard let type = GeoTrackTamperEventType(rawValue: event.eventType) else {
+                    return nil
+                }
+                let data = Data(event.metadataJSON.utf8)
+                let metadata = (try? JSONDecoder().decode([String: String].self, from: data)) ?? [:]
+                return PendingTamperEventValue(id: event.localId, eventType: type, metadata: metadata)
+            }
+        }
+    }
+
     // MARK: - Mark As Sent (delete)
 
     /// Deletes records with the given localIds. Called after a successful push-batch upload.
@@ -130,6 +178,18 @@ final class GeoTrackPersistence {
         let ctx = container.newBackgroundContext()
         try await ctx.perform {
             let request = NSFetchRequest<PendingLocationPoint>(entityName: "PendingLocationPoint")
+            request.predicate = NSPredicate(format: "localId IN %@", ids as CVarArg)
+            let toDelete = try ctx.fetch(request)
+            toDelete.forEach { ctx.delete($0) }
+            try ctx.save()
+        }
+    }
+
+    func deleteTamperEvents(ids: [UUID]) async throws {
+        guard !ids.isEmpty else { return }
+        let ctx = container.newBackgroundContext()
+        try await ctx.perform {
+            let request = NSFetchRequest<PendingTamperEvent>(entityName: "PendingTamperEvent")
             request.predicate = NSPredicate(format: "localId IN %@", ids as CVarArg)
             let toDelete = try ctx.fetch(request)
             toDelete.forEach { ctx.delete($0) }
@@ -208,7 +268,17 @@ final class GeoTrackPersistence {
             attr("isSent",              type: .booleanAttributeType,  default: false),
         ]
 
-        model.entities = [entity]
+        let tamperEntity = NSEntityDescription()
+        tamperEntity.name = "PendingTamperEvent"
+        tamperEntity.managedObjectClassName = NSStringFromClass(PendingTamperEvent.self)
+        tamperEntity.properties = [
+            attr("localId",      type: .UUIDAttributeType),
+            attr("eventType",    type: .stringAttributeType, default: ""),
+            attr("metadataJSON", type: .stringAttributeType, default: "{}"),
+            attr("recordedAt",   type: .integer64AttributeType, default: Int64(0)),
+        ]
+
+        model.entities = [entity, tamperEntity]
         return model
     }
 }

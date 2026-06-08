@@ -116,7 +116,10 @@ enum TelecallerConvexAPIService {
         request.setValue("Bearer \(token)", forHTTPHeaderField: "Authorization")
         let (data, response) = try await URLSession.shared.data(for: request)
         if let http = response as? HTTPURLResponse {
-            if http.statusCode == 401 { throw TelecallerAPIError.unauthorized }
+            if http.statusCode == 401 {
+                SessionInvalidationBus.emit()
+                throw TelecallerAPIError.unauthorized
+            }
             if http.statusCode >= 400 {
                 if let json = try? JSONSerialization.jsonObject(with: data) as? [String: Any],
                    let error = json["error"] as? String {

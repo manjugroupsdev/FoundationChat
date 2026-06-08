@@ -391,20 +391,333 @@ struct CreateBookingRequest: Encodable, Sendable {
     let mobileNumber: String
     let bookingDate: String
     let leadId: String?
+    let title: String?
+    let fatherSpouseName: String?
+    let dateOfBirth: String?
+    let anniversaryDate: String?
+    let alternateNumbers: String?
+    let whatsappNumber: String?
     let projectId: String?
     let plotId: String?
     let plotNo: String?
+    let bookingType: String?
+    let cefNo: String?
+    let isDuplicateBooking: Bool?
+    let isAgainstSV: Bool?
+    let propertyType: String?
+    let bookingMode: String?
+    let bookingCost: Double?
+    let guidelineValue: Double?
+    let specialConsideration: Double?
+    let specialConsiderationReason: String?
+    let discountApprovedBy: String?
+    let specialConsiderationValidity: Double?
+    let promotionalOffers: String?
+    let promotionalOffersTnC: String?
+    let promotionalOfferValue: Double?
+    let offerValidityPeriod: Double?
+    let agreedAmount: Double?
+    let registrationCharges: Double?
+    let gstAmount: Double?
+    let gstApplicable: Bool?
+    let documentCharges: Double?
+    let pattaCharges: Double?
+    let otherCharges: Double?
+    let otherChargesApplicable: Bool?
+    let advanceAmount: Double?
+    let balanceAmount: Double?
+    let paymentMode: String?
+    let freePayment: Bool?
+    let allotmentDueAmount: Double?
+    let allotmentDueDate: String?
+    let secondPaymentAmount: Double?
+    let secondPaymentDate: String?
+    let thirdPaymentAmount: Double?
+    let thirdPaymentDate: String?
+    let fourthPaymentAmount: Double?
+    let fourthPaymentDate: String?
+    let preferredRegistrationDate: String?
+    let originalAvpStaffId: String?
+    let originalGmStaffId: String?
+    let originalSeniorManagerStaffId: String?
+    let originalBdoStaffId: String?
+    let originalTelecallerStaffId: String?
+    let aadhaar: String?
+    let pan: String?
+    let referenceName1: String?
+    let referenceMobile1: String?
+    let referenceProfession1: String?
+    let referenceName2: String?
+    let referenceMobile2: String?
+    let referenceProfession2: String?
+    let docPreparedIn: String?
+    let email: String?
+    let pincode: String?
+    let homeAddress: String?
+    let profession: String?
+    let designation: String?
+    let incomePerAnnum: String?
+    let officeName: String?
+    let officeAddress: String?
+    let state: String?
+    let district: String?
+    let location: String?
+    let officeMobile: String?
+    let officePhone: String?
+    let officeEmail: String?
+    let nationality: String?
+    let cpVisitId: String?
+    let siteVisitId: String?
+    let source: String?
+    let status: String?
+    let sourceType: String?
+    let sourceClientPlaceVisitId: String?
+    let sourceSiteVisitId: String?
+    let notes: String?
+
+    init(
+        clientName: String,
+        mobileNumber: String,
+        bookingDate: String,
+        leadId: String? = nil,
+        title: String? = nil,
+        fatherSpouseName: String? = nil,
+        dateOfBirth: String? = nil,
+        anniversaryDate: String? = nil,
+        alternateNumbers: String? = nil,
+        whatsappNumber: String? = nil,
+        projectId: String? = nil,
+        plotId: String? = nil,
+        plotNo: String? = nil,
+        bookingType: String? = nil,
+        cefNo: String? = nil,
+        isDuplicateBooking: Bool? = nil,
+        isAgainstSV: Bool? = nil,
+        propertyType: String? = nil,
+        bookingMode: String? = nil,
+        bookingCost: Double? = nil,
+        guidelineValue: Double? = nil,
+        specialConsideration: Double? = nil,
+        specialConsiderationReason: String? = nil,
+        discountApprovedBy: String? = nil,
+        specialConsiderationValidity: Double? = nil,
+        promotionalOffers: String? = nil,
+        promotionalOffersTnC: String? = nil,
+        promotionalOfferValue: Double? = nil,
+        offerValidityPeriod: Double? = nil,
+        agreedAmount: Double? = nil,
+        registrationCharges: Double? = nil,
+        gstAmount: Double? = nil,
+        gstApplicable: Bool? = nil,
+        documentCharges: Double? = nil,
+        pattaCharges: Double? = nil,
+        otherCharges: Double? = nil,
+        otherChargesApplicable: Bool? = nil,
+        advanceAmount: Double? = nil,
+        balanceAmount: Double? = nil,
+        paymentMode: String? = nil,
+        freePayment: Bool? = nil,
+        allotmentDueAmount: Double? = nil,
+        allotmentDueDate: String? = nil,
+        secondPaymentAmount: Double? = nil,
+        secondPaymentDate: String? = nil,
+        thirdPaymentAmount: Double? = nil,
+        thirdPaymentDate: String? = nil,
+        fourthPaymentAmount: Double? = nil,
+        fourthPaymentDate: String? = nil,
+        preferredRegistrationDate: String? = nil,
+        originalAvpStaffId: String? = nil,
+        originalGmStaffId: String? = nil,
+        originalSeniorManagerStaffId: String? = nil,
+        originalBdoStaffId: String? = nil,
+        originalTelecallerStaffId: String? = nil,
+        aadhaar: String? = nil,
+        pan: String? = nil,
+        referenceName1: String? = nil,
+        referenceMobile1: String? = nil,
+        referenceProfession1: String? = nil,
+        referenceName2: String? = nil,
+        referenceMobile2: String? = nil,
+        referenceProfession2: String? = nil,
+        docPreparedIn: String? = nil,
+        email: String? = nil,
+        pincode: String? = nil,
+        homeAddress: String? = nil,
+        profession: String? = nil,
+        designation: String? = nil,
+        incomePerAnnum: String? = nil,
+        officeName: String? = nil,
+        officeAddress: String? = nil,
+        state: String? = nil,
+        district: String? = nil,
+        location: String? = nil,
+        officeMobile: String? = nil,
+        officePhone: String? = nil,
+        officeEmail: String? = nil,
+        nationality: String? = nil,
+        cpVisitId: String? = nil,
+        siteVisitId: String? = nil,
+        source: String? = nil,
+        status: String? = nil,
+        sourceType: String? = nil,
+        sourceClientPlaceVisitId: String? = nil,
+        sourceSiteVisitId: String? = nil,
+        notes: String? = nil
+    ) {
+        self.clientName = clientName
+        self.mobileNumber = mobileNumber
+        self.bookingDate = bookingDate
+        self.leadId = leadId
+        self.title = title
+        self.fatherSpouseName = fatherSpouseName
+        self.dateOfBirth = dateOfBirth
+        self.anniversaryDate = anniversaryDate
+        self.alternateNumbers = alternateNumbers
+        self.whatsappNumber = whatsappNumber
+        self.projectId = projectId
+        self.plotId = plotId
+        self.plotNo = plotNo
+        self.bookingType = bookingType
+        self.cefNo = cefNo
+        self.isDuplicateBooking = isDuplicateBooking
+        self.isAgainstSV = isAgainstSV
+        self.propertyType = propertyType
+        self.bookingMode = bookingMode
+        self.bookingCost = bookingCost
+        self.guidelineValue = guidelineValue
+        self.specialConsideration = specialConsideration
+        self.specialConsiderationReason = specialConsiderationReason
+        self.discountApprovedBy = discountApprovedBy
+        self.specialConsiderationValidity = specialConsiderationValidity
+        self.promotionalOffers = promotionalOffers
+        self.promotionalOffersTnC = promotionalOffersTnC
+        self.promotionalOfferValue = promotionalOfferValue
+        self.offerValidityPeriod = offerValidityPeriod
+        self.agreedAmount = agreedAmount
+        self.registrationCharges = registrationCharges
+        self.gstAmount = gstAmount
+        self.gstApplicable = gstApplicable
+        self.documentCharges = documentCharges
+        self.pattaCharges = pattaCharges
+        self.otherCharges = otherCharges
+        self.otherChargesApplicable = otherChargesApplicable
+        self.advanceAmount = advanceAmount
+        self.balanceAmount = balanceAmount
+        self.paymentMode = paymentMode
+        self.freePayment = freePayment
+        self.allotmentDueAmount = allotmentDueAmount
+        self.allotmentDueDate = allotmentDueDate
+        self.secondPaymentAmount = secondPaymentAmount
+        self.secondPaymentDate = secondPaymentDate
+        self.thirdPaymentAmount = thirdPaymentAmount
+        self.thirdPaymentDate = thirdPaymentDate
+        self.fourthPaymentAmount = fourthPaymentAmount
+        self.fourthPaymentDate = fourthPaymentDate
+        self.preferredRegistrationDate = preferredRegistrationDate
+        self.originalAvpStaffId = originalAvpStaffId
+        self.originalGmStaffId = originalGmStaffId
+        self.originalSeniorManagerStaffId = originalSeniorManagerStaffId
+        self.originalBdoStaffId = originalBdoStaffId
+        self.originalTelecallerStaffId = originalTelecallerStaffId
+        self.aadhaar = aadhaar
+        self.pan = pan
+        self.referenceName1 = referenceName1
+        self.referenceMobile1 = referenceMobile1
+        self.referenceProfession1 = referenceProfession1
+        self.referenceName2 = referenceName2
+        self.referenceMobile2 = referenceMobile2
+        self.referenceProfession2 = referenceProfession2
+        self.docPreparedIn = docPreparedIn
+        self.email = email
+        self.pincode = pincode
+        self.homeAddress = homeAddress
+        self.profession = profession
+        self.designation = designation
+        self.incomePerAnnum = incomePerAnnum
+        self.officeName = officeName
+        self.officeAddress = officeAddress
+        self.state = state
+        self.district = district
+        self.location = location
+        self.officeMobile = officeMobile
+        self.officePhone = officePhone
+        self.officeEmail = officeEmail
+        self.nationality = nationality
+        self.cpVisitId = cpVisitId
+        self.siteVisitId = siteVisitId
+        self.source = source
+        self.status = status
+        self.sourceType = sourceType
+        self.sourceClientPlaceVisitId = sourceClientPlaceVisitId
+        self.sourceSiteVisitId = sourceSiteVisitId
+        self.notes = notes
+    }
+}
+
+struct SetSiteVisitOutcomeRequest: Encodable, Sendable {
+    let id: String
+    let outcome: String
+    let reasons: [String]?
+    let postponeReasons: [String]?
+    let notInterestedReasons: [String]?
+    let notInterestedDetails: [SiteVisitNotInterestedDetail]?
+    let notes: String?
+    let bookingId: String?
+}
+
+struct SiteVisitNotInterestedDetail: Encodable, Sendable {
+    let reason: String
+    let detail: String?
+}
+
+struct AppBooking: Decodable, Identifiable, Equatable, Sendable {
+    let id: String
+    let bookingRefNo: String?
+    let clientName: String?
+    let mobileNumber: String?
+    let projectId: String?
+    let projectName: String?
+    let plotId: String?
+    let plotNo: String?
+    let bookingDate: String?
     let bookingType: String?
     let bookingMode: String?
     let bookingCost: Double?
     let advanceAmount: Double?
     let balanceAmount: Double?
-    let email: String?
-    let homeAddress: String?
+    let source: String?
+    let status: String?
+    let approvalStatus: String?
+    let notes: String?
+    let createdAt: String?
+    let updatedAt: String?
+
+    enum CodingKeys: String, CodingKey {
+        case id = "_id"
+        case bookingRefNo, clientName, mobileNumber, projectId, projectName
+        case plotId, plotNo, bookingDate, bookingType, bookingMode
+        case bookingCost, advanceAmount, balanceAmount, source, status
+        case approvalStatus, notes, createdAt, updatedAt
+    }
+
+    var displayStatus: String {
+        approvalStatus?.nilIfBlank ?? status?.nilIfBlank ?? "pending"
+    }
+}
+
+struct UpdateBookingRequest: Encodable, Sendable {
+    let id: String
+    let clientName: String?
+    let mobileNumber: String?
+    let bookingDate: String?
+    let bookingCost: Double?
+    let advanceAmount: Double?
+    let notes: String?
 }
 
 struct CreateCpVisitRequest: Encodable, Sendable {
     let leadId: String?
+    let projectId: String?
     let clientName: String?
     let mobileNumber: String
     let assignedStaffId: String

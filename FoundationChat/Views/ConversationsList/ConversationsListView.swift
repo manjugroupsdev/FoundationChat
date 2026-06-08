@@ -74,7 +74,9 @@ struct ConversationsListView: View {
   @Query private var conversations: [Conversation]
   @Binding var selectedTab: AppTab
   let openConversationID: String?
+  let openChannelID: String?
   let onOpenConversationHandled: () -> Void
+  let onOpenChannelHandled: () -> Void
 
   @State private var path = NavigationPath()
   @State private var searchText = ""
@@ -401,6 +403,11 @@ struct ConversationsListView: View {
         guard let openConversationID else { return }
         await openConversationFromPush(remoteConversationID: openConversationID)
         onOpenConversationHandled()
+      }
+      .task(id: openChannelID) {
+        guard let openChannelID else { return }
+        await openChannelFromPush(channelID: openChannelID)
+        onOpenChannelHandled()
       }
     }
   }
@@ -862,6 +869,15 @@ struct ConversationsListView: View {
       muted: false,
       unreadCount: 0
     )
+  }
+
+  @MainActor
+  private func openChannelFromPush(channelID: String) async {
+    selectedFilter = .all
+    if channels.first(where: { $0.id == channelID }) == nil {
+      await loadChannels(search: "")
+    }
+    path.append(channelID)
   }
 
   private func toggleSelection(for item: HomeItem) {

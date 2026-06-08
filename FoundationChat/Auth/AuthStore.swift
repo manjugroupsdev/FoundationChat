@@ -53,8 +53,14 @@ final class AuthStore {
   private(set) var errorMessage: String?
   private(set) var isAuthenticating = false
   private(set) var isRequestingOTP = false
+  private(set) var isEmployeeLoginInProgress = false
+  private(set) var isChangingPassword = false
   private(set) var lastKnownAPNSToken: String?
   private(set) var registeredAPNSToken: String?
+
+  var passwordChangeRequired: Bool {
+    currentSession?.mustChangePassword == true
+  }
 
   var currentUserLabel: String? {
     viewer?.name ?? viewer?.email ?? currentSession?.user.phone
@@ -70,6 +76,10 @@ final class AuthStore {
 
   func hasPermission(_ permission: String) -> Bool {
     isAdmin || iamPermissions.contains(permission)
+  }
+
+  func clearError() {
+    errorMessage = nil
   }
 
   // MARK: - Private
@@ -105,14 +115,13 @@ final class AuthStore {
         status = .signedOut
         return
       }
-      applySession(stored)
-      status = .signedIn
-
       let freshUser = try await AuthAPIService.validateSession(token: stored.token)
-      let refreshed = OtpSession(token: stored.token, user: freshUser)
-      applySession(refreshed)
-      try tokenStore.save(refreshed)
-      await refreshIAMPermissions()
+      let refreshed = OtpSession(
+        token: stored.token,
+        user: freshUser,
+        mustChangePassword: stored.mustChangePassword || freshUser.mustChangePassword == true
+      )
+      await finalizeAuthenticatedSession(refreshed)
     } catch {
       try? tokenStore.clear()
       currentSession = nil
@@ -151,10 +160,61 @@ final class AuthStore {
 
     do {
       let session = try await AuthAPIService.verifyOTP(phone: phone, otp: trimmedCode)
-      applySession(session)
-      try tokenStore.save(session)
-      status = .signedIn
-      await refreshIAMPermissions()
+      await finalizeAuthenticatedSession(session)
+    } catch {
+      errorMessage = error.localizedDescription
+    }
+  }
+
+  func loginWithEmployeeId(employeeId: String, password: String) async {
+    let trimmedEmployeeId = employeeId.trimmingCharacters(in: .whitespacesAndNewlines)
+    guard !trimmedEmployeeId.isEmpty else {
+      errorMessage = AuthStoreError.invalidEmployeeId.localizedDescription
+      return
+    }
+    guard !password.isEmpty else {
+      errorMessage = AuthStoreError.invalidPassword.localizedDescription
+      return
+    }
+
+    isEmployeeLoginInProgress = true
+    errorMessage = nil
+    defer { isEmployeeLoginInProgress = false }
+
+    do {
+      let session = try await AuthAPIService.loginWithEmployeeId(
+        employeeId: trimmedEmployeeId,
+        password: password
+      )
+      await finalizeAuthenticatedSession(session)
+    } catch {
+      errorMessage = error.localizedDescription
+    }
+  }
+
+  func changeRequiredPassword(newPassword: String, confirmPassword: String) async {
+    let password = newPassword.trimmingCharacters(in: .whitespacesAndNewlines)
+    guard password.count >= 8 else {
+      errorMessage = AuthStoreError.weakPassword.localizedDescription
+      return
+    }
+    guard password == confirmPassword.trimmingCharacters(in: .whitespacesAndNewlines) else {
+      errorMessage = AuthStoreError.passwordMismatch.localizedDescription
+      return
+    }
+
+    isChangingPassword = true
+    errorMessage = nil
+    defer { isChangingPassword = false }
+
+    do {
+      let t = try requireToken()
+      try await AuthAPIService.changeOwnPassword(token: t, newPassword: password)
+      guard let existing = currentSession else { throw AuthStoreError.sessionNotAvailable }
+      let refreshed = OtpSession(token: existing.token, user: existing.user, mustChangePassword: false)
+      applySession(refreshed)
+      try tokenStore.save(refreshed)
+      requestNotificationPermissions()
     } catch {
       errorMessage = error.localizedDescription
     }
@@ -179,9 +239,10 @@ final class AuthStore {
         designation: existing.designation,
         department: existing.department,
         status: existing.status,
-        photo: existing.photo
+        photo: existing.photo,
+        mustChangePassword: existing.mustChangePassword
       )
-      let refreshed = OtpSession(token: t, user: updated)
+      let refreshed = OtpSession(token: t, user: updated, mustChangePassword: currentSession?.mustChangePassword == true)
       applySession(refreshed)
       try? tokenStore.save(refreshed)
     } catch {
@@ -201,7 +262,22 @@ final class AuthStore {
     errorMessage = nil
     isAuthenticating = false
     isRequestingOTP = false
+    isEmployeeLoginInProgress = false
+    isChangingPassword = false
     lastKnownAPNSToken = nil
+    registeredAPNSToken = nil
+    status = .signedOut
+  }
+
+  func expireSession(message: String = "Session expired. Please sign in again.") {
+    try? tokenStore.clear()
+    currentSession = nil
+    viewer = nil
+    errorMessage = message
+    isAuthenticating = false
+    isRequestingOTP = false
+    isEmployeeLoginInProgress = false
+    isChangingPassword = false
     registeredAPNSToken = nil
     status = .signedOut
   }
@@ -269,7 +345,7 @@ final class AuthStore {
       photo: serverUser?.photo ?? photoStorageId ?? existing?.photo
     )
 
-    let refreshed = OtpSession(token: t, user: merged)
+    let refreshed = OtpSession(token: t, user: merged, mustChangePassword: currentSession?.mustChangePassword == true)
     applySession(refreshed)
     try? tokenStore.save(refreshed)
     return merged
@@ -301,7 +377,7 @@ final class AuthStore {
       status: staff.status ?? existing?.status,
       photo: staff.photo
     )
-    let refreshed = OtpSession(token: t, user: refreshedUser)
+    let refreshed = OtpSession(token: t, user: refreshedUser, mustChangePassword: currentSession?.mustChangePassword == true)
     applySession(refreshed)
     try? tokenStore.save(refreshed)
     return refreshedUser
@@ -351,7 +427,7 @@ final class AuthStore {
       status: serverUser?.status ?? existing?.status,
       photo: forceClearPhoto ? nil : (serverUser?.photo ?? fallbackPhoto ?? existing?.photo)
     )
-    let refreshed = OtpSession(token: t, user: merged)
+    let refreshed = OtpSession(token: t, user: merged, mustChangePassword: currentSession?.mustChangePassword == true)
     applySession(refreshed)
     try? tokenStore.save(refreshed)
     return merged
@@ -1019,6 +1095,33 @@ final class AuthStore {
 
   // MARK: - Helpers
 
+  private func finalizeAuthenticatedSession(_ session: OtpSession) async {
+    applySession(session)
+    do {
+      try tokenStore.save(session)
+    } catch {
+      print("[auth] failed to save session: \(error.localizedDescription)")
+    }
+
+    await refreshIAMPermissions()
+
+    do {
+      _ = try await refreshMyStaffProfile()
+    } catch {
+      print("[auth] failed to refresh staff profile: \(error.localizedDescription)")
+    }
+
+    if let currentSession {
+      do {
+        try tokenStore.save(currentSession)
+      } catch {
+        print("[auth] failed to save hydrated session: \(error.localizedDescription)")
+      }
+    }
+
+    status = .signedIn
+  }
+
   private func applySession(_ session: OtpSession) {
     currentSession = session
     let user = session.user
@@ -1074,6 +1177,10 @@ enum AuthStoreError: LocalizedError {
   case sessionNotAvailable
   case invalidPhoneNumber
   case invalidOTP
+  case invalidEmployeeId
+  case invalidPassword
+  case weakPassword
+  case passwordMismatch
   case invalidUploadURL
   case notImplemented
 
@@ -1082,6 +1189,10 @@ enum AuthStoreError: LocalizedError {
     case .sessionNotAvailable: return "Session is not available. Please sign in again."
     case .invalidPhoneNumber: return "Enter a valid 10-digit phone number."
     case .invalidOTP: return "Enter the OTP you received."
+    case .invalidEmployeeId: return "Enter your Employee ID."
+    case .invalidPassword: return "Enter your password."
+    case .weakPassword: return "New password must be at least 8 characters."
+    case .passwordMismatch: return "New password and confirmation do not match."
     case .invalidUploadURL: return "Attachment upload URL is invalid."
     case .notImplemented: return "This feature is not yet connected."
     }

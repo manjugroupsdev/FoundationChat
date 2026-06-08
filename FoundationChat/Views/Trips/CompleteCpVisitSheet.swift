@@ -17,6 +17,10 @@ struct CompleteCpVisitSheet: View {
     @State private var projectDetails = ""
     @State private var otherPostponeNotes = ""
     @State private var postponeFollowUpDate = Date()
+    @State private var selectedPostponeReasons: Set<CpPostponeReason> = []
+    @State private var postponedNotes = ""
+    @State private var selectedNotInterestedReasons: Set<CpNotInterestedReason> = []
+    @State private var notInterestedReasonDetails: [CpNotInterestedReason: String] = [:]
     @State private var notInterestedBudgetConcern = ""
     @State private var notInterestedTimingNotes = ""
     @State private var notInterestedProjectDetails = ""
@@ -25,6 +29,10 @@ struct CompleteCpVisitSheet: View {
     @State private var bookingStep: BookingStep = .findMobile
     @State private var bookingClientMobile = ""
     @State private var booking = BookingDraft()
+    @State private var cpVisitDetail: CpVisitDetail?
+    @State private var selectedBookingLead: TelecallerLeadSearchData?
+    @State private var bookingLeadMatches: [TelecallerLeadSearchData] = []
+    @State private var isSearchingBookingLead = false
 
     @State private var projects: [MarketingProject] = []
     @State private var salesStaff: [ConvexStaffListItem] = []
@@ -142,26 +150,16 @@ struct CompleteCpVisitSheet: View {
                         } label: {
                             if isSaving {
                                 ProgressView()
-                                    .tint(.white)
                                     .frame(maxWidth: .infinity)
-                                    .frame(height: 48)
                             } else {
                                 Text(ctaTitle)
                                     .font(.system(size: 14, weight: .semibold))
                                     .frame(maxWidth: .infinity)
-                                    .frame(height: 52)
                             }
                         }
-                        .buttonStyle(.plain)
-                        .foregroundStyle(.white)
-                        .background(
-                            LinearGradient(
-                                colors: [Color(hex: 0x1ECB09), Color(hex: 0x3D9D02)],
-                                startPoint: .top,
-                                endPoint: .bottom
-                            ),
-                            in: RoundedRectangle(cornerRadius: 26)
-                        )
+                        .buttonStyle(.borderedProminent)
+                        .controlSize(.large)
+                        .tint(Color(hex: 0x2DAE12))
                         .padding(.top, 6)
                         .disabled(isSaving)
                     }
@@ -180,7 +178,12 @@ struct CompleteCpVisitSheet: View {
                 }
             }
             .task {
-                selectedOutcome = CpVisitOutcome(rawValue: initialOutcome ?? "")
+                let startingOutcome = CpVisitOutcome(rawValue: normalizedServerValue(initialOutcome))
+                selectedOutcome = startingOutcome ?? .booking
+                if startingOutcome == .siteVisit || initialOutcomeMarksFixedSiteVisit {
+                    isLockedSvMode = true
+                    selectedOutcome = .siteVisit
+                }
                 await loadInitialData()
                 await detectAndApplyLockedSvMode()
             }
@@ -236,15 +239,11 @@ struct CompleteCpVisitSheet: View {
             } label: {
                 Label("Reject It", systemImage: "xmark")
                     .font(.system(size: 13, weight: .semibold))
-                    .frame(maxWidth: .infinity, minHeight: 46)
+                    .frame(maxWidth: .infinity)
             }
-            .buttonStyle(.plain)
-            .foregroundStyle(Color(hex: 0xB42318))
-            .background(.white, in: RoundedRectangle(cornerRadius: 23))
-            .overlay(
-                RoundedRectangle(cornerRadius: 23)
-                    .stroke(Color(hex: 0xFDA29B), lineWidth: 1)
-            )
+            .buttonStyle(.bordered)
+            .controlSize(.large)
+            .tint(Color(hex: 0xB42318))
             .disabled(isSaving)
 
             Button {
@@ -252,17 +251,16 @@ struct CompleteCpVisitSheet: View {
             } label: {
                 if isSaving {
                     ProgressView()
-                        .tint(.white)
-                        .frame(maxWidth: .infinity, minHeight: 46)
+                        .frame(maxWidth: .infinity)
                 } else {
                     Label("Confirm It", systemImage: "checkmark")
                         .font(.system(size: 13, weight: .semibold))
-                        .frame(maxWidth: .infinity, minHeight: 46)
+                        .frame(maxWidth: .infinity)
                 }
             }
-            .buttonStyle(.plain)
-            .foregroundStyle(.white)
-            .background(Color(hex: 0x1ECB09), in: RoundedRectangle(cornerRadius: 23))
+            .buttonStyle(.borderedProminent)
+            .controlSize(.large)
+            .tint(Color(hex: 0x2DAE12))
             .disabled(isSaving)
         }
     }
@@ -429,6 +427,60 @@ struct CompleteCpVisitSheet: View {
             .padding(.bottom, 8)
 
             BookingTextField("Client Mobile Number *", text: $bookingClientMobile, placeholder: "Enter Mobile Number", icon: "phone", keyboard: .phonePad)
+                .onChange(of: bookingClientMobile) { _, _ in
+                    selectedBookingLead = nil
+                    bookingLeadMatches = []
+                }
+
+            Button {
+                Task { await searchBookingLead() }
+            } label: {
+                HStack {
+                    if isSearchingBookingLead {
+                        ProgressView().controlSize(.small)
+                    } else {
+                        Image(systemName: "magnifyingglass")
+                    }
+                    Text("Find Client")
+                        .font(.system(size: 13, weight: .semibold))
+                }
+                .frame(maxWidth: .infinity)
+            }
+            .buttonStyle(.borderedProminent)
+            .controlSize(.large)
+            .tint(Color(hex: 0x0B61CA))
+            .disabled(isSearchingBookingLead || AppModuleFormatters.normalizePhone(bookingClientMobile).count != 10)
+
+            if let selectedBookingLead {
+                FieldShell {
+                    VStack(alignment: .leading, spacing: 4) {
+                        Text("Linked client")
+                            .font(.system(size: 11, weight: .semibold))
+                            .foregroundStyle(Color(hex: 0x667085))
+                        Text(selectedBookingLead.displayName)
+                            .font(.system(size: 13, weight: .semibold))
+                            .foregroundStyle(Color(hex: 0x101828))
+                    }
+                }
+            }
+
+            ForEach(bookingLeadMatches) { lead in
+                Button {
+                    applyBookingLead(lead)
+                } label: {
+                    FieldShell {
+                        VStack(alignment: .leading, spacing: 4) {
+                            Text(lead.displayName)
+                                .font(.system(size: 13, weight: .semibold))
+                                .foregroundStyle(Color(hex: 0x101828))
+                            Text(lead.mobileNumber ?? "No mobile")
+                                .font(.system(size: 12))
+                                .foregroundStyle(Color(hex: 0x667085))
+                        }
+                    }
+                }
+                .buttonStyle(.plain)
+            }
 
             HStack(alignment: .top, spacing: 10) {
                 Image(systemName: "checkmark.shield.fill")
@@ -526,6 +578,7 @@ struct CompleteCpVisitSheet: View {
             Toggle("GST If Applicable", isOn: $booking.gstApplicable)
                 .font(.system(size: 13, weight: .medium))
             BookingTextField("Document Charges", text: $booking.documentCharges, keyboard: .decimalPad)
+            BookingTextField("Patta Charges", text: $booking.pattaCharges, placeholder: "Enter Cost", icon: "briefcase", keyboard: .decimalPad)
             BookingTextField("Other Charges", text: $booking.otherCharges, keyboard: .decimalPad)
             Toggle("Other Charges If Applicable", isOn: $booking.otherChargesApplicable)
                 .font(.system(size: 13, weight: .medium))
@@ -535,11 +588,11 @@ struct CompleteCpVisitSheet: View {
                 .font(.system(size: 13, weight: .medium))
             BookingTextField("Allotment Due Amount", text: $booking.allotmentDueAmount, keyboard: .decimalPad)
             BookingDateTextField("Allotment Due Date", text: $booking.allotmentDueDate)
-            BookingTextField("2nd Payment Mode", text: $booking.secondPaymentMode)
+            BookingTextField("2nd Payment Amount", text: $booking.secondPaymentAmount, placeholder: "Enter Cost", icon: "briefcase", keyboard: .decimalPad)
             BookingDateTextField("2nd Payment Date", text: $booking.secondPaymentDate)
-            BookingTextField("3rd Payment Mode", text: $booking.thirdPaymentMode)
+            BookingTextField("3rd Payment Amount", text: $booking.thirdPaymentAmount, placeholder: "Enter Cost", icon: "briefcase", keyboard: .decimalPad)
             BookingDateTextField("3rd Payment Date", text: $booking.thirdPaymentDate)
-            BookingTextField("4th Payment Mode", text: $booking.fourthPaymentMode)
+            BookingTextField("4th Payment Amount", text: $booking.fourthPaymentAmount, placeholder: "Enter Cost", icon: "briefcase", keyboard: .decimalPad)
             BookingDateTextField("4th Payment Date", text: $booking.fourthPaymentDate)
             BookingDateTextField("Preferred Registration Date", text: $booking.preferredRegistrationDate)
         }
@@ -572,10 +625,16 @@ struct CompleteCpVisitSheet: View {
 
     private var postponeSection: some View {
         VStack(alignment: .leading, spacing: 10) {
-            labeledEditor("Please specify the budget concern", text: $budgetConcern, minLines: 3)
-            BookingTextField("What's the timing?", text: $timingNotes, placeholder: "Enter Details", icon: "clock")
-            BookingTextField("Tell the Project Details", text: $projectDetails, placeholder: "Enter Details", icon: "clock")
-            BookingTextField("Tell Other Details", text: $otherPostponeNotes, placeholder: "Enter Details", icon: "clock")
+            sectionLabel("Reason")
+            ForEach(CpPostponeReason.allCases) { reason in
+                ReasonToggleRow(
+                    title: reason.title,
+                    isSelected: selectedPostponeReasons.contains(reason)
+                ) {
+                    togglePostponeReason(reason)
+                }
+            }
+            fieldEditor("Add notes", text: $postponedNotes, minLines: 3)
             DatePicker("Date & Time", selection: $postponeFollowUpDate, displayedComponents: [.date, .hourAndMinute])
                 .font(.system(size: 12, weight: .medium))
                 .padding(.horizontal, 14)
@@ -587,10 +646,26 @@ struct CompleteCpVisitSheet: View {
 
     private var notInterestedSection: some View {
         VStack(alignment: .leading, spacing: 10) {
-            labeledEditor("Please specify the budget concern", text: $notInterestedBudgetConcern, minLines: 3)
-            BookingTextField("What's the timing?", text: $notInterestedTimingNotes, placeholder: "Enter Details", icon: "clock")
-            BookingTextField("Tell the Project Details", text: $notInterestedProjectDetails, placeholder: "Enter Details", icon: "clock")
-            BookingTextField("Tell Other Details", text: $notInterestedOtherNotes, placeholder: "Enter Details", icon: "clock")
+            sectionLabel("Reason")
+            ForEach(CpNotInterestedReason.allCases) { reason in
+                VStack(alignment: .leading, spacing: 8) {
+                    ReasonToggleRow(
+                        title: reason.title,
+                        isSelected: selectedNotInterestedReasons.contains(reason)
+                    ) {
+                        toggleNotInterestedReason(reason)
+                    }
+                    if selectedNotInterestedReasons.contains(reason) {
+                        fieldEditor(
+                            "Add \(reason.title.lowercased()) detail",
+                            text: bindingForNotInterestedReason(reason),
+                            minLines: 2
+                        )
+                        .padding(.leading, 10)
+                    }
+                }
+            }
+            fieldEditor("Add notes", text: $notInterestedOtherNotes, minLines: 3)
         }
         .padding(.top, 4)
     }
@@ -615,7 +690,7 @@ struct CompleteCpVisitSheet: View {
         switch selectedOutcome {
         case .booking:
             if bookingStep == .findMobile { return "Next" }
-            return bookingSub == .staff ? "Save Booking" : "Next"
+            return bookingSub == .staff ? "Create \(booking.saveAs.title) Booking" : "Next"
         case .siteVisit, .postponed, .notInterested:
             return "Save"
         case nil:
@@ -681,6 +756,30 @@ struct CompleteCpVisitSheet: View {
         }
     }
 
+    private func togglePostponeReason(_ reason: CpPostponeReason) {
+        if selectedPostponeReasons.contains(reason) {
+            selectedPostponeReasons.remove(reason)
+        } else {
+            selectedPostponeReasons.insert(reason)
+        }
+    }
+
+    private func toggleNotInterestedReason(_ reason: CpNotInterestedReason) {
+        if selectedNotInterestedReasons.contains(reason) {
+            selectedNotInterestedReasons.remove(reason)
+            notInterestedReasonDetails[reason] = nil
+        } else {
+            selectedNotInterestedReasons.insert(reason)
+        }
+    }
+
+    private func bindingForNotInterestedReason(_ reason: CpNotInterestedReason) -> Binding<String> {
+        Binding(
+            get: { notInterestedReasonDetails[reason] ?? "" },
+            set: { notInterestedReasonDetails[reason] = $0 }
+        )
+    }
+
     private func loadInitialData() async {
         await withTaskGroup(of: Void.self) { group in
             group.addTask { await loadProjects() }
@@ -708,7 +807,7 @@ struct CompleteCpVisitSheet: View {
 
     @MainActor
     private func detectAndApplyLockedSvMode() async {
-        guard !isLockedSvMode, !isDetectingLockedSvMode else { return }
+        guard !isDetectingLockedSvMode else { return }
         guard let token = authStore.currentSession?.token else { return }
         isDetectingLockedSvMode = true
         defer { isDetectingLockedSvMode = false }
@@ -716,23 +815,85 @@ struct CompleteCpVisitSheet: View {
         do {
             let visits = try await MarketingConvexAPIService.getMyMarketingCpVisits(token: token)
             guard let visit = visits.first(where: { $0.id == cpVisitId }) else { return }
+            cpVisitDetail = visit
+            prefillBookingFromCpVisit(visit)
 
             let proposed = visit.proposedSiteVisit
-            let leadFlaggedSvFixed = visit.lead?.followUpStatus?
-                .lowercased()
-                .replacingOccurrences(of: "-", with: "_")
-                .contains("sv_fixed") == true
-            let hasSvFixParty =
-                (visit.expectedAttendeeCount ?? 0) > 0 ||
-                (visit.attendees?.isEmpty == false) ||
-                visit.foodPreferences?.nilIfBlank != nil ||
-                visit.vehiclePreference?.nilIfBlank != nil
-
-            guard proposed?.isMeaningful == true || leadFlaggedSvFixed || hasSvFixParty else { return }
+            guard isLockedSvMode || visit.hasFixedSiteVisitSignal(initialOutcome: initialOutcome) else { return }
             applyLockedSvMode(visit: visit, proposed: proposed)
         } catch {
             // Locked mode is progressive enhancement. If detection fails, keep the normal CP flow usable.
         }
+    }
+
+    @MainActor
+    private func prefillBookingFromCpVisit(_ visit: CpVisitDetail) {
+        if bookingClientMobile.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
+            bookingClientMobile = visit.lead?.mobileNumber?.nilIfBlank
+                ?? visit.client?.mobileNumber?.nilIfBlank
+                ?? visit.clientPlace?.contactPhone?.nilIfBlank
+                ?? ""
+        }
+        if booking.phone.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
+            booking.phone = AppModuleFormatters.normalizePhone(bookingClientMobile)
+        }
+        if booking.name.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
+            booking.name = visit.lead?.contactName?.nilIfBlank
+                ?? visit.client?.clientName?.nilIfBlank
+                ?? visit.clientPlace?.contactPerson?.nilIfBlank
+                ?? ""
+        }
+        if booking.homeAddress.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
+            booking.homeAddress = visit.clientPlace?.address?.nilIfBlank
+                ?? visit.clientPlace?.formattedAddress?.nilIfBlank
+                ?? visit.lead?.preferredArea?.nilIfBlank
+                ?? ""
+        }
+    }
+
+    @MainActor
+    private func searchBookingLead() async {
+        let mobile = AppModuleFormatters.normalizePhone(bookingClientMobile)
+        guard mobile.count == 10 else {
+            errorMessage = "Enter a valid mobile number"
+            return
+        }
+        guard let token = authStore.currentSession?.token else {
+            errorMessage = "Not signed in"
+            return
+        }
+
+        isSearchingBookingLead = true
+        defer { isSearchingBookingLead = false }
+
+        do {
+            bookingLeadMatches = try await MarketingConvexAPIService.searchTelecallerLeadsByPhone(token: token, phone: mobile)
+            if bookingLeadMatches.count == 1, let lead = bookingLeadMatches.first {
+                applyBookingLead(lead)
+            } else if bookingLeadMatches.isEmpty {
+                booking.phone = mobile
+                bookingStep = .clientForm
+            }
+        } catch {
+            errorMessage = error.localizedDescription
+        }
+    }
+
+    @MainActor
+    private func applyBookingLead(_ lead: TelecallerLeadSearchData) {
+        selectedBookingLead = lead
+        bookingLeadMatches = []
+        booking.phone = AppModuleFormatters.normalizePhone(lead.mobileNumber ?? bookingClientMobile)
+        bookingClientMobile = booking.phone
+        booking.name = lead.displayName
+        booking.homeAddress = lead.suggestedVisitAddress?.nilIfBlank
+            ?? lead.latestAnalysisProfile?.address?.nilIfBlank
+            ?? booking.homeAddress
+        booking.pincode = lead.latestAnalysisProfile?.pincode?.nilIfBlank ?? booking.pincode
+        booking.state = lead.latestAnalysisProfile?.state?.nilIfBlank ?? booking.state
+        booking.district = lead.latestAnalysisProfile?.district?.nilIfBlank ?? booking.district
+        booking.location = lead.locationPreferred?.nilIfBlank ?? booking.location
+        bookingStep = .clientForm
     }
 
     @MainActor
@@ -807,8 +968,8 @@ struct CompleteCpVisitSheet: View {
         }
         if selectedOutcome == .booking {
             if bookingStep == .findMobile {
-                let mobile = bookingClientMobile.trimmingCharacters(in: .whitespacesAndNewlines)
-                guard mobile.count >= 6 else {
+                let mobile = AppModuleFormatters.normalizePhone(bookingClientMobile)
+                guard mobile.count == 10 else {
                     errorMessage = "Enter a valid mobile number"
                     return
                 }
@@ -825,11 +986,11 @@ struct CompleteCpVisitSheet: View {
                 return
             }
         }
-        if selectedOutcome == .postponed && postponeNotesPayload == nil {
+        if selectedOutcome == .postponed && selectedPostponeReasons.isEmpty {
             errorMessage = "Please share at least one reason for the postpone"
             return
         }
-        if selectedOutcome == .notInterested && notInterestedNotesPayload == nil {
+        if selectedOutcome == .notInterested && selectedNotInterestedReasons.isEmpty {
             errorMessage = "Please share at least one reason"
             return
         }
@@ -847,7 +1008,25 @@ struct CompleteCpVisitSheet: View {
                 request: MarkClientMetRequest(id: cpVisitId, clientMet: true)
             )
 
-            if selectedOutcome == .siteVisit {
+            if selectedOutcome == .booking {
+                let bookingId = try await MarketingConvexAPIService.createBooking(
+                    token: token,
+                    request: booking.createRequest(
+                        cpVisitId: cpVisitId,
+                        leadId: selectedBookingLead?.id ?? cpVisitDetail?.leadId,
+                        projects: projects
+                    )
+                )
+                try await MarketingConvexAPIService.setCpVisitOutcome(
+                    token: token,
+                    request: SetCpVisitOutcomeRequest(
+                        id: cpVisitId,
+                        outcome: selectedOutcome.rawValue,
+                        postponeReasons: nil,
+                        notes: [booking.serializedNotes, "Booking ID: \(bookingId)"].compactMap { $0?.nilIfBlank }.joined(separator: "\n\n")
+                    )
+                )
+            } else if selectedOutcome == .siteVisit {
                 guard let selectedProject else { return }
                 _ = try await MarketingConvexAPIService.convertCpVisitToSiteVisit(
                     token: token,
@@ -875,7 +1054,7 @@ struct CompleteCpVisitSheet: View {
                     request: SetCpVisitOutcomeRequest(
                         id: cpVisitId,
                         outcome: selectedOutcome.rawValue,
-                        postponeReasons: nil,
+                        postponeReasons: selectedOutcome == .postponed ? selectedPostponeReasons.map(\.rawValue).sorted() : nil,
                         notes: buildOutcomeNotes(for: selectedOutcome)
                     )
                 )
@@ -945,10 +1124,8 @@ struct CompleteCpVisitSheet: View {
         let followUp = DateFormatter.cpOutcomeDateTime.string(from: postponeFollowUpDate)
         return [
             "[Postponed]",
-            budgetConcern.nilIfBlank.map { "Budget concern: \($0)" },
-            timingNotes.nilIfBlank.map { "Timing: \($0)" },
-            projectDetails.nilIfBlank.map { "Project details: \($0)" },
-            otherPostponeNotes.nilIfBlank.map { "Other: \($0)" },
+            selectedPostponeReasons.isEmpty ? nil : "Reasons: \(selectedPostponeReasons.map(\.title).sorted().joined(separator: ", "))",
+            postponedNotes.nilIfBlank.map { "Notes: \($0)" },
             "Follow-up: \(followUp)"
         ]
         .compactMap { $0 }
@@ -957,12 +1134,17 @@ struct CompleteCpVisitSheet: View {
     }
 
     private var notInterestedNotesPayload: String? {
-        let rows = [
-            notInterestedBudgetConcern.nilIfBlank.map { "Budget concern: \($0)" },
-            notInterestedTimingNotes.nilIfBlank.map { "Timing: \($0)" },
-            notInterestedProjectDetails.nilIfBlank.map { "Project details: \($0)" },
-            notInterestedOtherNotes.nilIfBlank.map { "Other: \($0)" }
-        ]
+        let reasonRows = selectedNotInterestedReasons
+            .sorted { $0.title < $1.title }
+            .map { reason -> String in
+                if let detail = notInterestedReasonDetails[reason]?.nilIfBlank {
+                    return "\(reason.title): \(detail)"
+                }
+                return reason.title
+            }
+        let rows = reasonRows + [
+            notInterestedOtherNotes.nilIfBlank.map { "Notes: \($0)" }
+        ].compactMap { $0 }
         .compactMap { $0 }
         guard !rows.isEmpty else { return nil }
         return (["[Not interested]"] + rows).joined(separator: "\n")
@@ -1010,6 +1192,63 @@ struct CompleteCpVisitSheet: View {
         }
         return nil
     }
+
+    private var initialOutcomeMarksFixedSiteVisit: Bool {
+        normalizedServerValue(initialOutcome).isFixedSiteVisitMarker
+    }
+
+    private func normalizedServerValue(_ raw: String?) -> String {
+        raw?
+            .trimmingCharacters(in: .whitespacesAndNewlines)
+            .lowercased()
+            .replacingOccurrences(of: "-", with: "_")
+            .replacingOccurrences(of: " ", with: "_")
+        ?? ""
+    }
+}
+
+private extension CpVisitDetail {
+    func hasFixedSiteVisitSignal(initialOutcome: String?) -> Bool {
+        if proposedSiteVisit?.isMeaningful == true { return true }
+        if convertedSiteVisitId?.nilIfBlank != nil { return true }
+        if (expectedAttendeeCount ?? 0) > 0 { return true }
+        if attendees?.isEmpty == false { return true }
+        if foodPreferences?.nilIfBlank != nil { return true }
+        if vehiclePreference?.nilIfBlank != nil { return true }
+
+        return [
+            initialOutcome,
+            outcome,
+            status,
+            lead?.followUpStatus
+        ]
+        .contains { $0.normalizedCpMarker.isFixedSiteVisitMarker }
+    }
+}
+
+private extension Optional where Wrapped == String {
+    var normalizedCpMarker: String {
+        self?
+            .trimmingCharacters(in: .whitespacesAndNewlines)
+            .lowercased()
+            .replacingOccurrences(of: "-", with: "_")
+            .replacingOccurrences(of: " ", with: "_")
+        ?? ""
+    }
+}
+
+private extension String {
+    var isFixedSiteVisitMarker: Bool {
+        self == "converted_to_site_visit"
+            || self == "site_visit"
+            || self == "sitevisit"
+            || self == "sv_fixed"
+            || self == "sv_fix"
+            || self == "svfixed"
+            || self.contains("site_visit_fixed")
+            || self.contains("fixed_site_visit")
+            || self.contains("sv_fixed")
+    }
 }
 
 private enum CpVisitOutcome: String, CaseIterable, Identifiable {
@@ -1035,6 +1274,54 @@ private enum CpVisitOutcome: String, CaseIterable, Identifiable {
         case .siteVisit: return "building.2.fill"
         case .postponed: return "calendar.badge.clock"
         case .notInterested: return "xmark.circle.fill"
+        }
+    }
+}
+
+private enum CpPostponeReason: String, CaseIterable, Identifiable {
+    case clientUnavailable = "client_unavailable"
+    case weather
+    case vehicleIssue = "vehicle_issue"
+    case documentPending = "document_pending"
+    case rescheduledByClient = "rescheduled_by_client"
+    case otherCommitment = "other_commitment"
+
+    var id: String { rawValue }
+
+    var title: String {
+        switch self {
+        case .clientUnavailable: return "Client unavailable"
+        case .weather: return "Weather"
+        case .vehicleIssue: return "Vehicle issue"
+        case .documentPending: return "Document pending"
+        case .rescheduledByClient: return "Rescheduled by client"
+        case .otherCommitment: return "Other commitment"
+        }
+    }
+}
+
+private enum CpNotInterestedReason: String, CaseIterable, Identifiable {
+    case price
+    case distance
+    case location
+    case developmentInSourcingArea = "development_in_sourcing_area"
+    case preferredPlotNotChoice = "preferred_plot_not_choice"
+    case loanEligibility = "loan_eligibility"
+    case staffBehaviour = "staff_behaviour"
+    case driverBehaviour = "driver_behaviour"
+
+    var id: String { rawValue }
+
+    var title: String {
+        switch self {
+        case .price: return "Price"
+        case .distance: return "Distance"
+        case .location: return "Location"
+        case .developmentInSourcingArea: return "Development in sourcing area"
+        case .preferredPlotNotChoice: return "Preferred plot not choice"
+        case .loanEligibility: return "Loan eligibility"
+        case .staffBehaviour: return "Staff behaviour"
+        case .driverBehaviour: return "Driver behaviour"
         }
     }
 }
@@ -1150,6 +1437,7 @@ private struct BookingDraft {
     var gstAmount = ""
     var gstApplicable = true
     var documentCharges = ""
+    var pattaCharges = ""
     var otherCharges = ""
     var otherChargesApplicable = true
     var advanceAmount = ""
@@ -1157,11 +1445,11 @@ private struct BookingDraft {
     var flexiPayment = true
     var allotmentDueAmount = ""
     var allotmentDueDate = ""
-    var secondPaymentMode = ""
+    var secondPaymentAmount = ""
     var secondPaymentDate = ""
-    var thirdPaymentMode = ""
+    var thirdPaymentAmount = ""
     var thirdPaymentDate = ""
-    var fourthPaymentMode = ""
+    var fourthPaymentAmount = ""
     var fourthPaymentDate = ""
     var preferredRegistrationDate = ""
 
@@ -1231,15 +1519,16 @@ private struct BookingDraft {
         section("Booking · Payment Details", [
             ("Registration Charges", registrationCharges), ("GST Amount", gstAmount),
             ("GST If Applicable", gstApplicable ? "Yes" : "No"),
-            ("Document Charges", documentCharges), ("Other Charges", otherCharges),
+            ("Document Charges", documentCharges), ("Patta Charges", pattaCharges),
+            ("Other Charges", otherCharges),
             ("Other Charges If Applicable", otherChargesApplicable ? "Yes" : "No"),
             ("Advance Amount", advanceAmount), ("Payment Mode", paymentMode),
             ("Flexi Payment", flexiPayment ? "Yes" : "No"),
             ("Allotment Due Amount", allotmentDueAmount),
             ("Allotment Due Date", allotmentDueDate),
-            ("2nd Payment Mode", secondPaymentMode), ("2nd Payment Date", secondPaymentDate),
-            ("3rd Payment Mode", thirdPaymentMode), ("3rd Payment Date", thirdPaymentDate),
-            ("4th Payment Mode", fourthPaymentMode), ("4th Payment Date", fourthPaymentDate),
+            ("2nd Payment Amount", secondPaymentAmount), ("2nd Payment Date", secondPaymentDate),
+            ("3rd Payment Amount", thirdPaymentAmount), ("3rd Payment Date", thirdPaymentDate),
+            ("4th Payment Amount", fourthPaymentAmount), ("4th Payment Date", fourthPaymentDate),
             ("Preferred Registration Date", preferredRegistrationDate)
         ])
         section("Booking · Staff Details", [
@@ -1254,6 +1543,37 @@ private struct BookingDraft {
         ])
 
         return sections.joined(separator: "\n\n").nilIfBlank
+    }
+
+    func createRequest(cpVisitId: String, leadId: String?, projects: [MarketingProject]) -> CreateBookingRequest {
+        let normalizedPhone = AppModuleFormatters.normalizePhone(phone)
+        let matchedProject = projects.first {
+            $0.name?.caseInsensitiveCompare(project) == .orderedSame
+                || $0.id.caseInsensitiveCompare(project) == .orderedSame
+        }
+        let bookingDateValue = bookingDate.nilIfBlank ?? AppModuleFormatters.ymd.string(from: Date())
+        let cost = Double(bookingCost.trimmingCharacters(in: .whitespacesAndNewlines))
+        let advance = Double(advanceAmount.trimmingCharacters(in: .whitespacesAndNewlines))
+
+        return CreateBookingRequest(
+            clientName: name.trimmingCharacters(in: .whitespacesAndNewlines),
+            mobileNumber: normalizedPhone,
+            bookingDate: bookingDateValue,
+            leadId: leadId,
+            projectId: matchedProject?.id,
+            plotId: nil,
+            plotNo: plot.nilIfBlank,
+            bookingType: bookingType.nilIfBlank,
+            bookingMode: bookingMode.nilIfBlank,
+            bookingCost: cost,
+            advanceAmount: advance,
+            balanceAmount: cost.flatMap { total in advance.map { total - $0 } },
+            email: email.nilIfBlank,
+            homeAddress: homeAddress.nilIfBlank,
+            cpVisitId: cpVisitId,
+            status: saveAs.rawValue,
+            notes: serializedNotes
+        )
     }
 }
 
@@ -1315,17 +1635,16 @@ private struct CpRejectReasonSheet: View {
                 } label: {
                     if isSaving {
                         ProgressView()
-                            .tint(.white)
-                            .frame(maxWidth: .infinity, minHeight: 52)
+                            .frame(maxWidth: .infinity)
                     } else {
                         Text("Submit Now")
                             .font(.system(size: 14, weight: .semibold))
-                            .frame(maxWidth: .infinity, minHeight: 52)
+                            .frame(maxWidth: .infinity)
                     }
                 }
-                .buttonStyle(.plain)
-                .foregroundStyle(.white)
-                .background(Color(hex: 0x1ECB09), in: RoundedRectangle(cornerRadius: 26))
+                .buttonStyle(.borderedProminent)
+                .controlSize(.large)
+                .tint(Color(hex: 0x2DAE12))
                 .disabled(isSaving)
             }
             .padding(.horizontal, 20)
@@ -1402,6 +1721,34 @@ private struct SegmentButton: View {
                     RoundedRectangle(cornerRadius: 12)
                         .stroke(isSelected ? .clear : Color(hex: 0xEAECF0), lineWidth: 1)
                 )
+        }
+        .buttonStyle(.plain)
+    }
+}
+
+private struct ReasonToggleRow: View {
+    let title: String
+    let isSelected: Bool
+    let action: () -> Void
+
+    var body: some View {
+        Button(action: action) {
+            HStack(spacing: 10) {
+                Image(systemName: isSelected ? "checkmark.circle.fill" : "circle")
+                    .font(.system(size: 18, weight: .semibold))
+                    .foregroundStyle(isSelected ? Color(hex: 0x1ECB09) : Color(hex: 0x98A2B3))
+                Text(title)
+                    .font(.system(size: 13, weight: .semibold))
+                    .foregroundStyle(Color(hex: 0x101828))
+                    .frame(maxWidth: .infinity, alignment: .leading)
+            }
+            .padding(.horizontal, 14)
+            .frame(minHeight: 46)
+            .background(isSelected ? Color(hex: 0xECFDF3) : Color(hex: 0xF8FAFC), in: RoundedRectangle(cornerRadius: 12))
+            .overlay(
+                RoundedRectangle(cornerRadius: 12)
+                    .stroke(isSelected ? Color(hex: 0x86EFAC) : Color(hex: 0xEAECF0), lineWidth: 1)
+            )
         }
         .buttonStyle(.plain)
     }

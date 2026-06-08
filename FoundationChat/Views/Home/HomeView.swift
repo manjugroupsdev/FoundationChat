@@ -1,3 +1,4 @@
+import Combine
 import CoreLocation
 import SwiftUI
 
@@ -9,17 +10,24 @@ struct HomeView: View {
 
     @State private var todayVisits: [GeoTrackTodayVisit] = []
     @State private var assignedPlaces: [GeoTrackAssignedPlace] = []
+    @State private var todayAttendance: ConvexTodayAttendance?
+    @State private var monthAttendanceRecords: [ConvexAttendanceRecord] = []
     @State private var hasOpenSession = false
     @State private var unreadCount = 0
     @State private var isLoading = true
     @State private var isVisitsLoading = false
     @State private var loadError: String?
     @State private var visitToOpen: GeoTrackTodayVisit?
+    @State private var showPunchIn = false
+    @State private var showPunchOut = false
+    @State private var showClockOutConfirm = false
+    @State private var selectedTripFilter: HomeTripFilter = .all
     @State private var appeared = false
     @State private var headerEntryStarted = false
     @State private var headerFloating = false
 
     private let geoAPI = GeoTrackAPIService.shared
+    private let timer = Timer.publish(every: 60, on: .main, in: .common).autoconnect()
 
     var body: some View {
         NavigationStack {
@@ -63,6 +71,26 @@ struct HomeView: View {
                     }
                 )
             }
+            .sheet(isPresented: $showPunchIn) {
+                PunchFlowView(mode: .punchIn) {
+                    Task { await reload() }
+                }
+            }
+            .sheet(isPresented: $showPunchOut) {
+                PunchFlowView(mode: .punchOut) {
+                    Task { await reload() }
+                }
+            }
+            .sheet(isPresented: $showClockOutConfirm) {
+                ClockOutConfirmSheet {
+                    showClockOutConfirm = false
+                    showPunchOut = true
+                } onCancel: {
+                    showClockOutConfirm = false
+                }
+                .presentationDetents([.height(280)])
+                .presentationDragIndicator(.hidden)
+            }
             .task {
                 await reload()
                 appeared = true
@@ -72,6 +100,10 @@ struct HomeView: View {
                 guard appeared else { return }
                 playHomeHeaderAnimation()
                 Task { await reload() }
+            }
+            .onReceive(timer) { _ in
+                guard todayAttendance?.isOpen == true || hasOpenSession else { return }
+                Task { await loadAttendanceSummary() }
             }
         }
     }
@@ -122,9 +154,8 @@ struct HomeView: View {
 
                 Spacer()
 
-                Button {
-                    // Android keeps this as a Home banner affordance; the
-                    // summary data is already integrated into Home refresh.
+                NavigationLink {
+                    ConvexAttendanceListView()
                 } label: {
                     Text("View My Summary")
                         .font(.system(size: 11, weight: .semibold))
@@ -287,8 +318,8 @@ struct HomeView: View {
                     .frame(width: 24, height: 24)
                     .accessibilityHidden(true)
 
-                if !visibleVisits.isEmpty {
-                    Text("\(visibleVisits.count)")
+                if !allTripVisits.isEmpty {
+                    Text("\(allTripVisits.count)")
                         .font(.system(size: 12, weight: .semibold))
                         .foregroundStyle(HomePalette.badgePurple)
                         .frame(width: 20, height: 20)
@@ -297,7 +328,11 @@ struct HomeView: View {
 
                 Spacer()
             }
-            .padding(.top, 28)
+            .padding(.top, 20)
+
+            if !allTripVisits.isEmpty {
+                tripFilterRow
+            }
 
             if isLoading {
                 skeletonList
@@ -333,6 +368,145 @@ struct HomeView: View {
         .padding(.bottom, 20)
         .frame(maxWidth: .infinity, alignment: .leading)
         .background(HomePalette.pageBackground)
+    }
+
+    private var tripFilterRow: some View {
+        ScrollView(.horizontal, showsIndicators: false) {
+            HStack(spacing: 8) {
+                ForEach(HomeTripFilter.allCases) { filter in
+                    Button {
+                        selectedTripFilter = filter
+                    } label: {
+                        Text(filter.title)
+                            .font(.system(size: 12, weight: selectedTripFilter == filter ? .semibold : .medium))
+                            .foregroundStyle(selectedTripFilter == filter ? .white : Color(hex: 0x475467))
+                            .padding(.horizontal, 16)
+                            .padding(.vertical, 8)
+                            .background(selectedTripFilter == filter ? HomePalette.headerBlue : Color.white, in: Capsule())
+                            .overlay(
+                                Capsule()
+                                    .stroke(Color(hex: 0xE5E7EB), lineWidth: selectedTripFilter == filter ? 0 : 1)
+                            )
+                    }
+                    .buttonStyle(.plain)
+                }
+            }
+            .padding(.vertical, 2)
+        }
+    }
+
+    private var homeDashboard: some View {
+        VStack(spacing: 10) {
+            todayAttendanceCard
+            monthlyStatsCard
+        }
+    }
+
+    private var todayAttendanceCard: some View {
+        VStack(alignment: .leading, spacing: 12) {
+            HStack {
+                Label("Today Attendance", systemImage: "clock.badge.checkmark")
+                    .font(.system(size: 14, weight: .semibold))
+                    .foregroundStyle(HomePalette.textPrimary)
+
+                Spacer()
+
+                Text(attendanceStatusLabel)
+                    .font(.system(size: 11, weight: .semibold))
+                    .foregroundStyle(attendanceStatusColor)
+                    .padding(.horizontal, 10)
+                    .frame(height: 24)
+                    .background(attendanceStatusColor.opacity(0.12), in: Capsule())
+            }
+
+            HStack(spacing: 8) {
+                dashboardMetric(title: "In", value: formatAttendanceTime(todayPunchInRaw) ?? "--")
+                dashboardMetric(title: "Out", value: formatAttendanceTime(todayPunchOutRaw) ?? (hasOpenSession ? "Active" : "--"))
+                dashboardMetric(title: "Hours", value: todayHoursText)
+            }
+
+            homeAttendanceActions
+        }
+        .padding(14)
+        .background(dashboardCardBackground)
+    }
+
+    @ViewBuilder
+    private var homeAttendanceActions: some View {
+        if todayPunchInRaw != nil {
+            Button {
+                showClockOutConfirm = true
+            } label: {
+                Label("Clock Out", systemImage: "arrow.up.forward.circle.fill")
+                    .font(.system(size: 13, weight: .semibold))
+                    .foregroundStyle(.white)
+                    .frame(maxWidth: .infinity)
+                    .frame(height: 42)
+                    .background(Color(red: 0.09, green: 0.61, blue: 0.18), in: Capsule())
+            }
+            .buttonStyle(.plain)
+        } else {
+            Button {
+                showPunchIn = true
+            } label: {
+                Label("Clock In", systemImage: "clock.badge.checkmark.fill")
+                    .font(.system(size: 13, weight: .semibold))
+                    .foregroundStyle(.white)
+                    .frame(maxWidth: .infinity)
+                    .frame(height: 42)
+                    .background(HomePalette.headerBlue, in: Capsule())
+            }
+            .buttonStyle(.plain)
+        }
+    }
+
+    private var monthlyStatsCard: some View {
+        VStack(alignment: .leading, spacing: 12) {
+            HStack {
+                Label("Monthly Stats", systemImage: "chart.bar.xaxis")
+                    .font(.system(size: 14, weight: .semibold))
+                    .foregroundStyle(HomePalette.textPrimary)
+
+                Spacer()
+
+                Text(monthLabel)
+                    .font(.system(size: 11, weight: .medium))
+                    .foregroundStyle(HomePalette.textSecondary)
+            }
+
+            HStack(spacing: 8) {
+                dashboardMetric(title: "Days", value: "\(workedDays)")
+                dashboardMetric(title: "Total", value: monthHoursText)
+                dashboardMetric(title: "Present", value: "\(presentDays)")
+            }
+        }
+        .padding(14)
+        .background(dashboardCardBackground)
+    }
+
+    private func dashboardMetric(title: String, value: String) -> some View {
+        VStack(alignment: .leading, spacing: 5) {
+            Text(title)
+                .font(.system(size: 11, weight: .medium))
+                .foregroundStyle(HomePalette.textSecondary)
+                .lineLimit(1)
+
+            Text(value)
+                .font(.system(size: 15, weight: .semibold).monospacedDigit())
+                .foregroundStyle(HomePalette.textPrimary)
+                .lineLimit(1)
+                .minimumScaleFactor(0.62)
+        }
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .frame(height: 58)
+        .padding(.horizontal, 10)
+        .background(Color(red: 0.976, green: 0.98, blue: 0.986), in: RoundedRectangle(cornerRadius: 8, style: .continuous))
+    }
+
+    private var dashboardCardBackground: some View {
+        RoundedRectangle(cornerRadius: 12, style: .continuous)
+            .fill(.white)
+            .shadow(color: .black.opacity(0.03), radius: 1, x: 0, y: 1)
     }
 
     private var emptyTripCard: some View {
@@ -408,8 +582,12 @@ struct HomeView: View {
 
     // MARK: - Data Mapping
 
-    private var visibleVisits: [GeoTrackTodayVisit] {
+    private var allTripVisits: [GeoTrackTodayVisit] {
         todayVisits.filter { !["cancelled", "canceled"].contains($0.status.lowercased()) }
+    }
+
+    private var visibleVisits: [GeoTrackTodayVisit] {
+        allTripVisits.filter { selectedTripFilter.matches($0, state: tripState(for: $0)) }
     }
 
     private func tripState(for visit: GeoTrackTodayVisit) -> HomeTripState {
@@ -431,7 +609,7 @@ struct HomeView: View {
 
     private func canOpen(_ visit: GeoTrackTodayVisit) -> Bool {
         let state = tripState(for: visit)
-        return state != .complete && state != .clockInFirst
+        return state != .clockInFirst
     }
 
     private func etaText(for visit: GeoTrackTodayVisit) -> String {
@@ -461,6 +639,7 @@ struct HomeView: View {
             group.addTask { await self.loadTodayVisits() }
             group.addTask { await self.loadAssignedPlaces() }
             group.addTask { await self.loadAttendanceGate() }
+            group.addTask { await self.loadAttendanceSummary() }
             group.addTask { await self.loadUnread() }
         }
     }
@@ -502,7 +681,36 @@ struct HomeView: View {
             hasOpenSession = false
             return
         }
-        hasOpenSession = await AttendanceTrackingGate.isClockedInForToday(token: token)
+        hasOpenSession = await AttendanceTrackingGate.hasOpenSessionForToday(token: token)
+    }
+
+    @MainActor
+    private func loadAttendanceSummary() async {
+        guard let token = authStore.currentSession?.token else {
+            todayAttendance = nil
+            monthAttendanceRecords = []
+            return
+        }
+
+        let formatter = DateFormatter()
+        formatter.dateFormat = "yyyy-MM-dd"
+        let now = Date()
+        let calendar = Calendar.current
+        let monthStart = calendar.date(from: calendar.dateComponents([.year, .month], from: now)) ?? now
+
+        do {
+            async let today = HRConvexAPIService.getTodayAttendance(token: token)
+            async let month = HRConvexAPIService.getMyAttendance(
+                token: token,
+                fromDate: formatter.string(from: monthStart),
+                toDate: formatter.string(from: now)
+            )
+            todayAttendance = try await today
+            monthAttendanceRecords = try await month
+        } catch {
+            todayAttendance = nil
+            monthAttendanceRecords = []
+        }
     }
 
     @MainActor
@@ -572,6 +780,108 @@ struct HomeView: View {
         let formatter = DateFormatter()
         formatter.dateFormat = "hh:mm a"
         return formatter
+    }
+
+    private var userSubtitle: String {
+        let user = authStore.currentSession?.user
+        return [user?.designation?.nilIfBlank, user?.department?.nilIfBlank, user?.role?.nilIfBlank]
+            .compactMap { $0 }
+            .joined(separator: " · ")
+            .nilIfBlank ?? "Ready for today's work"
+    }
+
+    private var todayPunchInRaw: String? {
+        todayRecord?.firstPunchIn ?? todayRecord?.sessions?.first?.punchInTime ?? todayAttendance?.firstPunchIn ?? todayAttendance?.punchInTime
+    }
+
+    private var todayPunchOutRaw: String? {
+        todayRecord?.lastPunchOut ?? todayRecord?.sessions?.last?.punchOutTime ?? todayAttendance?.lastPunchOut ?? todayAttendance?.punchOutTime
+    }
+
+    private var todayRecord: ConvexAttendanceRecord? {
+        monthAttendanceRecords.first { $0.date == todayDateKey }
+    }
+
+    private var todayDateKey: String {
+        let formatter = DateFormatter()
+        formatter.dateFormat = "yyyy-MM-dd"
+        return formatter.string(from: Date())
+    }
+
+    private var attendanceStatusLabel: String {
+        if hasOpenSession || todayAttendance?.isOpen == true { return "Clocked In" }
+        if todayPunchInRaw != nil { return "Completed" }
+        return "Not Started"
+    }
+
+    private var attendanceStatusColor: Color {
+        if hasOpenSession || todayAttendance?.isOpen == true { return Color(red: 0.09, green: 0.61, blue: 0.18) }
+        if todayPunchInRaw != nil { return HomePalette.headerBlue }
+        return HomePalette.textSecondary
+    }
+
+    private var todayHoursText: String {
+        if hasOpenSession || todayAttendance?.isOpen == true,
+           let punchIn = parseAttendanceDate(todayPunchInRaw) {
+            return formatShortHours(minutes: max(0, Int(Date().timeIntervalSince(punchIn) / 60)))
+        }
+        let minutes = todayRecord?.totalMinutes
+            ?? todayRecord?.cumulativeMinutes
+            ?? todayAttendance?.cumulativeMinutes
+            ?? todayAttendance?.totalMinutes
+            ?? 0
+        return minutes > 0 ? formatShortHours(minutes: minutes) : "--"
+    }
+
+    private var workedDays: Int {
+        monthAttendanceRecords.filter {
+            ($0.totalMinutes ?? $0.cumulativeMinutes ?? 0) > 0 || $0.firstPunchIn != nil || $0.sessions?.isEmpty == false
+        }.count
+    }
+
+    private var presentDays: Int {
+        monthAttendanceRecords.filter { record in
+            let status = (record.approvedAttendance ?? record.status ?? "").lowercased()
+            return status == "present"
+                || status == "approved"
+                || status == "auto-approved"
+                || status == "p"
+                || (record.attendanceValue ?? 0) > 0
+        }.count
+    }
+
+    private var monthHoursText: String {
+        let minutes = monthAttendanceRecords.reduce(0) { $0 + ($1.totalMinutes ?? $1.cumulativeMinutes ?? 0) }
+        return minutes > 0 ? formatShortHours(minutes: minutes) : "--"
+    }
+
+    private var monthLabel: String {
+        let formatter = DateFormatter()
+        formatter.dateFormat = "MMM yyyy"
+        return formatter.string(from: Date())
+    }
+
+    private func formatShortHours(minutes: Int) -> String {
+        let hours = minutes / 60
+        let remaining = minutes % 60
+        return String(format: "%dh %02dm", hours, remaining)
+    }
+
+    private func formatAttendanceTime(_ raw: String?) -> String? {
+        guard let raw, let date = parseAttendanceDate(raw) else { return nil }
+        let formatter = DateFormatter()
+        formatter.dateFormat = "h:mm a"
+        return formatter.string(from: date)
+    }
+
+    private func parseAttendanceDate(_ raw: String?) -> Date? {
+        guard let raw, !raw.isEmpty else { return nil }
+        let iso = ISO8601DateFormatter()
+        iso.formatOptions = [.withInternetDateTime, .withFractionalSeconds]
+        if let date = iso.date(from: raw) { return date }
+        iso.formatOptions = [.withInternetDateTime]
+        if let date = iso.date(from: raw) { return date }
+        return nil
     }
 
 }
@@ -865,6 +1175,33 @@ private enum HomeStar: CaseIterable, Identifiable {
         switch self {
         case .largeLower, .mediumTop: return 0.95
         default: return 0.82
+        }
+    }
+}
+
+private enum HomeTripFilter: String, CaseIterable, Identifiable {
+    case all
+    case upcoming
+    case completed
+
+    var id: String { rawValue }
+
+    var title: String {
+        switch self {
+        case .all: return "All"
+        case .upcoming: return "Upcoming"
+        case .completed: return "Completed"
+        }
+    }
+
+    func matches(_ visit: GeoTrackTodayVisit, state: HomeTripState) -> Bool {
+        switch self {
+        case .all:
+            return true
+        case .upcoming:
+            return state != .complete
+        case .completed:
+            return state == .complete || ["completed", "complete", "done", "closed"].contains(visit.status.lowercased())
         }
     }
 }

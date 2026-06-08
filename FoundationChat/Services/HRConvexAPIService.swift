@@ -43,12 +43,14 @@ enum HRConvexAPIService {
 
     static func applyLeave(
         token: String, leaveType: String, fromDate: String, toDate: String,
-        reason: String, reportingToId: String? = nil, reportingToName: String? = nil
+        reason: String, duration: String? = nil,
+        reportingToId: String? = nil, reportingToName: String? = nil
     ) async throws -> String {
         var body: [String: Any] = [
             "leaveType": leaveType, "fromDate": fromDate,
             "toDate": toDate, "reason": reason
         ]
+        if let duration { body["duration"] = duration }
         if let reportingToId { body["reportingToId"] = reportingToId }
         if let reportingToName { body["reportingToName"] = reportingToName }
         let data = try await post(path: "/api/hr/leaves/apply", token: token, jsonBody: body)
@@ -265,6 +267,13 @@ enum HRConvexAPIService {
         let data = try await post(path: "/api/hr/attendance/reject", token: token, jsonBody: body)
         let wrapper = try decode(GenericSuccessResponse.self, from: data)
         guard wrapper.success else { throw HRConvexAPIError.server(wrapper.error ?? "Failed to reject") }
+    }
+
+    static func cancelMyAttendance(token: String, date: String) async throws {
+        let body: [String: Any] = ["date": date]
+        let data = try await post(path: "/api/hr/attendance/cancel", token: token, jsonBody: body)
+        let wrapper = try decode(GenericSuccessResponse.self, from: data)
+        guard wrapper.success else { throw HRConvexAPIError.server(wrapper.error ?? "Failed to withdraw attendance") }
     }
 
     // MARK: - Marketing / Site Visits
@@ -564,6 +573,7 @@ enum HRConvexAPIService {
     private static func checkHTTPError(data: Data, response: URLResponse) throws {
         guard let http = response as? HTTPURLResponse else { return }
         if http.statusCode == 401 {
+            SessionInvalidationBus.emit()
             if let json = try? JSONSerialization.jsonObject(with: data) as? [String: Any],
                let error = json["error"] as? String {
                 throw HRConvexAPIError.unauthorized(error)

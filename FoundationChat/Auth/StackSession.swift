@@ -16,6 +16,7 @@ struct AuthUser: Codable, Sendable, Equatable {
   let department: String?
   let status: String?
   let photo: String?
+  let mustChangePassword: Bool?
 
   init(
     _id: String,
@@ -31,7 +32,8 @@ struct AuthUser: Codable, Sendable, Equatable {
     designation: String? = nil,
     department: String? = nil,
     status: String? = nil,
-    photo: String? = nil
+    photo: String? = nil,
+    mustChangePassword: Bool? = nil
   ) {
     self._id = _id
     self.staffId = staffId
@@ -47,6 +49,7 @@ struct AuthUser: Codable, Sendable, Equatable {
     self.department = department
     self.status = status
     self.photo = photo
+    self.mustChangePassword = mustChangePassword
   }
 }
 
@@ -54,4 +57,24 @@ struct AuthUser: Codable, Sendable, Equatable {
 struct OtpSession: Codable, Sendable, Equatable {
   let token: String
   let user: AuthUser
+  let mustChangePassword: Bool
+
+  init(token: String, user: AuthUser, mustChangePassword: Bool = false) {
+    self.token = token
+    self.user = user
+    self.mustChangePassword = mustChangePassword
+  }
+
+  private enum CodingKeys: String, CodingKey {
+    case token
+    case user
+    case mustChangePassword
+  }
+
+  init(from decoder: Decoder) throws {
+    let container = try decoder.container(keyedBy: CodingKeys.self)
+    token = try container.decode(String.self, forKey: .token)
+    user = try container.decode(AuthUser.self, forKey: .user)
+    mustChangePassword = try container.decodeIfPresent(Bool.self, forKey: .mustChangePassword) ?? false
+  }
 }

@@ -6,10 +6,23 @@ struct ProfileView: View {
   @AppStorage("notifications_enabled") private var notificationsEnabled = true
   @AppStorage("notification_sounds_enabled") private var notificationSoundsEnabled = true
   @AppStorage("mention_notifications_enabled") private var mentionNotificationsEnabled = true
+  @AppStorage("app.language") private var languagePreference = ProfileLanguage.english.rawValue
+  @AppStorage("app.appearance") private var appearancePreference = ProfileAppearance.system.rawValue
 
   @State private var remotePhotoURL: URL?
   @State private var isPresentingEdit = false
+  @State private var isPresentingLanguage = false
+  @State private var isPresentingAppearance = false
+  @State private var isConfirmingLogout = false
   @State private var hasLoadedStaffProfile = false
+
+  private var selectedLanguage: ProfileLanguage {
+    ProfileLanguage(rawValue: languagePreference) ?? .english
+  }
+
+  private var selectedAppearance: ProfileAppearance {
+    ProfileAppearance(rawValue: appearancePreference) ?? .system
+  }
 
   var body: some View {
     List {
@@ -53,11 +66,33 @@ struct ProfileView: View {
           .disabled(!notificationsEnabled)
       }
 
+      Section("Preferences") {
+        Button {
+          isPresentingLanguage = true
+        } label: {
+          SettingsDisclosureRow(
+            title: "Language",
+            value: selectedLanguage.title,
+            systemImage: "globe"
+          )
+        }
+        .buttonStyle(.plain)
+
+        Button {
+          isPresentingAppearance = true
+        } label: {
+          SettingsDisclosureRow(
+            title: "Appearance",
+            value: selectedAppearance.title,
+            systemImage: selectedAppearance.systemImage
+          )
+        }
+        .buttonStyle(.plain)
+      }
+
       Section {
         Button(role: .destructive) {
-          Task {
-            await authStore.logout()
-          }
+          isConfirmingLogout = true
         } label: {
           Text("Log Out")
             .frame(maxWidth: .infinity, alignment: .center)
@@ -91,6 +126,30 @@ struct ProfileView: View {
         })
       }
     }
+    .sheet(isPresented: $isPresentingLanguage) {
+      NavigationStack {
+        LanguageSettingsView(selection: $languagePreference)
+      }
+    }
+    .sheet(isPresented: $isPresentingAppearance) {
+      NavigationStack {
+        AppearanceSettingsView(selection: $appearancePreference)
+      }
+    }
+    .confirmationDialog(
+      "Log out of FoundationChat?",
+      isPresented: $isConfirmingLogout,
+      titleVisibility: .visible
+    ) {
+      Button("Log Out", role: .destructive) {
+        Task {
+          await authStore.logout()
+        }
+      }
+      Button("Cancel", role: .cancel) {}
+    } message: {
+      Text("Your local session will be cleared and you will return to Login.")
+    }
   }
 
   private func loadRemoteAvatar() async {
@@ -105,6 +164,199 @@ struct ProfileView: View {
     hasLoadedStaffProfile = true
     _ = try? await authStore.refreshMyStaffProfile()
     await loadRemoteAvatar()
+  }
+}
+
+enum ProfileLanguage: String, CaseIterable, Identifiable {
+  case english = "en"
+  case tamil = "ta"
+  case hindi = "hi"
+
+  var id: String { rawValue }
+
+  var title: String {
+    switch self {
+    case .english: return "English"
+    case .tamil: return "Tamil"
+    case .hindi: return "Hindi"
+    }
+  }
+
+  var subtitle: String {
+    switch self {
+    case .english: return "Default app language"
+    case .tamil: return "தமிழ்"
+    case .hindi: return "हिन्दी"
+    }
+  }
+}
+
+enum ProfileAppearance: String, CaseIterable, Identifiable {
+  case system
+  case light
+  case dark
+
+  var id: String { rawValue }
+
+  var title: String {
+    switch self {
+    case .system: return "System"
+    case .light: return "Light"
+    case .dark: return "Dark"
+    }
+  }
+
+  var subtitle: String {
+    switch self {
+    case .system: return "Follow device setting"
+    case .light: return "Use light mode"
+    case .dark: return "Use dark mode"
+    }
+  }
+
+  var systemImage: String {
+    switch self {
+    case .system: return "circle.lefthalf.filled"
+    case .light: return "sun.max"
+    case .dark: return "moon"
+    }
+  }
+
+  var colorScheme: ColorScheme? {
+    switch self {
+    case .system: return nil
+    case .light: return .light
+    case .dark: return .dark
+    }
+  }
+}
+
+private struct SettingsDisclosureRow: View {
+  let title: String
+  let value: String
+  let systemImage: String
+
+  var body: some View {
+    HStack(spacing: 12) {
+      Image(systemName: systemImage)
+        .font(.body.weight(.semibold))
+        .foregroundStyle(.blue)
+        .frame(width: 26)
+
+      Text(title)
+        .foregroundStyle(.primary)
+
+      Spacer()
+
+      Text(value)
+        .font(.subheadline)
+        .foregroundStyle(.secondary)
+
+      Image(systemName: "chevron.right")
+        .font(.caption.weight(.semibold))
+        .foregroundStyle(.tertiary)
+    }
+    .contentShape(Rectangle())
+  }
+}
+
+private struct LanguageSettingsView: View {
+  @Environment(\.dismiss) private var dismiss
+  @Binding var selection: String
+
+  var body: some View {
+    List {
+      Section {
+        ForEach(ProfileLanguage.allCases) { language in
+          Button {
+            selection = language.rawValue
+            dismiss()
+          } label: {
+            PreferenceOptionRow(
+              title: language.title,
+              subtitle: language.subtitle,
+              systemImage: "globe",
+              isSelected: selection == language.rawValue
+            )
+          }
+          .buttonStyle(.plain)
+        }
+      } footer: {
+        Text("The selected language is saved for the app session and future localized screens.")
+      }
+    }
+    .navigationTitle("Language")
+    .navigationBarTitleDisplayMode(.inline)
+    .toolbar {
+      ToolbarItem(placement: .cancellationAction) {
+        Button("Close") { dismiss() }
+      }
+    }
+  }
+}
+
+private struct AppearanceSettingsView: View {
+  @Environment(\.dismiss) private var dismiss
+  @Binding var selection: String
+
+  var body: some View {
+    List {
+      Section {
+        ForEach(ProfileAppearance.allCases) { appearance in
+          Button {
+            selection = appearance.rawValue
+            dismiss()
+          } label: {
+            PreferenceOptionRow(
+              title: appearance.title,
+              subtitle: appearance.subtitle,
+              systemImage: appearance.systemImage,
+              isSelected: selection == appearance.rawValue
+            )
+          }
+          .buttonStyle(.plain)
+        }
+      }
+    }
+    .navigationTitle("Appearance")
+    .navigationBarTitleDisplayMode(.inline)
+    .toolbar {
+      ToolbarItem(placement: .cancellationAction) {
+        Button("Close") { dismiss() }
+      }
+    }
+  }
+}
+
+private struct PreferenceOptionRow: View {
+  let title: String
+  let subtitle: String
+  let systemImage: String
+  let isSelected: Bool
+
+  var body: some View {
+    HStack(spacing: 12) {
+      Image(systemName: systemImage)
+        .font(.body.weight(.semibold))
+        .foregroundStyle(.blue)
+        .frame(width: 28)
+
+      VStack(alignment: .leading, spacing: 3) {
+        Text(title)
+          .foregroundStyle(.primary)
+        Text(subtitle)
+          .font(.caption)
+          .foregroundStyle(.secondary)
+      }
+
+      Spacer()
+
+      if isSelected {
+        Image(systemName: "checkmark.circle.fill")
+          .foregroundStyle(.blue)
+      }
+    }
+    .contentShape(Rectangle())
   }
 }
 

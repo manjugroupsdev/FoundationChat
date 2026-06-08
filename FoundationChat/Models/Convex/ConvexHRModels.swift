@@ -209,8 +209,13 @@ struct ConvexDaySession: Decodable, Identifiable, Equatable, Sendable {
     let durationMinutes: Int?
     let punchInLatitude: Double?
     let punchInLongitude: Double?
+    let punchInAddress: String?
+    let punchInPhoto: String?
     let punchOutLatitude: Double?
     let punchOutLongitude: Double?
+    let punchOutAddress: String?
+    let punchOutPhoto: String?
+    let source: String?
 
     var id: String { _id ?? UUID().uuidString }
 }

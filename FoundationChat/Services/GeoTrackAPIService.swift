@@ -117,6 +117,9 @@ final class GeoTrackAPIService {
         guard let http = response as? HTTPURLResponse else {
             throw GeoTrackAPIError.badStatus(0)
         }
+        if http.statusCode == 401 {
+            SessionInvalidationBus.emit()
+        }
         guard (200..<300).contains(http.statusCode) else {
             throw GeoTrackAPIError.badStatus(http.statusCode)
         }
@@ -394,6 +397,38 @@ final class GeoTrackAPIService {
         let request = try makeRequest(path: "/api/geotrack/visit/start", method: "POST", body: body)
         let result: GeoTrackBaseResponse = try await perform(request)
         if let err = result.error { throw GeoTrackAPIError.serverError(err) }
+    }
+
+    /// POST /api/mms-fleet/driver/arrive
+    func markMmsFleetDriverArrived(siteVisitId: String) async throws {
+        let body = MmsFleetDriverSiteVisitRequest(siteVisitId: siteVisitId)
+        let request = try makeRequest(path: "/api/mms-fleet/driver/arrive", method: "POST", body: body)
+        let result: MmsFleetDriverActionResponse = try await perform(request)
+        if !result.success, let err = result.error { throw GeoTrackAPIError.serverError(err) }
+    }
+
+    /// POST /api/mms-fleet/driver/start
+    func startMmsFleetDriverTrip(siteVisitId: String, photoIds: [String], startKm: Double) async throws {
+        let body = MmsFleetDriverStartRequest(siteVisitId: siteVisitId, photoIds: photoIds, startKm: startKm)
+        let request = try makeRequest(path: "/api/mms-fleet/driver/start", method: "POST", body: body)
+        let result: MmsFleetDriverActionResponse = try await perform(request)
+        if !result.success, let err = result.error { throw GeoTrackAPIError.serverError(err) }
+    }
+
+    /// POST /api/mms-fleet/driver/on-site
+    func markMmsFleetDriverOnSite(siteVisitId: String) async throws {
+        let body = MmsFleetDriverSiteVisitRequest(siteVisitId: siteVisitId)
+        let request = try makeRequest(path: "/api/mms-fleet/driver/on-site", method: "POST", body: body)
+        let result: MmsFleetDriverActionResponse = try await perform(request)
+        if !result.success, let err = result.error { throw GeoTrackAPIError.serverError(err) }
+    }
+
+    /// POST /api/mms-fleet/driver/end
+    func endMmsFleetDriverTrip(siteVisitId: String, photoIds: [String], endKm: Double) async throws {
+        let body = MmsFleetDriverEndRequest(siteVisitId: siteVisitId, photoIds: photoIds, endKm: endKm)
+        let request = try makeRequest(path: "/api/mms-fleet/driver/end", method: "POST", body: body)
+        let result: MmsFleetDriverActionResponse = try await perform(request)
+        if !result.success, let err = result.error { throw GeoTrackAPIError.serverError(err) }
     }
 
     /// POST /api/geotrack/visit/complete

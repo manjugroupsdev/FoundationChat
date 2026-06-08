@@ -1,5 +1,6 @@
 import CoreLocation
 import SwiftUI
+import UIKit
 
 struct CpVisitsView: View {
     @Environment(AuthStore.self) private var authStore
@@ -10,7 +11,7 @@ struct CpVisitsView: View {
     @State private var errorMessage: String?
     @State private var showCreateSheet = false
     @State private var searchText = ""
-    @State private var selectedFilter: CpVisitFilter = .pending
+    @State private var selectedFilter: CpVisitFilter = .all
     @State private var isClockedIn = false
 
     private var filteredVisits: [ConvexSiteVisit] {
@@ -22,6 +23,8 @@ struct CpVisitsView: View {
 
     var body: some View {
         ScrollView {
+            topBar
+            searchBar
             filterPills
 
             if isLoading && visits.isEmpty {
@@ -72,21 +75,9 @@ struct CpVisitsView: View {
         }
         .refreshable { await load() }
         .background(Color(hex: 0xF1F3F8).ignoresSafeArea())
-        .navigationTitle("CP Visits")
+        .navigationTitle("")
         .navigationBarTitleDisplayMode(.inline)
-        .searchable(
-            text: $searchText,
-            placement: .navigationBarDrawer(displayMode: .always),
-            prompt: "Search Client Places"
-        )
-        .toolbar {
-            ToolbarItem(placement: .topBarTrailing) {
-                Button { showCreateSheet = true } label: {
-                    Image(systemName: "plus")
-                        .font(.system(size: 17, weight: .semibold))
-                }
-            }
-        }
+        .toolbar(.hidden, for: .navigationBar)
         .task { if !hasLoaded { await load() } }
         .sheet(isPresented: $showCreateSheet) {
             NavigationStack {
@@ -108,20 +99,19 @@ struct CpVisitsView: View {
                 Button { dismiss() } label: {
                     Image(systemName: "chevron.left")
                         .font(.system(size: 18, weight: .semibold))
-                        .foregroundStyle(Color(hex: 0x0B61CA))
-                        .frame(width: 40, height: 40)
+                        .frame(width: 36, height: 36)
                 }
-                .buttonStyle(.plain)
+                .buttonStyle(.bordered)
 
                 Spacer()
 
                 Button { showCreateSheet = true } label: {
                     Image(systemName: "plus")
                         .font(.system(size: 20, weight: .semibold))
-                        .foregroundStyle(Color(hex: 0x0B61CA))
-                        .frame(width: 40, height: 40)
+                        .frame(width: 36, height: 36)
                 }
-                .buttonStyle(.plain)
+                .buttonStyle(.borderedProminent)
+                .tint(Color(hex: 0x0B61CA))
             }
             .padding(.horizontal, 8)
         }
@@ -197,7 +187,7 @@ struct CpVisitsView: View {
         if errorMessage != nil { return "Couldn't Load" }
         if !searchText.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty { return "No Matches Found" }
         switch selectedFilter {
-        case .pending: return "No Pending CP Visits"
+        case .scheduled: return "No Scheduled CP Visits"
         case .postponed: return "Nothing Postponed"
         case .inProgress: return "No Visits In Progress"
         case .completed: return "No Completed Visits"
@@ -212,8 +202,8 @@ struct CpVisitsView: View {
             return "Try a different search term or switch filters to see other client place visits."
         }
         switch selectedFilter {
-        case .pending:
-            return "Pending client-place visits assigned to you will appear here."
+        case .scheduled:
+            return "Scheduled client-place visits assigned to you will appear here."
         case .postponed:
             return "Postponed CP visits will appear here when a follow-up is needed."
         case .inProgress:
@@ -270,7 +260,7 @@ struct CpVisitsView: View {
     }
 
     private func loadClockInState(token: String) async -> Bool {
-        await AttendanceTrackingGate.isClockedInForToday(token: token)
+        await AttendanceTrackingGate.hasOpenSessionForToday(token: token)
     }
 
     private func coordinate(for visit: ConvexSiteVisit) -> CLLocationCoordinate2D? {
@@ -556,7 +546,7 @@ private struct CpVisitCard: View {
 
 private enum CpVisitFilter: String, CaseIterable, Identifiable {
     case all
-    case pending
+    case scheduled
     case postponed
     case inProgress
     case completed
@@ -567,7 +557,7 @@ private enum CpVisitFilter: String, CaseIterable, Identifiable {
     var title: String {
         switch self {
         case .all: return "All"
-        case .pending: return "Pending"
+        case .scheduled: return "Scheduled"
         case .postponed: return "Postponed"
         case .inProgress: return "In progress"
         case .completed: return "Completed"
@@ -580,7 +570,7 @@ private enum CpVisitFilter: String, CaseIterable, Identifiable {
         switch self {
         case .all:
             return true
-        case .pending:
+        case .scheduled:
             return !status.isCompleted && !status.isCancelled && !status.isInProgress && !visit.isPostponedCpVisit
         case .postponed:
             return visit.isPostponedCpVisit && !status.isCancelled && !status.isCompleted
@@ -1124,48 +1114,157 @@ private struct CreateCpVisitSheet: View {
     @State private var clientName = ""
     @State private var phone = ""
     @State private var date = Date()
-    @State private var time = ""
-    @State private var address = ""
+    @State private var doorNo = ""
+    @State private var pincode = ""
+    @State private var village = ""
+    @State private var taluk = ""
+    @State private var district = ""
+    @State private var city = ""
+    @State private var locality = ""
+    @State private var state = ""
+    @State private var fullAddress = ""
     @State private var mapsLink = ""
+    @State private var latitude = ""
+    @State private var longitude = ""
     @State private var notes = ""
+    @State private var projects: [MarketingProject] = []
+    @State private var selectedProject: MarketingProject?
+    @State private var staff: [ConvexStaffListItem] = []
+    @State private var selectedStaff: ConvexStaffListItem?
+    @State private var leadMatches: [TelecallerLeadSearchData] = []
+    @State private var selectedLead: TelecallerLeadSearchData?
+    @State private var isLoadingProjects = false
+    @State private var isLoadingStaff = false
+    @State private var isSearchingLead = false
     @State private var isSubmitting = false
     @State private var errorMessage: String?
 
     var body: some View {
-        Form {
-            Section("Client") {
-                TextField("Client name", text: $clientName)
-                    .textContentType(.name)
-                TextField("10 digit phone", text: $phone)
-                    .keyboardType(.phonePad)
-                    .textContentType(.telephoneNumber)
-            }
+        ScrollView {
+            VStack(alignment: .leading, spacing: 18) {
+                VStack(alignment: .leading, spacing: 4) {
+                    Text("CP Creation")
+                        .font(.system(size: 22, weight: .bold))
+                        .foregroundStyle(Color(hex: 0x101828))
+                    Text("Information about CP")
+                        .font(.system(size: 13))
+                        .foregroundStyle(Color(hex: 0x667085))
+                }
+                .padding(.top, 4)
 
-            Section("Visit") {
-                DatePicker("Date", selection: $date, displayedComponents: .date)
-                TextField("Time (optional)", text: $time)
-                TextField("Address", text: $address, axis: .vertical)
-                    .lineLimit(2...4)
-                TextField("Google Maps link", text: $mapsLink)
-                    .keyboardType(.URL)
-                    .textInputAutocapitalization(.never)
-                TextField("Notes", text: $notes, axis: .vertical)
-                    .lineLimit(2...4)
+                formSection {
+                    cpTextField("Client Phone Number *", placeholder: "Enter Phone Number", text: $phone, systemImage: "phone", keyboard: .phonePad)
+                        .onChange(of: phone) { _, _ in
+                            selectedLead = nil
+                            leadMatches = []
+                        }
+                    cpTextField("Client Name", placeholder: "Enter Client Name", text: $clientName, systemImage: "person")
+                    Button {
+                        Task { await searchLead() }
+                    } label: {
+                        if isSearchingLead {
+                            ProgressView()
+                        } else {
+                            Label("Search existing client", systemImage: "magnifyingglass")
+                        }
+                    }
+                    .buttonStyle(.bordered)
+                    .disabled(isSearchingLead || AppModuleFormatters.normalizePhone(phone).count != 10)
+
+                    if let selectedLead {
+                        selectedInfo(title: "Selected client", value: selectedLead.displayName)
+                    }
+
+                    ForEach(leadMatches) { lead in
+                        Button {
+                            applyLead(lead)
+                        } label: {
+                            VStack(alignment: .leading, spacing: 4) {
+                                Text(lead.displayName)
+                                    .font(.system(size: 14, weight: .semibold))
+                                Text(lead.mobileNumber ?? "No mobile")
+                                    .font(.system(size: 12))
+                                    .foregroundStyle(Color(hex: 0x667085))
+                                if let area = lead.suggestedVisitAddress?.blankToNil ?? lead.locationPreferred?.blankToNil {
+                                    Text(area)
+                                        .font(.system(size: 12))
+                                        .foregroundStyle(Color(hex: 0x667085))
+                                }
+                            }
+                            .frame(maxWidth: .infinity, alignment: .leading)
+                        }
+                        .buttonStyle(.bordered)
+                    }
+                }
+
+                formSection {
+                    staffPicker
+                    projectPicker
+                    DatePicker("Date & Time", selection: $date, displayedComponents: [.date, .hourAndMinute])
+                        .font(.system(size: 13, weight: .medium))
+                        .foregroundStyle(Color(hex: 0x344054))
+                        .padding(.horizontal, 14)
+                        .frame(minHeight: 50)
+                        .background(Color.white, in: RoundedRectangle(cornerRadius: 12, style: .continuous))
+                        .overlay(
+                            RoundedRectangle(cornerRadius: 12, style: .continuous)
+                                .stroke(Color(hex: 0xEAECF0), lineWidth: 1)
+                        )
+                }
+
+                formSection {
+                    cpTextField("Door No", placeholder: "Enter Door No", text: $doorNo, systemImage: "house")
+                    cpTextField("Pincode", placeholder: "Enter Pincode", text: $pincode, systemImage: "number", keyboard: .numberPad)
+                    cpTextField("Village *", placeholder: "Enter Village", text: $village, systemImage: "mappin.and.ellipse")
+                    cpTextField("Taluk", placeholder: "Enter Taluk", text: $taluk, systemImage: "map")
+                    cpTextField("District *", placeholder: "Enter District", text: $district, systemImage: "building.2")
+                    cpTextField("City", placeholder: "Enter City", text: $city, systemImage: "building")
+                    cpTextField("Locality *", placeholder: "Enter Locality", text: $locality, systemImage: "location")
+                    cpTextField("State", placeholder: "Enter State", text: $state, systemImage: "map.fill")
+                    cpTextField("Full Address", placeholder: "Enter Full Address", text: $fullAddress, systemImage: "text.alignleft", axis: .vertical)
+                }
+
+                formSection {
+                    cpTextField("Google Map Link (Optional)", placeholder: "Skip if you only have the address", text: $mapsLink, systemImage: "link", keyboard: .URL)
+                    HStack(spacing: 10) {
+                        cpTextField("Latitude (Optional)", placeholder: "Enter Latitude", text: $latitude, systemImage: "location.north", keyboard: .decimalPad)
+                        cpTextField("Longitude (Optional)", placeholder: "Enter Longitude", text: $longitude, systemImage: "location.north.line", keyboard: .decimalPad)
+                    }
+                    cpTextField("Notes", placeholder: "Enter Notes", text: $notes, systemImage: "note.text", axis: .vertical)
+                }
+
+                HStack(spacing: 12) {
+                    Button("Cancel") { dismiss() }
+                        .buttonStyle(.bordered)
+                        .controlSize(.large)
+                        .frame(maxWidth: .infinity)
+
+                    Button {
+                        Task { await submit() }
+                    } label: {
+                        if isSubmitting {
+                            ProgressView()
+                        } else {
+                            Text("Create visit")
+                        }
+                    }
+                    .buttonStyle(.borderedProminent)
+                    .controlSize(.large)
+                    .tint(Color(hex: 0x1BCA0B))
+                    .frame(maxWidth: .infinity)
+                    .disabled(isSubmitting)
+                }
+                .padding(.top, 8)
+                .padding(.bottom, 24)
             }
+            .padding(18)
         }
-        .navigationTitle("Create CP Visit")
+        .background(Color(hex: 0xF1F3F8).ignoresSafeArea())
+        .navigationTitle("")
         .navigationBarTitleDisplayMode(.inline)
         .toolbar {
             ToolbarItem(placement: .cancellationAction) {
                 Button("Cancel") { dismiss() }
-            }
-            ToolbarItem(placement: .confirmationAction) {
-                Button {
-                    Task { await submit() }
-                } label: {
-                    if isSubmitting { ProgressView() } else { Text("Create") }
-                }
-                .disabled(isSubmitting)
             }
         }
         .alert("CP Visit", isPresented: Binding(
@@ -1176,30 +1275,251 @@ private struct CreateCpVisitSheet: View {
         } message: {
             Text(errorMessage ?? "")
         }
+        .task { await loadBootstrapData() }
+    }
+
+    private func formSection<Content: View>(@ViewBuilder content: () -> Content) -> some View {
+        VStack(alignment: .leading, spacing: 14) {
+            content()
+        }
+        .padding(14)
+        .background(Color.white, in: RoundedRectangle(cornerRadius: 14, style: .continuous))
+        .overlay(
+            RoundedRectangle(cornerRadius: 14, style: .continuous)
+                .stroke(Color(hex: 0xEAECF0), lineWidth: 1)
+        )
+    }
+
+    private func selectedInfo(title: String, value: String) -> some View {
+        HStack {
+            Text(title)
+                .font(.system(size: 12, weight: .medium))
+                .foregroundStyle(Color(hex: 0x667085))
+            Spacer()
+            Text(value)
+                .font(.system(size: 13, weight: .semibold))
+                .foregroundStyle(Color(hex: 0x101828))
+                .lineLimit(1)
+        }
+        .padding(12)
+        .background(Color(hex: 0xF9FAFB), in: RoundedRectangle(cornerRadius: 10, style: .continuous))
+    }
+
+    private func cpTextField(
+        _ title: String,
+        placeholder: String,
+        text: Binding<String>,
+        systemImage: String,
+        keyboard: UIKeyboardType = .default,
+        axis: Axis = .horizontal
+    ) -> some View {
+        VStack(alignment: .leading, spacing: 6) {
+            Text(title)
+                .font(.system(size: 13, weight: .medium))
+                .foregroundStyle(Color(hex: 0x344054))
+            HStack(alignment: axis == .vertical ? .top : .center, spacing: 10) {
+                Image(systemName: systemImage)
+                    .font(.system(size: 17, weight: .medium))
+                    .foregroundStyle(Color(hex: 0x667085))
+                    .frame(width: 20)
+                    .padding(.top, axis == .vertical ? 3 : 0)
+                TextField(placeholder, text: text, axis: axis)
+                    .font(.system(size: 14, weight: .medium))
+                    .keyboardType(keyboard)
+                    .textInputAutocapitalization(keyboard == .URL ? .never : .words)
+                    .autocorrectionDisabled(keyboard == .URL)
+                    .lineLimit(axis == .vertical ? 3...5 : 1...1)
+            }
+            .padding(.horizontal, 14)
+            .padding(.vertical, axis == .vertical ? 10 : 0)
+            .frame(minHeight: axis == .vertical ? 72 : 50, alignment: axis == .vertical ? .top : .center)
+            .background(Color(hex: 0xF9FAFB), in: RoundedRectangle(cornerRadius: 12, style: .continuous))
+            .overlay(
+                RoundedRectangle(cornerRadius: 12, style: .continuous)
+                    .stroke(Color(hex: 0xEAECF0), lineWidth: 1)
+            )
+        }
+    }
+
+    private var staffPicker: some View {
+        pickerShell(title: "Field Staff *", icon: "person.badge.key") {
+            Menu {
+                if isLoadingStaff {
+                    Text("Loading staff")
+                }
+                ForEach(staff) { member in
+                    Button(member.displayName) {
+                        selectedStaff = member
+                    }
+                }
+            } label: {
+                pickerLabel(selectedStaff?.displayName ?? "Select Field Staff")
+            }
+            .buttonStyle(.bordered)
+        }
+    }
+
+    private var projectPicker: some View {
+        pickerShell(title: "Project *", icon: "building.2") {
+            Menu {
+                if isLoadingProjects {
+                    Text("Loading projects")
+                }
+                ForEach(projects) { project in
+                    Button(project.name ?? project.location ?? "Unnamed project") {
+                        selectedProject = project
+                    }
+                }
+            } label: {
+                pickerLabel(selectedProject?.name ?? selectedProject?.location ?? "Select Project")
+            }
+            .buttonStyle(.bordered)
+        }
+    }
+
+    private func pickerShell<Content: View>(title: String, icon: String, @ViewBuilder content: () -> Content) -> some View {
+        VStack(alignment: .leading, spacing: 6) {
+            Text(title)
+                .font(.system(size: 13, weight: .medium))
+                .foregroundStyle(Color(hex: 0x344054))
+            HStack(spacing: 10) {
+                Image(systemName: icon)
+                    .font(.system(size: 17, weight: .medium))
+                    .foregroundStyle(Color(hex: 0x667085))
+                    .frame(width: 20)
+                content()
+            }
+            .padding(.horizontal, 14)
+            .frame(height: 50)
+            .background(Color(hex: 0xF9FAFB), in: RoundedRectangle(cornerRadius: 12, style: .continuous))
+            .overlay(
+                RoundedRectangle(cornerRadius: 12, style: .continuous)
+                    .stroke(Color(hex: 0xEAECF0), lineWidth: 1)
+            )
+        }
+    }
+
+    private func pickerLabel(_ text: String) -> some View {
+        HStack {
+            Text(text)
+                .font(.system(size: 14, weight: .medium))
+                .lineLimit(1)
+            Spacer()
+            Image(systemName: "chevron.down")
+                .font(.system(size: 12, weight: .semibold))
+        }
+        .frame(maxWidth: .infinity)
+    }
+
+    @MainActor
+    private func loadBootstrapData() async {
+        guard let token = authStore.currentSession?.token else { return }
+        async let projectsTask: Void = loadProjects(token: token)
+        async let staffTask: Void = loadStaff(token: token)
+        _ = await (projectsTask, staffTask)
+    }
+
+    @MainActor
+    private func loadProjects(token: String) async {
+        guard projects.isEmpty, !isLoadingProjects else { return }
+        isLoadingProjects = true
+        defer { isLoadingProjects = false }
+        do {
+            projects = try await MarketingConvexAPIService.getMarketingProjects(token: token)
+        } catch {
+            errorMessage = error.localizedDescription
+        }
+    }
+
+    @MainActor
+    private func loadStaff(token: String) async {
+        guard staff.isEmpty, !isLoadingStaff else { return }
+        isLoadingStaff = true
+        defer { isLoadingStaff = false }
+        do {
+            let allStaff = try await HRConvexAPIService.listAllStaff(token: token)
+            staff = allStaff.filter { ($0.status ?? "active").lowercased() != "inactive" }
+            let sessionStaffId = authStore.currentSession?.user.staffId ?? authStore.currentSession?.user._id
+            if selectedStaff == nil, let sessionStaffId {
+                selectedStaff = staff.first { $0.id == sessionStaffId }
+            }
+        } catch {
+            errorMessage = error.localizedDescription
+        }
+    }
+
+    @MainActor
+    private func searchLead() async {
+        let normalizedPhone = AppModuleFormatters.normalizePhone(phone)
+        guard normalizedPhone.count == 10 else {
+            errorMessage = "Enter 10 digit phone"
+            return
+        }
+        guard let token = authStore.currentSession?.token else { return }
+        isSearchingLead = true
+        defer { isSearchingLead = false }
+        do {
+            leadMatches = try await MarketingConvexAPIService.searchTelecallerLeadsByPhone(token: token, phone: normalizedPhone)
+            if leadMatches.count == 1, let lead = leadMatches.first {
+                applyLead(lead)
+            } else if leadMatches.isEmpty {
+                errorMessage = "No existing client found. You can create with manual details."
+            }
+        } catch {
+            errorMessage = error.localizedDescription
+        }
+    }
+
+    @MainActor
+    private func applyLead(_ lead: TelecallerLeadSearchData) {
+        selectedLead = lead
+        clientName = lead.displayName
+        phone = AppModuleFormatters.normalizePhone(lead.mobileNumber ?? phone)
+        if fullAddress.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
+            fullAddress = lead.suggestedVisitAddress?.blankToNil
+                ?? lead.latestAnalysisProfile?.address?.blankToNil
+                ?? lead.locationPreferred?.blankToNil
+                ?? ""
+        }
+        if locality.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
+            locality = lead.locationPreferred?.blankToNil ?? ""
+        }
+        leadMatches = []
     }
 
     @MainActor
     private func submit() async {
         let normalizedPhone = AppModuleFormatters.normalizePhone(phone)
         guard normalizedPhone.count == 10 else { errorMessage = "Enter 10 digit phone"; return }
-        let staffId = authStore.currentSession?.user.staffId ?? authStore.currentSession?.user._id
+        let staffId = selectedStaff?.id ?? authStore.currentSession?.user.staffId ?? authStore.currentSession?.user._id
         guard let staffId, !staffId.isEmpty else { errorMessage = "Staff session missing"; return }
-        let trimmedAddress = address.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard selectedProject != nil else { errorMessage = "Project is required"; return }
+        guard selectedStaff != nil || !(staffId.isEmpty) else { errorMessage = "Field staff is required"; return }
+        let trimmedAddress = composedAddress
         guard !trimmedAddress.isEmpty else { errorMessage = "Address is required"; return }
+        if let lat = coordinateValue(latitude), !(lat >= -90 && lat <= 90) {
+            errorMessage = "Latitude must be between -90 and 90"
+            return
+        }
+        if let lng = coordinateValue(longitude), !(lng >= -180 && lng <= 180) {
+            errorMessage = "Longitude must be between -180 and 180"
+            return
+        }
         guard let token = authStore.currentSession?.token else { return }
 
         let request = CreateCpVisitRequest(
-            leadId: nil,
+            leadId: selectedLead?.id,
+            projectId: selectedProject?.id,
             clientName: clientName.trimmingCharacters(in: .whitespacesAndNewlines).nilIfEmpty,
             mobileNumber: normalizedPhone,
             assignedStaffId: staffId,
             scheduledDate: AppModuleFormatters.ymd.string(from: date),
-            scheduledTime: time.trimmingCharacters(in: .whitespacesAndNewlines).nilIfEmpty,
+            scheduledTime: Self.timeFormatter.string(from: date),
             visitAddress: trimmedAddress,
-            visitLat: nil,
-            visitLng: nil,
+            visitLat: coordinateValue(latitude),
+            visitLng: coordinateValue(longitude),
             googleMapsLink: mapsLink.trimmingCharacters(in: .whitespacesAndNewlines).nilIfEmpty,
-            notes: notes.trimmingCharacters(in: .whitespacesAndNewlines).nilIfEmpty
+            notes: serializedNotes
         )
 
         isSubmitting = true
@@ -1211,6 +1531,58 @@ private struct CreateCpVisitSheet: View {
             errorMessage = error.localizedDescription
         }
     }
+
+    private var composedAddress: String {
+        if let full = fullAddress.blankToNil {
+            return full
+        }
+        return [
+            doorNo.blankToNil,
+            locality.blankToNil,
+            village.blankToNil,
+            taluk.blankToNil,
+            city.blankToNil,
+            district.blankToNil,
+            state.blankToNil,
+            pincode.blankToNil
+        ]
+        .compactMap { $0 }
+        .joined(separator: ", ")
+    }
+
+    private var serializedNotes: String? {
+        let pairs: [(String, String?)] = [
+            ("notes", notes.blankToNil),
+            ("door_no", doorNo.blankToNil),
+            ("pincode", pincode.blankToNil),
+            ("village", village.blankToNil),
+            ("taluk", taluk.blankToNil),
+            ("district", district.blankToNil),
+            ("city", city.blankToNil),
+            ("locality", locality.blankToNil),
+            ("state", state.blankToNil),
+            ("google_map_link", mapsLink.blankToNil),
+            ("latitude", latitude.blankToNil),
+            ("longitude", longitude.blankToNil),
+            ("field_staff", selectedStaff?.displayName)
+        ]
+        let lines = pairs.compactMap { key, value -> String? in
+            guard let value, !value.isEmpty else { return nil }
+            return "\(key): \(value)"
+        }
+        return lines.isEmpty ? nil : lines.joined(separator: "\n")
+    }
+
+    private func coordinateValue(_ raw: String) -> Double? {
+        Double(raw.trimmingCharacters(in: .whitespacesAndNewlines))
+    }
+
+    private static let timeFormatter: DateFormatter = {
+        let formatter = DateFormatter()
+        formatter.locale = Locale(identifier: "en_US_POSIX")
+        formatter.dateFormat = "HH:mm"
+        return formatter
+    }()
 }
 
 private extension String {

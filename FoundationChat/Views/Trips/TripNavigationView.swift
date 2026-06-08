@@ -50,8 +50,14 @@ struct TripNavigationView: View {
     @State private var capturedImage: UIImage?
     @State private var pendingStorageId: String?
     @State private var arrivalStatusText: String?
+    @State private var showDriverStartTripSheet = false
+    @State private var showDriverEndTripSheet = false
+    @State private var pendingCompletionVisitId: String?
+    @State private var driverStartKm: Double?
+    @State private var isDriverEndSubmitting = false
 
     @State private var showOtpSheet = false
+    @State private var showSiteVisitOutcomeSheet = false
     @State private var showCpCompletionSheet = false
     @State private var showCpClientSeenSheet = false
     @State private var showCpTripCompletedSheet = false
@@ -170,7 +176,7 @@ struct TripNavigationView: View {
                     startCpNoPath()
                 }
             )
-            .presentationDetents([.height(220)])
+            .presentationDetents([.height(270)])
             .presentationDragIndicator(.hidden)
         }
         .sheet(isPresented: $showOtpSheet, onDismiss: {
@@ -213,6 +219,23 @@ struct TripNavigationView: View {
                 .environment(authStore)
             }
         }
+        .sheet(isPresented: $showSiteVisitOutcomeSheet, onDismiss: {
+            if !visitCompletedSuccessfully {
+                arrivalInProgress = false
+                arrivalStatusText = nil
+                resetArrivalSwipe()
+            }
+        }) {
+            if let id = resolvedVisitId {
+                SiteVisitOutcomeSheet(
+                    siteVisitId: id,
+                    onCompleted: {
+                        Task { await completeVisitAfterSiteVisitOutcome() }
+                    }
+                )
+                .environment(authStore)
+            }
+        }
         .sheet(isPresented: $showCpTripCompletedSheet) {
             CpTripCompletedSheet {
                 showCpTripCompletedSheet = false
@@ -220,6 +243,38 @@ struct TripNavigationView: View {
             }
             .presentationDetents([.height(260)])
             .presentationDragIndicator(.hidden)
+        }
+        .sheet(isPresented: $showDriverStartTripSheet) {
+            DriverOdometerSheet(
+                phase: .start,
+                minimumKm: nil,
+                isSubmitting: isLoadingStart
+            ) { proof in
+                showDriverStartTripSheet = false
+                Task { await ensureVisitStarted(startProof: proof) }
+            }
+            .presentationDetents([.large])
+            .presentationDragIndicator(.visible)
+        }
+        .sheet(isPresented: $showDriverEndTripSheet, onDismiss: {
+            if pendingCompletionVisitId != nil && !visitCompletedSuccessfully && !isDriverEndSubmitting {
+                pendingCompletionVisitId = nil
+                arrivalInProgress = false
+                arrivalStatusText = nil
+                resetArrivalSwipe()
+            }
+        }) {
+            DriverOdometerSheet(
+                phase: .end,
+                minimumKm: driverStartKm,
+                isSubmitting: isDriverEndSubmitting
+            ) { proof in
+                if let pendingCompletionVisitId {
+                    Task { await completeGeoTrackVisit(visitId: pendingCompletionVisitId, endProof: proof) }
+                }
+            }
+            .presentationDetents([.large])
+            .presentationDragIndicator(.visible)
         }
         .task {
             locationManager.requestLocation()
@@ -469,7 +524,17 @@ struct TripNavigationView: View {
     private var actionButtons: some View {
         VStack(spacing: 10) {
             if hasActiveVisit {
-                if isCpVisit && tripProgressStage == .reached && shouldCollectCpOutcome {
+                if tripProgressStage == .complete {
+                    HStack {
+                        Image(systemName: "checkmark.circle.fill")
+                        Text("Trip Completed")
+                            .font(.system(size: 14, weight: .semibold))
+                    }
+                    .frame(maxWidth: .infinity)
+                    .frame(height: 48)
+                    .foregroundStyle(Color(hex: 0x475467))
+                    .background(Color(hex: 0xF2F4F7), in: Capsule())
+                } else if isCpVisit && tripProgressStage == .reached && shouldCollectCpOutcome {
                     Button {
                         showCpCompletionSheet = true
                     } label: {
@@ -509,7 +574,7 @@ struct TripNavigationView: View {
                 }
             } else {
                 Button {
-                    Task { await ensureVisitStarted() }
+                    showDriverStartTripSheet = true
                 } label: {
                     HStack {
                         if isLoadingStart {
@@ -563,7 +628,7 @@ struct TripNavigationView: View {
         isLoadingStart = false
     }
 
-    private func ensureVisitStarted() async {
+    private func ensureVisitStarted(startProof: DriverOdometerProof) async {
         isLoadingStart = true
         statusLine = "Starting…"
 
@@ -617,6 +682,13 @@ struct TripNavigationView: View {
             if !alreadyInFlight {
                 geoAPI.tokenProvider = { token }
                 let loc = locationManager.currentLocation
+                let photoId = try await uploadOdometerPhoto(startProof.image)
+                try await geoAPI.markMmsFleetDriverArrived(siteVisitId: effectiveVisitId)
+                try await geoAPI.startMmsFleetDriverTrip(
+                    siteVisitId: effectiveVisitId,
+                    photoIds: [photoId],
+                    startKm: startProof.km
+                )
                 try await geoAPI.startVisit(
                     visitId: effectiveVisitId,
                     lat: loc?.coordinate.latitude,
@@ -624,6 +696,7 @@ struct TripNavigationView: View {
                 )
             }
 
+            driverStartKm = startProof.km
             visitStarted = true
             statusLine = alreadyInFlight ? "In progress" : "On the way"
             isLoadingStart = false
@@ -783,7 +856,7 @@ struct TripNavigationView: View {
             )
             cpNoPathPhotoCapture = false
             completeWithClientNotSeenSheet = true
-            await completeGeoTrackVisit(visitId: id)
+            requestDriverEndProofThenComplete(visitId: id)
         } catch {
             arrivalInProgress = false
             cpNoPathPhotoCapture = false
@@ -801,20 +874,44 @@ struct TripNavigationView: View {
             showCpCompletionSheet = true
             return
         }
-        await completeGeoTrackVisit(visitId: id)
+        if !isCpVisit {
+            arrivalStatusText = nil
+            showSiteVisitOutcomeSheet = true
+            return
+        }
+        requestDriverEndProofThenComplete(visitId: id)
     }
 
     private func completeVisitAfterCpOutcome() async {
         guard let id = resolvedVisitId else { return }
-        await completeGeoTrackVisit(visitId: id)
+        requestDriverEndProofThenComplete(visitId: id)
     }
 
-    private func completeGeoTrackVisit(visitId id: String) async {
+    private func completeVisitAfterSiteVisitOutcome() async {
+        guard let id = resolvedVisitId else { return }
+        requestDriverEndProofThenComplete(visitId: id)
+    }
+
+    private func requestDriverEndProofThenComplete(visitId id: String) {
+        pendingCompletionVisitId = id
+        arrivalStatusText = nil
+        showDriverEndTripSheet = true
+    }
+
+    private func completeGeoTrackVisit(visitId id: String, endProof: DriverOdometerProof) async {
         arrivalStatusText = "Completing visit…"
+        isDriverEndSubmitting = true
         do {
             let token = try requireToken()
             geoAPI.tokenProvider = { token }
             let loc = locationManager.currentLocation
+            let odometerPhotoId = try await uploadOdometerPhoto(endProof.image)
+            try await geoAPI.markMmsFleetDriverOnSite(siteVisitId: id)
+            try await geoAPI.endMmsFleetDriverTrip(
+                siteVisitId: id,
+                photoIds: [odometerPhotoId],
+                endKm: endProof.km
+            )
             // Keep parity with Android by sending the photo id as a dedicated field.
             // The OTP itself is verified before completion, so remarks stay user-readable.
             let remarks = "Arrival verified"
@@ -827,6 +924,9 @@ struct TripNavigationView: View {
             )
             visitCompletedSuccessfully = true
             arrivalStatusText = nil
+            pendingCompletionVisitId = nil
+            isDriverEndSubmitting = false
+            showDriverEndTripSheet = false
             onTripChanged?()
             if completeWithClientNotSeenSheet {
                 completeWithClientNotSeenSheet = false
@@ -837,9 +937,18 @@ struct TripNavigationView: View {
         } catch {
             arrivalStatusText = nil
             arrivalInProgress = false
+            isDriverEndSubmitting = false
             errorMessage = "Failed to complete: \(error.localizedDescription)"
             resetArrivalSwipe()
         }
+    }
+
+    private func uploadOdometerPhoto(_ image: UIImage) async throws -> String {
+        let token = try requireToken()
+        guard let jpeg = image.jpegData(compressionQuality: 0.7) else {
+            throw TripError.message("Could not encode odometer photo")
+        }
+        return try await HRConvexAPIService.uploadPhoto(token: token, imageData: jpeg)
     }
 
     private func resetArrivalSwipe() {
@@ -1061,7 +1170,7 @@ struct TripNavigationView: View {
     }
 
     private func hasOpenAttendanceSession(token: String) async -> Bool {
-        await AttendanceTrackingGate.isClockedInForToday(token: token)
+        await AttendanceTrackingGate.hasOpenSessionForToday(token: token)
     }
 
     private func updateMapForKnownDestination() {
@@ -1268,58 +1377,289 @@ private enum TripError: LocalizedError {
     }
 }
 
+private struct DriverOdometerProof {
+    let km: Double
+    let image: UIImage
+}
+
+private enum DriverOdometerPhase {
+    case start
+    case end
+
+    var title: String {
+        switch self {
+        case .start: return "Todays Start Update"
+        case .end: return "Todays End Update"
+        }
+    }
+
+    var kmTitle: String {
+        switch self {
+        case .start: return "Start Km *"
+        case .end: return "End Trip Km *"
+        }
+    }
+
+    var helperText: String {
+        switch self {
+        case .start: return "Enter odometer start details for the trip."
+        case .end: return "Enter odometer end details for the trip."
+        }
+    }
+
+    var photoHelp: String {
+        switch self {
+        case .start: return "To start request, document dashboard photo from direct vehicle odometer."
+        case .end: return "To complete request, document dashboard photo from direct vehicle odometer."
+        }
+    }
+
+    var photoTitle: String {
+        switch self {
+        case .start: return "Start Photo *"
+        case .end: return "End Photo *"
+        }
+    }
+
+    var ctaTitle: String {
+        "Submit"
+    }
+}
+
+private struct DriverOdometerSheet: View {
+    let phase: DriverOdometerPhase
+    let minimumKm: Double?
+    let isSubmitting: Bool
+    let onSubmit: (DriverOdometerProof) -> Void
+
+    @Environment(\.dismiss) private var dismiss
+    @State private var kmText = ""
+    @State private var capturedImage: UIImage?
+    @State private var showCamera = false
+    @State private var errorMessage: String?
+
+    var body: some View {
+        NavigationStack {
+            ScrollView {
+                VStack(alignment: .leading, spacing: 18) {
+                    header
+                    kmField
+                    photoSection
+
+                    if let errorMessage {
+                        Text(errorMessage)
+                            .font(.system(size: 12, weight: .medium))
+                            .foregroundStyle(Color(hex: 0xB42318))
+                    }
+
+                    Button {
+                        submit()
+                    } label: {
+                        HStack {
+                            if isSubmitting {
+                                ProgressView()
+                            }
+                            Text(isSubmitting ? "Saving..." : phase.ctaTitle)
+                                .font(.system(size: 14, weight: .semibold))
+                        }
+                        .frame(maxWidth: .infinity, minHeight: 50)
+                    }
+                    .buttonStyle(.borderedProminent)
+                    .controlSize(.large)
+                    .disabled(isSubmitting)
+                }
+                .padding(20)
+            }
+            .navigationTitle(phase.title)
+            .navigationBarTitleDisplayMode(.inline)
+            .toolbar {
+                ToolbarItem(placement: .cancellationAction) {
+                    Button("Cancel") { dismiss() }
+                        .disabled(isSubmitting)
+                }
+            }
+            .interactiveDismissDisabled(isSubmitting)
+            .fullScreenCover(isPresented: $showCamera) {
+                PunchCameraView(capturedImage: $capturedImage)
+                    .ignoresSafeArea()
+            }
+        }
+    }
+
+    private var header: some View {
+        HStack(spacing: 12) {
+            Image(systemName: "gauge.with.dots.needle.bottom.50percent")
+                .font(.system(size: 24, weight: .semibold))
+                .foregroundStyle(Color(hex: 0x0B61CA))
+                .frame(width: 50, height: 50)
+                .background(Color(hex: 0xEAF3FF), in: Circle())
+
+            VStack(alignment: .leading, spacing: 4) {
+                Text(phase.title)
+                    .font(.system(size: 18, weight: .semibold))
+                    .foregroundStyle(Color(hex: 0x101828))
+                Text(phase.helperText)
+                    .font(.system(size: 12))
+                    .foregroundStyle(Color(hex: 0x667085))
+            }
+        }
+    }
+
+    private var kmField: some View {
+        VStack(alignment: .leading, spacing: 8) {
+            Text(phase.kmTitle)
+                .font(.system(size: 13, weight: .semibold))
+                .foregroundStyle(Color(hex: 0x344054))
+
+            TextField("Enter Details", text: $kmText)
+                .keyboardType(.decimalPad)
+                .textInputAutocapitalization(.never)
+                .padding(.horizontal, 14)
+                .frame(height: 48)
+                .background(Color(hex: 0xF9FAFB), in: RoundedRectangle(cornerRadius: 12))
+                .overlay(
+                    RoundedRectangle(cornerRadius: 12)
+                        .stroke(Color(hex: 0xD0D5DD), lineWidth: 1)
+                )
+
+            if let minimumKm, phase == .end {
+                Text("Starting KM: \(formatKm(minimumKm))")
+                    .font(.system(size: 11))
+                    .foregroundStyle(Color(hex: 0x667085))
+            }
+        }
+    }
+
+    private var photoSection: some View {
+        VStack(alignment: .leading, spacing: 10) {
+            Text(phase.photoTitle)
+                .font(.system(size: 13, weight: .semibold))
+                .foregroundStyle(Color(hex: 0x344054))
+
+            Button {
+                showCamera = true
+            } label: {
+                HStack(spacing: 12) {
+                    if let capturedImage {
+                        Image(uiImage: capturedImage)
+                            .resizable()
+                            .scaledToFill()
+                            .frame(width: 58, height: 58)
+                            .clipShape(RoundedRectangle(cornerRadius: 12))
+                    } else {
+                        Image(systemName: "camera.fill")
+                            .font(.system(size: 22, weight: .semibold))
+                            .foregroundStyle(Color(hex: 0x0B61CA))
+                            .frame(width: 58, height: 58)
+                            .background(Color(hex: 0xEAF3FF), in: RoundedRectangle(cornerRadius: 12))
+                    }
+
+                    VStack(alignment: .leading, spacing: 4) {
+                        Text(capturedImage == nil ? "Upload Image" : "Retake Image")
+                            .font(.system(size: 13, weight: .semibold))
+                            .foregroundStyle(Color(hex: 0x101828))
+                        Text(phase.photoHelp)
+                            .font(.system(size: 11))
+                            .foregroundStyle(Color(hex: 0x667085))
+                            .fixedSize(horizontal: false, vertical: true)
+                    }
+
+                    Spacer()
+                    Image(systemName: "chevron.right")
+                        .font(.system(size: 13, weight: .semibold))
+                        .foregroundStyle(Color(hex: 0x98A2B3))
+                }
+                .padding(12)
+                .background(Color.white, in: RoundedRectangle(cornerRadius: 14))
+                .overlay(
+                    RoundedRectangle(cornerRadius: 14)
+                        .stroke(Color(hex: 0xEAECF0), lineWidth: 1)
+                )
+            }
+            .buttonStyle(.plain)
+        }
+    }
+
+    private func submit() {
+        errorMessage = nil
+        let trimmed = kmText.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard let km = Double(trimmed), km >= 0 else {
+            errorMessage = "Please enter a valid \(phase.kmTitle.lowercased())."
+            return
+        }
+        if let minimumKm, phase == .end, km < minimumKm {
+            errorMessage = "Ending KM cannot be less than starting KM (\(formatKm(minimumKm)))."
+            return
+        }
+        guard let capturedImage else {
+            errorMessage = "Please capture a photo of the odometer."
+            return
+        }
+        onSubmit(DriverOdometerProof(km: km, image: capturedImage))
+    }
+
+    private func formatKm(_ km: Double) -> String {
+        if km.rounded() == km { return "\(Int(km)) KM" }
+        return String(format: "%.1f KM", km)
+    }
+}
+
 private struct CpClientSeenSheet: View {
     let onYes: () -> Void
     let onNo: () -> Void
 
     var body: some View {
-        VStack(spacing: 14) {
+        ZStack(alignment: .top) {
+            VStack(spacing: 14) {
+                Spacer()
+                    .frame(height: 32)
+
+                Text("Have you seen the client?")
+                    .font(.system(size: 16, weight: .bold))
+                    .foregroundStyle(Color(hex: 0x1D2939))
+
+                Text("Please confirm if you have seen or met the client at this location.")
+                    .font(.system(size: 12))
+                    .foregroundStyle(Color(hex: 0x475467))
+                    .multilineTextAlignment(.center)
+                    .lineSpacing(2)
+                    .frame(maxWidth: 280)
+
+                HStack(spacing: 12) {
+                    Button {
+                        onYes()
+                    } label: {
+                        Label("Yes, I saw", systemImage: "checkmark")
+                            .frame(maxWidth: .infinity)
+                    }
+                    .buttonStyle(.borderedProminent)
+
+                    Button {
+                        onNo()
+                    } label: {
+                        Label("No, I didn't", systemImage: "xmark")
+                            .frame(maxWidth: .infinity)
+                    }
+                    .buttonStyle(.bordered)
+                }
+                .controlSize(.large)
+                .padding(.horizontal, 20)
+                .padding(.top, 6)
+            }
+            .padding(.top, 32)
+            .padding(.bottom, 22)
+            .frame(maxWidth: .infinity)
+            .background(.white)
+
             ZStack {
                 Circle()
                     .fill(Color(hex: 0xEAF3FF))
-                    .frame(width: 62, height: 62)
+                    .frame(width: 64, height: 64)
                 Image(systemName: "person.2.fill")
-                    .font(.system(size: 28, weight: .semibold))
+                    .font(.system(size: 30, weight: .semibold))
                     .foregroundStyle(Color(hex: 0x0B61CA))
             }
-            .padding(.top, 18)
-
-            Text("Have you seen the client?")
-                .font(.system(size: 16, weight: .bold))
-                .foregroundStyle(Color(hex: 0x1D2939))
-
-            Text("Please confirm if you have seen or met the client at this location.")
-                .font(.system(size: 11))
-                .foregroundStyle(Color(hex: 0x475467))
-                .multilineTextAlignment(.center)
-                .frame(maxWidth: 280)
-
-            HStack(spacing: 12) {
-                Button(action: onYes) {
-                    Label("Yes, I saw", systemImage: "checkmark")
-                        .font(.system(size: 13, weight: .semibold))
-                        .frame(maxWidth: .infinity, minHeight: 42)
-                }
-                .buttonStyle(.plain)
-                .foregroundStyle(.white)
-                .background(Color(hex: 0x19B900), in: RoundedRectangle(cornerRadius: 12))
-
-                Button(action: onNo) {
-                    Label("No I didn't", systemImage: "xmark")
-                        .font(.system(size: 13, weight: .semibold))
-                        .frame(maxWidth: .infinity, minHeight: 42)
-                }
-                .buttonStyle(.plain)
-                .foregroundStyle(Color(hex: 0x19B900))
-                .background(Color(hex: 0xEAF8E8), in: RoundedRectangle(cornerRadius: 12))
-            }
-            .padding(.horizontal, 18)
-            .padding(.top, 4)
-
-            Spacer(minLength: 0)
         }
-        .padding(.bottom, 14)
-        .background(.white)
     }
 }
 

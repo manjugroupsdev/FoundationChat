@@ -21,12 +21,17 @@ struct ConvexSiteVisit: Decodable, Identifiable, Equatable, Sendable {
     let leadName: String?
     let leadPhone: String?
     let cpVisit: ConvexCPVisitState?
+    let outcome: String?
+    let convertedBookingId: String?
+    let convertedSiteVisitId: String?
+    let completedAt: Int64?
 
     var id: String { _id }
 
     enum CodingKeys: String, CodingKey {
         case _id, clientPlaceId, scheduledDate, status, placeName, placeAddress, placeType
         case placeLat, placeLng, tripType, clientPlaceVisitId, leadName, leadPhone, cpVisit
+        case outcome, convertedBookingId, convertedSiteVisitId, completedAt
         case scheduledStartTime, scheduledEndTime
         case startTime, endTime, scheduledTime, scheduledFrom, scheduledTo
     }
@@ -47,6 +52,10 @@ struct ConvexSiteVisit: Decodable, Identifiable, Equatable, Sendable {
         leadName = try container.decodeIfPresent(String.self, forKey: .leadName)
         leadPhone = try container.decodeIfPresent(String.self, forKey: .leadPhone)
         cpVisit = try container.decodeIfPresent(ConvexCPVisitState.self, forKey: .cpVisit)
+        outcome = try container.decodeIfPresent(String.self, forKey: .outcome)
+        convertedBookingId = try container.decodeIfPresent(String.self, forKey: .convertedBookingId)
+        convertedSiteVisitId = try container.decodeIfPresent(String.self, forKey: .convertedSiteVisitId)
+        completedAt = try container.decodeIfPresent(Int64.self, forKey: .completedAt)
         scheduledStartTime = try container.decodeFirstPresentString(for: [.scheduledStartTime, .startTime, .scheduledTime, .scheduledFrom])
         scheduledEndTime = try container.decodeFirstPresentString(for: [.scheduledEndTime, .endTime, .scheduledTo])
     }
@@ -55,12 +64,28 @@ struct ConvexSiteVisit: Decodable, Identifiable, Equatable, Sendable {
     var statusBucket: SiteVisitStatus {
         switch (status ?? "").lowercased() {
         case "completed": return .completed
-        case "picked_up", "on_site", "dropped", "in-progress", "in_progress",
-             "client_started", "ongoing", "started", "active", "arrived":
+        case "client_started", "started":
+            return .clientStarted
+        case "picked_up":
+            return .pickedUp
+        case "on_site", "dropped", "in-progress", "in_progress",
+             "ongoing", "active", "arrived":
             return .inProgress
         case "cancelled", "canceled", "no_show": return .cancelled
         default: return .scheduled
         }
+    }
+
+    var hasLockedOutcome: Bool {
+        let ownOutcome = outcome?.trimmingCharacters(in: .whitespacesAndNewlines)
+        let cpOutcome = cpVisit?.outcome?.trimmingCharacters(in: .whitespacesAndNewlines)
+        let booking = convertedBookingId?.trimmingCharacters(in: .whitespacesAndNewlines)
+        let convertedSiteVisit = convertedSiteVisitId?.trimmingCharacters(in: .whitespacesAndNewlines)
+        return ownOutcome?.isEmpty == false
+            || cpOutcome?.isEmpty == false
+            || booking?.isEmpty == false
+            || convertedSiteVisit?.isEmpty == false
+            || completedAt != nil
     }
 }
 
@@ -267,6 +292,8 @@ private extension String {
 enum SiteVisitStatus: String, CaseIterable, Identifiable, Sendable {
     case all
     case scheduled
+    case clientStarted
+    case pickedUp
     case inProgress
     case completed
     case cancelled
@@ -277,6 +304,8 @@ enum SiteVisitStatus: String, CaseIterable, Identifiable, Sendable {
         switch self {
         case .all: return "All"
         case .scheduled: return "Scheduled"
+        case .clientStarted: return "Client Started"
+        case .pickedUp: return "Picked Up"
         case .inProgress: return "In Progress"
         case .completed: return "Completed"
         case .cancelled: return "Cancelled"
@@ -287,6 +316,8 @@ enum SiteVisitStatus: String, CaseIterable, Identifiable, Sendable {
         switch self {
         case .all: return .secondary
         case .scheduled: return .blue
+        case .clientStarted: return .cyan
+        case .pickedUp: return .indigo
         case .inProgress: return .orange
         case .completed: return .green
         case .cancelled: return .red

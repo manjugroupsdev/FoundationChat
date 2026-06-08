@@ -9,15 +9,39 @@ struct NotificationsListView: View {
     var body: some View {
         NavigationStack {
             List {
+                if let errorMessage {
+                    Section {
+                        HStack(spacing: 10) {
+                            Image(systemName: "exclamationmark.triangle.fill")
+                                .foregroundStyle(.red)
+                            Text(errorMessage)
+                                .font(.subheadline)
+                                .foregroundStyle(.red)
+                        }
+                    }
+                }
+
                 if notifications.isEmpty && !isLoading {
                     ContentUnavailableView("No Notifications", systemImage: "bell.slash", description: Text("You're all caught up!"))
                 }
 
                 ForEach(notifications) { notification in
-                    notificationRow(notification)
-                        .onTapGesture {
+                    Button {
+                        open(notification)
+                    } label: {
+                        notificationRow(notification)
+                            .contentShape(Rectangle())
+                    }
+                    .buttonStyle(.plain)
+                    .swipeActions(edge: .trailing, allowsFullSwipe: true) {
+                        Button {
                             markRead(notification)
+                        } label: {
+                            Label("Read", systemImage: "checkmark")
                         }
+                        .tint(.blue)
+                        .disabled(!notification.isUnread)
+                    }
                 }
             }
             .navigationTitle("Notifications")
@@ -88,10 +112,25 @@ struct NotificationsListView: View {
             isLoading = true
             defer { isLoading = false }
             do {
+                errorMessage = nil
                 notifications = try await authStore.fetchNotifications()
             } catch {
                 errorMessage = error.localizedDescription
             }
+        }
+    }
+
+    private func open(_ notification: AppNotification) {
+        Task {
+            if notification.isUnread {
+                try? await authStore.markNotificationRead(id: notification._id)
+            }
+            if let route = PushNavigationRoute(notification) {
+                await MainActor.run {
+                    PushNavigationCoordinator.shared.enqueue(route)
+                }
+            }
+            loadData()
         }
     }
 

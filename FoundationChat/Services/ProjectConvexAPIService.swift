@@ -179,6 +179,7 @@ enum ProjectConvexAPIService {
     private static func checkHTTPError(data: Data, response: URLResponse) throws {
         guard let http = response as? HTTPURLResponse else { return }
         if http.statusCode == 401 {
+            SessionInvalidationBus.emit()
             throw HRConvexAPIError.unauthorized("Unauthorized")
         }
         if http.statusCode >= 400 {

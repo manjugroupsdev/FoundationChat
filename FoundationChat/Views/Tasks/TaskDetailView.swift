@@ -30,6 +30,7 @@ struct TaskDetailView: View {
                             dateCards(task)
                             descriptionBlock(task)
                             assignmentBlock(task)
+                            timelineAccessBlock(task)
                             resourceSummary(task)
                         }
                         .padding(20)
@@ -118,7 +119,7 @@ struct TaskDetailView: View {
                     .frame(width: 40, height: 40)
             }
             .buttonStyle(.plain)
-            .accessibilityLabel("Time Line")
+            .accessibilityLabel("Task Timeline")
         }
         .padding(.horizontal, 16)
         .frame(height: 64)
@@ -262,6 +263,44 @@ struct TaskDetailView: View {
         }
     }
 
+    private func timelineAccessBlock(_ task: ConvexTask) -> some View {
+        Button {
+            showTimelineSheet = true
+        } label: {
+            HStack(spacing: 12) {
+                Image(systemName: "clock.arrow.circlepath")
+                    .font(.system(size: 21, weight: .semibold))
+                    .foregroundStyle(Color(hex: 0x0B61CA))
+                    .frame(width: 42, height: 42)
+                    .background(Color(hex: 0xEAF3FF), in: Circle())
+
+                VStack(alignment: .leading, spacing: 4) {
+                    Text("Task Timeline")
+                        .font(.system(size: 17, weight: .bold))
+                        .foregroundStyle(Color(hex: 0x101828))
+                    Text(timelineSubtitle(task))
+                        .font(.system(size: 13, weight: .medium))
+                        .foregroundStyle(Color(hex: 0x667085))
+                        .lineLimit(1)
+                }
+
+                Spacer()
+
+                Image(systemName: "chevron.right")
+                    .font(.system(size: 14, weight: .bold))
+                    .foregroundStyle(Color(hex: 0x98A2B3))
+            }
+            .padding(14)
+            .background(Color.white, in: RoundedRectangle(cornerRadius: 14, style: .continuous))
+            .overlay {
+                RoundedRectangle(cornerRadius: 14, style: .continuous)
+                    .stroke(Color(hex: 0xE5E7EB), lineWidth: 1)
+            }
+        }
+        .buttonStyle(.plain)
+        .accessibilityLabel("Open task timeline")
+    }
+
     private func resourceSummary(_ task: ConvexTask) -> some View {
         VStack(alignment: .leading, spacing: 12) {
             Text("Resource Summary")
@@ -340,6 +379,16 @@ struct TaskDetailView: View {
 
     private func detailStatusLabel(_ task: ConvexTask) -> String {
         task.normalizedStatus == .pending ? "Not Started" : task.normalizedStatus.label
+    }
+
+    private func timelineSubtitle(_ task: ConvexTask) -> String {
+        if let count = task.updates?.count, count > 0 {
+            return "\(count) update\(count == 1 ? "" : "s") recorded"
+        }
+        if task.todaysUpdate?.taskNilIfBlank != nil || task.blocker?.taskNilIfBlank != nil || task.tomorrowsPlan?.taskNilIfBlank != nil {
+            return "Latest progress is available"
+        }
+        return "View task history and progress"
     }
 
     private func statusTextColor(_ status: TaskStatus) -> Color {
@@ -424,6 +473,7 @@ private struct TaskTimelineSheet: View {
         }
         .background(Color.white)
         .task { await loadTimeline() }
+        .refreshable { await loadTimeline() }
     }
 
     private func loadTimeline() async {

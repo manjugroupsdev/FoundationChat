@@ -7,10 +7,19 @@ struct LoginView: View {
     @State private var step: AuthStep = .phone
     @State private var phoneNumber = ""
     @State private var verifiedPhone = ""
+    @State private var employeeId = ""
+    @State private var employeePassword = ""
+    @State private var employeePasswordVisible = false
     @State private var otpDigits = Array(repeating: "", count: 6)
     @FocusState private var phoneFieldFocused: Bool
     @FocusState private var focusedOtpBox: Int?
+    @FocusState private var employeeFieldFocused: EmployeeField?
     @State private var keyboardHeight: CGFloat = 0
+
+    private enum EmployeeField {
+        case employeeId
+        case password
+    }
 
     var body: some View {
         GeometryReader { geo in
@@ -87,13 +96,11 @@ struct LoginView: View {
             VStack(alignment: .leading, spacing: 0) {
                 // Header
                 VStack(spacing: 6) {
-                    Text(step == .phone ? "Sign In" : "Verify OTP")
+                    Text(title)
                         .font(.system(size: 24, weight: .semibold))
                         .foregroundStyle(Color(red: 0.063, green: 0.094, blue: 0.157))
 
-                    Text(step == .phone
-                         ? "Sign in to my account"
-                         : "Code sent to +91 \(verifiedPhone)")
+                    Text(subtitle)
                         .font(.system(size: 14, weight: .medium))
                         .foregroundStyle(Color(red: 0.278, green: 0.329, blue: 0.400))
                         .multilineTextAlignment(.center)
@@ -105,8 +112,10 @@ struct LoginView: View {
                 Group {
                     if step == .phone {
                         phoneStepContent
-                    } else {
+                    } else if step == .otp {
                         otpStepContent
+                    } else {
+                        employeeStepContent
                     }
                 }
             }
@@ -261,7 +270,10 @@ struct LoginView: View {
 
     private var employeeIdButton: some View {
         Button {
-            // Coming soon
+            withAnimation(.spring(response: 0.35)) {
+                authStore.clearError()
+                step = .employee
+            }
         } label: {
             HStack(spacing: 8) {
                 Image(systemName: "person.circle")
@@ -278,6 +290,158 @@ struct LoginView: View {
                     .strokeBorder(Color(red: 0.102, green: 0.792, blue: 0.043), lineWidth: 1.5)
             )
         }
+        .buttonStyle(.plain)
+    }
+
+    // MARK: - Employee Step
+
+    private var employeeStepContent: some View {
+        VStack(alignment: .leading, spacing: 0) {
+            employeeTextField
+                .padding(.bottom, 16)
+
+            employeePasswordField
+                .padding(.bottom, 16)
+
+            if let err = authStore.errorMessage {
+                Text(err)
+                    .font(.system(size: 11))
+                    .foregroundStyle(Color(red: 0.98, green: 0.47, blue: 0.47))
+                    .padding(.bottom, 8)
+            }
+
+            employeeLoginButton
+                .padding(.bottom, 20)
+
+            Button {
+                withAnimation(.spring(response: 0.35)) {
+                    authStore.clearError()
+                    employeePassword = ""
+                    step = .phone
+                }
+            } label: {
+                HStack(spacing: 6) {
+                    Image(systemName: "chevron.left")
+                        .font(.system(size: 12, weight: .semibold))
+                    Text("Use mobile number instead")
+                        .font(.system(size: 12, weight: .medium))
+                }
+                .foregroundStyle(Color(red: 0.278, green: 0.329, blue: 0.400))
+            }
+            .buttonStyle(.plain)
+            .frame(maxWidth: .infinity)
+        }
+        .onAppear { employeeFieldFocused = .employeeId }
+    }
+
+    private var employeeTextField: some View {
+        VStack(alignment: .leading, spacing: 4) {
+            Text("Employee ID")
+                .font(.system(size: 12, weight: .regular))
+                .foregroundStyle(Color(red: 0.278, green: 0.329, blue: 0.400))
+
+            HStack(spacing: 10) {
+                Image(systemName: "person")
+                    .font(.system(size: 15, weight: .medium))
+                    .foregroundStyle(Color(red: 0.596, green: 0.635, blue: 0.702))
+                    .frame(width: 20)
+
+                TextField("Enter Employee ID", text: $employeeId)
+                    .textInputAutocapitalization(.characters)
+                    .autocorrectionDisabled()
+                    .font(.system(size: 14))
+                    .focused($employeeFieldFocused, equals: .employeeId)
+            }
+            .padding(.horizontal, 12)
+            .frame(height: 48)
+            .background(Color.white)
+            .overlay(
+                RoundedRectangle(cornerRadius: 8, style: .continuous)
+                    .strokeBorder(
+                        employeeFieldFocused == .employeeId
+                            ? Color(red: 0.10, green: 0.79, blue: 0.04)
+                            : Color(red: 0.596, green: 0.635, blue: 0.702),
+                        lineWidth: 1
+                    )
+            )
+            .clipShape(RoundedRectangle(cornerRadius: 8, style: .continuous))
+        }
+    }
+
+    private var employeePasswordField: some View {
+        VStack(alignment: .leading, spacing: 4) {
+            Text("Password")
+                .font(.system(size: 12, weight: .regular))
+                .foregroundStyle(Color(red: 0.278, green: 0.329, blue: 0.400))
+
+            HStack(spacing: 10) {
+                Image(systemName: "lock")
+                    .font(.system(size: 15, weight: .medium))
+                    .foregroundStyle(Color(red: 0.596, green: 0.635, blue: 0.702))
+                    .frame(width: 20)
+
+                Group {
+                    if employeePasswordVisible {
+                        TextField("Enter password", text: $employeePassword)
+                    } else {
+                        SecureField("Enter password", text: $employeePassword)
+                    }
+                }
+                .textContentType(.password)
+                .font(.system(size: 14))
+                .focused($employeeFieldFocused, equals: .password)
+
+                Button {
+                    employeePasswordVisible.toggle()
+                } label: {
+                    Image(systemName: employeePasswordVisible ? "eye.slash" : "eye")
+                        .font(.system(size: 15, weight: .medium))
+                        .foregroundStyle(Color(red: 0.596, green: 0.635, blue: 0.702))
+                }
+                .buttonStyle(.plain)
+            }
+            .padding(.horizontal, 12)
+            .frame(height: 48)
+            .background(Color.white)
+            .overlay(
+                RoundedRectangle(cornerRadius: 8, style: .continuous)
+                    .strokeBorder(
+                        employeeFieldFocused == .password
+                            ? Color(red: 0.10, green: 0.79, blue: 0.04)
+                            : Color(red: 0.596, green: 0.635, blue: 0.702),
+                        lineWidth: 1
+                    )
+            )
+            .clipShape(RoundedRectangle(cornerRadius: 8, style: .continuous))
+        }
+    }
+
+    private var employeeLoginButton: some View {
+        Button {
+            Task { await handleEmployeeLogin() }
+        } label: {
+            ZStack {
+                if authStore.isEmployeeLoginInProgress {
+                    ProgressView().tint(.white)
+                } else {
+                    Text("Sign In")
+                        .font(.system(size: 14, weight: .medium))
+                        .foregroundStyle(.white)
+                }
+            }
+            .frame(maxWidth: .infinity)
+            .frame(height: 48)
+            .background(
+                LinearGradient(
+                    colors: [Color(red: 0.102, green: 0.792, blue: 0.043),
+                             Color(red: 0.239, green: 0.616, blue: 0.008)],
+                    startPoint: .leading, endPoint: .trailing
+                ),
+                in: RoundedRectangle(cornerRadius: 100, style: .continuous)
+            )
+        }
+        .disabled(employeeId.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty || employeePassword.isEmpty || authStore.isEmployeeLoginInProgress)
+        .opacity(employeeId.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty || employeePassword.isEmpty ? 0.6 : 1)
         .buttonStyle(.plain)
     }
 
@@ -394,6 +558,26 @@ struct LoginView: View {
         await authStore.verifyOTP(phoneNumber: verifiedPhone, code: otpDigits.joined())
     }
 
+    private func handleEmployeeLogin() async {
+        await authStore.loginWithEmployeeId(employeeId: employeeId, password: employeePassword)
+    }
+
+    private var title: String {
+        switch step {
+        case .phone: return "Sign In"
+        case .otp: return "Verify OTP"
+        case .employee: return "Employee Login"
+        }
+    }
+
+    private var subtitle: String {
+        switch step {
+        case .phone: return "Sign in to my account"
+        case .otp: return "Code sent to +91 \(verifiedPhone)"
+        case .employee: return "Use the password HR created for your account."
+        }
+    }
+
     private func handleOtpInput(at index: Int, value: String) {
         let digit = value.filter(\.isNumber).prefix(1)
         otpDigits[index] = String(digit)
@@ -414,7 +598,7 @@ struct LoginView: View {
 
 // MARK: - OTP Box
 
-private enum AuthStep { case phone, otp }
+private enum AuthStep { case phone, otp, employee }
 
 private struct OtpBox: View {
     @Binding var digit: String

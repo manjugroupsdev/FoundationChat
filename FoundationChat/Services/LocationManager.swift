@@ -150,8 +150,7 @@ final class LocationTracker: NSObject {
     }
 
     func cancelTrip() {
-        if isTracking { Task { try? await geoAPI.stopTracking() } }
-        stopTracking()
+        Task { await stopAndFinalize() }
     }
 
     /// Saves a manually captured location into the CoreData buffer.
@@ -173,6 +172,19 @@ final class LocationTracker: NSObject {
     }
 
     // MARK: - Private
+
+    func stopAndFinalize(notifyServer: Bool = true) async {
+        guard isTracking else {
+            stopTracking()
+            return
+        }
+
+        await flushWaypoints()
+        if notifyServer {
+            try? await geoAPI.stopTracking()
+        }
+        stopTracking()
+    }
 
     private func stopTracking() {
         isTracking = false
@@ -278,10 +290,23 @@ final class LocationTracker: NSObject {
         guard isTracking else { return }
         do {
             let pending = try await persistence.fetchUnsent(limit: Self.batchSize)
-            guard !pending.isEmpty else { return }
-            _ = try await geoAPI.pushBatch(points: pending.map(\.point))
-            try await persistence.markAsSent(ids: pending.map(\.id))
-            try? await persistence.purgeOldSentPoints()
+            if !pending.isEmpty {
+                _ = try await geoAPI.pushBatch(points: pending.map(\.point))
+                try await persistence.markAsSent(ids: pending.map(\.id))
+                try? await persistence.purgeOldSentPoints()
+            }
+
+            let events = try await persistence.fetchUnsentTamperEvents()
+            var syncedEventIds: [UUID] = []
+            for event in events {
+                do {
+                    try await geoAPI.reportTamper(eventType: event.eventType, metadata: event.metadata)
+                    syncedEventIds.append(event.id)
+                } catch {
+                    break
+                }
+            }
+            try await persistence.deleteTamperEvents(ids: syncedEventIds)
         } catch {
             // Swallow: points stay buffered for the next retry
         }

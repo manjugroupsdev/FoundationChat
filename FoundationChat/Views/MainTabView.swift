@@ -18,6 +18,7 @@ struct MainTabView: View {
     @State private var selectedTab: AppTab = .home
     @State private var openConversationIDFromPush: String?
     @State private var openChannelIDFromPush: String?
+    @State private var openHRRouteFromPush: HRDashboardRoute?
 
     init() {
         Self.configureTabBarColors()
@@ -55,7 +56,9 @@ struct MainTabView: View {
                 }
                 .tag(AppTab.home)
 
-            HRDashboardView()
+            HRDashboardView(openRoute: openHRRouteFromPush) {
+                openHRRouteFromPush = nil
+            }
                 .tabItem {
                     Label {
                         Text("Attendance")
@@ -67,9 +70,12 @@ struct MainTabView: View {
 
             ConversationsListView(
                 selectedTab: $selectedTab,
-                openConversationID: openConversationIDFromPush
+                openConversationID: openConversationIDFromPush,
+                openChannelID: openChannelIDFromPush
             ) {
                 openConversationIDFromPush = nil
+            } onOpenChannelHandled: {
+                openChannelIDFromPush = nil
             }
             .tabItem {
                 Label {
@@ -116,9 +122,12 @@ struct MainTabView: View {
             guard let channelID = route.channelId else { return }
             selectedTab = .chats
             openChannelIDFromPush = channelID
-        case .leaveRequest, .leaveApproved, .leaveRejected,
-             .permissionRequest, .permissionApproved, .permissionRejected:
+        case .leaveRequest, .leaveApproved, .leaveRejected:
             selectedTab = .hr
+            openHRRouteFromPush = .leaves
+        case .permissionRequest, .permissionApproved, .permissionRejected:
+            selectedTab = .hr
+            openHRRouteFromPush = .permissions
         }
     }
 }
