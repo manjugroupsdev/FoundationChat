@@ -60,29 +60,7 @@ struct BookingCreateView: View {
                         .foregroundStyle(Color(hex: 0x667085))
                 }
 
-                HStack(spacing: 12) {
-                    Button("Clear") {
-                        clearForm()
-                    }
-                    .buttonStyle(.bordered)
-                    .controlSize(.large)
-                    .tint(Color(hex: 0x2DAE12))
-
-                    Button {
-                        Task { await submit() }
-                    } label: {
-                        if isSubmitting {
-                            ProgressView().frame(maxWidth: .infinity)
-                        } else {
-                            Text(booking.saveAs == .confirmed ? "Create Confirmed" : "Save Draft")
-                                .frame(maxWidth: .infinity)
-                        }
-                    }
-                    .buttonStyle(.borderedProminent)
-                    .controlSize(.large)
-                    .tint(Color(hex: 0x2DAE12))
-                    .disabled(!canCreateBooking || isSubmitting)
-                }
+                footerAction
             }
             .padding(.horizontal, 20)
             .padding(.top, 18)
@@ -156,6 +134,47 @@ struct BookingCreateView: View {
                             .tint(Color(hex: 0x2DAE12))
                     }
                 }
+            }
+        }
+    }
+
+    @ViewBuilder
+    private var footerAction: some View {
+        if selectedTab != DirectBookingTab.allCases.last {
+            Button {
+                goToNextTab()
+            } label: {
+                Text("Next")
+                    .font(.system(size: 18, weight: .semibold))
+                    .frame(maxWidth: .infinity)
+            }
+            .buttonStyle(.borderedProminent)
+            .controlSize(.large)
+            .tint(Color(hex: 0x2DAE12))
+            .padding(.top, 4)
+        } else {
+            HStack(spacing: 12) {
+                Button("Clear") {
+                    clearForm()
+                }
+                .buttonStyle(.bordered)
+                .controlSize(.large)
+                .tint(Color(hex: 0x2DAE12))
+
+                Button {
+                    Task { await submit() }
+                } label: {
+                    if isSubmitting {
+                        ProgressView().frame(maxWidth: .infinity)
+                    } else {
+                        Text(booking.saveAs == .confirmed ? "Create Confirmed" : "Save Draft")
+                            .frame(maxWidth: .infinity)
+                    }
+                }
+                .buttonStyle(.borderedProminent)
+                .controlSize(.large)
+                .tint(Color(hex: 0x2DAE12))
+                .disabled(!canCreateBooking || isSubmitting)
             }
         }
     }
@@ -536,6 +555,14 @@ struct BookingCreateView: View {
         }
     }
 
+    private func goToNextTab() {
+        let tabs = DirectBookingTab.allCases
+        guard let index = tabs.firstIndex(of: selectedTab), index + 1 < tabs.count else { return }
+        withAnimation(.snappy(duration: 0.22)) {
+            selectedTab = tabs[index + 1]
+        }
+    }
+
     private func clearForm() {
         booking = DirectBookingDraft()
         selectedProject = initialProject
@@ -820,7 +847,7 @@ private struct DirectBookingDraft: Codable, Equatable, Sendable {
             sourceType: sourceType.directBookingNilIfBlank ?? "walk_in",
             sourceClientPlaceVisitId: nil,
             sourceSiteVisitId: nil,
-            notes: serializedNotes
+            notes: nil
         )
     }
 

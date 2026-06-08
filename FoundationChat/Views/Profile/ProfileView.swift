@@ -136,19 +136,16 @@ struct ProfileView: View {
         AppearanceSettingsView(selection: $appearancePreference)
       }
     }
-    .confirmationDialog(
-      "Log out of FoundationChat?",
-      isPresented: $isConfirmingLogout,
-      titleVisibility: .visible
-    ) {
-      Button("Log Out", role: .destructive) {
+    .sheet(isPresented: $isConfirmingLogout) {
+      LogoutConfirmationSheet {
+        isConfirmingLogout = false
+      } onLogout: {
         Task {
           await authStore.logout()
         }
       }
-      Button("Cancel", role: .cancel) {}
-    } message: {
-      Text("Your local session will be cleared and you will return to Login.")
+      .presentationDetents([.height(270)])
+      .presentationDragIndicator(.visible)
     }
   }
 
@@ -164,6 +161,63 @@ struct ProfileView: View {
     hasLoadedStaffProfile = true
     _ = try? await authStore.refreshMyStaffProfile()
     await loadRemoteAvatar()
+  }
+}
+
+private struct LogoutConfirmationSheet: View {
+  let onCancel: () -> Void
+  let onLogout: () -> Void
+
+  var body: some View {
+    VStack(spacing: 18) {
+      VStack(spacing: 10) {
+        Image(systemName: "rectangle.portrait.and.arrow.right")
+          .font(.system(size: 28, weight: .semibold))
+          .foregroundStyle(Color(hex: 0xFF3B30))
+          .frame(width: 56, height: 56)
+          .background(Color(hex: 0xFFECEC), in: Circle())
+
+        Text("Log out of FoundationChat?")
+          .font(.system(size: 20, weight: .bold))
+          .foregroundStyle(Color(hex: 0x101828))
+          .multilineTextAlignment(.center)
+
+        Text("Your local session will be cleared and you will return to Login.")
+          .font(.system(size: 15))
+          .foregroundStyle(Color(hex: 0x667085))
+          .multilineTextAlignment(.center)
+          .lineSpacing(2)
+      }
+
+      VStack(spacing: 10) {
+        Button(role: .destructive) {
+          onLogout()
+        } label: {
+          Text("Log Out")
+            .font(.system(size: 17, weight: .semibold))
+            .frame(maxWidth: .infinity)
+        }
+        .buttonStyle(.borderedProminent)
+        .controlSize(.large)
+        .tint(Color(hex: 0xFF3B30))
+
+        Button {
+          onCancel()
+        } label: {
+          Text("Cancel")
+            .font(.system(size: 17, weight: .semibold))
+            .frame(maxWidth: .infinity)
+        }
+        .buttonStyle(.bordered)
+        .controlSize(.large)
+        .tint(Color(hex: 0x667085))
+      }
+    }
+    .padding(.horizontal, 24)
+    .padding(.top, 18)
+    .padding(.bottom, 20)
+    .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .top)
+    .background(Color(hex: 0xF9FAFB).ignoresSafeArea())
   }
 }
 

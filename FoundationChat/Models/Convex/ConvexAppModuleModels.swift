@@ -683,6 +683,34 @@ struct AppBooking: Decodable, Identifiable, Equatable, Sendable {
     let bookingType: String?
     let bookingMode: String?
     let bookingCost: Double?
+    let title: String?
+    let fatherSpouseName: String?
+    let dateOfBirth: String?
+    let anniversaryDate: String?
+    let alternateNumbers: String?
+    let whatsappNumber: String?
+    let email: String?
+    let nationality: String?
+    let homeAddress: String?
+    let pincode: String?
+    let state: String?
+    let district: String?
+    let location: String?
+    let profession: String?
+    let designation: String?
+    let incomePerAnnum: String?
+    let officeName: String?
+    let officeEmail: String?
+    let officeMobile: String?
+    let officePhone: String?
+    let officeAddress: String?
+    let guidelineValue: Double?
+    let registrationCharges: Double?
+    let gstAmount: Double?
+    let documentCharges: Double?
+    let pattaCharges: Double?
+    let otherCharges: Double?
+    let paymentMode: String?
     let advanceAmount: Double?
     let balanceAmount: Double?
     let source: String?
@@ -696,6 +724,10 @@ struct AppBooking: Decodable, Identifiable, Equatable, Sendable {
         case id = "_id"
         case bookingRefNo, clientName, mobileNumber, projectId, projectName
         case plotId, plotNo, bookingDate, bookingType, bookingMode
+        case title, fatherSpouseName, dateOfBirth, anniversaryDate, alternateNumbers, whatsappNumber
+        case email, nationality, homeAddress, pincode, state, district, location
+        case profession, designation, incomePerAnnum, officeName, officeEmail, officeMobile, officePhone, officeAddress
+        case guidelineValue, registrationCharges, gstAmount, documentCharges, pattaCharges, otherCharges, paymentMode
         case bookingCost, advanceAmount, balanceAmount, source, status
         case approvalStatus, notes, createdAt, updatedAt
     }
@@ -713,6 +745,114 @@ struct UpdateBookingRequest: Encodable, Sendable {
     let bookingCost: Double?
     let advanceAmount: Double?
     let notes: String?
+    let title: String?
+    let fatherSpouseName: String?
+    let dateOfBirth: String?
+    let anniversaryDate: String?
+    let alternateNumbers: String?
+    let whatsappNumber: String?
+    let email: String?
+    let nationality: String?
+    let homeAddress: String?
+    let pincode: String?
+    let state: String?
+    let district: String?
+    let location: String?
+    let profession: String?
+    let designation: String?
+    let incomePerAnnum: String?
+    let officeName: String?
+    let officeEmail: String?
+    let officeMobile: String?
+    let officePhone: String?
+    let officeAddress: String?
+    let bookingType: String?
+    let bookingMode: String?
+    let guidelineValue: Double?
+    let registrationCharges: Double?
+    let gstAmount: Double?
+    let documentCharges: Double?
+    let pattaCharges: Double?
+    let otherCharges: Double?
+    let paymentMode: String?
+
+    init(
+        id: String,
+        clientName: String? = nil,
+        mobileNumber: String? = nil,
+        bookingDate: String? = nil,
+        bookingCost: Double? = nil,
+        advanceAmount: Double? = nil,
+        notes: String? = nil,
+        title: String? = nil,
+        fatherSpouseName: String? = nil,
+        dateOfBirth: String? = nil,
+        anniversaryDate: String? = nil,
+        alternateNumbers: String? = nil,
+        whatsappNumber: String? = nil,
+        email: String? = nil,
+        nationality: String? = nil,
+        homeAddress: String? = nil,
+        pincode: String? = nil,
+        state: String? = nil,
+        district: String? = nil,
+        location: String? = nil,
+        profession: String? = nil,
+        designation: String? = nil,
+        incomePerAnnum: String? = nil,
+        officeName: String? = nil,
+        officeEmail: String? = nil,
+        officeMobile: String? = nil,
+        officePhone: String? = nil,
+        officeAddress: String? = nil,
+        bookingType: String? = nil,
+        bookingMode: String? = nil,
+        guidelineValue: Double? = nil,
+        registrationCharges: Double? = nil,
+        gstAmount: Double? = nil,
+        documentCharges: Double? = nil,
+        pattaCharges: Double? = nil,
+        otherCharges: Double? = nil,
+        paymentMode: String? = nil
+    ) {
+        self.id = id
+        self.clientName = clientName
+        self.mobileNumber = mobileNumber
+        self.bookingDate = bookingDate
+        self.bookingCost = bookingCost
+        self.advanceAmount = advanceAmount
+        self.notes = notes
+        self.title = title
+        self.fatherSpouseName = fatherSpouseName
+        self.dateOfBirth = dateOfBirth
+        self.anniversaryDate = anniversaryDate
+        self.alternateNumbers = alternateNumbers
+        self.whatsappNumber = whatsappNumber
+        self.email = email
+        self.nationality = nationality
+        self.homeAddress = homeAddress
+        self.pincode = pincode
+        self.state = state
+        self.district = district
+        self.location = location
+        self.profession = profession
+        self.designation = designation
+        self.incomePerAnnum = incomePerAnnum
+        self.officeName = officeName
+        self.officeEmail = officeEmail
+        self.officeMobile = officeMobile
+        self.officePhone = officePhone
+        self.officeAddress = officeAddress
+        self.bookingType = bookingType
+        self.bookingMode = bookingMode
+        self.guidelineValue = guidelineValue
+        self.registrationCharges = registrationCharges
+        self.gstAmount = gstAmount
+        self.documentCharges = documentCharges
+        self.pattaCharges = pattaCharges
+        self.otherCharges = otherCharges
+        self.paymentMode = paymentMode
+    }
 }
 
 struct CreateCpVisitRequest: Encodable, Sendable {

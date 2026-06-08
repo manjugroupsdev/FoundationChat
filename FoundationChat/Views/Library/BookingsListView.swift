@@ -9,6 +9,7 @@ struct BookingsListView: View {
     @State private var hasLoaded = false
     @State private var errorMessage: String?
     @State private var showCreate = false
+    @State private var selectedBooking: AppBooking?
 
     private var filteredBookings: [AppBooking] {
         let query = searchText.trimmingCharacters(in: .whitespacesAndNewlines).lowercased()
@@ -50,6 +51,15 @@ struct BookingsListView: View {
                 BookingCreateView()
             }
         }
+        .sheet(item: $selectedBooking, onDismiss: {
+            Task { await load() }
+        }) { booking in
+            BookingDetailView(bookingId: booking.id) {
+                Task { await load() }
+            }
+            .presentationDetents([.medium, .large])
+            .presentationDragIndicator(.visible)
+        }
         .task { if !hasLoaded { await load() } }
     }
 
@@ -80,10 +90,8 @@ struct BookingsListView: View {
             ScrollView {
                 LazyVStack(spacing: 12) {
                     ForEach(filteredBookings) { booking in
-                        NavigationLink {
-                            BookingDetailView(bookingId: booking.id) {
-                                Task { await load() }
-                            }
+                        Button {
+                            selectedBooking = booking
                         } label: {
                             BookingRow(booking: booking)
                         }
@@ -224,6 +232,196 @@ private struct BookingEmptyState: View {
     }
 }
 
+private enum BookingDrawerTab: String, CaseIterable, Identifiable {
+    case approval
+    case client
+    case bookingFinance
+    case paymentStaff
+
+    var id: String { rawValue }
+
+    var title: String {
+        switch self {
+        case .approval: return "Approval"
+        case .client: return "Client Details"
+        case .bookingFinance: return "Booking & Finance"
+        case .paymentStaff: return "Payment & Staff"
+        }
+    }
+}
+
+private struct BookingDrawerGrid<Content: View>: View {
+    @ViewBuilder let content: Content
+
+    var body: some View {
+        LazyVGrid(columns: [
+            GridItem(.flexible(), spacing: 14),
+            GridItem(.flexible(), spacing: 14)
+        ], alignment: .leading, spacing: 16) {
+            content
+        }
+        .padding(16)
+        .background(Color(hex: 0xF8FAFC))
+    }
+}
+
+private struct BookingDrawerGridItem: View {
+    let title: String
+    let value: String?
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 2) {
+            Text(title)
+                .font(.system(size: 13, weight: .medium))
+                .foregroundStyle(Color(hex: 0x667085))
+                .lineLimit(2)
+            Text(value?.nilIfBlank ?? "-")
+                .font(.system(size: 14, weight: .medium))
+                .foregroundStyle(Color(hex: 0x344054))
+                .lineLimit(2)
+                .minimumScaleFactor(0.75)
+        }
+        .frame(maxWidth: .infinity, alignment: .leading)
+    }
+}
+
+private struct BookingDrawerEditDraft {
+    var clientName = ""
+    var mobileNumber = ""
+    var title = ""
+    var fatherSpouseName = ""
+    var dateOfBirth = ""
+    var anniversaryDate = ""
+    var alternateNumbers = ""
+    var whatsappNumber = ""
+    var email = ""
+    var nationality = ""
+    var homeAddress = ""
+    var pincode = ""
+    var state = ""
+    var district = ""
+    var location = ""
+    var bookingDate = ""
+    var bookingType = ""
+    var bookingMode = ""
+    var bookingCost = ""
+    var guidelineValue = ""
+    var advanceAmount = ""
+    var registrationCharges = ""
+    var gstAmount = ""
+    var documentCharges = ""
+    var pattaCharges = ""
+    var otherCharges = ""
+    var paymentMode = ""
+    var profession = ""
+    var designation = ""
+    var incomePerAnnum = ""
+    var officeName = ""
+    var officeEmail = ""
+    var officeMobile = ""
+    var officePhone = ""
+    var officeAddress = ""
+    var notes = ""
+
+    init() {}
+
+    init(booking: AppBooking) {
+        clientName = booking.clientName ?? ""
+        mobileNumber = booking.mobileNumber ?? ""
+        title = booking.title ?? ""
+        fatherSpouseName = booking.fatherSpouseName ?? ""
+        dateOfBirth = booking.dateOfBirth ?? ""
+        anniversaryDate = booking.anniversaryDate ?? ""
+        alternateNumbers = booking.alternateNumbers ?? ""
+        whatsappNumber = booking.whatsappNumber ?? ""
+        email = booking.email ?? ""
+        nationality = booking.nationality ?? ""
+        homeAddress = booking.homeAddress ?? ""
+        pincode = booking.pincode ?? ""
+        state = booking.state ?? ""
+        district = booking.district ?? ""
+        location = booking.location ?? ""
+        bookingDate = booking.bookingDate ?? ""
+        bookingType = booking.bookingType ?? ""
+        bookingMode = booking.bookingMode ?? ""
+        bookingCost = Self.numberText(booking.bookingCost)
+        guidelineValue = Self.numberText(booking.guidelineValue)
+        advanceAmount = Self.numberText(booking.advanceAmount)
+        registrationCharges = Self.numberText(booking.registrationCharges)
+        gstAmount = Self.numberText(booking.gstAmount)
+        documentCharges = Self.numberText(booking.documentCharges)
+        pattaCharges = Self.numberText(booking.pattaCharges)
+        otherCharges = Self.numberText(booking.otherCharges)
+        paymentMode = booking.paymentMode ?? booking.bookingMode ?? ""
+        profession = booking.profession ?? ""
+        designation = booking.designation ?? ""
+        incomePerAnnum = booking.incomePerAnnum ?? ""
+        officeName = booking.officeName ?? ""
+        officeEmail = booking.officeEmail ?? ""
+        officeMobile = booking.officeMobile ?? ""
+        officePhone = booking.officePhone ?? ""
+        officeAddress = booking.officeAddress ?? ""
+        notes = booking.notes ?? ""
+    }
+
+    func updateRequest(id: String) -> UpdateBookingRequest {
+        UpdateBookingRequest(
+            id: id,
+            clientName: clientName.nilIfBlank,
+            mobileNumber: AppModuleFormatters.normalizePhone(mobileNumber).nilIfBlank,
+            bookingDate: bookingDate.nilIfBlank,
+            bookingCost: Self.doubleValue(bookingCost),
+            advanceAmount: Self.doubleValue(advanceAmount),
+            notes: notes.nilIfBlank,
+            title: title.nilIfBlank,
+            fatherSpouseName: fatherSpouseName.nilIfBlank,
+            dateOfBirth: dateOfBirth.nilIfBlank,
+            anniversaryDate: anniversaryDate.nilIfBlank,
+            alternateNumbers: AppModuleFormatters.normalizePhone(alternateNumbers).nilIfBlank,
+            whatsappNumber: AppModuleFormatters.normalizePhone(whatsappNumber).nilIfBlank,
+            email: email.nilIfBlank,
+            nationality: nationality.nilIfBlank,
+            homeAddress: homeAddress.nilIfBlank,
+            pincode: pincode.nilIfBlank,
+            state: state.nilIfBlank,
+            district: district.nilIfBlank,
+            location: location.nilIfBlank,
+            profession: profession.nilIfBlank,
+            designation: designation.nilIfBlank,
+            incomePerAnnum: incomePerAnnum.nilIfBlank,
+            officeName: officeName.nilIfBlank,
+            officeEmail: officeEmail.nilIfBlank,
+            officeMobile: AppModuleFormatters.normalizePhone(officeMobile).nilIfBlank,
+            officePhone: AppModuleFormatters.normalizePhone(officePhone).nilIfBlank,
+            officeAddress: officeAddress.nilIfBlank,
+            bookingType: bookingType.nilIfBlank,
+            bookingMode: bookingMode.nilIfBlank,
+            guidelineValue: Self.doubleValue(guidelineValue),
+            registrationCharges: Self.doubleValue(registrationCharges),
+            gstAmount: Self.doubleValue(gstAmount),
+            documentCharges: Self.doubleValue(documentCharges),
+            pattaCharges: Self.doubleValue(pattaCharges),
+            otherCharges: Self.doubleValue(otherCharges),
+            paymentMode: paymentMode.nilIfBlank
+        )
+    }
+
+    private static func numberText(_ value: Double?) -> String {
+        guard let value else { return "" }
+        if value.rounded(.towardZero) == value {
+            return String(Int(value))
+        }
+        return String(value)
+    }
+
+    private static func doubleValue(_ value: String) -> Double? {
+        let cleaned = value
+            .replacingOccurrences(of: ",", with: "")
+            .trimmingCharacters(in: .whitespacesAndNewlines)
+        return cleaned.isEmpty ? nil : Double(cleaned)
+    }
+}
+
 private struct BookingSkeletonCard: View {
     var body: some View {
         VStack(alignment: .leading, spacing: 10) {
@@ -258,14 +456,17 @@ private struct BookingSkeletonCard: View {
 
 private struct BookingDetailView: View {
     @Environment(AuthStore.self) private var authStore
+    @Environment(\.dismiss) private var dismiss
     let bookingId: String
     let onChanged: () -> Void
 
     @State private var booking: AppBooking?
+    @State private var selectedTab: BookingDrawerTab = .approval
+    @State private var isEditing = false
+    @State private var editDraft = BookingDrawerEditDraft()
     @State private var isLoading = false
     @State private var isSaving = false
     @State private var errorMessage: String?
-    @State private var showEdit = false
     @State private var showReject = false
     @State private var rejectReason = ""
 
@@ -276,74 +477,24 @@ private struct BookingDetailView: View {
                     .frame(maxWidth: .infinity)
                     .padding(.top, 60)
             } else if let booking {
-                VStack(spacing: 14) {
-                    BookingDetailHero(booking: booking)
+                VStack(alignment: .leading, spacing: 16) {
+                    Capsule()
+                        .fill(Color(hex: 0xD0D5DD))
+                        .frame(width: 52, height: 5)
+                        .frame(maxWidth: .infinity)
+                        .padding(.top, 4)
 
-                    BookingDetailSection(title: "Client") {
-                        BookingDetailLine(title: "Name", value: booking.clientName)
-                        BookingDetailLine(title: "Mobile", value: booking.mobileNumber)
-                        BookingDetailLine(title: "Source", value: booking.source)
-                        BookingDetailLine(title: "Status", value: booking.displayStatus.capitalized)
-                    }
-
-                    BookingDetailSection(title: "Booking") {
-                        BookingDetailLine(title: "Reference", value: booking.bookingRefNo)
-                        BookingDetailLine(title: "Date", value: booking.bookingDate)
-                        BookingDetailLine(title: "Project", value: booking.projectName ?? booking.projectId)
-                        BookingDetailLine(title: "Plot", value: booking.plotNo)
-                        BookingDetailLine(title: "Type", value: booking.bookingType)
-                        BookingDetailLine(title: "Mode", value: booking.bookingMode)
-                    }
-
-                    BookingDetailSection(title: "Amount") {
-                        BookingDetailLine(title: "Booking cost", value: booking.bookingCost.map(AppModuleFormatters.rupees))
-                        BookingDetailLine(title: "Advance", value: booking.advanceAmount.map(AppModuleFormatters.rupees))
-                        BookingDetailLine(title: "Balance", value: booking.balanceAmount.map(AppModuleFormatters.rupees))
-                    }
-
-                    if let notes = booking.notes?.nilIfBlank {
-                        BookingDetailSection(title: "Notes") {
-                            Text(notes)
-                                .font(.system(size: 13))
-                                .foregroundStyle(Color(hex: 0x475467))
-                                .frame(maxWidth: .infinity, alignment: .leading)
-                        }
-                    }
-
-                    VStack(spacing: 10) {
-                        Button("Update Booking") { showEdit = true }
-                            .buttonStyle(.borderedProminent)
-                            .frame(maxWidth: .infinity)
-                        Button("Approve Booking") { Task { await approve() } }
-                            .buttonStyle(.bordered)
-                            .disabled(isSaving)
-                            .frame(maxWidth: .infinity)
-                        Button("Reject Booking", role: .destructive) { showReject = true }
-                            .buttonStyle(.bordered)
-                            .disabled(isSaving)
-                            .frame(maxWidth: .infinity)
-                    }
-                    .controlSize(.large)
-                    .padding(.top, 2)
+                    bookingDrawerHeader(booking)
+                    bookingDrawerTabs
+                    bookingDrawerBody(booking)
                 }
-                .padding(16)
+                .padding(.horizontal, 16)
+                .padding(.bottom, 28)
             }
         }
-        .background(Color(hex: 0xF1F3F8).ignoresSafeArea())
-        .navigationTitle("Booking Detail")
-        .navigationBarTitleDisplayMode(.inline)
+        .background(Color.white.ignoresSafeArea())
         .task { await load() }
         .refreshable { await load() }
-        .sheet(isPresented: $showEdit) {
-            if let booking {
-                BookingUpdateSheet(booking: booking) {
-                    showEdit = false
-                    await load()
-                    onChanged()
-                }
-                .environment(authStore)
-            }
-        }
         .alert("Reject Booking", isPresented: $showReject) {
             TextField("Reason", text: $rejectReason)
             Button("Cancel", role: .cancel) { rejectReason = "" }
@@ -363,6 +514,240 @@ private struct BookingDetailView: View {
         }
     }
 
+    private func bookingDrawerHeader(_ booking: AppBooking) -> some View {
+        HStack(alignment: .center, spacing: 12) {
+            VStack(alignment: .leading, spacing: 3) {
+                Text(booking.bookingRefNo?.nilIfBlank ?? "Booking")
+                    .font(.system(size: 22, weight: .bold))
+                    .foregroundStyle(Color(hex: 0x101828))
+                    .lineLimit(1)
+                    .minimumScaleFactor(0.75)
+
+                Text([
+                    booking.clientName?.nilIfBlank,
+                    booking.projectName?.nilIfBlank ?? booking.projectId?.nilIfBlank,
+                    booking.displayStatus.nilIfBlank
+                ].compactMap { $0 }.joined(separator: " - "))
+                .font(.system(size: 14, weight: .medium))
+                .foregroundStyle(Color(hex: 0x667085))
+                .lineLimit(1)
+            }
+
+            Spacer(minLength: 8)
+
+            Button(isEditing ? "View" : "Edit") {
+                if !isEditing {
+                    editDraft = BookingDrawerEditDraft(booking: booking)
+                }
+                isEditing.toggle()
+            }
+            .font(.system(size: 14, weight: .semibold))
+            .buttonStyle(.plain)
+            .foregroundStyle(Color(hex: 0x0B61CA))
+
+            Button("Close") {
+                dismiss()
+            }
+            .font(.system(size: 14, weight: .semibold))
+            .buttonStyle(.bordered)
+            .controlSize(.large)
+            .tint(Color(hex: 0x667085))
+        }
+    }
+
+    private var bookingDrawerTabs: some View {
+        ScrollView(.horizontal, showsIndicators: false) {
+            HStack(spacing: 8) {
+                ForEach(BookingDrawerTab.allCases) { tab in
+                    Button {
+                        selectedTab = tab
+                    } label: {
+                        Text(tab.title)
+                            .font(.system(size: 14, weight: .semibold))
+                            .foregroundStyle(selectedTab == tab ? .white : Color(hex: 0x475467))
+                            .padding(.horizontal, 16)
+                            .frame(height: 44)
+                            .background(selectedTab == tab ? Color(hex: 0x0B61CA) : Color(hex: 0xF2F4F7))
+                    }
+                    .buttonStyle(.plain)
+                }
+            }
+        }
+    }
+
+    @ViewBuilder
+    private func bookingDrawerBody(_ booking: AppBooking) -> some View {
+        switch selectedTab {
+        case .approval:
+            approvalTab(booking)
+        case .client:
+            clientTab(booking)
+        case .bookingFinance:
+            bookingFinanceTab(booking)
+        case .paymentStaff:
+            paymentStaffTab(booking)
+        }
+    }
+
+    private func approvalTab(_ booking: AppBooking) -> some View {
+        VStack(alignment: .leading, spacing: 16) {
+            BookingDrawerGrid {
+                BookingDrawerGridItem(title: "Client", value: booking.clientName)
+                BookingDrawerGridItem(title: "Mobile", value: booking.mobileNumber)
+                BookingDrawerGridItem(title: "Project", value: booking.projectName ?? booking.projectId)
+                BookingDrawerGridItem(title: "Plot", value: booking.plotNo)
+                BookingDrawerGridItem(title: "Status", value: booking.displayStatus.capitalized)
+                BookingDrawerGridItem(title: "Approval Stage", value: booking.approvalStatus)
+                BookingDrawerGridItem(title: "Agreed Amount", value: booking.bookingCost.map(AppModuleFormatters.rupees))
+                BookingDrawerGridItem(title: "Advance", value: booking.advanceAmount.map(AppModuleFormatters.rupees))
+                BookingDrawerGridItem(title: "Telecaller", value: "-")
+                BookingDrawerGridItem(title: "Source AVP", value: "-")
+            }
+
+            VStack(alignment: .leading, spacing: 10) {
+                Text("Approval Timeline")
+                    .font(.system(size: 16, weight: .bold))
+                    .foregroundStyle(Color(hex: 0x101828))
+                Text(booking.displayStatus.lowercased().contains("draft")
+                     ? "Approval starts when the draft is submitted for confirmation."
+                     : "Approval status will update as managers review this booking.")
+                    .font(.system(size: 14))
+                    .foregroundStyle(Color(hex: 0x667085))
+            }
+
+            if !booking.displayStatus.lowercased().contains("draft") {
+                HStack(spacing: 10) {
+                    Button("Approve") { Task { await approve() } }
+                        .buttonStyle(.borderedProminent)
+                        .tint(Color(hex: 0x0B61CA))
+                    Button("Reject", role: .destructive) { showReject = true }
+                        .buttonStyle(.bordered)
+                }
+                .controlSize(.large)
+                .disabled(isSaving)
+            }
+        }
+    }
+
+    private func clientTab(_ booking: AppBooking) -> some View {
+        VStack(alignment: .leading, spacing: 18) {
+            drawerField("Mobile Number", text: $editDraft.mobileNumber, value: booking.mobileNumber, keyboard: .phonePad)
+            drawerField("Title", text: $editDraft.title, value: booking.title)
+            drawerField("Client Name", text: $editDraft.clientName, value: booking.clientName)
+            drawerField("Father / Spouse Name", text: $editDraft.fatherSpouseName, value: booking.fatherSpouseName)
+            drawerField("Date of Birth", text: $editDraft.dateOfBirth, value: booking.dateOfBirth)
+            drawerField("Anniversary Date", text: $editDraft.anniversaryDate, value: booking.anniversaryDate)
+            drawerField("Alternate Numbers", text: $editDraft.alternateNumbers, value: booking.alternateNumbers, keyboard: .phonePad)
+            drawerField("WhatsApp Number", text: $editDraft.whatsappNumber, value: booking.whatsappNumber, keyboard: .phonePad)
+            drawerField("Email", text: $editDraft.email, value: booking.email, keyboard: .emailAddress)
+            drawerField("Nationality", text: $editDraft.nationality, value: booking.nationality)
+            drawerField("Home Address", text: $editDraft.homeAddress, value: booking.homeAddress, axis: .vertical)
+            drawerField("Pincode", text: $editDraft.pincode, value: booking.pincode, keyboard: .numberPad)
+            drawerField("State", text: $editDraft.state, value: booking.state)
+            drawerField("District", text: $editDraft.district, value: booking.district)
+            drawerField("Location", text: $editDraft.location, value: booking.location)
+            saveChangesButton
+        }
+    }
+
+    private func bookingFinanceTab(_ booking: AppBooking) -> some View {
+        VStack(alignment: .leading, spacing: 18) {
+            drawerField("Booking Reference", text: .constant(booking.bookingRefNo ?? ""), value: booking.bookingRefNo, editableOverride: false)
+            drawerField("Booking Date", text: $editDraft.bookingDate, value: booking.bookingDate)
+            drawerField("Project", text: .constant(booking.projectName ?? booking.projectId ?? ""), value: booking.projectName ?? booking.projectId, editableOverride: false)
+            drawerField("Plot", text: .constant(booking.plotNo ?? ""), value: booking.plotNo, editableOverride: false)
+            drawerField("Booking Type", text: $editDraft.bookingType, value: booking.bookingType)
+            drawerField("Booking Mode", text: $editDraft.bookingMode, value: booking.bookingMode)
+            drawerField("Booking Cost", text: $editDraft.bookingCost, value: booking.bookingCost.map(AppModuleFormatters.rupees), keyboard: .decimalPad)
+            drawerField("Guideline Value", text: $editDraft.guidelineValue, value: booking.guidelineValue.map(AppModuleFormatters.rupees), keyboard: .decimalPad)
+            drawerField("Advance Amount", text: $editDraft.advanceAmount, value: booking.advanceAmount.map(AppModuleFormatters.rupees), keyboard: .decimalPad)
+            saveChangesButton
+        }
+    }
+
+    private func paymentStaffTab(_ booking: AppBooking) -> some View {
+        VStack(alignment: .leading, spacing: 18) {
+            drawerField("Registration Charges", text: $editDraft.registrationCharges, value: booking.registrationCharges.map(AppModuleFormatters.rupees), keyboard: .decimalPad)
+            drawerField("GST Amount", text: $editDraft.gstAmount, value: booking.gstAmount.map(AppModuleFormatters.rupees), keyboard: .decimalPad)
+            drawerField("Document Charges", text: $editDraft.documentCharges, value: booking.documentCharges.map(AppModuleFormatters.rupees), keyboard: .decimalPad)
+            drawerField("Patta Charges", text: $editDraft.pattaCharges, value: booking.pattaCharges.map(AppModuleFormatters.rupees), keyboard: .decimalPad)
+            drawerField("Other Charges", text: $editDraft.otherCharges, value: booking.otherCharges.map(AppModuleFormatters.rupees), keyboard: .decimalPad)
+            drawerField("Payment Mode", text: $editDraft.paymentMode, value: booking.paymentMode ?? booking.bookingMode)
+            drawerField("Profession", text: $editDraft.profession, value: booking.profession)
+            drawerField("Designation", text: $editDraft.designation, value: booking.designation)
+            drawerField("Income Per Annum", text: $editDraft.incomePerAnnum, value: booking.incomePerAnnum, keyboard: .decimalPad)
+            drawerField("Office Name", text: $editDraft.officeName, value: booking.officeName)
+            drawerField("Office Email", text: $editDraft.officeEmail, value: booking.officeEmail, keyboard: .emailAddress)
+            drawerField("Office Mobile", text: $editDraft.officeMobile, value: booking.officeMobile, keyboard: .phonePad)
+            drawerField("Office Phone", text: $editDraft.officePhone, value: booking.officePhone, keyboard: .phonePad)
+            drawerField("Office Address", text: $editDraft.officeAddress, value: booking.officeAddress, axis: .vertical)
+            drawerField("Notes", text: $editDraft.notes, value: booking.notes, axis: .vertical)
+            saveChangesButton
+        }
+    }
+
+    private func drawerField(
+        _ title: String,
+        text: Binding<String>,
+        value: String?,
+        keyboard: UIKeyboardType = .default,
+        axis: Axis = .horizontal,
+        editableOverride: Bool? = nil
+    ) -> some View {
+        let editable = editableOverride ?? isEditing
+        return VStack(alignment: .leading, spacing: 10) {
+            Text(title)
+                .font(.system(size: 16, weight: .medium))
+                .foregroundStyle(Color(hex: 0x667085))
+            if editable {
+                TextField(title, text: text, axis: axis)
+                    .font(.system(size: 19, weight: .regular))
+                    .foregroundStyle(Color(hex: 0x1D2939))
+                    .keyboardType(keyboard)
+                    .textInputAutocapitalization(keyboard == .default ? .words : .never)
+                    .autocorrectionDisabled(keyboard != .default)
+                    .lineLimit(axis == .vertical ? 3...6 : 1...1)
+                    .padding(.horizontal, 16)
+                    .frame(minHeight: axis == .vertical ? 82 : 54)
+                    .background(Color.white, in: RoundedRectangle(cornerRadius: 12))
+                    .overlay(RoundedRectangle(cornerRadius: 12).stroke(Color(hex: 0xD0D5DD), lineWidth: 1))
+            } else {
+                Text(value?.nilIfBlank ?? "-")
+                    .font(.system(size: 20, weight: .regular))
+                    .foregroundStyle(Color(hex: 0x1D2939))
+                    .padding(.leading, 24)
+                    .frame(maxWidth: .infinity, alignment: .leading)
+                    .frame(minHeight: 36)
+            }
+        }
+    }
+
+    @ViewBuilder
+    private var saveChangesButton: some View {
+        if isEditing {
+            HStack {
+                Spacer()
+                Button {
+                    Task { await saveDrawerChanges() }
+                } label: {
+                    if isSaving {
+                        ProgressView()
+                            .frame(width: 150)
+                    } else {
+                        Text("Save Changes")
+                            .font(.system(size: 16, weight: .semibold))
+                            .frame(width: 150)
+                    }
+                }
+                .buttonStyle(.borderedProminent)
+                .controlSize(.large)
+                .tint(Color(hex: 0x0B61CA))
+                .disabled(isSaving)
+            }
+            .padding(.top, 12)
+        }
+    }
+
     @MainActor
     private func load() async {
         guard let token = authStore.currentSession?.token else { return }
@@ -370,6 +755,27 @@ private struct BookingDetailView: View {
         defer { isLoading = false }
         do {
             booking = try await MarketingConvexAPIService.getBooking(token: token, id: bookingId)
+            if let booking, !isEditing {
+                editDraft = BookingDrawerEditDraft(booking: booking)
+            }
+        } catch {
+            errorMessage = error.localizedDescription
+        }
+    }
+
+    @MainActor
+    private func saveDrawerChanges() async {
+        guard let token = authStore.currentSession?.token, let booking else { return }
+        isSaving = true
+        defer { isSaving = false }
+        do {
+            try await MarketingConvexAPIService.updateBooking(
+                token: token,
+                request: editDraft.updateRequest(id: booking.id)
+            )
+            isEditing = false
+            await load()
+            onChanged()
         } catch {
             errorMessage = error.localizedDescription
         }

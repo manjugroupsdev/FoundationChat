@@ -190,12 +190,17 @@ private struct AppLibraryTableSection: View {
 
             VStack(spacing: 0) {
                 ForEach(Array(section.items.enumerated()), id: \.element.id) { index, item in
-                    NavigationLink {
-                        item.destination.view
-                    } label: {
+                    if item.isComingSoon {
                         NativeAppLibraryRow(item: item)
+                            .opacity(0.9)
+                    } else {
+                        NavigationLink {
+                            item.destination.view
+                        } label: {
+                            NativeAppLibraryRow(item: item)
+                        }
+                        .buttonStyle(.plain)
                     }
-                    .buttonStyle(.plain)
 
                     if index != section.items.count - 1 {
                         Divider()
@@ -226,9 +231,22 @@ private struct NativeAppLibraryRow: View {
 
             Spacer(minLength: 8)
 
-            Image(systemName: "chevron.right")
-                .font(AppModuleFont.rowMetaSemibold)
-                .foregroundStyle(Color(.tertiaryLabel))
+            if item.isComingSoon {
+                Text("Coming soon")
+                    .font(.system(size: 12, weight: .semibold))
+                    .foregroundStyle(Color(hex: 0xB54708))
+                    .padding(.horizontal, 12)
+                    .frame(height: 28)
+                    .background(Color(hex: 0xFEF0C7), in: Capsule())
+                    .overlay(
+                        Capsule()
+                            .stroke(Color(hex: 0xFEDF89), lineWidth: 1)
+                    )
+            } else {
+                Image(systemName: "chevron.right")
+                    .font(AppModuleFont.rowMetaSemibold)
+                    .foregroundStyle(Color(.tertiaryLabel))
+            }
         }
         .padding(.vertical, 12)
         .contentShape(Rectangle())
@@ -327,7 +345,7 @@ private struct AppLibrarySection: Identifiable {
                 ? .init(title: "Leads", icon: "AppLibraryIconAppsLeads", destination: .leads)
                 : nil,
             canAny(["telecaller.dialer.view", "dialer.view", "marketing.view"])
-                ? .init(title: "Dialer", icon: "AppLibraryIconAppsLeads", destination: .dialer)
+                ? .init(title: "Dialer", icon: "AppLibraryIconAppsLeads", destination: .dialer, isComingSoon: true)
                 : nil,
             canAny(["projects.view", "marketing.inventory.view", "inventory.view", "marketing.view"])
                 ? .init(title: "Inventory", icon: "AppLibraryIconAppsFieldVisits", destination: .inventory)
@@ -409,6 +427,7 @@ private struct AppLibraryItem: Identifiable {
     let title: String
     let icon: String
     let destination: AppLibraryDestination
+    var isComingSoon = false
 }
 
 private enum AppLibraryDestination {
