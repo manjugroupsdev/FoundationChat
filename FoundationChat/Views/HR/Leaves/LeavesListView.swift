@@ -181,11 +181,17 @@ struct LeavesListView: View {
     }
 
     private var totalLeaveAvailable: Double {
-        (balance?.casualRemaining ?? 0) + (balance?.sickRemaining ?? 0) + (balance?.earnedRemaining ?? 0)
+        let casualRemaining = balance?.casualRemaining ?? 0
+        let sickRemaining = balance?.sickRemaining ?? 0
+        let earnedRemaining = balance?.earnedRemaining ?? 0
+        return casualRemaining + sickRemaining + earnedRemaining
     }
 
     private var totalLeaveUsed: Double {
-        (balance?.casualUsed ?? 0) + (balance?.sickUsed ?? 0) + (balance?.earnedUsed ?? 0)
+        let casualUsed = balance?.casualUsed ?? 0
+        let sickUsed = balance?.sickUsed ?? 0
+        let earnedUsed = balance?.earnedUsed ?? 0
+        return casualUsed + sickUsed + earnedUsed
     }
 
     private func leaveMetric(_ title: String, value: Int, dot: Color) -> some View {
