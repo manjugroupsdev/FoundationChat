@@ -43,12 +43,14 @@ enum HRConvexAPIService {
 
     static func applyLeave(
         token: String, leaveType: String, fromDate: String, toDate: String,
-        reason: String, reportingToId: String? = nil, reportingToName: String? = nil
+        reason: String, duration: String? = nil,
+        reportingToId: String? = nil, reportingToName: String? = nil
     ) async throws -> String {
         var body: [String: Any] = [
             "leaveType": leaveType, "fromDate": fromDate,
             "toDate": toDate, "reason": reason
         ]
+        if let duration { body["duration"] = duration }
         if let reportingToId { body["reportingToId"] = reportingToId }
         if let reportingToName { body["reportingToName"] = reportingToName }
         let data = try await post(path: "/api/hr/leaves/apply", token: token, jsonBody: body)
@@ -267,6 +269,13 @@ enum HRConvexAPIService {
         guard wrapper.success else { throw HRConvexAPIError.server(wrapper.error ?? "Failed to reject") }
     }
 
+    static func cancelMyAttendance(token: String, date: String) async throws {
+        let body: [String: Any] = ["date": date]
+        let data = try await post(path: "/api/hr/attendance/cancel", token: token, jsonBody: body)
+        let wrapper = try decode(GenericSuccessResponse.self, from: data)
+        guard wrapper.success else { throw HRConvexAPIError.server(wrapper.error ?? "Failed to withdraw attendance") }
+    }
+
     // MARK: - Marketing / Site Visits
 
     private struct MySiteVisitsResponse: Decodable {
@@ -467,6 +476,13 @@ enum HRConvexAPIService {
         let error: String?
     }
 
+    private struct ProfilePhotoResponse: Decodable {
+        let success: Bool
+        let staff: AuthUser?
+        let user: AuthUser?
+        let error: String?
+    }
+
     /// `POST /api/staff/me/update` — update own profile. Mirrors Android `updateMyProfile`.
     /// Returns the refreshed `AuthUser` snapshot when the server includes one.
     static func updateMyProfile(
@@ -485,6 +501,37 @@ enum HRConvexAPIService {
         let wrapper = try decode(UpdateMyProfileResponse.self, from: data)
         guard wrapper.success else {
             throw HRConvexAPIError.server(wrapper.error ?? "Failed to update profile")
+        }
+        return wrapper.staff ?? wrapper.user
+    }
+
+    /// `POST /api/hr/staff/me/profile-photo` — set own profile photo storage id.
+    static func setMyProfilePhoto(token: String, storageId: String) async throws -> AuthUser? {
+        let data = try await post(
+            path: "/api/hr/staff/me/profile-photo",
+            token: token,
+            jsonBody: ["storageId": storageId]
+        )
+        let wrapper = try decode(ProfilePhotoResponse.self, from: data)
+        guard wrapper.success else {
+            throw HRConvexAPIError.server(wrapper.error ?? "Failed to update profile photo")
+        }
+        return wrapper.staff ?? wrapper.user
+    }
+
+    /// `DELETE /api/hr/staff/me/profile-photo` — remove own profile photo.
+    static func deleteMyProfilePhoto(token: String) async throws -> AuthUser? {
+        guard let url = URL(string: "\(baseURL)/api/hr/staff/me/profile-photo") else {
+            throw HRConvexAPIError.badURL
+        }
+        var request = URLRequest(url: url)
+        request.httpMethod = "DELETE"
+        request.setValue("Bearer \(token)", forHTTPHeaderField: "Authorization")
+        let (data, response) = try await URLSession.shared.data(for: request)
+        try checkHTTPError(data: data, response: response)
+        let wrapper = try decode(ProfilePhotoResponse.self, from: data)
+        guard wrapper.success else {
+            throw HRConvexAPIError.server(wrapper.error ?? "Failed to remove profile photo")
         }
         return wrapper.staff ?? wrapper.user
     }
@@ -526,6 +573,7 @@ enum HRConvexAPIService {
     private static func checkHTTPError(data: Data, response: URLResponse) throws {
         guard let http = response as? HTTPURLResponse else { return }
         if http.statusCode == 401 {
+            SessionInvalidationBus.emit()
             if let json = try? JSONSerialization.jsonObject(with: data) as? [String: Any],
                let error = json["error"] as? String {
                 throw HRConvexAPIError.unauthorized(error)

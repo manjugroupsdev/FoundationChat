@@ -10,7 +10,11 @@ struct GeoTrackAssignedPlacesView: View {
     @State private var showCreateSheet = false
     @State private var selectedPlace: GeoTrackAssignedPlace?
     @State private var placeToNavigate: GeoTrackAssignedPlace?
+    @State private var suggestionToNavigate: GeoTrackPlaceSuggestion?
     @State private var searchText = ""
+    @State private var serverSearchResults: [GeoTrackPlaceSuggestion] = []
+    @State private var isSearchingServer = false
+    @State private var searchTask: Task<Void, Never>?
 
     private let geoAPI = GeoTrackAPIService.shared
 
@@ -34,22 +38,48 @@ struct GeoTrackAssignedPlacesView: View {
                     systemImage: "exclamationmark.triangle",
                     description: Text(error)
                 )
-            } else if filtered.isEmpty {
+            } else if filtered.isEmpty && serverSearchResults.isEmpty && !isSearchingServer {
                 ContentUnavailableView(
                     "No Places",
                     systemImage: "building.2",
                     description: Text("Assigned client places will appear here.")
                 )
             } else {
-                List(filtered) { place in
-                    PlaceRow(
-                        place: place,
-                        onScheduleVisit: {
-                            selectedPlace = place
-                            showCreateSheet = true
-                        },
-                        onVisitNow: { placeToNavigate = place }
-                    )
+                List {
+                    if !filtered.isEmpty {
+                        Section(searchText.isEmpty ? "Assigned Places" : "Assigned Matches") {
+                            ForEach(filtered) { place in
+                                PlaceRow(
+                                    place: place,
+                                    onScheduleVisit: {
+                                        selectedPlace = place
+                                        showCreateSheet = true
+                                    },
+                                    onVisitNow: { placeToNavigate = place }
+                                )
+                            }
+                        }
+                    }
+
+                    if isSearchingServer {
+                        Section("Search") {
+                            HStack {
+                                ProgressView().controlSize(.small)
+                                Text("Searching places…")
+                                    .font(.caption)
+                                    .foregroundStyle(.secondary)
+                            }
+                        }
+                    } else if !serverSearchResults.isEmpty {
+                        Section("Place Search") {
+                            ForEach(serverSearchResults) { suggestion in
+                                PlaceSuggestionRow(
+                                    suggestion: suggestion,
+                                    onVisitNow: { suggestionToNavigate = suggestion }
+                                )
+                            }
+                        }
+                    }
                 }
                 .listStyle(.plain)
                 .searchable(text: $searchText, prompt: "Search places")
@@ -59,6 +89,20 @@ struct GeoTrackAssignedPlacesView: View {
         .navigationBarTitleDisplayMode(.inline)
         .refreshable { await load() }
         .task { await load() }
+        .onChange(of: searchText) { _, value in
+            searchTask?.cancel()
+            let trimmed = value.trimmingCharacters(in: .whitespacesAndNewlines)
+            guard trimmed.count >= 2 else {
+                serverSearchResults = []
+                isSearchingServer = false
+                return
+            }
+            searchTask = Task {
+                try? await Task.sleep(for: .milliseconds(300))
+                guard !Task.isCancelled else { return }
+                await searchPlaces(trimmed)
+            }
+        }
         .sheet(isPresented: $showCreateSheet) {
             if let place = selectedPlace {
                 CreateVisitSheet(place: place, onCreated: {
@@ -71,13 +115,34 @@ struct GeoTrackAssignedPlacesView: View {
                 placeId: place.id,
                 placeName: place.name,
                 placeAddress: place.address,
-                destination: coordinate(for: place)
+                destination: coordinate(for: place),
+                requiresOpenAttendance: true,
+                onTripChanged: {
+                    Task { await load() }
+                }
+            )
+        }
+        .fullScreenCover(item: $suggestionToNavigate) { suggestion in
+            TripNavigationView(
+                placeId: suggestion.id,
+                placeName: suggestion.name,
+                placeAddress: suggestion.address,
+                destination: coordinate(for: suggestion),
+                requiresOpenAttendance: true,
+                onTripChanged: {
+                    Task { await load() }
+                }
             )
         }
     }
 
     private func coordinate(for place: GeoTrackAssignedPlace) -> CLLocationCoordinate2D? {
         guard let lat = place.lat, let lng = place.lng else { return nil }
+        return CLLocationCoordinate2D(latitude: lat, longitude: lng)
+    }
+
+    private func coordinate(for suggestion: GeoTrackPlaceSuggestion) -> CLLocationCoordinate2D? {
+        guard let lat = suggestion.lat, let lng = suggestion.lng else { return nil }
         return CLLocationCoordinate2D(latitude: lat, longitude: lng)
     }
 
@@ -90,6 +155,16 @@ struct GeoTrackAssignedPlacesView: View {
             errorMessage = error.localizedDescription
         }
         isLoading = false
+    }
+
+    private func searchPlaces(_ query: String) async {
+        isSearchingServer = true
+        defer { isSearchingServer = false }
+        do {
+            serverSearchResults = try await geoAPI.searchPlaces(query: query)
+        } catch {
+            serverSearchResults = []
+        }
     }
 }
 
@@ -132,6 +207,42 @@ private struct PlaceRow: View {
                 Label(contact, systemImage: "person")
                     .font(.caption)
                     .foregroundStyle(.secondary)
+            }
+
+            Button(action: onVisitNow) {
+                Label("Visit Now", systemImage: "location.north.circle.fill")
+                    .frame(maxWidth: .infinity)
+            }
+            .buttonStyle(.bordered)
+            .tint(.green)
+            .font(.caption.weight(.semibold))
+        }
+        .padding(.vertical, 4)
+    }
+}
+
+// MARK: - PlaceSuggestionRow
+
+private struct PlaceSuggestionRow: View {
+    let suggestion: GeoTrackPlaceSuggestion
+    let onVisitNow: () -> Void
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 8) {
+            HStack(alignment: .top) {
+                VStack(alignment: .leading, spacing: 2) {
+                    Text(suggestion.name)
+                        .font(.subheadline.weight(.semibold))
+                    if let address = suggestion.address, !address.isEmpty {
+                        Text(address)
+                            .font(.caption)
+                            .foregroundStyle(.secondary)
+                            .lineLimit(2)
+                    }
+                }
+                Spacer()
+                Image(systemName: "magnifyingglass.circle.fill")
+                    .foregroundStyle(.blue)
             }
 
             Button(action: onVisitNow) {

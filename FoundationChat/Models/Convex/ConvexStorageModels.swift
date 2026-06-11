@@ -37,6 +37,32 @@ struct MessageReactionInfo: Decodable, Identifiable, Equatable, Sendable {
     let hasReacted: Bool
 
     var id: String { emoji }
+
+    private enum CodingKeys: String, CodingKey {
+        case emoji
+        case count
+        case users
+        case hasReacted
+        case staffIds
+        case mine
+    }
+
+    init(from decoder: Decoder) throws {
+        let container = try decoder.container(keyedBy: CodingKeys.self)
+        emoji = try container.decode(String.self, forKey: .emoji)
+        count = try container.decodeIfPresent(Int.self, forKey: .count) ?? 0
+        users = try container.decodeIfPresent([ReactionUser].self, forKey: .users) ?? []
+        hasReacted = try container.decodeIfPresent(Bool.self, forKey: .hasReacted)
+            ?? container.decodeIfPresent(Bool.self, forKey: .mine)
+            ?? false
+    }
+
+    init(emoji: String, count: Int, users: [ReactionUser] = [], hasReacted: Bool = false) {
+        self.emoji = emoji
+        self.count = count
+        self.users = users
+        self.hasReacted = hasReacted
+    }
 }
 
 struct MessageReactionResult: Decodable, Sendable {
@@ -141,6 +167,28 @@ struct TypingUser: Decodable, Identifiable, Equatable, Sendable {
     var stackUserId: String { staffId }
     var name: String? { staffName }
     var displayName: String { staffName ?? staffId }
+
+    private enum CodingKeys: String, CodingKey {
+        case staffId
+        case stackUserId
+        case id
+        case staffName
+        case name
+        case displayName
+        case expiresAt
+    }
+
+    init(from decoder: Decoder) throws {
+        let container = try decoder.container(keyedBy: CodingKeys.self)
+        staffId = try container.decodeIfPresent(String.self, forKey: .staffId)
+            ?? container.decodeIfPresent(String.self, forKey: .stackUserId)
+            ?? container.decodeIfPresent(String.self, forKey: .id)
+            ?? ""
+        staffName = try container.decodeIfPresent(String.self, forKey: .staffName)
+            ?? container.decodeIfPresent(String.self, forKey: .name)
+            ?? container.decodeIfPresent(String.self, forKey: .displayName)
+        expiresAt = try container.decodeIfPresent(Double.self, forKey: .expiresAt)
+    }
 }
 
 struct TypingResult: Decodable, Sendable {

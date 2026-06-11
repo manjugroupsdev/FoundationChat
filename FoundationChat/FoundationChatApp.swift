@@ -12,6 +12,9 @@ struct FoundationChatApp: App {
     @UIApplicationDelegateAdaptor(PushNotificationAppDelegate.self)
     private var pushNotificationAppDelegate
 
+    @AppStorage("app.language") private var languagePreference = ProfileLanguage.english.rawValue
+    @AppStorage("app.appearance") private var appearancePreference = ProfileAppearance.system.rawValue
+
     @State private var authStore = AuthStore()
     @State private var launchPhase: LaunchPhase
 
@@ -48,6 +51,8 @@ struct FoundationChatApp: App {
                 }
             }
             .animation(.easeInOut(duration: 0.4), value: launchPhase)
+            .environment(\.locale, Locale(identifier: languagePreference))
+            .preferredColorScheme(ProfileAppearance(rawValue: appearancePreference)?.colorScheme)
             .modelContainer(for: [Conversation.self, Message.self])
             .environment(authStore)
         }

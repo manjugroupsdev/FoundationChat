@@ -15,12 +15,41 @@ struct ConversationsListView: View {
         return "channel:\(channel.id)"
       }
     }
+
+    var selectionID: String {
+      switch self {
+      case .conversation(let conversation):
+        return "conversation:\(conversation.remoteConversationID ?? conversation.persistentModelID.id.hashValue.description)"
+      case .channel(let channel):
+        return "channel:\(channel.id)"
+      }
+    }
+
+    var title: String {
+      switch self {
+      case .conversation(let conversation):
+        return conversation.participantDisplayName ?? conversation.summary ?? "New conversation"
+      case .channel(let channel):
+        return channel.name
+      }
+    }
+
+    var unreadCount: Int {
+      switch self {
+      case .conversation(let conversation):
+        return conversation.unreadCountValue
+      case .channel(let channel):
+        return channel.unreadCountValue
+      }
+    }
   }
 
   enum ChatFilter: String, CaseIterable, Identifiable {
     case all
-    case direct
-    case channels
+    case unread
+    case groups
+    case favoriteChats
+    case directChats
 
     var id: String { rawValue }
 
@@ -28,10 +57,14 @@ struct ConversationsListView: View {
       switch self {
       case .all:
         return "All"
-      case .direct:
-        return "Direct"
-      case .channels:
-        return "Channels"
+      case .unread:
+        return "Unread"
+      case .favoriteChats:
+        return "Favourites"
+      case .groups:
+        return "Groups"
+      case .directChats:
+        return "DM"
       }
     }
   }
@@ -41,31 +74,52 @@ struct ConversationsListView: View {
   @Query private var conversations: [Conversation]
   @Binding var selectedTab: AppTab
   let openConversationID: String?
+  let openChannelID: String?
   let onOpenConversationHandled: () -> Void
+  let onOpenChannelHandled: () -> Void
 
-  @State private var path: [Conversation] = []
+  @State private var path = NavigationPath()
   @State private var searchText = ""
   @State private var selectedFilter: ChatFilter = .all
   @State private var isNewConversationSheetPresented = false
+  @State private var newConversationMode: NewConversationSheet.SelectionMode = .direct
   @State private var isCreateChannelSheetPresented = false
   @State private var channels: [ChannelSummary] = []
+  @State private var favoriteChannelIDs: Set<String> = []
+  @State private var selectedHomeItemIDs: Set<String> = []
+  @State private var longPressSelectionGuards: Set<String> = []
   @State private var conversationsSubscription: AnyCancellable?
+  @State private var conversationsRefreshTask: Task<Void, Never>?
 
   private var filteredConversations: [Conversation] {
-    let sorted = conversations.sorted(by: { $0.lastMessageTimestamp > $1.lastMessageTimestamp })
+    let remoteBackedConversations = conversations.filter {
+      guard let remoteID = $0.remoteConversationID?.trimmingCharacters(in: .whitespacesAndNewlines) else {
+        return false
+      }
+      return !remoteID.isEmpty
+    }
+    let sorted = remoteBackedConversations.sorted(by: { $0.lastMessageTimestamp > $1.lastMessageTimestamp })
     let trimmedSearch = searchText.trimmingCharacters(in: .whitespacesAndNewlines).lowercased()
 
     return sorted.filter { conversation in
+      guard hasVisibleChatActivity(conversation) else { return false }
+
+      let filterMatch: Bool
       switch selectedFilter {
-      case .all, .direct:
-        break
-      case .channels:
-        return false
+      case .all, .directChats:
+        filterMatch = true
+      case .unread:
+        filterMatch = conversation.unreadCountValue > 0
+      case .favoriteChats:
+        filterMatch = conversation.isFavorite
+      case .groups:
+        filterMatch = false
       }
 
+      guard filterMatch else { return false }
       guard !trimmedSearch.isEmpty else { return true }
 
-      let lastMessage = conversation.messages.last
+      let lastMessage = conversation.sortedMessages.last
       let haystack = [
         conversation.participantDisplayName,
         conversation.summary,
@@ -80,12 +134,42 @@ struct ConversationsListView: View {
     }
   }
 
+  private func hasVisibleChatActivity(_ conversation: Conversation) -> Bool {
+    conversation.sortedMessages.contains { message in
+      if message.role == .system {
+        return false
+      }
+
+      let hasText = !message.content.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
+      let hasAttachment = message.attachementType != nil
+        || message.attachementMimeType != nil
+        || message.attachementURL != nil
+        || message.attachementFileName != nil
+
+      return hasText || hasAttachment || message.isDeleted
+    }
+  }
+
   private var filteredChannels: [ChannelSummary] {
     let sorted = channels.sorted(by: { $0.lastMessageAt > $1.lastMessageAt })
     let trimmedSearch = searchText.trimmingCharacters(in: .whitespacesAndNewlines).lowercased()
-    guard !trimmedSearch.isEmpty else { return sorted }
 
     return sorted.filter { channel in
+      let filterMatch: Bool
+      switch selectedFilter {
+      case .all, .groups:
+        filterMatch = true
+      case .unread:
+        filterMatch = channel.unreadCountValue > 0
+      case .favoriteChats:
+        filterMatch = favoriteChannelIDs.contains(channel.id)
+      case .directChats:
+        filterMatch = false
+      }
+
+      guard filterMatch else { return false }
+      guard !trimmedSearch.isEmpty else { return true }
+
       let haystack = [
         channel.name.lowercased(),
         channel.description?.lowercased(),
@@ -100,56 +184,115 @@ struct ConversationsListView: View {
   private var allHomeItems: [HomeItem] {
     let conversationItems = filteredConversations.map(HomeItem.conversation)
     let channelItems = filteredChannels.map(HomeItem.channel)
-    return (conversationItems + channelItems).sorted { lhs, rhs in
-      lastActivityDate(for: lhs) > lastActivityDate(for: rhs)
+    return sortHomeItems(conversationItems + channelItems)
+  }
+
+  private var currentItems: [HomeItem] {
+    switch selectedFilter {
+    case .all, .unread:
+      return allHomeItems.filter { item in
+        switch item {
+        case .conversation(let conversation):
+          return selectedFilter != .unread || conversation.unreadCountValue > 0
+        case .channel(let channel):
+          return selectedFilter != .unread || channel.unreadCountValue > 0
+        }
+      }
+    case .favoriteChats:
+      return sortHomeItems(filteredConversations.map(HomeItem.conversation) + filteredChannels.map(HomeItem.channel))
+    case .groups:
+      return sortHomeItems(filteredChannels.map(HomeItem.channel))
+    case .directChats:
+      return sortHomeItems(filteredConversations.map(HomeItem.conversation))
     }
+  }
+
+  private var isSelectionMode: Bool {
+    !selectedHomeItemIDs.isEmpty
   }
 
   var body: some View {
     NavigationStack(path: $path) {
-      VStack(spacing: 10) {
-        chatFiltersBar
-          .padding(.horizontal, 16)
-          .padding(.top, 8)
+      VStack(spacing: 0) {
+        ScrollView {
+          LazyVStack(spacing: 0) {
+            chatListControls
+              .padding(.top, 8)
+              .padding(.bottom, 6)
 
-        List {
-          if selectedFilter == .channels {
-            ForEach(filteredChannels) { channel in
-              NavigationLink {
-                ChannelChatView(channel: channel)
-              } label: {
-                ChannelSummaryRow(channel: channel)
+            if currentItems.isEmpty {
+              EmptyChatState(filter: selectedFilter) {
+                switch selectedFilter {
+                case .groups:
+                  newConversationMode = .group
+                  isNewConversationSheetPresented = true
+                case .directChats:
+                  newConversationMode = .direct
+                  isNewConversationSheetPresented = true
+                case .favoriteChats:
+                  selectedFilter = .all
+                case .all, .unread:
+                  break
+                }
               }
-            }
-            .listSectionSeparator(.hidden, edges: .top)
-          } else if selectedFilter == .all {
-            ForEach(allHomeItems) { item in
-              switch item {
-              case .conversation(let conversation):
-                conversationNavigationRow(for: conversation)
-              case .channel(let channel):
-                NavigationLink {
-                  ChannelChatView(channel: channel)
-                } label: {
-                  ChannelSummaryRow(channel: channel)
+              .padding(.top, 74)
+            } else {
+              ForEach(currentItems) { item in
+                switch item {
+                case .conversation(let conversation):
+                  conversationNavigationRow(for: conversation)
+                case .channel(let channel):
+                  let item = HomeItem.channel(channel)
+                  Button {
+                    handlePrimaryTap(on: item)
+                  } label: {
+                    ChannelSummaryRow(channel: channel)
+                      .overlaySelection(
+                        isSelected: selectedHomeItemIDs.contains(item.selectionID),
+                        isSelectionMode: isSelectionMode
+                      )
+                  }
+                  .buttonStyle(.plain)
+                  .simultaneousGesture(
+                    LongPressGesture(minimumDuration: 0.45)
+                      .onEnded { _ in selectFromLongPress(item) }
+                  )
+                  .swipeActions(edge: .leading, allowsFullSwipe: false) {
+                    Button {
+                      toggleFavoriteChannel(channel.id)
+                    } label: {
+                      Label(
+                        favoriteChannelIDs.contains(channel.id) ? "Unfavorite" : "Favorite",
+                        systemImage: favoriteChannelIDs.contains(channel.id) ? "star.slash.fill" : "star.fill"
+                      )
+                    }
+                    .tint(.yellow)
+                  }
                 }
               }
             }
-            .listSectionSeparator(.hidden, edges: .top)
-          } else {
-            ForEach(filteredConversations) { conversation in
-              conversationNavigationRow(for: conversation)
-            }
-            .listSectionSeparator(.hidden, edges: .top)
           }
         }
-        .listStyle(.plain)
       }
+      .background(Color.white.ignoresSafeArea())
+      .textInputAutocapitalization(.never)
+      .autocorrectionDisabled()
       .navigationDestination(for: Conversation.self) { conversation in
         ConversationDetailView(conversation: conversation)
       }
+      .navigationDestination(for: String.self) { channelID in
+        ChannelChatView(channel: channelSummary(for: channelID))
+      }
+      .navigationTitle(isSelectionMode ? "\(selectedHomeItemIDs.count) selected" : "Chats")
+      .navigationBarTitleDisplayMode(.inline)
+      .searchable(
+        text: $searchText,
+        placement: .navigationBarDrawer(displayMode: .always),
+        prompt: "Search Chats"
+      )
       .onAppear {
         startConversationsSubscription()
+        startConversationsRefresh()
         Task {
           await loadChannels(search: searchText)
         }
@@ -157,23 +300,58 @@ struct ConversationsListView: View {
       .onDisappear {
         conversationsSubscription?.cancel()
         conversationsSubscription = nil
+        conversationsRefreshTask?.cancel()
+        conversationsRefreshTask = nil
       }
-      .navigationTitle("Chat")
-      .navigationBarTitleDisplayMode(.inline)
       .toolbar {
+        if isSelectionMode {
+          ToolbarItem(placement: .navigationBarLeading) {
+            Button("Cancel") {
+              withAnimation(.snappy) {
+                selectedHomeItemIDs.removeAll()
+              }
+            }
+          }
+        }
+
         ToolbarItem(placement: .navigationBarTrailing) {
           HStack(spacing: 12) {
+            if isSelectionMode {
+              Menu {
+                Button {
+                  toggleFavoritesForSelection()
+                } label: {
+                  Label(selectionIsAllFavorite ? "Remove Favourites" : "Add Favourites", systemImage: "star.fill")
+                }
+
+                Button(role: .destructive) {
+                  deleteSelectedConversations()
+                } label: {
+                  Label("Delete Direct Chats", systemImage: "trash")
+                }
+                .disabled(selectedConversationCount == 0)
+              } label: {
+                Image(systemName: "ellipsis")
+                  .font(.system(size: 18, weight: .semibold))
+                  .foregroundStyle(Color(red: 0.05, green: 0.38, blue: 0.79))
+                  .frame(width: 32, height: 32)
+                  .background(Color(red: 0.93, green: 0.96, blue: 1.0), in: Circle())
+              }
+              .buttonStyle(.plain)
+            } else {
             Menu {
               Button {
+                newConversationMode = .direct
                 isNewConversationSheetPresented = true
               } label: {
-                Label("New Conversation", systemImage: "message.fill")
+                Label("New Chat", systemImage: "message.fill")
               }
 
               Button {
-                selectedFilter = .channels
+                newConversationMode = .group
+                isNewConversationSheetPresented = true
               } label: {
-                Label("Open Channels", systemImage: "person.3.fill")
+                Label("Create Group", systemImage: "person.3.fill")
               }
 
               if authStore.isAdmin {
@@ -185,6 +363,8 @@ struct ConversationsListView: View {
               }
             } label: {
               Image(systemName: "plus")
+                .font(.system(size: 18, weight: .semibold))
+                .foregroundStyle(.primary)
             }
 
             NavigationLink {
@@ -192,18 +372,28 @@ struct ConversationsListView: View {
             } label: {
               ProfileAvatarView(label: authStore.currentUserLabel)
             }
+            }
           }
         }
       }
       .sheet(isPresented: $isNewConversationSheetPresented) {
-        NewConversationSheet { selectedUser in
-          try await startConversation(with: selectedUser)
-        }
+        NewConversationSheet(
+          initialMode: newConversationMode,
+          onSelectUser: { selectedUser in
+            try await startConversation(with: selectedUser)
+          },
+          onCreateGroup: { selectedUsers, groupName in
+            try await startGroupConversation(with: selectedUsers, name: groupName)
+          },
+          onCreateChannel: authStore.isAdmin ? {
+            isCreateChannelSheetPresented = true
+          } : nil
+        )
       }
       .sheet(isPresented: $isCreateChannelSheetPresented) {
         CreateChannelSheet {
           await loadChannels(search: searchText)
-          selectedFilter = .channels
+          selectedFilter = .groups
         }
       }
       .task(id: searchText) {
@@ -214,35 +404,44 @@ struct ConversationsListView: View {
         await openConversationFromPush(remoteConversationID: openConversationID)
         onOpenConversationHandled()
       }
+      .task(id: openChannelID) {
+        guard let openChannelID else { return }
+        await openChannelFromPush(channelID: openChannelID)
+        onOpenChannelHandled()
+      }
+    }
+  }
+
+  private var chatListControls: some View {
+    VStack(spacing: 14) {
+      chatFiltersBar
     }
   }
 
   private var chatFiltersBar: some View {
-    VStack(spacing: 10) {
-      GlassSearchField(placeholder: "Search chats", text: $searchText)
-
-      ScrollView(.horizontal, showsIndicators: false) {
-        HStack(spacing: 8) {
-          ForEach(ChatFilter.allCases) { filter in
-            Button {
-              selectedFilter = filter
-            } label: {
-              Text(filter.title)
-                .font(.subheadline.weight(.semibold))
-                .foregroundStyle(selectedFilter == filter ? .white : .primary)
-                .padding(.horizontal, 12)
-                .padding(.vertical, 8)
-                .background(
-                  selectedFilter == filter
-                    ? Color.blue
-                    : Color(.systemGray5),
-                  in: Capsule()
-                )
-            }
-            .buttonStyle(.plain)
+    ScrollView(.horizontal, showsIndicators: false) {
+      HStack(spacing: 12) {
+        ForEach(ChatFilter.allCases) { filter in
+          Button {
+            selectedFilter = filter
+          } label: {
+            Text(filter.title)
+              .font(.system(size: 15, weight: .medium))
+              .foregroundStyle(selectedFilter == filter ? .white : FoundationChatTheme.ink)
+              .lineLimit(1)
+            .padding(.horizontal, 16)
+            .frame(height: 40)
+            .background(
+              selectedFilter == filter
+                ? FoundationChatTheme.outgoingBubble
+                : Color(red: 0.94, green: 0.96, blue: 0.98),
+              in: Capsule()
+            )
           }
+          .buttonStyle(.plain)
         }
       }
+      .padding(.horizontal, 16)
     }
   }
 
@@ -262,7 +461,11 @@ struct ConversationsListView: View {
             }
           },
           receiveValue: { remoteConversations in
-            applyRemoteConversations(remoteConversations ?? [])
+            let conversations = remoteConversations ?? []
+            applyRemoteConversations(conversations)
+            Task { @MainActor in
+              await refreshLatestMessagesForList(remoteConversations: conversations)
+            }
           }
         )
     } catch {
@@ -275,10 +478,72 @@ struct ConversationsListView: View {
   }
 
   @MainActor
+  private func startConversationsRefresh() {
+    conversationsRefreshTask?.cancel()
+    conversationsRefreshTask = Task { @MainActor in
+      while !Task.isCancelled {
+        do {
+          let remoteConversations = try await authStore.fetchConversations()
+          applyRemoteConversations(remoteConversations)
+          await refreshLatestMessagesForList(remoteConversations: remoteConversations)
+        } catch {
+          // Keep the cached list visible during transient network failures.
+        }
+        try? await Task.sleep(for: .seconds(5))
+      }
+    }
+  }
+
+  @MainActor
+  private func refreshLatestMessagesForList(remoteConversations: [ConvexConversationSummary]) async {
+    let recentConversationIDs = remoteConversations
+      .sorted { $0.createdAt > $1.createdAt }
+      .prefix(20)
+      .map(\.id)
+
+    for conversationID in recentConversationIDs {
+      guard let localConversation = conversations.first(where: { $0.remoteConversationID == conversationID }) else {
+        continue
+      }
+
+      do {
+        let messages = try await authStore.fetchMessages(conversationID: conversationID)
+        for message in messages {
+          upsertMessage(message, into: localConversation)
+        }
+      } catch {
+        continue
+      }
+    }
+
+    try? modelContext.save()
+  }
+
+  @MainActor
   private func applyRemoteConversations(_ remoteConversations: [ConvexConversationSummary]) {
+    let remoteIDs = Set(remoteConversations.map(\.id))
+
+    // Keep the local SwiftData cache aligned with the latest Convex response.
+    // This prevents stale/hardcoded-looking rows from surviving across runs.
+    for conversation in conversations {
+      guard let remoteID = conversation.remoteConversationID?.trimmingCharacters(in: .whitespacesAndNewlines),
+        !remoteID.isEmpty
+      else {
+        modelContext.delete(conversation)
+        continue
+      }
+
+      if !remoteIDs.contains(remoteID) {
+        modelContext.delete(conversation)
+      }
+    }
+
     var localByRemoteID: [String: Conversation] = [:]
     for conversation in conversations {
-      if let remoteID = conversation.remoteConversationID {
+      if let remoteID = conversation.remoteConversationID?.trimmingCharacters(in: .whitespacesAndNewlines),
+        !remoteID.isEmpty,
+        remoteIDs.contains(remoteID)
+      {
         localByRemoteID[remoteID] = conversation
       }
     }
@@ -301,9 +566,15 @@ struct ConversationsListView: View {
       }
 
       if let displayName, !displayName.isEmpty {
+        ConversationUserCache.setDisplayName(displayName, for: remoteConversation.id)
         localConversation.participantDisplayName = displayName
         if localConversation.summary?.isEmpty ?? true {
           localConversation.summary = displayName
+        }
+      } else if let cachedDisplayName = ConversationUserCache.displayName(for: remoteConversation.id) {
+        localConversation.participantDisplayName = cachedDisplayName
+        if localConversation.summary?.isEmpty ?? true {
+          localConversation.summary = cachedDisplayName
         }
       }
 
@@ -331,32 +602,101 @@ struct ConversationsListView: View {
       existing.senderStackUserId = remoteMessage.senderStackUserId
       existing.role = remoteMessage.role.appRole
       existing.timestamp = remoteMessage.timestamp
+      existing.isDeleted = remoteMessage.isDeleted == true
       existing.attachementType = remoteMessage.attachmentType
       existing.attachementFileName = remoteMessage.attachmentFileName
       existing.attachementMimeType = remoteMessage.attachmentMimeType
+      existing.attachementFileSize = remoteMessage.attachmentFileSize
       existing.attachementTitle = remoteMessage.attachmentTitle
       existing.attachementDescription = remoteMessage.attachmentDescription
       existing.attachementThumbnail = remoteMessage.attachmentThumbnail
       existing.attachementURL = remoteMessage.attachmentUrl
+      if existing.isDeleted {
+        clearDeletedMessagePayload(existing)
+      }
       return
     }
 
-    conversation.messages.append(
-      Message(
-        content: remoteMessage.content,
-        role: remoteMessage.role.appRole,
-        timestamp: remoteMessage.timestamp,
-        remoteMessageID: remoteMessage.id,
-        senderStackUserId: remoteMessage.senderStackUserId,
-        attachementType: remoteMessage.attachmentType,
-        attachementFileName: remoteMessage.attachmentFileName,
-        attachementMimeType: remoteMessage.attachmentMimeType,
-        attachementTitle: remoteMessage.attachmentTitle,
-        attachementDescription: remoteMessage.attachmentDescription,
-        attachementThumbnail: remoteMessage.attachmentThumbnail,
-        attachementURL: remoteMessage.attachmentUrl
-      )
+    if let pendingMessage = pendingLocalMessage(matching: remoteMessage, in: conversation) {
+      pendingMessage.remoteMessageID = remoteMessage.id
+      pendingMessage.content = remoteMessage.content
+      pendingMessage.senderStackUserId = remoteMessage.senderStackUserId
+      pendingMessage.role = remoteMessage.role.appRole
+      pendingMessage.timestamp = remoteMessage.timestamp
+      pendingMessage.isDeleted = remoteMessage.isDeleted == true
+      pendingMessage.attachementType = remoteMessage.attachmentType
+      pendingMessage.attachementFileName = remoteMessage.attachmentFileName
+      pendingMessage.attachementMimeType = remoteMessage.attachmentMimeType
+      pendingMessage.attachementFileSize = remoteMessage.attachmentFileSize
+      pendingMessage.attachementTitle = remoteMessage.attachmentTitle
+      pendingMessage.attachementDescription = remoteMessage.attachmentDescription
+      pendingMessage.attachementThumbnail = remoteMessage.attachmentThumbnail
+      pendingMessage.attachementURL = remoteMessage.attachmentUrl
+      if pendingMessage.isDeleted {
+        clearDeletedMessagePayload(pendingMessage)
+      }
+      return
+    }
+
+    let localMessage = Message(
+      content: remoteMessage.content,
+      role: remoteMessage.role.appRole,
+      timestamp: remoteMessage.timestamp,
+      remoteMessageID: remoteMessage.id,
+      senderStackUserId: remoteMessage.senderStackUserId,
+      attachementType: remoteMessage.attachmentType,
+      attachementFileName: remoteMessage.attachmentFileName,
+      attachementMimeType: remoteMessage.attachmentMimeType,
+      attachementFileSize: remoteMessage.attachmentFileSize,
+      attachementTitle: remoteMessage.attachmentTitle,
+      attachementDescription: remoteMessage.attachmentDescription,
+      attachementThumbnail: remoteMessage.attachmentThumbnail,
+      attachementURL: remoteMessage.attachmentUrl,
+      isDeleted: remoteMessage.isDeleted == true
     )
+    if localMessage.isDeleted {
+      clearDeletedMessagePayload(localMessage)
+    }
+    conversation.messages.append(
+      localMessage
+    )
+  }
+
+  private func pendingLocalMessage(
+    matching remoteMessage: ConvexChatMessage,
+    in conversation: Conversation
+  ) -> Message? {
+    conversation.messages.first { message in
+      guard message.remoteMessageID == nil, message.role == .user else { return false }
+      guard message.content == remoteMessage.content else { return false }
+
+      let isSameAttachment = message.attachementType == remoteMessage.attachmentType
+        && message.attachementFileName == remoteMessage.attachmentFileName
+      guard isSameAttachment else { return false }
+
+      return abs(message.timestamp.timeIntervalSince(remoteMessage.timestamp)) < 120
+    }
+  }
+
+  private func clearDeletedMessagePayload(_ message: Message) {
+    if let attachmentURLString = message.attachementURL,
+      let attachmentURL = URL(string: attachmentURLString)
+    {
+      VoiceDurationCache.removeDuration(for: attachmentURL)
+    }
+    message.content = "This message was deleted"
+    message.attachementType = nil
+    message.attachementFileName = nil
+    message.attachementMimeType = nil
+    message.attachementFileSize = nil
+    message.attachementTitle = nil
+    message.attachementDescription = nil
+    message.attachementThumbnail = nil
+    message.attachementURL = nil
+    message.replyToRemoteMessageID = nil
+    message.replyPreviewText = nil
+    message.replySenderName = nil
+    message.reactionSummary = nil
   }
 
   @MainActor
@@ -380,11 +720,36 @@ struct ConversationsListView: View {
   }
 
   @MainActor
+  private func startGroupConversation(with users: [DirectoryUser], name: String?) async throws {
+    let result = try await authStore.createGroupConversation(
+      memberIds: users.map(\.stackUserId),
+      name: name
+    )
+
+    if let existing = conversations.first(where: { $0.remoteConversationID == result.conversationId }) {
+      path.append(existing)
+      return
+    }
+
+    let fallbackName = users.map(\.displayName).prefix(3).joined(separator: ", ")
+    let conversation = Conversation(
+      messages: [],
+      summary: name ?? fallbackName,
+      remoteConversationID: result.conversationId,
+      participantDisplayName: name ?? fallbackName
+    )
+    modelContext.insert(conversation)
+    try modelContext.save()
+    path.append(conversation)
+  }
+
+  @MainActor
   private func openConversationFromPush(remoteConversationID: String) async {
     selectedFilter = .all
 
     if let existing = conversations.first(where: { $0.remoteConversationID == remoteConversationID }) {
-      path = [existing]
+      path = NavigationPath()
+      path.append(existing)
       return
     }
 
@@ -396,7 +761,8 @@ struct ConversationsListView: View {
     )
     modelContext.insert(conversation)
     try? modelContext.save()
-    path = [conversation]
+    path = NavigationPath()
+    path.append(conversation)
   }
 
   private func lastActivityDate(for item: HomeItem) -> Date {
@@ -408,12 +774,36 @@ struct ConversationsListView: View {
     }
   }
 
+  private func sortHomeItems(_ items: [HomeItem]) -> [HomeItem] {
+    items.sorted { lhs, rhs in
+      let lhsUnread = lhs.unreadCount > 0
+      let rhsUnread = rhs.unreadCount > 0
+      if lhsUnread != rhsUnread {
+        return lhsUnread && !rhsUnread
+      }
+      let lhsDate = lastActivityDate(for: lhs)
+      let rhsDate = lastActivityDate(for: rhs)
+      if lhsDate != rhsDate {
+        return lhsDate > rhsDate
+      }
+      return lhs.title.localizedCaseInsensitiveCompare(rhs.title) == .orderedAscending
+    }
+  }
+
   private func conversationNavigationRow(for conversation: Conversation) -> some View {
-    NavigationLink(value: conversation) {
+    let item = HomeItem.conversation(conversation)
+    return Button {
+      handlePrimaryTap(on: item)
+    } label: {
       ConversationRowView(conversation: conversation)
+        .overlaySelection(
+          isSelected: selectedHomeItemIDs.contains(item.selectionID),
+          isSelectionMode: isSelectionMode
+        )
         .swipeActions {
           Button(role: .destructive) {
             let remoteID = conversation.remoteConversationID
+            selectedHomeItemIDs.remove(item.selectionID)
             modelContext.delete(conversation)
             try? modelContext.save()
             if let remoteID {
@@ -438,6 +828,11 @@ struct ConversationsListView: View {
           .tint(.yellow)
         }
     }
+    .buttonStyle(.plain)
+    .simultaneousGesture(
+      LongPressGesture(minimumDuration: 0.45)
+        .onEnded { _ in selectFromLongPress(item) }
+    )
   }
 
   @MainActor
@@ -456,35 +851,353 @@ struct ConversationsListView: View {
       channels = []
     }
   }
+
+  private func channelSummary(for channelID: String) -> ChannelSummary {
+    if let existing = channels.first(where: { $0.id == channelID }) {
+      return existing
+    }
+    return ChannelSummary(
+      _id: channelID,
+      name: "Channel",
+      slug: nil,
+      description: nil,
+      type: "public",
+      createdBy: nil,
+      isArchived: false,
+      memberCount: 0,
+      role: "member",
+      muted: false,
+      unreadCount: 0
+    )
+  }
+
+  @MainActor
+  private func openChannelFromPush(channelID: String) async {
+    selectedFilter = .all
+    if channels.first(where: { $0.id == channelID }) == nil {
+      await loadChannels(search: "")
+    }
+    path.append(channelID)
+  }
+
+  private func toggleSelection(for item: HomeItem) {
+    let id = item.selectionID
+    withAnimation(.snappy) {
+      if selectedHomeItemIDs.contains(id) {
+        selectedHomeItemIDs.remove(id)
+      } else {
+        selectedHomeItemIDs.insert(id)
+      }
+    }
+  }
+
+  private func handlePrimaryTap(on item: HomeItem) {
+    let id = item.selectionID
+    if longPressSelectionGuards.contains(id) {
+      longPressSelectionGuards.remove(id)
+      return
+    }
+
+    if isSelectionMode {
+      toggleSelection(for: item)
+    } else {
+      switch item {
+      case .conversation(let conversation):
+        path.append(conversation)
+      case .channel(let channel):
+        path.append(channel.id)
+      }
+    }
+  }
+
+  private func selectFromLongPress(_ item: HomeItem) {
+    let id = item.selectionID
+    longPressSelectionGuards.insert(id)
+
+    withAnimation(.snappy) {
+      _ = selectedHomeItemIDs.insert(id)
+    }
+
+    Task { @MainActor in
+      try? await Task.sleep(for: .milliseconds(450))
+      longPressSelectionGuards.remove(id)
+    }
+  }
+
+  private func toggleFavoriteChannel(_ id: String) {
+    withAnimation(.snappy) {
+      if favoriteChannelIDs.contains(id) {
+        favoriteChannelIDs.remove(id)
+      } else {
+        favoriteChannelIDs.insert(id)
+      }
+    }
+  }
+
+  private var selectionIsAllFavorite: Bool {
+    guard !selectedHomeItemIDs.isEmpty else { return false }
+    return selectedHomeItemIDs.allSatisfy { id in
+      if id.hasPrefix("channel:") {
+        return favoriteChannelIDs.contains(String(id.dropFirst("channel:".count)))
+      }
+      return conversations.contains { conversation in
+        HomeItem.conversation(conversation).selectionID == id && conversation.isFavorite
+      }
+    }
+  }
+
+  private var selectedConversationCount: Int {
+    conversations.filter { selectedHomeItemIDs.contains(HomeItem.conversation($0).selectionID) }.count
+  }
+
+  private func toggleFavoritesForSelection() {
+    let shouldRemove = selectionIsAllFavorite
+    for conversation in conversations {
+      let id = HomeItem.conversation(conversation).selectionID
+      guard selectedHomeItemIDs.contains(id) else { continue }
+      conversation.isFavorite = !shouldRemove
+    }
+
+    for selectedID in selectedHomeItemIDs where selectedID.hasPrefix("channel:") {
+      let channelID = String(selectedID.dropFirst("channel:".count))
+      if shouldRemove {
+        favoriteChannelIDs.remove(channelID)
+      } else {
+        favoriteChannelIDs.insert(channelID)
+      }
+    }
+
+    try? modelContext.save()
+    withAnimation(.snappy) {
+      selectedHomeItemIDs.removeAll()
+    }
+  }
+
+  private func deleteSelectedConversations() {
+    let selectedIDs = selectedHomeItemIDs
+    let selectedConversations = conversations.filter { selectedIDs.contains(HomeItem.conversation($0).selectionID) }
+    guard !selectedConversations.isEmpty else {
+      withAnimation(.snappy) {
+        selectedHomeItemIDs.removeAll()
+      }
+      return
+    }
+
+    for conversation in selectedConversations {
+      let remoteID = conversation.remoteConversationID
+      modelContext.delete(conversation)
+      if let remoteID {
+        Task {
+          try? await authStore.deleteConversation(conversationID: remoteID)
+        }
+      }
+    }
+    try? modelContext.save()
+    withAnimation(.snappy) {
+      selectedHomeItemIDs.removeAll()
+    }
+  }
 }
 
 private struct ChannelSummaryRow: View {
   let channel: ChannelSummary
 
   var body: some View {
-    VStack(alignment: .leading, spacing: 4) {
-      Text("#\(channel.name)")
-        .font(.body.weight(.semibold))
+    HStack(spacing: 12) {
+      AvatarPlaceholder(initials: "#")
 
-      if let lastMessage = channel.lastMessageContent,
-        !lastMessage.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
-      {
-        Text(lastMessage)
-          .font(.subheadline)
-          .foregroundStyle(.secondary)
-          .lineLimit(1)
-      } else if let description = channel.description, !description.isEmpty {
-        Text(description)
-          .font(.subheadline)
-          .foregroundStyle(.secondary)
-          .lineLimit(1)
-      } else {
-        Text("No messages yet")
-          .font(.caption)
-          .foregroundStyle(.secondary)
+      VStack(alignment: .leading, spacing: 5) {
+        HStack {
+          Text(channel.name)
+            .font(.system(size: 15, weight: .semibold))
+            .foregroundStyle(FoundationChatTheme.ink)
+            .lineLimit(1)
+          Spacer()
+          Text(channel.lastMessageDate.formatted(date: .omitted, time: .shortened))
+            .font(.system(size: 14, weight: .regular))
+            .foregroundStyle(FoundationChatTheme.ink)
+        }
+
+        HStack(spacing: 8) {
+          Text(channel.lastMessageContent ?? channel.description ?? "No messages yet")
+            .font(.system(size: 15, weight: .regular))
+            .foregroundStyle(Color(red: 0.45, green: 0.46, blue: 0.48))
+            .lineLimit(1)
+
+          Spacer(minLength: 8)
+
+          if channel.unreadCountValue > 0 {
+            Text(channel.unreadCountValue > 99 ? "99+" : "\(channel.unreadCountValue)")
+              .font(.system(size: 13, weight: .semibold))
+              .foregroundStyle(.white)
+              .frame(width: 20, height: 20)
+              .background(Color(red: 0.10, green: 0.72, blue: 0.04), in: Circle())
+          }
+        }
       }
     }
-    .padding(.vertical, 4)
+    .frame(height: 80)
+    .padding(.horizontal, 12)
+    .background(Color.white)
+    .overlay(alignment: .bottom) {
+      Rectangle()
+        .fill(Color.black.opacity(0.06))
+        .frame(height: 1)
+        .padding(.leading, 76)
+    }
+  }
+}
+
+private struct HomeRowSelectionOverlay: ViewModifier {
+  let isSelected: Bool
+  let isSelectionMode: Bool
+
+  func body(content: Content) -> some View {
+    content
+      .contentShape(Rectangle())
+      .background(isSelected ? Color(red: 0.05, green: 0.38, blue: 0.79).opacity(0.08) : Color.clear)
+      .overlay(alignment: .topLeading) {
+        if isSelectionMode {
+          ZStack {
+            Circle()
+              .fill(isSelected ? Color(red: 0.05, green: 0.38, blue: 0.79) : Color.white)
+              .frame(width: 22, height: 22)
+              .overlay(
+                Circle()
+                  .stroke(isSelected ? Color.white : Color.black.opacity(0.22), lineWidth: 2)
+              )
+
+            if isSelected {
+              Image(systemName: "checkmark")
+                .font(.system(size: 11, weight: .bold))
+                .foregroundStyle(.white)
+            }
+          }
+          .shadow(color: .black.opacity(0.08), radius: 2, y: 1)
+          .padding(.leading, 49)
+          .padding(.top, 48)
+            .transition(.scale.combined(with: .opacity))
+        }
+      }
+  }
+}
+
+private extension View {
+  func overlaySelection(isSelected: Bool, isSelectionMode: Bool) -> some View {
+    modifier(HomeRowSelectionOverlay(isSelected: isSelected, isSelectionMode: isSelectionMode))
+  }
+}
+
+private struct EmptyChatState: View {
+  let filter: ConversationsListView.ChatFilter
+  let action: () -> Void
+
+  private var title: String {
+    switch filter {
+    case .groups:
+      return "No Groups Yet"
+    case .directChats:
+      return "No Direct Message Yet"
+    case .unread:
+      return "No Unread Message Yet"
+    case .favoriteChats:
+      return "No Favourite Message Yet"
+    case .all:
+      return "No Message Yet"
+    }
+  }
+
+  private var buttonTitle: String? {
+    switch filter {
+    case .groups:
+      return "Create Group"
+    case .directChats:
+      return "Direct Messages"
+    case .favoriteChats:
+      return "Add Favorites"
+    case .all, .unread:
+      return nil
+    }
+  }
+
+  var body: some View {
+    VStack(spacing: 26) {
+      NativeGroupsIllustration()
+        .frame(width: 163, height: 159)
+
+      Text(title)
+        .font(.system(size: 20, weight: .regular))
+        .foregroundStyle(Color.black)
+
+      Text("Stay organized by creating or joining teams. Groups help you manage tasks, track progress, and collaborate with your team in one place.")
+        .font(.system(size: 16, weight: .regular))
+        .foregroundStyle(Color(red: 0.45, green: 0.46, blue: 0.48))
+        .multilineTextAlignment(.center)
+        .lineSpacing(4)
+        .padding(.horizontal, 28)
+
+      if let buttonTitle {
+        Button(action: action) {
+          HStack(spacing: 18) {
+            Image(systemName: "plus")
+              .font(.system(size: 28, weight: .regular))
+            Text(buttonTitle)
+              .font(.system(size: 16, weight: .semibold))
+          }
+          .foregroundStyle(.white)
+          .frame(maxWidth: .infinity)
+          .frame(height: 44)
+          .background(Color(red: 0.09, green: 0.76, blue: 0.02), in: RoundedRectangle(cornerRadius: 14, style: .continuous))
+        }
+        .buttonStyle(.plain)
+        .padding(.horizontal, 25)
+        .padding(.top, 32)
+      }
+    }
+    .frame(maxWidth: .infinity)
+  }
+}
+
+private struct NativeGroupsIllustration: View {
+  var body: some View {
+    ZStack {
+      Image(systemName: "person.3.fill")
+        .font(.system(size: 66, weight: .regular))
+        .foregroundStyle(Color(red: 0.38, green: 0.72, blue: 0.30))
+        .offset(y: 14)
+
+      Image(systemName: "checklist")
+        .font(.system(size: 47, weight: .regular))
+        .foregroundStyle(Color(red: 0.22, green: 0.25, blue: 0.22))
+        .offset(x: 48, y: -34)
+        .rotationEffect(.degrees(11))
+
+      Image(systemName: "text.bubble")
+        .font(.system(size: 38, weight: .regular))
+        .foregroundStyle(Color(red: 0.22, green: 0.25, blue: 0.22))
+        .offset(x: -52, y: -32)
+
+      Image(systemName: "folder")
+        .font(.system(size: 42, weight: .regular))
+        .foregroundStyle(Color(red: 0.22, green: 0.25, blue: 0.22))
+        .offset(x: -70, y: 48)
+
+      Image(systemName: "calendar")
+        .font(.system(size: 41, weight: .regular))
+        .foregroundStyle(Color(red: 0.22, green: 0.25, blue: 0.22))
+        .offset(x: 66, y: 50)
+
+      Circle()
+        .stroke(Color(red: 0.22, green: 0.25, blue: 0.22), lineWidth: 2)
+        .frame(width: 44, height: 44)
+        .overlay {
+          Image(systemName: "plus")
+            .font(.system(size: 24, weight: .regular))
+            .foregroundStyle(Color(red: 0.09, green: 0.76, blue: 0.02))
+        }
+        .background(Color.white, in: Circle())
+        .offset(y: 68)
+    }
   }
 }
 

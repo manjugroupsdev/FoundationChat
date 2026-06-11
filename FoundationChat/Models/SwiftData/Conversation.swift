@@ -13,7 +13,7 @@ class Conversation {
   var isFavorite: Bool
 
   var lastMessageTimestamp: Date {
-    messages.last?.timestamp ?? Date()
+    sortedMessages.last?.timestamp ?? Date()
   }
 
   var unreadCountValue: Int {

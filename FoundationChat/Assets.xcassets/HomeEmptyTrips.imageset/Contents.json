@@ -1,0 +1,12 @@
+{
+  "images" : [
+    {
+      "filename" : "ic_home_empty_trips.png",
+      "idiom" : "universal"
+    }
+  ],
+  "info" : {
+    "author" : "xcode",
+    "version" : 1
+  }
+}

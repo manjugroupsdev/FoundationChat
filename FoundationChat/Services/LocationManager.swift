@@ -73,7 +73,17 @@ final class LocationTracker: NSObject {
     /// `purpose` and `remarks` are retained for call-site compatibility.
     func startTrip(purpose: String = "", remarks: String = "") async throws {
         guard !isTracking else { return }
+        try await beginTracking(shouldStartServerSession: true)
+    }
 
+    /// Resumes local GPS capture for a server-backed active session returned
+    /// by `/api/tracking/bootstrap`, without creating a second backend session.
+    func resumeServerBackedTracking() async throws {
+        guard !isTracking else { return }
+        try await beginTracking(shouldStartServerSession: false)
+    }
+
+    private func beginTracking(shouldStartServerSession: Bool) async throws {
         let status = locationManager.authorizationStatus
         if status == .notDetermined {
             locationManager.requestAlwaysAuthorization()
@@ -95,7 +105,9 @@ final class LocationTracker: NSObject {
         let lat = lastLocation?.coordinate.latitude
         let lng = lastLocation?.coordinate.longitude
 
-        try await geoAPI.startTracking(lat: lat, lng: lng)
+        if shouldStartServerSession {
+            try await geoAPI.startTracking(lat: lat, lng: lng)
+        }
 
         isTracking = true
         tripStartTime = Date()
@@ -138,8 +150,7 @@ final class LocationTracker: NSObject {
     }
 
     func cancelTrip() {
-        if isTracking { Task { try? await geoAPI.stopTracking() } }
-        stopTracking()
+        Task { await stopAndFinalize() }
     }
 
     /// Saves a manually captured location into the CoreData buffer.
@@ -161,6 +172,19 @@ final class LocationTracker: NSObject {
     }
 
     // MARK: - Private
+
+    func stopAndFinalize(notifyServer: Bool = true) async {
+        guard isTracking else {
+            stopTracking()
+            return
+        }
+
+        await flushWaypoints()
+        if notifyServer {
+            try? await geoAPI.stopTracking()
+        }
+        stopTracking()
+    }
 
     private func stopTracking() {
         isTracking = false
@@ -266,10 +290,23 @@ final class LocationTracker: NSObject {
         guard isTracking else { return }
         do {
             let pending = try await persistence.fetchUnsent(limit: Self.batchSize)
-            guard !pending.isEmpty else { return }
-            _ = try await geoAPI.pushBatch(points: pending.map(\.point))
-            try await persistence.markAsSent(ids: pending.map(\.id))
-            try? await persistence.purgeOldSentPoints()
+            if !pending.isEmpty {
+                _ = try await geoAPI.pushBatch(points: pending.map(\.point))
+                try await persistence.markAsSent(ids: pending.map(\.id))
+                try? await persistence.purgeOldSentPoints()
+            }
+
+            let events = try await persistence.fetchUnsentTamperEvents()
+            var syncedEventIds: [UUID] = []
+            for event in events {
+                do {
+                    try await geoAPI.reportTamper(eventType: event.eventType, metadata: event.metadata)
+                    syncedEventIds.append(event.id)
+                } catch {
+                    break
+                }
+            }
+            try await persistence.deleteTamperEvents(ids: syncedEventIds)
         } catch {
             // Swallow: points stay buffered for the next retry
         }

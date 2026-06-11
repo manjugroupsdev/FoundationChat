@@ -8,6 +8,10 @@ struct ConvexPermissionListView: View {
     @State private var errorMessage: String?
     @State private var showApplySheet = false
 
+    private var canReviewPermissions: Bool {
+        authStore.hasPermission("permissions.approve") || authStore.hasPermission("permissions.viewAll")
+    }
+
     var body: some View {
         List {
             if let usage {
@@ -31,6 +35,16 @@ struct ConvexPermissionListView: View {
         }
         .navigationTitle("Permissions")
         .toolbar {
+            if canReviewPermissions {
+                ToolbarItem(placement: .topBarTrailing) {
+                    NavigationLink {
+                        PermissionApprovalsView()
+                    } label: {
+                        Image(systemName: "checklist.checked")
+                    }
+                    .accessibilityLabel("Permission approvals")
+                }
+            }
             ToolbarItem(placement: .primaryAction) {
                 Button {
                     showApplySheet = true
@@ -46,6 +60,11 @@ struct ConvexPermissionListView: View {
                 }
             }
         }
+        .alert("Error", isPresented: .constant(errorMessage != nil), actions: {
+            Button("OK") { errorMessage = nil }
+        }, message: {
+            Text(errorMessage ?? "")
+        })
         .refreshable { loadData() }
         .overlay {
             if isLoading && permissions.isEmpty { ProgressView() }

@@ -2,36 +2,50 @@ import SwiftUI
 
 struct TasksListView: View {
     @Environment(AuthStore.self) private var authStore
+    @Environment(\.dismiss) private var dismiss
 
     @State private var tasks: [ConvexTask] = []
     @State private var summary: ConvexTaskSummary?
     @State private var filter: TaskListFilter = .all
+    @State private var searchText = ""
     @State private var isLoading = false
     @State private var errorMessage: String?
+    @State private var didAnimateIn = false
+
+    private var filteredTasks: [ConvexTask] {
+        let query = searchText.trimmingCharacters(in: .whitespacesAndNewlines).lowercased()
+        return tasks.filter { task in
+            filter.matches(task) && (
+                query.isEmpty
+                || task.displayTitle.lowercased().contains(query)
+                || task.displayProject.lowercased().contains(query)
+                || (task.displayDescription?.lowercased().contains(query) ?? false)
+            )
+        }
+    }
 
     var body: some View {
-        VStack(spacing: 0) {
-            summaryHeader
+        ZStack(alignment: .top) {
+            Color(hex: 0xF1F3F8).ignoresSafeArea()
 
-            Picker("Filter", selection: $filter) {
-                ForEach(TaskListFilter.allCases) { f in
-                    Text(f.label).tag(f)
-                }
+            VStack(spacing: 0) {
+                header
+                    .zIndex(1)
+
+                contentSheet
             }
-            .pickerStyle(.segmented)
-            .padding(.horizontal)
-            .padding(.bottom, 8)
-
-            taskList
+            .ignoresSafeArea(edges: .top)
         }
-        .navigationTitle("Tasks")
-        .task { loadData() }
+        .navigationBarBackButtonHidden(true)
+        .toolbar(.hidden, for: .navigationBar)
+        .task { await loadDataAsync() }
         .refreshable { await loadDataAsync() }
         .alert("Error", isPresented: errorAlertBinding, actions: {
             Button("OK", role: .cancel) { errorMessage = nil }
         }, message: {
             Text(errorMessage ?? "")
         })
+        .onAppear { playEntryAnimation() }
     }
 
     private var errorAlertBinding: Binding<Bool> {
@@ -41,116 +55,191 @@ struct TasksListView: View {
         )
     }
 
-    private var summaryHeader: some View {
-        VStack(spacing: 12) {
-            HStack(spacing: 12) {
-                summaryTile(
-                    title: "Total",
-                    value: "\(summary?.totalCount ?? tasks.count)",
-                    color: .blue,
-                    icon: "tray.full.fill"
-                )
-                summaryTile(
-                    title: "In Progress",
-                    value: "\(summary?.inProgressCount ?? tasks.filter { $0.normalizedStatus == .inProgress }.count)",
-                    color: .orange,
-                    icon: "hourglass"
-                )
-                summaryTile(
-                    title: "Completed",
-                    value: "\(summary?.completedCount ?? tasks.filter { $0.normalizedStatus == .completed }.count)",
-                    color: .green,
-                    icon: "checkmark.seal.fill"
-                )
-            }
+    private var header: some View {
+        ZStack(alignment: .topTrailing) {
+            Color(hex: 0x0B61CA)
 
-            overallProgressCard
+            Image("onboard_todays_tasks")
+                .resizable()
+                .scaledToFit()
+                .frame(width: 138, height: 112)
+                .opacity(0.95)
+                .offset(x: 18, y: 52)
+                .opacity(didAnimateIn ? 1 : 0)
+                .scaleEffect(didAnimateIn ? 1 : 0.88)
+                .animation(.spring(response: 0.52, dampingFraction: 0.82).delay(0.16), value: didAnimateIn)
+
+            VStack(alignment: .leading, spacing: 0) {
+                Button {
+                    dismiss()
+                } label: {
+                    Image(systemName: "chevron.left")
+                        .font(.system(size: 20, weight: .semibold))
+                        .foregroundStyle(.white)
+                        .frame(width: 38, height: 38)
+                        .contentShape(Rectangle())
+                }
+                .buttonStyle(.plain)
+                .accessibilityLabel("Back")
+
+                Text("My Tasks")
+                    .font(.system(size: 24, weight: .bold))
+                    .foregroundStyle(.white)
+                    .padding(.top, 10)
+
+                Text("Manage and track all tasks")
+                    .font(.system(size: 13, weight: .medium))
+                    .foregroundStyle(Color(hex: 0xD9D6FE))
+                    .padding(.top, 3)
+            }
+            .frame(maxWidth: .infinity, alignment: .leading)
+            .padding(.horizontal, 20)
+            .padding(.top, 64)
+            .opacity(didAnimateIn ? 1 : 0)
+            .offset(x: didAnimateIn ? 0 : -28)
+            .animation(.easeOut(duration: 0.42).delay(0.08), value: didAnimateIn)
         }
-        .padding()
+        .frame(height: 204)
     }
 
-    private func summaryTile(title: String, value: String, color: Color, icon: String) -> some View {
-        VStack(alignment: .leading, spacing: 6) {
-            HStack {
-                Image(systemName: icon)
-                    .font(.subheadline)
-                    .foregroundStyle(color)
-                Spacer()
-            }
-            Text(value)
-                .font(.title2.weight(.bold))
-            Text(title)
-                .font(.caption)
-                .foregroundStyle(.secondary)
+    private var contentSheet: some View {
+        VStack(spacing: 0) {
+            searchField
+                .padding(.horizontal, 20)
+                .padding(.top, 20)
+
+            filterChips
+                .padding(.top, 16)
+
+            taskList
         }
-        .frame(maxWidth: .infinity, alignment: .leading)
-        .padding(12)
-        .background(color.opacity(0.12), in: RoundedRectangle(cornerRadius: 12))
+        .frame(maxWidth: .infinity, maxHeight: .infinity)
+        .background(Color(.systemBackground), in: UnevenRoundedRectangle(topLeadingRadius: 24, topTrailingRadius: 24))
     }
 
-    private var overallProgressCard: some View {
-        let pct = summary?.overallPercentValue ?? computeFallbackPercent()
-        return VStack(alignment: .leading, spacing: 8) {
-            HStack {
-                Text("Overall Progress")
-                    .font(.subheadline.weight(.semibold))
-                Spacer()
-                Text("\(Int(pct.rounded()))%")
-                    .font(.subheadline.weight(.bold))
-                    .foregroundStyle(.indigo)
-            }
-            ProgressView(value: max(0, min(1, pct / 100)))
-                .tint(.indigo)
+    private var searchField: some View {
+        HStack(spacing: 10) {
+            Image(systemName: "magnifyingglass")
+                .font(.system(size: 16, weight: .semibold))
+                .foregroundStyle(Color(hex: 0x98A2B3))
+
+            TextField("Search Tasks", text: $searchText)
+                .font(.system(size: 14, weight: .medium))
+                .textInputAutocapitalization(.never)
+                .submitLabel(.search)
         }
-        .padding()
-        .background(.regularMaterial, in: RoundedRectangle(cornerRadius: 12))
+        .padding(.horizontal, 16)
+        .frame(height: 48)
+        .background(Color(hex: 0xF7F8FA), in: RoundedRectangle(cornerRadius: 24, style: .continuous))
+        .overlay {
+            RoundedRectangle(cornerRadius: 24, style: .continuous)
+                .stroke(Color(hex: 0xEAECF0), lineWidth: 1)
+        }
+        .opacity(didAnimateIn ? 1 : 0)
+        .offset(y: didAnimateIn ? 0 : 16)
+        .animation(.easeOut(duration: 0.34).delay(0.2), value: didAnimateIn)
     }
 
-    private func computeFallbackPercent() -> Double {
-        guard !tasks.isEmpty else { return 0 }
-        let total = tasks.reduce(0) { $0 + $1.displayProgress }
-        return Double(total) / Double(tasks.count)
+    private var filterChips: some View {
+        ScrollView(.horizontal, showsIndicators: false) {
+            HStack(spacing: 8) {
+                ForEach(TaskListFilter.allCases) { item in
+                    Button {
+                        withAnimation(.easeInOut(duration: 0.18)) {
+                            filter = item
+                        }
+                    } label: {
+                        Text(item.label)
+                            .font(.system(size: 14, weight: .semibold))
+                            .foregroundStyle(filter == item ? .white : Color(hex: 0x475467))
+                            .padding(.horizontal, 15)
+                            .frame(height: 34)
+                            .background(
+                                filter == item ? Color(hex: 0x0B61CA) : Color(hex: 0xF2F4F7),
+                                in: Capsule()
+                            )
+                    }
+                    .buttonStyle(.plain)
+                    .scaleEffect(filter == item ? 1 : 0.98)
+                }
+            }
+            .padding(.horizontal, 20)
+        }
+        .sensoryFeedback(.selection, trigger: filter)
+        .opacity(didAnimateIn ? 1 : 0)
+        .offset(y: didAnimateIn ? 0 : 18)
+        .animation(.easeOut(duration: 0.36).delay(0.28), value: didAnimateIn)
     }
 
     @ViewBuilder
     private var taskList: some View {
-        let filtered = tasks.filter(filter.matches)
-        if filtered.isEmpty && !isLoading {
-            ContentUnavailableView(
-                "No Tasks",
-                systemImage: "checklist",
-                description: Text(emptyMessage)
-            )
+        if isLoading && tasks.isEmpty {
+            ScrollView {
+                AppModuleLoadingRows()
+                    .padding(.top, 12)
+            }
+        } else if filteredTasks.isEmpty {
+            VStack(spacing: 14) {
+                Image("HomeEmptyTrips")
+                    .resizable()
+                    .scaledToFit()
+                    .frame(width: 156, height: 156)
+                    .opacity(0.62)
+
+                Text("No Tasks Available")
+                    .font(.system(size: 20, weight: .bold))
+                    .foregroundStyle(Color(hex: 0x101828))
+
+                Text(emptyMessage)
+                    .font(.system(size: 12, weight: .medium))
+                    .foregroundStyle(Color(hex: 0x667085))
+                    .multilineTextAlignment(.center)
+                    .padding(.horizontal, 42)
+            }
             .frame(maxWidth: .infinity, maxHeight: .infinity)
         } else {
-            List {
-                ForEach(filtered) { task in
-                    NavigationLink {
-                        TaskDetailView(taskId: task._id, initial: task) {
-                            await loadDataAsync()
+            ScrollView(showsIndicators: false) {
+                LazyVStack(spacing: 12) {
+                    ForEach(Array(filteredTasks.enumerated()), id: \.element.id) { index, task in
+                        NavigationLink {
+                            TaskDetailView(taskId: task._id, initial: task) {
+                                await loadDataAsync()
+                            }
+                        } label: {
+                            AndroidTaskCard(task: task)
                         }
-                    } label: {
-                        TaskRow(task: task)
+                        .buttonStyle(.plain)
+                        .opacity(didAnimateIn ? 1 : 0)
+                        .offset(y: didAnimateIn ? 0 : 32)
+                        .animation(
+                            .spring(response: 0.44, dampingFraction: 0.9).delay(0.34 + Double(index) * 0.045),
+                            value: didAnimateIn
+                        )
                     }
                 }
+                .padding(.horizontal, 20)
+                .padding(.top, 12)
+                .padding(.bottom, 28)
             }
-            .listStyle(.plain)
-            .overlay {
-                if isLoading && filtered.isEmpty { ProgressView() }
-            }
+            .refreshable { await loadDataAsync() }
         }
     }
 
     private var emptyMessage: String {
         switch filter {
-        case .all: return "No tasks assigned to you yet."
-        case .inProgress: return "No tasks currently in progress."
+        case .all: return "It looks like you don't have any tasks scheduled at the moment."
+        case .inProgress: return "No tasks are currently in progress."
+        case .pending: return "No pending tasks are waiting on you."
         case .completed: return "No completed tasks yet."
         }
     }
 
-    private func loadData() {
-        Task { await loadDataAsync() }
+    private func playEntryAnimation() {
+        didAnimateIn = false
+        Task { @MainActor in
+            try? await Task.sleep(for: .milliseconds(20))
+            didAnimateIn = true
+        }
     }
 
     private func loadDataAsync() async {
@@ -168,101 +257,148 @@ struct TasksListView: View {
     }
 }
 
-struct TaskRow: View {
+private struct AndroidTaskCard: View {
     let task: ConvexTask
 
     var body: some View {
-        VStack(alignment: .leading, spacing: 8) {
-            HStack(alignment: .top) {
-                VStack(alignment: .leading, spacing: 4) {
-                    Text(task.displayTitle)
-                        .font(.headline)
-                        .lineLimit(2)
-                    if let project = task.projectName, !project.isEmpty {
-                        Label(project, systemImage: "folder")
-                            .font(.caption)
-                            .foregroundStyle(.secondary)
+        VStack(spacing: 0) {
+            VStack(spacing: 16) {
+                HStack(alignment: .center, spacing: 12) {
+                    ZStack {
+                        Circle()
+                            .fill(Color(hex: 0x0B61CA))
+                            .frame(width: 40, height: 40)
+
+                        Image(systemName: "doc.text.fill")
+                            .font(.system(size: 18, weight: .semibold))
+                            .foregroundStyle(.white)
                     }
-                }
-                Spacer()
-                statusBadge
-            }
 
-            if let description = task.displayDescription, !description.isEmpty {
-                Text(description)
-                    .font(.subheadline)
-                    .foregroundStyle(.secondary)
-                    .lineLimit(2)
-            }
+                    VStack(alignment: .leading, spacing: 3) {
+                        Text(task.displayTitle)
+                            .font(.system(size: 15, weight: .bold))
+                            .foregroundStyle(Color(hex: 0x101828))
+                            .lineLimit(2)
 
-            HStack(spacing: 12) {
-                ProgressView(value: Double(task.displayProgress) / 100)
-                    .tint(progressColor)
-                Text("\(task.displayProgress)%")
-                    .font(.caption.weight(.semibold))
-                    .foregroundStyle(progressColor)
-                    .monospacedDigit()
-            }
+                        Text(task.displayProject)
+                            .font(.system(size: 12, weight: .medium))
+                            .foregroundStyle(Color(hex: 0x667085))
+                            .lineLimit(1)
+                    }
 
-            HStack(spacing: 12) {
-                if let due = task.dueDate, !due.isEmpty {
-                    Label(due, systemImage: "calendar")
-                        .font(.caption)
-                        .foregroundStyle(.secondary)
+                    Spacer(minLength: 8)
+
+                    priorityBadge
                 }
-                if let priority = task.priority, !priority.isEmpty {
-                    priorityBadge(priority)
+
+                HStack(spacing: 12) {
+                    GeometryReader { proxy in
+                        ZStack(alignment: .leading) {
+                            Capsule()
+                                .fill(Color(hex: 0xEAECF0))
+
+                            Capsule()
+                                .fill(Color(hex: 0x0B61CA))
+                                .frame(width: proxy.size.width * CGFloat(task.displayProgress) / 100)
+                        }
+                    }
+                    .frame(height: 6)
+
+                    Text("\(task.displayProgress)%")
+                        .font(.system(size: 12, weight: .medium))
+                        .foregroundStyle(Color(hex: 0x667085))
+                        .monospacedDigit()
                 }
-                Spacer()
-                if let by = task.assignedByDisplay, !by.isEmpty {
-                    Label(by, systemImage: "person.fill")
-                        .font(.caption)
-                        .foregroundStyle(.secondary)
-                        .lineLimit(1)
+
+                Divider()
+                    .overlay(Color(hex: 0xF2F4F7))
+
+                HStack(spacing: 12) {
+                    statusBadge
+
+                    Image(systemName: "calendar")
+                        .font(.system(size: 13, weight: .semibold))
+                        .foregroundStyle(Color(hex: 0x667085))
+
+                    Text(shortDueDate)
+                        .font(.system(size: 12, weight: .medium))
+                        .foregroundStyle(Color(hex: 0x344054))
+
+                    Spacer(minLength: 0)
                 }
             }
+            .padding(16)
         }
-        .padding(.vertical, 6)
+        .background(Color.white, in: RoundedRectangle(cornerRadius: 16, style: .continuous))
+        .overlay {
+            RoundedRectangle(cornerRadius: 16, style: .continuous)
+                .stroke(Color.black.opacity(0.04), lineWidth: 1)
+        }
+        .shadow(color: .black.opacity(0.05), radius: 4, x: 0, y: 1)
+        .contentShape(RoundedRectangle(cornerRadius: 16, style: .continuous))
+    }
+
+    private var priorityBadge: some View {
+        Text((task.priority?.taskNilIfBlank ?? "Medium").capitalized)
+            .font(.system(size: 10, weight: .bold))
+            .foregroundStyle(.white)
+            .padding(.horizontal, 12)
+            .frame(height: 24)
+            .background(priorityColor, in: Capsule())
     }
 
     private var statusBadge: some View {
         Text(task.normalizedStatus.label)
-            .font(.caption.weight(.semibold))
-            .padding(.horizontal, 8)
-            .padding(.vertical, 3)
-            .background(statusColor.opacity(0.15), in: Capsule())
-            .foregroundStyle(statusColor)
+            .font(.system(size: 11, weight: .semibold))
+            .foregroundStyle(statusTextColor)
+            .padding(.horizontal, 12)
+            .frame(height: 24)
+            .background(statusBackground, in: Capsule())
     }
 
-    private var statusColor: Color {
-        switch task.normalizedStatus {
-        case .completed: return .green
-        case .inProgress: return .orange
-        case .pending: return .gray
+    private var priorityColor: Color {
+        switch task.priority?.lowercased() {
+        case "high", "urgent", "critical": return Color(hex: 0xF04438)
+        case "low": return Color(hex: 0x16A34A)
+        default: return Color(hex: 0xF97316)
         }
     }
 
-    private var progressColor: Color {
-        let p = task.displayProgress
-        if p >= 100 { return .green }
-        if p >= 50 { return .orange }
-        return .blue
+    private var statusTextColor: Color {
+        switch task.normalizedStatus {
+        case .completed: return Color(hex: 0x16A34A)
+        case .inProgress: return Color(hex: 0x175CD3)
+        case .delayed: return Color(hex: 0xB42318)
+        case .pending: return Color(hex: 0xB54708)
+        }
     }
 
-    private func priorityBadge(_ priority: String) -> some View {
-        let color: Color = {
-            switch priority.lowercased() {
-            case "high", "urgent", "critical": return .red
-            case "medium": return .orange
-            case "low": return .blue
-            default: return .gray
-            }
-        }()
-        return Text(priority.capitalized)
-            .font(.caption2.weight(.semibold))
-            .padding(.horizontal, 6)
-            .padding(.vertical, 2)
-            .background(color.opacity(0.15), in: Capsule())
-            .foregroundStyle(color)
+    private var statusBackground: Color {
+        switch task.normalizedStatus {
+        case .completed: return Color(hex: 0xECFDF3)
+        case .inProgress: return Color(hex: 0xEFF8FF)
+        case .delayed: return Color(hex: 0xFEF3F2)
+        case .pending: return Color(hex: 0xFFFAEB)
+        }
+    }
+
+    private var shortDueDate: String {
+        guard let raw = task.displayDueDate?.taskNilIfBlank else { return "-" }
+        let parser = DateFormatter()
+        parser.locale = Locale(identifier: "en_US_POSIX")
+        parser.dateFormat = "yyyy-MM-dd"
+        if let date = parser.date(from: raw) {
+            let display = DateFormatter()
+            display.dateFormat = "d MMM"
+            return display.string(from: date)
+        }
+        return raw
+    }
+}
+
+private extension String {
+    var taskNilIfBlank: String? {
+        let trimmed = trimmingCharacters(in: .whitespacesAndNewlines)
+        return trimmed.isEmpty ? nil : trimmed
     }
 }

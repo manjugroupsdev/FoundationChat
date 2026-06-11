@@ -12,11 +12,17 @@ final class Message {
   var attachementType: String?
   var attachementFileName: String?
   var attachementMimeType: String?
+  var attachementFileSize: Int?
   var attachementTitle: String?
   var attachementDescription: String?
   var attachementThumbnail: String?
   var attachementURL: String?
   var attachementSummary: String?
+  var replyToRemoteMessageID: String?
+  var replyPreviewText: String?
+  var replySenderName: String?
+  var reactionSummary: String?
+  var isDeleted: Bool = false
 
   init(
     content: String, role: Role, timestamp: Date,
@@ -25,10 +31,16 @@ final class Message {
     attachementType: String? = nil,
     attachementFileName: String? = nil,
     attachementMimeType: String? = nil,
+    attachementFileSize: Int? = nil,
     attachementTitle: String? = nil,
     attachementDescription: String? = nil,
     attachementThumbnail: String? = nil,
-    attachementURL: String? = nil
+    attachementURL: String? = nil,
+    replyToRemoteMessageID: String? = nil,
+    replyPreviewText: String? = nil,
+    replySenderName: String? = nil,
+    reactionSummary: String? = nil,
+    isDeleted: Bool = false
   ) {
     self.remoteMessageID = remoteMessageID
     self.senderStackUserId = senderStackUserId
@@ -38,9 +50,15 @@ final class Message {
     self.attachementType = attachementType
     self.attachementFileName = attachementFileName
     self.attachementMimeType = attachementMimeType
+    self.attachementFileSize = attachementFileSize
     self.attachementTitle = attachementTitle
     self.attachementDescription = attachementDescription
     self.attachementThumbnail = attachementThumbnail
     self.attachementURL = attachementURL
+    self.replyToRemoteMessageID = replyToRemoteMessageID
+    self.replyPreviewText = replyPreviewText
+    self.replySenderName = replySenderName
+    self.reactionSummary = reactionSummary
+    self.isDeleted = isDeleted
   }
 }

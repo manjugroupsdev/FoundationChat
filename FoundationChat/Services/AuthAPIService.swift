@@ -19,9 +19,32 @@ enum AuthAPIService {
     let error: String?
   }
 
+  private struct EmployeePasswordLoginResponse: Decodable {
+    let success: Bool
+    let token: String?
+    let user: AuthUser?
+    let mustChangePassword: Bool?
+    let error: String?
+    let message: String?
+  }
+
+  private struct SimpleResponse: Decodable {
+    let success: Bool
+    let message: String?
+    let error: String?
+  }
+
   private struct ValidateSessionResponse: Decodable {
     let success: Bool
     let user: AuthUser?
+    let error: String?
+  }
+
+  private struct MyIAMPermissionsResponse: Decodable {
+    let success: Bool?
+    let total: Int?
+    let permissions: [String]
+    let isAdmin: Bool
     let error: String?
   }
 
@@ -67,6 +90,50 @@ enum AuthAPIService {
     return OtpSession(token: token, user: user)
   }
 
+  /// Login with Employee ID + password. Mirrors Android
+  /// `POST /api/auth/login-with-employee-id`.
+  static func loginWithEmployeeId(employeeId: String, password: String) async throws -> OtpSession {
+    let url = URL(string: "\(baseURL)/api/auth/login-with-employee-id")!
+    let body: [String: String] = ["employeeId": employeeId, "password": password]
+
+    let (data, response) = try await post(url: url, body: body)
+    let decoded = try JSONDecoder().decode(EmployeePasswordLoginResponse.self, from: data)
+
+    guard decoded.success, let token = decoded.token, let user = decoded.user else {
+      throw AuthAPIError.server(
+        decoded.error ?? decoded.message ?? "Login failed",
+        statusCode: (response as? HTTPURLResponse)?.statusCode ?? 0
+      )
+    }
+
+    let mustChangePassword = decoded.mustChangePassword == true || user.mustChangePassword == true
+    return OtpSession(token: token, user: user, mustChangePassword: mustChangePassword)
+  }
+
+  /// Change the signed-in user's password. Used by the forced password-change
+  /// flow after Employee ID login.
+  static func changeOwnPassword(token: String, newPassword: String) async throws {
+    let url = URL(string: "\(baseURL)/api/auth/change-own-password")!
+    let body: [String: Any] = ["currentPassword": NSNull(), "newPassword": newPassword]
+    var request = URLRequest(url: url)
+    request.httpMethod = "POST"
+    request.setValue("Bearer \(token)", forHTTPHeaderField: "Authorization")
+    request.setValue("application/json", forHTTPHeaderField: "Content-Type")
+    request.httpBody = try JSONSerialization.data(withJSONObject: body)
+
+    let (data, response) = try await URLSession.shared.data(for: request)
+    if (response as? HTTPURLResponse)?.statusCode == 401 {
+      SessionInvalidationBus.emit()
+    }
+    let decoded = try JSONDecoder().decode(SimpleResponse.self, from: data)
+    guard decoded.success else {
+      throw AuthAPIError.server(
+        decoded.error ?? decoded.message ?? "Failed to change password",
+        statusCode: (response as? HTTPURLResponse)?.statusCode ?? 0
+      )
+    }
+  }
+
   /// Validate an existing session token and return the current user.
   static func validateSession(token: String) async throws -> AuthUser {
     let url = URL(string: "\(baseURL)/api/auth/validate-session")!
@@ -74,7 +141,10 @@ enum AuthAPIService {
     request.httpMethod = "GET"
     request.setValue("Bearer \(token)", forHTTPHeaderField: "Authorization")
 
-    let (data, _) = try await URLSession.shared.data(for: request)
+    let (data, response) = try await URLSession.shared.data(for: request)
+    if (response as? HTTPURLResponse)?.statusCode == 401 {
+      SessionInvalidationBus.emit()
+    }
     let decoded = try JSONDecoder().decode(ValidateSessionResponse.self, from: data)
 
     guard decoded.success, let user = decoded.user else {
@@ -82,6 +152,30 @@ enum AuthAPIService {
     }
 
     return user
+  }
+
+  /// Fetch the signed-in user's IAM permissions. Mirrors Android
+  /// `GET /api/iam/my-permissions` used by App Library feature gates.
+  static func getMyIAMPermissions(token: String) async throws -> (permissions: [String], isAdmin: Bool) {
+    let url = URL(string: "\(baseURL)/api/iam/my-permissions")!
+    var request = URLRequest(url: url)
+    request.httpMethod = "GET"
+    request.setValue("Bearer \(token)", forHTTPHeaderField: "Authorization")
+
+    let (data, response) = try await URLSession.shared.data(for: request)
+    if (response as? HTTPURLResponse)?.statusCode == 401 {
+      SessionInvalidationBus.emit()
+    }
+    let decoded = try JSONDecoder().decode(MyIAMPermissionsResponse.self, from: data)
+
+    if decoded.success == false {
+      throw AuthAPIError.server(
+        decoded.error ?? "Failed to load permissions",
+        statusCode: (response as? HTTPURLResponse)?.statusCode ?? 0
+      )
+    }
+
+    return (decoded.permissions, decoded.isAdmin)
   }
 
   /// Logout / invalidate the session on the server.

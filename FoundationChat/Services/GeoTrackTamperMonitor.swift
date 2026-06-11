@@ -71,7 +71,14 @@ final class GeoTrackTamperMonitor {
         // Capture geoAPI so we don't hold self before init completes
         let capturedAPI = geoAPI
         self.reportHandler = { eventType, metadata in
-            try? await capturedAPI.reportTamper(eventType: eventType, metadata: metadata)
+            do {
+                try await capturedAPI.reportTamper(eventType: eventType, metadata: metadata)
+            } catch {
+                try? await GeoTrackPersistence.shared.insertTamperEvent(
+                    eventType: eventType,
+                    metadata: metadata
+                )
+            }
         }
     }
 

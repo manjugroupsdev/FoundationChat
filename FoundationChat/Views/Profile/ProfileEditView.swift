@@ -9,8 +9,9 @@ struct ProfileEditView: View {
   @State private var email = ""
   @State private var phone = ""
   @State private var pendingPhotoData: Data?
-  @State private var pendingPhotoStorageId: String?
+  @State private var pendingPhotoRemoved = false
   @State private var selectedItem: PhotosPickerItem?
+  @State private var imageToCrop: UIImage?
   @State private var isLoadingPhoto = false
   @State private var isSaving = false
   @State private var errorMessage: String?
@@ -29,19 +30,38 @@ struct ProfileEditView: View {
       Section {
         HStack {
           Spacer()
-          PhotosPicker(selection: $selectedItem, matching: .images) {
-            avatarView
-              .overlay(alignment: .bottomTrailing) {
-                Image(systemName: "camera.fill")
-                  .font(.caption2.weight(.bold))
-                  .foregroundStyle(.white)
-                  .frame(width: 28, height: 28)
-                  .background(Color.blue, in: Circle())
-                  .overlay(Circle().stroke(Color(.systemBackground), lineWidth: 2))
+          VStack(spacing: 10) {
+            PhotosPicker(selection: $selectedItem, matching: .images) {
+              avatarView
+                .overlay(alignment: .bottomTrailing) {
+                  Image(systemName: "camera.fill")
+                    .font(.caption2.weight(.bold))
+                    .foregroundStyle(.white)
+                    .frame(width: 28, height: 28)
+                    .background(Color.blue, in: Circle())
+                    .overlay(Circle().stroke(Color(.systemBackground), lineWidth: 2))
+                }
+            }
+            .buttonStyle(.plain)
+            .disabled(isLoadingPhoto || isSaving)
+
+            HStack(spacing: 16) {
+              PhotosPicker(selection: $selectedItem, matching: .images) {
+                Text(pendingPhotoData == nil && remotePhotoURL == nil ? "Add Photo" : "Change Photo")
               }
+              .disabled(isLoadingPhoto || isSaving)
+
+              if pendingPhotoData != nil || hasExistingRemotePhoto {
+                Button("Remove", role: .destructive) {
+                  pendingPhotoData = nil
+                  pendingPhotoRemoved = true
+                  selectedItem = nil
+                }
+                .disabled(isLoadingPhoto || isSaving)
+              }
+            }
+            .font(.subheadline.weight(.semibold))
           }
-          .buttonStyle(.plain)
-          .disabled(isLoadingPhoto || isSaving)
           Spacer()
         }
         .padding(.vertical, 8)
@@ -110,6 +130,18 @@ struct ProfileEditView: View {
       guard let item else { return }
       Task { await handlePhotoPick(item: item) }
     }
+    .sheet(isPresented: Binding(
+      get: { imageToCrop != nil },
+      set: { if !$0 { imageToCrop = nil } }
+    )) {
+      if let imageToCrop {
+        ProfilePhotoCropView(image: imageToCrop) { croppedData in
+          pendingPhotoData = croppedData
+          pendingPhotoRemoved = false
+          self.imageToCrop = nil
+        }
+      }
+    }
   }
 
   // MARK: - Avatar
@@ -121,7 +153,7 @@ struct ProfileEditView: View {
         Image(uiImage: pendingImage)
           .resizable()
           .scaledToFill()
-      } else if let remotePhotoURL {
+      } else if !pendingPhotoRemoved, let remotePhotoURL {
         AsyncImage(url: remotePhotoURL) { phase in
           switch phase {
           case .success(let image):
@@ -193,6 +225,12 @@ struct ProfileEditView: View {
     !isSaving && !isLoadingPhoto && !trimmedName.isEmpty && !trimmedPhone.isEmpty
   }
 
+  private var hasExistingRemotePhoto: Bool {
+    guard !pendingPhotoRemoved else { return false }
+    let photo = authStore.viewer?.photo?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
+    return !photo.isEmpty
+  }
+
   private func validate() -> String? {
     if trimmedName.isEmpty { return "Name is required." }
     if trimmedPhone.isEmpty { return "Phone is required." }
@@ -219,32 +257,14 @@ struct ProfileEditView: View {
         errorMessage = "Could not read selected image."
         return
       }
-      let normalized = ProfileEditView.normalizeImageData(data) ?? data
-      pendingPhotoData = normalized
-
-      guard let token = authStore.currentSession?.token else {
-        errorMessage = "You are signed out. Please sign in again."
+      guard let image = UIImage(data: data) else {
+        errorMessage = "Could not prepare selected image."
         return
       }
-      let storageId = try await HRConvexAPIService.uploadPhoto(token: token, imageData: normalized)
-      pendingPhotoStorageId = storageId
+      imageToCrop = image.normalizedForProfileCrop()
     } catch {
       errorMessage = error.localizedDescription
-      pendingPhotoStorageId = nil
     }
-  }
-
-  private static func normalizeImageData(_ data: Data) -> Data? {
-    guard let image = UIImage(data: data) else { return nil }
-    let maxDimension: CGFloat = 1024
-    let size = image.size
-    let scale = min(1, maxDimension / max(size.width, size.height))
-    let target = CGSize(width: size.width * scale, height: size.height * scale)
-    let renderer = UIGraphicsImageRenderer(size: target)
-    let resized = renderer.image { _ in
-      image.draw(in: CGRect(origin: .zero, size: target))
-    }
-    return resized.jpegData(compressionQuality: 0.8)
   }
 
   // MARK: - Save
@@ -261,12 +281,25 @@ struct ProfileEditView: View {
     Task {
       defer { isSaving = false }
       do {
+        var newPhotoStorageId: String?
+        if let pendingPhotoData {
+          guard let token = authStore.currentSession?.token else {
+            throw AuthStoreError.sessionNotAvailable
+          }
+          newPhotoStorageId = try await HRConvexAPIService.uploadPhoto(token: token, imageData: pendingPhotoData)
+        }
         _ = try await authStore.updateProfile(
           name: trimmedName,
           email: trimmedEmail.isEmpty ? nil : trimmedEmail,
           phone: trimmedPhone,
-          photoStorageId: pendingPhotoStorageId
+          photoStorageId: nil
         )
+        if let newPhotoStorageId {
+          _ = try await authStore.setProfilePhoto(storageId: newPhotoStorageId)
+        } else if pendingPhotoRemoved {
+          _ = try await authStore.deleteProfilePhoto()
+        }
+        _ = try? await authStore.refreshMyStaffProfile()
         onSaved?()
         dismiss()
       } catch {

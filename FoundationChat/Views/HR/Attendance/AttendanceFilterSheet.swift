@@ -62,48 +62,70 @@ struct AttendanceFilterSheet: View {
 
     var body: some View {
         NavigationStack {
-            Form {
-                Section("Quick Range") {
-                    HStack {
-                        presetButton("This Month") { applyThisMonth() }
-                        presetButton("Last Month") { applyLastMonth() }
-                        presetButton("Last 7 Days") { applyLast7Days() }
-                    }
-                    .buttonStyle(.bordered)
-                }
+            VStack(spacing: 0) {
+                header
 
-                Section("Date Range") {
-                    DatePicker("From", selection: $draft.fromDate, in: ...draft.toDate, displayedComponents: .date)
-                    DatePicker("To", selection: $draft.toDate, in: draft.fromDate...Date(), displayedComponents: .date)
-                }
+                ScrollView {
+                    VStack(alignment: .leading, spacing: 18) {
+                        HStack(spacing: 8) {
+                            presetButton("This month") { applyThisMonth() }
+                            presetButton("Last month") { applyLastMonth() }
+                            presetButton("Last 7days") { applyLast7Days() }
+                        }
+                        .frame(maxWidth: .infinity, alignment: .center)
 
-                Section {
-                    statusToggle("All", isOn: draft.isAllStatuses) {
-                        draft.statuses.removeAll()
-                    }
-                    ForEach(AttendanceFilter.availableStatuses, id: \.self) { status in
-                        statusToggle(status.capitalized, isOn: draft.statuses.contains(status)) {
-                            if draft.statuses.contains(status) {
-                                draft.statuses.remove(status)
-                            } else {
-                                draft.statuses.insert(status)
+                        VStack(alignment: .leading, spacing: 10) {
+                            Text("Date Range")
+                                .font(.system(size: 12, weight: .semibold))
+                                .foregroundStyle(Color(hex: 0x475467))
+                            HStack(spacing: 10) {
+                                Image(systemName: "calendar")
+                                    .foregroundStyle(Color(hex: 0x0B61CA))
+                                Text(draft.rangeLabel)
+                                    .font(.system(size: 13, weight: .medium))
+                                    .foregroundStyle(Color(hex: 0x101828))
+                                    .lineLimit(1)
+                                Spacer()
+                            }
+                            .padding(.horizontal, 12)
+                            .frame(height: 44)
+                            .background(Color(hex: 0xF8FAFC), in: RoundedRectangle(cornerRadius: 10))
+
+                            DatePicker("From", selection: $draft.fromDate, in: ...draft.toDate, displayedComponents: .date)
+                            DatePicker("To", selection: $draft.toDate, in: draft.fromDate...Date(), displayedComponents: .date)
+                        }
+
+                        VStack(alignment: .leading, spacing: 8) {
+                            Text("Status")
+                                .font(.system(size: 12, weight: .semibold))
+                                .foregroundStyle(Color(hex: 0x475467))
+                            statusToggle("All", isOn: draft.isAllStatuses) {
+                                draft.statuses.removeAll()
+                            }
+                            ForEach(AttendanceFilter.availableStatuses, id: \.self) { status in
+                                statusToggle(status.capitalized, isOn: draft.statuses.contains(status)) {
+                                    if draft.statuses.contains(status) {
+                                        draft.statuses.remove(status)
+                                    } else {
+                                        draft.statuses.insert(status)
+                                    }
+                                }
                             }
                         }
                     }
-                } header: {
-                    Text("Status")
-                } footer: {
-                    Text("Filters records after they're loaded for the date range.")
+                    .padding(.horizontal, 16)
+                    .padding(.top, 18)
+                    .padding(.bottom, 18)
                 }
-            }
-            .navigationTitle("Filter Attendance")
-            .navigationBarTitleDisplayMode(.inline)
-            .toolbar {
-                ToolbarItem(placement: .cancellationAction) {
+
+                HStack(spacing: 12) {
                     Button("Cancel") { dismiss() }
-                }
-                ToolbarItem(placement: .confirmationAction) {
-                    Button("Apply") {
+                        .buttonStyle(.bordered)
+                        .controlSize(.large)
+                        .tint(Color(hex: 0x1BCA0B))
+                        .frame(maxWidth: .infinity)
+
+                    Button("Select") {
                         if draft.fromDate > draft.toDate {
                             let tmp = draft.fromDate
                             draft.fromDate = draft.toDate
@@ -112,15 +134,50 @@ struct AttendanceFilterSheet: View {
                         filter = draft
                         dismiss()
                     }
-                    .fontWeight(.semibold)
+                    .buttonStyle(.borderedProminent)
+                    .controlSize(.large)
+                    .tint(Color(hex: 0x1BCA0B))
+                    .frame(maxWidth: .infinity)
                 }
+                .padding(.horizontal, 16)
+                .padding(.vertical, 14)
+            }
+            .background(.white)
+        }
+    }
+
+    private var header: some View {
+        ZStack {
+            Button {
+                dismiss()
+            } label: {
+                Image(systemName: "xmark")
+                    .font(.system(size: 12, weight: .bold))
+                    .frame(width: 28, height: 28)
+            }
+            .buttonStyle(.bordered)
+            .controlSize(.small)
+            .frame(maxWidth: .infinity, alignment: .leading)
+
+            VStack(spacing: 2) {
+                Text("Filter")
+                    .font(.system(size: 18, weight: .semibold))
+                    .foregroundStyle(Color(hex: 0x101828))
+                Text("Pick your date to view your attendance")
+                    .font(.system(size: 11))
+                    .foregroundStyle(Color(hex: 0x475467))
             }
         }
+        .padding(.horizontal, 16)
+        .padding(.top, 14)
+        .padding(.bottom, 4)
     }
 
     private func presetButton(_ title: String, action: @escaping () -> Void) -> some View {
         Button(title, action: action)
-            .frame(maxWidth: .infinity)
+            .buttonStyle(.bordered)
+            .controlSize(.small)
+            .tint(Color(hex: 0x0B61CA))
     }
 
     private func statusToggle(_ title: String, isOn: Bool, action: @escaping () -> Void) -> some View {
@@ -134,7 +191,11 @@ struct AttendanceFilterSheet: View {
                         .foregroundStyle(Color.accentColor)
                 }
             }
+            .padding(.horizontal, 12)
+            .frame(minHeight: 42)
+            .background(Color(hex: 0xF8FAFC), in: RoundedRectangle(cornerRadius: 10))
         }
+        .buttonStyle(.plain)
     }
 
     private func applyThisMonth() {

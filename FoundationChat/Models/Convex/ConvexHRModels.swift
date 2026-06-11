@@ -163,6 +163,9 @@ struct ConvexTodayAttendance: Decodable, Equatable, Sendable {
     let _id: String?
     let attendanceId: String?
     let date: String?
+    let firstPunchIn: String?
+    let lastPunchOut: String?
+    let hasOpenSession: Bool?
     let punchInTime: String?
     let punchOutTime: String?
     let punchInLatitude: Double?
@@ -180,19 +183,19 @@ struct ConvexTodayAttendance: Decodable, Equatable, Sendable {
     let status: String?
     let remarks: String?
 
-    var hasPunchedIn: Bool { punchInTime != nil }
-    var hasPunchedOut: Bool { punchOutTime != nil }
-    var isOpen: Bool { hasPunchedIn && !hasPunchedOut }
+    var hasPunchedIn: Bool { (firstPunchIn ?? punchInTime) != nil }
+    var hasPunchedOut: Bool { (lastPunchOut ?? punchOutTime) != nil }
+    var isOpen: Bool { hasOpenSession == true || (hasPunchedIn && !hasPunchedOut) }
 
     var punchInDate: Date? {
-        guard let t = punchInTime else { return nil }
+        guard let t = firstPunchIn ?? punchInTime else { return nil }
         let formatter = ISO8601DateFormatter()
         formatter.formatOptions = [.withInternetDateTime, .withFractionalSeconds]
         return formatter.date(from: t)
     }
 
     var punchOutDate: Date? {
-        guard let t = punchOutTime else { return nil }
+        guard let t = lastPunchOut ?? punchOutTime else { return nil }
         let formatter = ISO8601DateFormatter()
         formatter.formatOptions = [.withInternetDateTime, .withFractionalSeconds]
         return formatter.date(from: t)
@@ -206,8 +209,13 @@ struct ConvexDaySession: Decodable, Identifiable, Equatable, Sendable {
     let durationMinutes: Int?
     let punchInLatitude: Double?
     let punchInLongitude: Double?
+    let punchInAddress: String?
+    let punchInPhoto: String?
     let punchOutLatitude: Double?
     let punchOutLongitude: Double?
+    let punchOutAddress: String?
+    let punchOutPhoto: String?
+    let source: String?
 
     var id: String { _id ?? UUID().uuidString }
 }

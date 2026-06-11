@@ -1,0 +1,2132 @@
+import SwiftUI
+import UIKit
+
+// MARK: - CompleteCpVisitSheet
+
+struct CompleteCpVisitSheet: View {
+    let cpVisitId: String
+    let initialOutcome: String?
+    let onCompleted: () -> Void
+
+    @Environment(AuthStore.self) private var authStore
+    @Environment(\.dismiss) private var dismiss
+
+    @State private var selectedOutcome: CpVisitOutcome?
+    @State private var budgetConcern = ""
+    @State private var timingNotes = ""
+    @State private var projectDetails = ""
+    @State private var otherPostponeNotes = ""
+    @State private var postponeFollowUpDate = Date()
+    @State private var selectedPostponeReasons: Set<CpPostponeReason> = []
+    @State private var postponedNotes = ""
+    @State private var selectedNotInterestedReasons: Set<CpNotInterestedReason> = []
+    @State private var notInterestedReasonDetails: [CpNotInterestedReason: String] = [:]
+    @State private var notInterestedBudgetConcern = ""
+    @State private var notInterestedTimingNotes = ""
+    @State private var notInterestedProjectDetails = ""
+    @State private var notInterestedOtherNotes = ""
+    @State private var bookingSub: BookingSub = .client
+    @State private var bookingStep: BookingStep = .findMobile
+    @State private var bookingClientMobile = ""
+    @State private var booking = BookingDraft()
+    @State private var cpVisitDetail: CpVisitDetail?
+    @State private var selectedBookingLead: TelecallerLeadSearchData?
+    @State private var bookingLeadMatches: [TelecallerLeadSearchData] = []
+    @State private var isSearchingBookingLead = false
+
+    @State private var projects: [MarketingProject] = []
+    @State private var salesStaff: [ConvexStaffListItem] = []
+    @State private var selectedProject: MarketingProject?
+    @State private var selectedIncharge: ConvexStaffListItem?
+    @State private var selectedHod: ConvexStaffListItem?
+    @State private var selectedAvp: ConvexStaffListItem?
+    @State private var selectedGm: ConvexStaffListItem?
+    @State private var selectedSeniorManager: ConvexStaffListItem?
+    @State private var siteVisitDate = Date()
+    @State private var siteVisitTime = Date()
+    @State private var travelMode: TravelMode = .cab
+    @State private var pickupAddress = ""
+    @State private var visitorCount = ""
+    @State private var visitors: [CpVisitorDraft] = []
+    @State private var foodPreferences = ""
+
+    @State private var isLoadingProjects = false
+    @State private var isLoadingStaff = false
+    @State private var isSaving = false
+    @State private var isLockedSvMode = false
+    @State private var isDetectingLockedSvMode = false
+    @State private var showRejectReasonSheet = false
+    @State private var errorMessage: String?
+
+    private let titleOptions = ["Mr", "Mrs", "Ms", "Dr", "Prof"]
+    private let nationalityOptions = ["Indian", "NRI", "Foreign National"]
+    private let professionOptions = ["Business", "Salaried", "Self-Employed", "Other"]
+    private let bookingTypeOptions = ["Direct", "Channel Partner", "Online"]
+    private let sourceTypeOptions = ["Walk-in", "Referral", "Marketing", "Online"]
+    private let propertyTypeOptions = ["Plot", "Apartment", "Villa"]
+    private let bookingModeOptions = ["Cash", "Cheque", "Online Transfer"]
+    private let promoTncOptions = ["Default T&C", "Festive T&C", "Custom T&C"]
+    private let paymentModeOptions = ["Lump Sum", "Construction-Linked", "Flexi"]
+    private let documentLanguageOptions = ["English", "Tamil", "Hindi"]
+
+    var body: some View {
+        NavigationStack {
+            ScrollView {
+                VStack(alignment: .leading, spacing: 14) {
+                    Capsule()
+                        .fill(Color(hex: 0xE4E7EC))
+                        .frame(width: 40, height: 4)
+                        .frame(maxWidth: .infinity)
+                        .padding(.bottom, 2)
+
+                    HStack(alignment: .center, spacing: 12) {
+                        VStack(alignment: .leading, spacing: 2) {
+                            Text("Outcome Information")
+                                .font(.system(size: 16, weight: .semibold))
+                                .foregroundStyle(Color(hex: 0x101828))
+                            Text("Information about Client Details")
+                                .font(.system(size: 11))
+                                .foregroundStyle(Color(hex: 0x94A3B8))
+                        }
+
+                        Spacer()
+
+                        Button {
+                            dismissKeyboard()
+                        } label: {
+                            Text("Done")
+                                .font(.system(size: 12, weight: .semibold))
+                                .foregroundStyle(Color(hex: 0x2563EB))
+                                .padding(.horizontal, 14)
+                                .frame(height: 32)
+                                .background(Color(hex: 0xEFF6FF), in: Capsule())
+                        }
+                        .buttonStyle(.plain)
+
+                        Button {
+                            resetOutcomeToBookingFindClient()
+                        } label: {
+                            Text("Edit")
+                                .font(.system(size: 12, weight: .semibold))
+                                .foregroundStyle(Color(hex: 0x2DAE12))
+                                .padding(.horizontal, 14)
+                                .frame(height: 32)
+                                .background(Color(hex: 0xEAF8E8), in: Capsule())
+                        }
+                        .buttonStyle(.plain)
+                    }
+
+                    outcomeChips
+                        .padding(.top, 2)
+
+                    if selectedOutcome == .booking {
+                        bookingSection
+                    }
+
+                    if selectedOutcome == .siteVisit {
+                        siteVisitSection
+                    }
+
+                    if selectedOutcome == .postponed {
+                        postponeSection
+                    }
+
+                    if selectedOutcome == .notInterested {
+                        notInterestedSection
+                    }
+
+                    if let errorMessage {
+                        Text(errorMessage)
+                            .font(.system(size: 12, weight: .medium))
+                            .foregroundStyle(.red)
+                    }
+
+                    if isLockedSvMode {
+                        lockedSvFooter
+                            .padding(.top, 6)
+                    } else {
+                        Button {
+                            Task { await submit() }
+                        } label: {
+                            if isSaving {
+                                ProgressView()
+                                    .frame(maxWidth: .infinity)
+                            } else {
+                                Text(ctaTitle)
+                                    .font(.system(size: 14, weight: .semibold))
+                                    .frame(maxWidth: .infinity)
+                            }
+                        }
+                        .buttonStyle(.borderedProminent)
+                        .controlSize(.large)
+                        .tint(Color(hex: 0x2DAE12))
+                        .padding(.top, 6)
+                        .disabled(isSaving)
+                    }
+                }
+                .padding(.horizontal, 20)
+                .padding(.top, 18)
+                .padding(.bottom, 24)
+            }
+            .background(Color(.systemBackground))
+            .scrollDismissesKeyboard(.interactively)
+            .interactiveDismissDisabled(isSaving)
+            .toolbar {
+                ToolbarItem(placement: .cancellationAction) {
+                    Button("Cancel") { dismiss() }
+                        .disabled(isSaving)
+                }
+            }
+            .task {
+                let startingOutcome = CpVisitOutcome(rawValue: normalizedServerValue(initialOutcome))
+                selectedOutcome = startingOutcome ?? .booking
+                if startingOutcome == .siteVisit || initialOutcomeMarksFixedSiteVisit {
+                    isLockedSvMode = true
+                    selectedOutcome = .siteVisit
+                }
+                await loadInitialData()
+                await detectAndApplyLockedSvMode()
+            }
+            .sheet(isPresented: $showRejectReasonSheet) {
+                CpRejectReasonSheet(
+                    isSaving: isSaving,
+                    onSubmit: { reason in
+                        await submitLockedRejection(reason: reason)
+                    }
+                )
+                .presentationDetents([.medium, .large])
+                .presentationDragIndicator(.visible)
+            }
+        }
+    }
+
+    private var outcomeChips: some View {
+        HStack(spacing: 0) {
+            ForEach(Array(CpVisitOutcome.allCases.enumerated()), id: \.element.id) { index, outcome in
+                Button {
+                    guard !isLockedSvMode || outcome == .siteVisit else { return }
+                    selectedOutcome = outcome
+                    if outcome == .booking {
+                        bookingSub = .client
+                        bookingStep = .findMobile
+                    }
+                } label: {
+                    OutcomeTabView(
+                        outcome: outcome,
+                        isSelected: selectedOutcome == outcome
+                    )
+                    .frame(maxWidth: .infinity)
+                    .opacity(isLockedSvMode && outcome != .siteVisit ? 0.35 : 1)
+                }
+                .buttonStyle(.plain)
+                .disabled(isLockedSvMode && outcome != .siteVisit)
+
+                if index < CpVisitOutcome.allCases.count - 1 {
+                    Rectangle()
+                        .fill(Color(hex: 0xF3F3F5))
+                        .frame(width: 1, height: 28)
+                }
+            }
+        }
+        .padding(.top, 14)
+    }
+
+    private var lockedSvFooter: some View {
+        HStack(spacing: 10) {
+            Button {
+                errorMessage = nil
+                showRejectReasonSheet = true
+            } label: {
+                Label("Reject It", systemImage: "xmark")
+                    .font(.system(size: 13, weight: .semibold))
+                    .frame(maxWidth: .infinity)
+            }
+            .buttonStyle(.bordered)
+            .controlSize(.large)
+            .tint(Color(hex: 0xB42318))
+            .disabled(isSaving)
+
+            Button {
+                Task { await submit() }
+            } label: {
+                if isSaving {
+                    ProgressView()
+                        .frame(maxWidth: .infinity)
+                } else {
+                    Label("Confirm It", systemImage: "checkmark")
+                        .font(.system(size: 13, weight: .semibold))
+                        .frame(maxWidth: .infinity)
+                }
+            }
+            .buttonStyle(.borderedProminent)
+            .controlSize(.large)
+            .tint(Color(hex: 0x2DAE12))
+            .disabled(isSaving)
+        }
+    }
+
+    private func resetOutcomeToBookingFindClient() {
+        dismissKeyboard()
+        selectedOutcome = .booking
+        bookingSub = .client
+        bookingStep = .findMobile
+        errorMessage = nil
+    }
+
+    private var siteVisitSection: some View {
+        VStack(alignment: .leading, spacing: 10) {
+            sectionLabel("Schedule")
+            if isLoadingProjects {
+                FieldShell {
+                    HStack {
+                        ProgressView().controlSize(.small)
+                        Text("Loading projects…")
+                            .font(.system(size: 13, weight: .medium))
+                    }
+                }
+            } else {
+                PickerField(
+                    title: selectedProject?.name ?? "Select project",
+                    options: projects,
+                    label: { $0.name ?? "Unnamed project" },
+                    selection: $selectedProject
+                )
+            }
+
+            HStack(spacing: 10) {
+                VStack(alignment: .leading, spacing: 6) {
+                    sectionLabel("Date")
+                    DatePicker("", selection: $siteVisitDate, displayedComponents: .date)
+                        .labelsHidden()
+                        .frame(maxWidth: .infinity)
+                        .padding(.horizontal, 10)
+                        .frame(minHeight: 48)
+                        .background(Color(hex: 0xF5F6FA), in: RoundedRectangle(cornerRadius: 14))
+                }
+                VStack(alignment: .leading, spacing: 6) {
+                    sectionLabel("Time")
+                    DatePicker("", selection: $siteVisitTime, displayedComponents: .hourAndMinute)
+                        .labelsHidden()
+                        .frame(maxWidth: .infinity)
+                        .padding(.horizontal, 10)
+                        .frame(minHeight: 48)
+                        .background(Color(hex: 0xF5F6FA), in: RoundedRectangle(cornerRadius: 14))
+                }
+            }
+
+            sectionLabel("Pickup From")
+            HStack(spacing: 12) {
+                SegmentButton(title: "Own Vehicle", isSelected: travelMode == .ownVehicle) {
+                    travelMode = .ownVehicle
+                }
+                SegmentButton(title: "Cab Vehicle", isSelected: travelMode == .cab) {
+                    travelMode = .cab
+                }
+            }
+            fieldEditor("Enter Address", text: $pickupAddress, minLines: 3, label: "Pickup Address (If Needed)")
+
+            sectionLabel("Business Development Organisation")
+            FieldShell {
+                Text("Keep Original")
+                    .font(.system(size: 13, weight: .medium))
+                    .foregroundStyle(Color(hex: 0x64748B))
+            }
+
+            sectionLabel("Sales ownership")
+            if isLoadingStaff {
+                FieldShell {
+                    HStack {
+                        ProgressView().controlSize(.small)
+                        Text("Loading staff…").font(.system(size: 13, weight: .medium))
+                    }
+                }
+            } else {
+                staffPicker("Select SiteIncharge", selection: $selectedIncharge)
+                staffPicker("Select HOD", selection: $selectedHod)
+                staffPicker("Select AVP", selection: $selectedAvp)
+                staffPicker("Select GM", selection: $selectedGm)
+                staffPicker("Select Senior Manager", selection: $selectedSeniorManager)
+            }
+
+            sectionLabel("Visitors")
+            TextField("0", text: $visitorCount)
+                .keyboardType(.numberPad)
+                .cpFieldStyle(icon: "person")
+                .onChange(of: visitorCount) { _, value in
+                    syncVisitorRows(count: Int(value.filter(\.isNumber)) ?? 0)
+                }
+
+            ForEach($visitors) { $visitor in
+                VisitorDraftRow(visitor: $visitor)
+            }
+
+            fieldEditor("Food preferences", text: $foodPreferences)
+        }
+        .padding(.top, 4)
+    }
+
+    private var bookingSection: some View {
+        VStack(alignment: .leading, spacing: 12) {
+            if bookingStep == .clientForm {
+                ScrollView(.horizontal, showsIndicators: false) {
+                    HStack(spacing: 6) {
+                        ForEach(BookingSub.allCases) { sub in
+                            BookingSubTab(title: sub.title, isSelected: bookingSub == sub)
+                        }
+                    }
+                }
+            }
+            bookingSubBody
+        }
+        .padding(.top, 10)
+    }
+
+    @ViewBuilder
+    private var bookingSubBody: some View {
+        switch bookingSub {
+        case .client:
+            if bookingStep == .findMobile {
+                bookingFindClientFields
+            } else {
+                bookingClientFields
+            }
+        case .professional:
+            bookingProfessionalFields
+        case .office:
+            bookingOfficeFields
+        case .booking:
+            bookingDetailsFields
+        case .charges:
+            bookingChargesFields
+        case .payment:
+            bookingPaymentFields
+        case .staff:
+            bookingStaffFields
+        }
+    }
+
+    private var bookingFindClientFields: some View {
+        VStack(alignment: .leading, spacing: 14) {
+            VStack(spacing: 8) {
+                Image(systemName: "person.text.rectangle.fill")
+                    .font(.system(size: 62, weight: .regular))
+                    .foregroundStyle(Color(hex: 0x0B61CA))
+                    .frame(width: 120, height: 120)
+                    .background(Color(hex: 0xEAF2FF), in: Circle())
+                Text("Let's find your client")
+                    .font(.system(size: 15, weight: .semibold))
+                    .foregroundStyle(Color(hex: 0x101828))
+                Text("Enter the client's mobile number to fetch their details from the project.")
+                    .font(.system(size: 12))
+                    .foregroundStyle(Color(hex: 0x94A3B8))
+                    .multilineTextAlignment(.center)
+                    .padding(.horizontal, 20)
+            }
+            .frame(maxWidth: .infinity)
+            .padding(.top, 6)
+            .padding(.bottom, 8)
+
+            BookingTextField("Client Mobile Number *", text: $bookingClientMobile, placeholder: "Enter Mobile Number", icon: "phone", keyboard: .phonePad)
+                .onChange(of: bookingClientMobile) { _, _ in
+                    selectedBookingLead = nil
+                    bookingLeadMatches = []
+                }
+
+            Button {
+                Task { await searchBookingLead() }
+            } label: {
+                HStack {
+                    if isSearchingBookingLead {
+                        ProgressView().controlSize(.small)
+                    } else {
+                        Image(systemName: "magnifyingglass")
+                    }
+                    Text("Find Client")
+                        .font(.system(size: 13, weight: .semibold))
+                }
+                .frame(maxWidth: .infinity)
+            }
+            .buttonStyle(.borderedProminent)
+            .controlSize(.large)
+            .tint(Color(hex: 0x0B61CA))
+            .disabled(isSearchingBookingLead || AppModuleFormatters.normalizePhone(bookingClientMobile).count != 10)
+
+            if let selectedBookingLead {
+                FieldShell {
+                    VStack(alignment: .leading, spacing: 4) {
+                        Text("Linked client")
+                            .font(.system(size: 11, weight: .semibold))
+                            .foregroundStyle(Color(hex: 0x667085))
+                        Text(selectedBookingLead.displayName)
+                            .font(.system(size: 13, weight: .semibold))
+                            .foregroundStyle(Color(hex: 0x101828))
+                    }
+                }
+            }
+
+            ForEach(bookingLeadMatches) { lead in
+                Button {
+                    applyBookingLead(lead)
+                } label: {
+                    FieldShell {
+                        VStack(alignment: .leading, spacing: 4) {
+                            Text(lead.displayName)
+                                .font(.system(size: 13, weight: .semibold))
+                                .foregroundStyle(Color(hex: 0x101828))
+                            Text(lead.mobileNumber ?? "No mobile")
+                                .font(.system(size: 12))
+                                .foregroundStyle(Color(hex: 0x667085))
+                        }
+                    }
+                }
+                .buttonStyle(.plain)
+            }
+
+            HStack(alignment: .top, spacing: 10) {
+                Image(systemName: "checkmark.shield.fill")
+                    .font(.system(size: 16, weight: .semibold))
+                    .foregroundStyle(Color(hex: 0x2DAE12))
+                Text("We will fetch and auto-fill client details from the project.")
+                    .font(.system(size: 12, weight: .medium))
+                    .foregroundStyle(Color(hex: 0x2DAE12))
+            }
+            .padding(12)
+            .background(Color(hex: 0xECFDF3), in: RoundedRectangle(cornerRadius: 12))
+        }
+    }
+
+    private var bookingClientFields: some View {
+        VStack(alignment: .leading, spacing: 10) {
+            BookingReadonlyField(title: "Client Phone Number *", value: booking.phone, icon: "phone")
+            BookingPickerTextField("Title", text: $booking.title, placeholder: "Select Title", icon: "person", options: titleOptions)
+            BookingTextField("Client Name *", text: $booking.name, placeholder: "Enter Client Name", icon: "person")
+            BookingTextField("Father/Spouse Name", text: $booking.fatherOrSpouse, placeholder: "Enter Name", icon: "person")
+            BookingDateTextField("Date of Birth", text: $booking.dob)
+            BookingDateTextField("Anniversary Date", text: $booking.anniversary)
+            BookingTextField("Alternate Number", text: $booking.altNumber, placeholder: "Enter Number", icon: "phone", keyboard: .phonePad)
+            BookingTextField("Whatsapp Number", text: $booking.whatsapp, placeholder: "Enter Number", icon: "phone", keyboard: .phonePad)
+            BookingTextField("Email", text: $booking.email, placeholder: "Enter Email", icon: "envelope", keyboard: .emailAddress)
+            BookingPickerTextField("Nationality", text: $booking.nationality, placeholder: "Select Nationality", icon: "globe", options: nationalityOptions)
+            BookingTextField("Home Address", text: $booking.homeAddress, placeholder: "Enter Address", icon: "mappin", axis: .vertical)
+            BookingTextField("Pincode", text: $booking.pincode, placeholder: "Enter Pincode", icon: "mappin", keyboard: .numberPad)
+            BookingTextField("State", text: $booking.state, placeholder: "Enter State", icon: "mappin")
+            BookingTextField("District", text: $booking.district, placeholder: "Enter District", icon: "mappin")
+            BookingTextField("Location", text: $booking.location, placeholder: "Enter Location", icon: "mappin")
+        }
+    }
+
+    private var bookingProfessionalFields: some View {
+        VStack(alignment: .leading, spacing: 10) {
+            BookingPickerTextField("Profession", text: $booking.profession, placeholder: "Select Profession", icon: "briefcase", options: professionOptions)
+            BookingTextField("Designation", text: $booking.designation, placeholder: "Enter Designation", icon: "person")
+            BookingTextField("Income Per Annum", text: $booking.incomePerAnnum, placeholder: "Enter Income", icon: "indianrupeesign", keyboard: .decimalPad)
+        }
+    }
+
+    private var bookingOfficeFields: some View {
+        VStack(alignment: .leading, spacing: 10) {
+            BookingTextField("Office Name", text: $booking.officeName, placeholder: "Enter Office Name", icon: "building.2")
+            BookingTextField("Office Email", text: $booking.officeEmail, placeholder: "Enter Email", icon: "envelope", keyboard: .emailAddress)
+            BookingTextField("Office Mobile", text: $booking.officeMobile, placeholder: "Enter Mobile", icon: "phone", keyboard: .phonePad)
+            BookingTextField("Office Phone", text: $booking.officePhone, placeholder: "Enter Phone", icon: "phone", keyboard: .phonePad)
+            BookingTextField("Office Address", text: $booking.officeAddress, placeholder: "Enter Address", icon: "mappin", axis: .vertical)
+        }
+    }
+
+    private var bookingDetailsFields: some View {
+        VStack(alignment: .leading, spacing: 10) {
+            BookingTextField("Booking Ref No", text: $booking.bookingRefNo, placeholder: "Enter Ref No", icon: "number")
+            BookingPickerTextField("Booking Type", text: $booking.bookingType, placeholder: "Select Type", icon: "briefcase", options: bookingTypeOptions)
+            BookingPickerTextField("Source Type", text: $booking.sourceType, placeholder: "Select Type", icon: "briefcase", options: sourceTypeOptions)
+            BookingTextField("CEF No", text: $booking.cefNo, placeholder: "Enter CEF No", icon: "doc")
+            BookingDateTextField("Booking Date *", text: $booking.bookingDate)
+            BookingPickerTextField("Project", text: $booking.project, placeholder: "Select Project", icon: "briefcase", options: projectPickerOptions)
+            BookingPickerTextField("Plot available Only", text: $booking.plot, placeholder: "Select Project First", icon: "briefcase", options: plotPickerOptions)
+            BookingPickerTextField("Property Type", text: $booking.propertyType, placeholder: "Select Type", icon: "briefcase", options: propertyTypeOptions)
+            BookingPickerTextField("Booking Mode", text: $booking.bookingMode, placeholder: "Select Mode", icon: "briefcase", options: bookingModeOptions)
+            sectionLabel("Is Against Client Visit")
+            HStack(spacing: 12) {
+                RadioRow(title: "Yes", isSelected: booking.isAgainstClientVisit) { booking.isAgainstClientVisit = true }
+                RadioRow(title: "No (Online Sales)", isSelected: !booking.isAgainstClientVisit) { booking.isAgainstClientVisit = false }
+            }
+            sectionLabel("Duplicate Bookings")
+            RadioRow(title: "Yes", isSelected: booking.duplicateBookings) { booking.duplicateBookings.toggle() }
+        }
+    }
+
+    private var bookingChargesFields: some View {
+        VStack(alignment: .leading, spacing: 10) {
+            sectionLabel("Booking · Charges Details")
+            BookingTextField("Booking Cost", text: $booking.bookingCost, keyboard: .decimalPad)
+            BookingTextField("Guideline Value", text: $booking.guidelineValue, keyboard: .decimalPad)
+            BookingTextField("Special Consideration", text: $booking.specialConsideration, axis: .vertical)
+            BookingTextField("Discount Approved By", text: $booking.discountApprovedBy)
+            BookingTextField("SC Reason", text: $booking.scReason, axis: .vertical)
+            BookingTextField("SC Validity (days)", text: $booking.scValidity, keyboard: .numberPad)
+            BookingTextField("Promotional Offers", text: $booking.promotionalOffers, axis: .vertical)
+            BookingPickerTextField("Promotional Offers T&C", text: $booking.promotionalOffersTnc, placeholder: "Select Offers", icon: "indianrupeesign", options: promoTncOptions)
+            BookingTextField("Promotional Offers Value", text: $booking.promotionalOffersValue, keyboard: .decimalPad)
+            BookingTextField("Offer Validity Period (days)", text: $booking.offerValidityPeriod, keyboard: .numberPad)
+        }
+    }
+
+    private var bookingPaymentFields: some View {
+        VStack(alignment: .leading, spacing: 10) {
+            sectionLabel("Booking · Payment Details")
+            BookingTextField("Registration Charges", text: $booking.registrationCharges, keyboard: .decimalPad)
+            BookingTextField("GST Amount", text: $booking.gstAmount, keyboard: .decimalPad)
+            Toggle("GST If Applicable", isOn: $booking.gstApplicable)
+                .font(.system(size: 13, weight: .medium))
+            BookingTextField("Document Charges", text: $booking.documentCharges, keyboard: .decimalPad)
+            BookingTextField("Patta Charges", text: $booking.pattaCharges, placeholder: "Enter Cost", icon: "briefcase", keyboard: .decimalPad)
+            BookingTextField("Other Charges", text: $booking.otherCharges, keyboard: .decimalPad)
+            Toggle("Other Charges If Applicable", isOn: $booking.otherChargesApplicable)
+                .font(.system(size: 13, weight: .medium))
+            BookingTextField("Advance Amount", text: $booking.advanceAmount, keyboard: .decimalPad)
+            BookingPickerTextField("Payment Mode", text: $booking.paymentMode, placeholder: "Select Mode", icon: "info.circle", options: paymentModeOptions)
+            Toggle("Flexi Payment", isOn: $booking.flexiPayment)
+                .font(.system(size: 13, weight: .medium))
+            BookingTextField("Allotment Due Amount", text: $booking.allotmentDueAmount, keyboard: .decimalPad)
+            BookingDateTextField("Allotment Due Date", text: $booking.allotmentDueDate)
+            BookingTextField("2nd Payment Amount", text: $booking.secondPaymentAmount, placeholder: "Enter Cost", icon: "briefcase", keyboard: .decimalPad)
+            BookingDateTextField("2nd Payment Date", text: $booking.secondPaymentDate)
+            BookingTextField("3rd Payment Amount", text: $booking.thirdPaymentAmount, placeholder: "Enter Cost", icon: "briefcase", keyboard: .decimalPad)
+            BookingDateTextField("3rd Payment Date", text: $booking.thirdPaymentDate)
+            BookingTextField("4th Payment Amount", text: $booking.fourthPaymentAmount, placeholder: "Enter Cost", icon: "briefcase", keyboard: .decimalPad)
+            BookingDateTextField("4th Payment Date", text: $booking.fourthPaymentDate)
+            BookingDateTextField("Preferred Registration Date", text: $booking.preferredRegistrationDate)
+        }
+    }
+
+    private var bookingStaffFields: some View {
+        VStack(alignment: .leading, spacing: 10) {
+            sectionLabel("Booking · Staff Details")
+            BookingPickerTextField("AVP", text: $booking.avp, placeholder: "Select", icon: "person", options: staffPickerOptions(fallback: ["AVP A", "AVP B"]))
+            BookingPickerTextField("General Manager", text: $booking.generalManager, placeholder: "Select", icon: "person", options: staffPickerOptions(fallback: ["GM A", "GM B"]))
+            BookingPickerTextField("Senior Manager", text: $booking.seniorManager, placeholder: "Select", icon: "person", options: staffPickerOptions(fallback: ["SM A", "SM B"]))
+            BookingPickerTextField("BDO", text: $booking.bdo, placeholder: "Select", icon: "person", options: staffPickerOptions(fallback: ["BDO A", "BDO B"]))
+            BookingPickerTextField("Telecaller", text: $booking.telecaller, placeholder: "Select", icon: "phone", options: staffPickerOptions(fallback: ["Telecaller A", "Telecaller B"]))
+            BookingTextField("Aadhar Details", text: $booking.aadhar, placeholder: "Enter Details", icon: "doc", keyboard: .numberPad)
+            BookingTextField("Pancard Details", text: $booking.pancard, placeholder: "Enter Details", icon: "doc")
+            BookingTextField("Reference Name 1", text: $booking.referenceName1)
+            BookingTextField("Reference Mobile 1", text: $booking.referenceMobile1, keyboard: .phonePad)
+            BookingTextField("Reference Profession 1", text: $booking.referenceProfession1)
+            BookingTextField("Reference Name 2", text: $booking.referenceName2)
+            BookingTextField("Reference Mobile 2", text: $booking.referenceMobile2, keyboard: .phonePad)
+            BookingTextField("Reference Profession 2", text: $booking.referenceProfession2)
+            BookingPickerTextField("Document to be prepared in", text: $booking.documentLanguage, placeholder: "Select", icon: "doc", options: documentLanguageOptions)
+            sectionLabel("Save as")
+            HStack(spacing: 12) {
+                RadioRow(title: "Draft", isSelected: booking.saveAs == .draft) { booking.saveAs = .draft }
+                RadioRow(title: "Confirmed", isSelected: booking.saveAs == .confirmed) { booking.saveAs = .confirmed }
+            }
+        }
+    }
+
+    private var postponeSection: some View {
+        VStack(alignment: .leading, spacing: 10) {
+            sectionLabel("Reason")
+            ForEach(CpPostponeReason.allCases) { reason in
+                ReasonToggleRow(
+                    title: reason.title,
+                    isSelected: selectedPostponeReasons.contains(reason)
+                ) {
+                    togglePostponeReason(reason)
+                }
+            }
+            fieldEditor("Add notes", text: $postponedNotes, minLines: 3)
+            DatePicker("Date & Time", selection: $postponeFollowUpDate, displayedComponents: [.date, .hourAndMinute])
+                .font(.system(size: 12, weight: .medium))
+                .padding(.horizontal, 14)
+                .frame(minHeight: 48)
+                .background(Color(hex: 0xF5F6FA), in: RoundedRectangle(cornerRadius: 14))
+        }
+        .padding(.top, 4)
+    }
+
+    private var notInterestedSection: some View {
+        VStack(alignment: .leading, spacing: 10) {
+            sectionLabel("Reason")
+            ForEach(CpNotInterestedReason.allCases) { reason in
+                VStack(alignment: .leading, spacing: 8) {
+                    ReasonToggleRow(
+                        title: reason.title,
+                        isSelected: selectedNotInterestedReasons.contains(reason)
+                    ) {
+                        toggleNotInterestedReason(reason)
+                    }
+                    if selectedNotInterestedReasons.contains(reason) {
+                        fieldEditor(
+                            "Add \(reason.title.lowercased()) detail",
+                            text: bindingForNotInterestedReason(reason),
+                            minLines: 2
+                        )
+                        .padding(.leading, 10)
+                    }
+                }
+            }
+            fieldEditor("Add notes", text: $notInterestedOtherNotes, minLines: 3)
+        }
+        .padding(.top, 4)
+    }
+
+    private var projectPickerOptions: [String] {
+        let loaded = projects.compactMap { $0.name?.trimmingCharacters(in: .whitespacesAndNewlines) }
+            .filter { !$0.isEmpty }
+        return loaded.isEmpty ? ["Project A", "Project B", "Project C"] : loaded
+    }
+
+    private var plotPickerOptions: [String] {
+        ["Plot 101", "Plot 102", "Plot 103"]
+    }
+
+    private func staffPickerOptions(fallback: [String]) -> [String] {
+        let loaded = salesStaff.map(\.displayName).filter { !$0.isEmpty }
+        return loaded.isEmpty ? fallback : loaded
+    }
+
+    private var ctaTitle: String {
+        if isSaving { return "Saving..." }
+        switch selectedOutcome {
+        case .booking:
+            if bookingStep == .findMobile { return "Next" }
+            return bookingSub == .staff ? "Create \(booking.saveAs.title) Booking" : "Next"
+        case .siteVisit, .postponed, .notInterested:
+            return "Save"
+        case nil:
+            return "Next"
+        }
+    }
+
+    private func staffPicker(_ title: String, selection: Binding<ConvexStaffListItem?>) -> some View {
+        PickerField(
+            title: selection.wrappedValue.map { "\(title.replacingOccurrences(of: "Select ", with: "")): \($0.displayName)" } ?? title,
+            options: salesStaff,
+            label: { staff in
+                [staff.displayName, staff.designation, staff.department]
+                    .compactMap { $0?.nilIfBlank }
+                    .joined(separator: " · ")
+            },
+            selection: selection
+        )
+    }
+
+    private func sectionLabel(_ text: String) -> some View {
+        Text(text)
+            .font(.system(size: 11, weight: .semibold))
+            .foregroundStyle(Color(hex: 0x667085))
+            .padding(.top, 4)
+    }
+
+    private func labeledEditor(_ title: String, text: Binding<String>, minLines: Int = 2) -> some View {
+        VStack(alignment: .leading, spacing: 6) {
+            Text(title)
+                .font(.system(size: 12, weight: .semibold))
+                .foregroundStyle(Color(hex: 0x475467))
+            fieldEditor("Type here...", text: text, minLines: minLines)
+        }
+        .padding(.top, 4)
+    }
+
+    private func fieldEditor(_ placeholder: String, text: Binding<String>, minLines: Int = 1, label: String? = nil) -> some View {
+        VStack(alignment: .leading, spacing: 6) {
+            if let label {
+                sectionLabel(label)
+            }
+            TextField(placeholder, text: text, axis: .vertical)
+                .font(.system(size: 13, weight: .medium))
+                .lineLimit(minLines...max(minLines, 4))
+                .padding(.horizontal, 14)
+                .padding(.vertical, 12)
+                .background(Color(hex: 0xF5F6FA), in: RoundedRectangle(cornerRadius: 12))
+        }
+    }
+
+    private func fieldText(_ text: String) -> some View {
+        FieldShell {
+            HStack {
+                Text(text)
+                    .font(.system(size: 13, weight: .medium))
+                    .foregroundStyle(Color(hex: 0x101828))
+                Spacer()
+                Image(systemName: "chevron.down")
+                    .font(.system(size: 12, weight: .semibold))
+                    .foregroundStyle(Color(hex: 0x667085))
+            }
+        }
+    }
+
+    private func togglePostponeReason(_ reason: CpPostponeReason) {
+        if selectedPostponeReasons.contains(reason) {
+            selectedPostponeReasons.remove(reason)
+        } else {
+            selectedPostponeReasons.insert(reason)
+        }
+    }
+
+    private func toggleNotInterestedReason(_ reason: CpNotInterestedReason) {
+        if selectedNotInterestedReasons.contains(reason) {
+            selectedNotInterestedReasons.remove(reason)
+            notInterestedReasonDetails[reason] = nil
+        } else {
+            selectedNotInterestedReasons.insert(reason)
+        }
+    }
+
+    private func bindingForNotInterestedReason(_ reason: CpNotInterestedReason) -> Binding<String> {
+        Binding(
+            get: { notInterestedReasonDetails[reason] ?? "" },
+            set: { notInterestedReasonDetails[reason] = $0 }
+        )
+    }
+
+    private func loadInitialData() async {
+        await withTaskGroup(of: Void.self) { group in
+            group.addTask { await loadProjects() }
+            group.addTask { await loadSalesStaff() }
+        }
+    }
+
+    private func loadProjects() async {
+        guard projects.isEmpty, let token = authStore.currentSession?.token else { return }
+        isLoadingProjects = true
+        defer { isLoadingProjects = false }
+        projects = (try? await MarketingConvexAPIService.getMarketingProjects(token: token)) ?? []
+    }
+
+    private func loadSalesStaff() async {
+        guard salesStaff.isEmpty, let token = authStore.currentSession?.token else { return }
+        isLoadingStaff = true
+        defer { isLoadingStaff = false }
+        let staff = (try? await HRConvexAPIService.listAllStaff(token: token)) ?? []
+        salesStaff = staff.filter {
+            let dept = ($0.department ?? "").lowercased()
+            return dept.contains("sales") || dept.contains("telesales")
+        }
+    }
+
+    @MainActor
+    private func detectAndApplyLockedSvMode() async {
+        guard !isDetectingLockedSvMode else { return }
+        guard let token = authStore.currentSession?.token else { return }
+        isDetectingLockedSvMode = true
+        defer { isDetectingLockedSvMode = false }
+
+        do {
+            let visits = try await MarketingConvexAPIService.getMyMarketingCpVisits(token: token)
+            guard let visit = visits.first(where: { $0.id == cpVisitId }) else { return }
+            cpVisitDetail = visit
+            prefillBookingFromCpVisit(visit)
+
+            let proposed = visit.proposedSiteVisit
+            guard isLockedSvMode || visit.hasFixedSiteVisitSignal(initialOutcome: initialOutcome) else { return }
+            applyLockedSvMode(visit: visit, proposed: proposed)
+        } catch {
+            // Locked mode is progressive enhancement. If detection fails, keep the normal CP flow usable.
+        }
+    }
+
+    @MainActor
+    private func prefillBookingFromCpVisit(_ visit: CpVisitDetail) {
+        if bookingClientMobile.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
+            bookingClientMobile = visit.lead?.mobileNumber?.nilIfBlank
+                ?? visit.client?.mobileNumber?.nilIfBlank
+                ?? visit.clientPlace?.contactPhone?.nilIfBlank
+                ?? ""
+        }
+        if booking.phone.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
+            booking.phone = AppModuleFormatters.normalizePhone(bookingClientMobile)
+        }
+        if booking.name.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
+            booking.name = visit.lead?.contactName?.nilIfBlank
+                ?? visit.client?.clientName?.nilIfBlank
+                ?? visit.clientPlace?.contactPerson?.nilIfBlank
+                ?? ""
+        }
+        if booking.homeAddress.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
+            booking.homeAddress = visit.clientPlace?.address?.nilIfBlank
+                ?? visit.clientPlace?.formattedAddress?.nilIfBlank
+                ?? visit.lead?.preferredArea?.nilIfBlank
+                ?? ""
+        }
+    }
+
+    @MainActor
+    private func searchBookingLead() async {
+        let mobile = AppModuleFormatters.normalizePhone(bookingClientMobile)
+        guard mobile.count == 10 else {
+            errorMessage = "Enter a valid mobile number"
+            return
+        }
+        guard let token = authStore.currentSession?.token else {
+            errorMessage = "Not signed in"
+            return
+        }
+
+        isSearchingBookingLead = true
+        defer { isSearchingBookingLead = false }
+
+        do {
+            bookingLeadMatches = try await MarketingConvexAPIService.searchTelecallerLeadsByPhone(token: token, phone: mobile)
+            if bookingLeadMatches.count == 1, let lead = bookingLeadMatches.first {
+                applyBookingLead(lead)
+            } else if bookingLeadMatches.isEmpty {
+                booking.phone = mobile
+                bookingStep = .clientForm
+            }
+        } catch {
+            errorMessage = error.localizedDescription
+        }
+    }
+
+    @MainActor
+    private func applyBookingLead(_ lead: TelecallerLeadSearchData) {
+        selectedBookingLead = lead
+        bookingLeadMatches = []
+        booking.phone = AppModuleFormatters.normalizePhone(lead.mobileNumber ?? bookingClientMobile)
+        bookingClientMobile = booking.phone
+        booking.name = lead.displayName
+        booking.homeAddress = lead.suggestedVisitAddress?.nilIfBlank
+            ?? lead.latestAnalysisProfile?.address?.nilIfBlank
+            ?? booking.homeAddress
+        booking.pincode = lead.latestAnalysisProfile?.pincode?.nilIfBlank ?? booking.pincode
+        booking.state = lead.latestAnalysisProfile?.state?.nilIfBlank ?? booking.state
+        booking.district = lead.latestAnalysisProfile?.district?.nilIfBlank ?? booking.district
+        booking.location = lead.locationPreferred?.nilIfBlank ?? booking.location
+        bookingStep = .clientForm
+    }
+
+    @MainActor
+    private func applyLockedSvMode(visit: CpVisitDetail, proposed: ProposedSiteVisit?) {
+        isLockedSvMode = true
+        selectedOutcome = .siteVisit
+        errorMessage = nil
+
+        if let projectId = proposed?.projectId?.nilIfBlank {
+            selectedProject = projects.first { $0.id == projectId }
+        }
+        if let date = parseServerDate(proposed?.scheduledDate ?? visit.scheduledDate) {
+            siteVisitDate = date
+        }
+        if let time = parseServerTime(proposed?.scheduledTime ?? visit.scheduledTime) {
+            siteVisitTime = time
+        }
+
+        selectedIncharge = staff(with: proposed?.inchargeStaffId)
+        selectedHod = staff(with: proposed?.hodStaffId)
+        selectedAvp = staff(with: proposed?.avpStaffId)
+        selectedGm = staff(with: proposed?.gmStaffId)
+        selectedSeniorManager = staff(with: proposed?.seniorManagerStaffId)
+
+        let count = visit.expectedAttendeeCount ?? visit.attendees?.count ?? 0
+        if count > 0 {
+            visitorCount = "\(count)"
+            syncVisitorRows(count: count)
+            if let attendees = visit.attendees {
+                for (index, attendee) in attendees.prefix(visitors.count).enumerated() {
+                    visitors[index].name = attendee.name ?? ""
+                    visitors[index].relation = attendee.relation ?? ""
+                    visitors[index].age = attendee.age ?? ""
+                    visitors[index].isVeg = attendee.isVeg ?? true
+                }
+            }
+        }
+        foodPreferences = visit.foodPreferences ?? ""
+        pickupAddress = visit.clientPlace?.address?.nilIfBlank
+            ?? visit.clientPlace?.formattedAddress?.nilIfBlank
+            ?? visit.lead?.preferredArea?.nilIfBlank
+            ?? pickupAddress
+        if let vehicle = visit.vehiclePreference?.nilIfBlank {
+            travelMode = vehicle.lowercased().contains("own") ? .ownVehicle : .cab
+        }
+    }
+
+    private func staff(with id: String?) -> ConvexStaffListItem? {
+        guard let id = id?.nilIfBlank else { return nil }
+        return salesStaff.first { $0.id == id }
+    }
+
+    private func syncVisitorRows(count rawCount: Int) {
+        let count = min(max(rawCount, 0), 12)
+        if visitors.count < count {
+            visitors.append(contentsOf: (visitors.count..<count).map { _ in CpVisitorDraft() })
+        } else if visitors.count > count {
+            visitors.removeLast(visitors.count - count)
+        }
+    }
+
+    private func submit() async {
+        dismissKeyboard()
+        errorMessage = nil
+        guard let token = authStore.currentSession?.token else {
+            errorMessage = "Not signed in"
+            return
+        }
+        guard let selectedOutcome else {
+            errorMessage = "Please pick an outcome"
+            return
+        }
+        if selectedOutcome == .booking {
+            if bookingStep == .findMobile {
+                let mobile = AppModuleFormatters.normalizePhone(bookingClientMobile)
+                guard mobile.count == 10 else {
+                    errorMessage = "Enter a valid mobile number"
+                    return
+                }
+                booking.phone = mobile
+                bookingStep = .clientForm
+                return
+            }
+            if bookingSub != .staff {
+                bookingSub = bookingSub.next
+                return
+            }
+            guard !booking.name.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else {
+                errorMessage = "Client name is required (Client Details tab)"
+                return
+            }
+        }
+        if selectedOutcome == .postponed && selectedPostponeReasons.isEmpty {
+            errorMessage = "Please share at least one reason for the postpone"
+            return
+        }
+        if selectedOutcome == .notInterested && selectedNotInterestedReasons.isEmpty {
+            errorMessage = "Please share at least one reason"
+            return
+        }
+        if selectedOutcome == .siteVisit && selectedProject == nil {
+            errorMessage = "Please select a project"
+            return
+        }
+
+        isSaving = true
+        defer { isSaving = false }
+
+        do {
+            try await MarketingConvexAPIService.markClientMet(
+                token: token,
+                request: MarkClientMetRequest(id: cpVisitId, clientMet: true)
+            )
+
+            if selectedOutcome == .booking {
+                let bookingId = try await MarketingConvexAPIService.createBooking(
+                    token: token,
+                    request: booking.createRequest(
+                        cpVisitId: cpVisitId,
+                        leadId: selectedBookingLead?.id ?? cpVisitDetail?.leadId,
+                        projects: projects
+                    )
+                )
+                try await MarketingConvexAPIService.setCpVisitOutcome(
+                    token: token,
+                    request: SetCpVisitOutcomeRequest(
+                        id: cpVisitId,
+                        outcome: selectedOutcome.rawValue,
+                        postponeReasons: nil,
+                        notes: [booking.serializedNotes, "Booking ID: \(bookingId)"].compactMap { $0?.nilIfBlank }.joined(separator: "\n\n")
+                    )
+                )
+            } else if selectedOutcome == .siteVisit {
+                guard let selectedProject else { return }
+                _ = try await MarketingConvexAPIService.convertCpVisitToSiteVisit(
+                    token: token,
+                    request: ConvertCpVisitToSiteVisitRequest(
+                        id: cpVisitId,
+                        projectId: selectedProject.id,
+                        scheduledDate: dateString(siteVisitDate),
+                        scheduledTime: timeString(siteVisitTime),
+                        inchargeStaffId: selectedIncharge?.id,
+                        hodStaffId: selectedHod?.id,
+                        avpStaffId: selectedAvp?.id,
+                        gmStaffId: selectedGm?.id,
+                        seniorManagerStaffId: selectedSeniorManager?.id,
+                        expectedAttendeeCount: Int(visitorCount.trimmingCharacters(in: .whitespacesAndNewlines)),
+                        attendees: visitorPayload.nilIfEmpty,
+                        pickupAddress: pickupAddress.nilIfBlank,
+                        travelMode: travelMode.rawValue,
+                        foodPreferences: foodPreferences.nilIfBlank,
+                        notes: "Created from iOS CP visit"
+                    )
+                )
+            } else {
+                try await MarketingConvexAPIService.setCpVisitOutcome(
+                    token: token,
+                    request: SetCpVisitOutcomeRequest(
+                        id: cpVisitId,
+                        outcome: selectedOutcome.rawValue,
+                        postponeReasons: selectedOutcome == .postponed ? selectedPostponeReasons.map(\.rawValue).sorted() : nil,
+                        notes: buildOutcomeNotes(for: selectedOutcome)
+                    )
+                )
+            }
+
+            onCompleted()
+            dismiss()
+        } catch {
+            errorMessage = error.localizedDescription
+        }
+    }
+
+    private func submitLockedRejection(reason: String) async {
+        let trimmed = reason.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !trimmed.isEmpty else {
+            errorMessage = "Please share a reason for the rejection"
+            return
+        }
+        guard let token = authStore.currentSession?.token else {
+            errorMessage = "Not signed in"
+            return
+        }
+
+        isSaving = true
+        defer { isSaving = false }
+
+        do {
+            try await MarketingConvexAPIService.markClientMet(
+                token: token,
+                request: MarkClientMetRequest(id: cpVisitId, clientMet: true)
+            )
+            try await MarketingConvexAPIService.setCpVisitOutcome(
+                token: token,
+                request: SetCpVisitOutcomeRequest(
+                    id: cpVisitId,
+                    outcome: "rejected",
+                    postponeReasons: nil,
+                    notes: trimmed
+                )
+            )
+            showRejectReasonSheet = false
+            onCompleted()
+            dismiss()
+        } catch {
+            errorMessage = error.localizedDescription
+        }
+    }
+
+    private func dismissKeyboard() {
+        UIApplication.shared.sendAction(#selector(UIResponder.resignFirstResponder), to: nil, from: nil, for: nil)
+    }
+
+    private func buildOutcomeNotes(for outcome: CpVisitOutcome) -> String? {
+        switch outcome {
+        case .booking:
+            return booking.serializedNotes
+        case .postponed:
+            return postponeNotesPayload
+        case .notInterested:
+            return notInterestedNotesPayload
+        case .siteVisit:
+            return nil
+        }
+    }
+
+    private var postponeNotesPayload: String? {
+        let followUp = DateFormatter.cpOutcomeDateTime.string(from: postponeFollowUpDate)
+        return [
+            "[Postponed]",
+            selectedPostponeReasons.isEmpty ? nil : "Reasons: \(selectedPostponeReasons.map(\.title).sorted().joined(separator: ", "))",
+            postponedNotes.nilIfBlank.map { "Notes: \($0)" },
+            "Follow-up: \(followUp)"
+        ]
+        .compactMap { $0 }
+        .joined(separator: "\n")
+        .nilIfBlank
+    }
+
+    private var notInterestedNotesPayload: String? {
+        let reasonRows = selectedNotInterestedReasons
+            .sorted { $0.title < $1.title }
+            .map { reason -> String in
+                if let detail = notInterestedReasonDetails[reason]?.nilIfBlank {
+                    return "\(reason.title): \(detail)"
+                }
+                return reason.title
+            }
+        let rows = reasonRows + [
+            notInterestedOtherNotes.nilIfBlank.map { "Notes: \($0)" }
+        ].compactMap { $0 }
+        .compactMap { $0 }
+        guard !rows.isEmpty else { return nil }
+        return (["[Not interested]"] + rows).joined(separator: "\n")
+    }
+
+    private var visitorPayload: [SiteVisitAttendeeRequest] {
+        visitors.map {
+            SiteVisitAttendeeRequest(
+                name: $0.name.nilIfBlank,
+                relation: $0.relation.nilIfBlank,
+                age: $0.age.nilIfBlank,
+                isVeg: $0.isVeg
+            )
+        }
+    }
+
+    private func dateString(_ date: Date) -> String {
+        let formatter = DateFormatter()
+        formatter.dateFormat = "yyyy-MM-dd"
+        return formatter.string(from: date)
+    }
+
+    private func timeString(_ date: Date) -> String {
+        let formatter = DateFormatter()
+        formatter.dateFormat = "HH:mm"
+        return formatter.string(from: date)
+    }
+
+    private func parseServerDate(_ raw: String?) -> Date? {
+        guard let raw = raw?.nilIfBlank else { return nil }
+        let formatter = DateFormatter()
+        formatter.locale = Locale(identifier: "en_US_POSIX")
+        formatter.dateFormat = "yyyy-MM-dd"
+        if let date = formatter.date(from: raw) { return date }
+        return ISO8601DateFormatter().date(from: raw)
+    }
+
+    private func parseServerTime(_ raw: String?) -> Date? {
+        guard let raw = raw?.nilIfBlank else { return nil }
+        let formatter = DateFormatter()
+        formatter.locale = Locale(identifier: "en_US_POSIX")
+        for pattern in ["HH:mm", "HH:mm:ss", "h:mm a", "hh:mm a"] {
+            formatter.dateFormat = pattern
+            if let date = formatter.date(from: raw) { return date }
+        }
+        return nil
+    }
+
+    private var initialOutcomeMarksFixedSiteVisit: Bool {
+        normalizedServerValue(initialOutcome).isFixedSiteVisitMarker
+    }
+
+    private func normalizedServerValue(_ raw: String?) -> String {
+        raw?
+            .trimmingCharacters(in: .whitespacesAndNewlines)
+            .lowercased()
+            .replacingOccurrences(of: "-", with: "_")
+            .replacingOccurrences(of: " ", with: "_")
+        ?? ""
+    }
+}
+
+private extension CpVisitDetail {
+    func hasFixedSiteVisitSignal(initialOutcome: String?) -> Bool {
+        if proposedSiteVisit?.isMeaningful == true { return true }
+        if convertedSiteVisitId?.nilIfBlank != nil { return true }
+        if (expectedAttendeeCount ?? 0) > 0 { return true }
+        if attendees?.isEmpty == false { return true }
+        if foodPreferences?.nilIfBlank != nil { return true }
+        if vehiclePreference?.nilIfBlank != nil { return true }
+
+        return [
+            initialOutcome,
+            outcome,
+            status,
+            lead?.followUpStatus
+        ]
+        .contains { $0.normalizedCpMarker.isFixedSiteVisitMarker }
+    }
+}
+
+private extension Optional where Wrapped == String {
+    var normalizedCpMarker: String {
+        self?
+            .trimmingCharacters(in: .whitespacesAndNewlines)
+            .lowercased()
+            .replacingOccurrences(of: "-", with: "_")
+            .replacingOccurrences(of: " ", with: "_")
+        ?? ""
+    }
+}
+
+private extension String {
+    var isFixedSiteVisitMarker: Bool {
+        self == "converted_to_site_visit"
+            || self == "site_visit"
+            || self == "sitevisit"
+            || self == "sv_fixed"
+            || self == "sv_fix"
+            || self == "svfixed"
+            || self.contains("site_visit_fixed")
+            || self.contains("fixed_site_visit")
+            || self.contains("sv_fixed")
+    }
+}
+
+private enum CpVisitOutcome: String, CaseIterable, Identifiable {
+    case booking = "converted_to_booking"
+    case siteVisit = "converted_to_site_visit"
+    case postponed
+    case notInterested = "not_interested"
+
+    var id: String { rawValue }
+
+    var title: String {
+        switch self {
+        case .booking: return "Booking"
+        case .siteVisit: return "Site Visit"
+        case .postponed: return "Postpone"
+        case .notInterested: return "Not Interested"
+        }
+    }
+
+    var icon: String {
+        switch self {
+        case .booking: return "checkmark.seal.fill"
+        case .siteVisit: return "building.2.fill"
+        case .postponed: return "calendar.badge.clock"
+        case .notInterested: return "xmark.circle.fill"
+        }
+    }
+}
+
+private enum CpPostponeReason: String, CaseIterable, Identifiable {
+    case clientUnavailable = "client_unavailable"
+    case weather
+    case vehicleIssue = "vehicle_issue"
+    case documentPending = "document_pending"
+    case rescheduledByClient = "rescheduled_by_client"
+    case otherCommitment = "other_commitment"
+
+    var id: String { rawValue }
+
+    var title: String {
+        switch self {
+        case .clientUnavailable: return "Client unavailable"
+        case .weather: return "Weather"
+        case .vehicleIssue: return "Vehicle issue"
+        case .documentPending: return "Document pending"
+        case .rescheduledByClient: return "Rescheduled by client"
+        case .otherCommitment: return "Other commitment"
+        }
+    }
+}
+
+private enum CpNotInterestedReason: String, CaseIterable, Identifiable {
+    case price
+    case distance
+    case location
+    case developmentInSourcingArea = "development_in_sourcing_area"
+    case preferredPlotNotChoice = "preferred_plot_not_choice"
+    case loanEligibility = "loan_eligibility"
+    case staffBehaviour = "staff_behaviour"
+    case driverBehaviour = "driver_behaviour"
+
+    var id: String { rawValue }
+
+    var title: String {
+        switch self {
+        case .price: return "Price"
+        case .distance: return "Distance"
+        case .location: return "Location"
+        case .developmentInSourcingArea: return "Development in sourcing area"
+        case .preferredPlotNotChoice: return "Preferred plot not choice"
+        case .loanEligibility: return "Loan eligibility"
+        case .staffBehaviour: return "Staff behaviour"
+        case .driverBehaviour: return "Driver behaviour"
+        }
+    }
+}
+
+private enum BookingStep {
+    case findMobile
+    case clientForm
+}
+
+private enum TravelMode: String, CaseIterable, Identifiable {
+    case cab
+    case ownVehicle = "own_vehicle"
+
+    var id: String { rawValue }
+    var title: String { self == .cab ? "Cab required" : "Own vehicle" }
+}
+
+private enum BookingSub: String, CaseIterable, Identifiable {
+    case client
+    case professional
+    case office
+    case booking
+    case charges
+    case payment
+    case staff
+
+    var id: String { rawValue }
+
+    var title: String {
+        switch self {
+        case .client: return "Client Details"
+        case .professional: return "Professional Details"
+        case .office: return "Office Details"
+        case .booking: return "Booking Details"
+        case .charges: return "Charges Details"
+        case .payment: return "Payment Details"
+        case .staff: return "Staff Details"
+        }
+    }
+
+    var next: BookingSub {
+        switch self {
+        case .client: return .professional
+        case .professional: return .office
+        case .office: return .booking
+        case .booking: return .charges
+        case .charges: return .payment
+        case .payment: return .staff
+        case .staff: return .staff
+        }
+    }
+}
+
+private enum BookingSaveAs: String, CaseIterable, Identifiable, Hashable {
+    case draft
+    case confirmed
+
+    var id: String { rawValue }
+    var title: String { self == .draft ? "Draft" : "Confirmed" }
+}
+
+private struct BookingDraft {
+    var phone = ""
+    var title = ""
+    var name = ""
+    var fatherOrSpouse = ""
+    var dob = ""
+    var anniversary = ""
+    var altNumber = ""
+    var whatsapp = ""
+    var email = ""
+    var nationality = ""
+    var homeAddress = ""
+    var pincode = ""
+    var state = ""
+    var district = ""
+    var location = ""
+
+    var profession = ""
+    var designation = ""
+    var incomePerAnnum = ""
+
+    var officeName = ""
+    var officeEmail = ""
+    var officeMobile = ""
+    var officePhone = ""
+    var officeAddress = ""
+
+    var bookingRefNo = ""
+    var bookingType = ""
+    var sourceType = ""
+    var cefNo = ""
+    var bookingDate = ""
+    var project = ""
+    var plot = ""
+    var propertyType = ""
+    var bookingMode = ""
+    var isAgainstClientVisit = true
+    var duplicateBookings = true
+
+    var bookingCost = ""
+    var guidelineValue = ""
+    var specialConsideration = ""
+    var discountApprovedBy = ""
+    var scReason = ""
+    var scValidity = ""
+    var promotionalOffers = ""
+    var promotionalOffersTnc = ""
+    var promotionalOffersValue = ""
+    var offerValidityPeriod = ""
+
+    var registrationCharges = ""
+    var gstAmount = ""
+    var gstApplicable = true
+    var documentCharges = ""
+    var pattaCharges = ""
+    var otherCharges = ""
+    var otherChargesApplicable = true
+    var advanceAmount = ""
+    var paymentMode = ""
+    var flexiPayment = true
+    var allotmentDueAmount = ""
+    var allotmentDueDate = ""
+    var secondPaymentAmount = ""
+    var secondPaymentDate = ""
+    var thirdPaymentAmount = ""
+    var thirdPaymentDate = ""
+    var fourthPaymentAmount = ""
+    var fourthPaymentDate = ""
+    var preferredRegistrationDate = ""
+
+    var avp = ""
+    var generalManager = ""
+    var seniorManager = ""
+    var bdo = ""
+    var telecaller = ""
+    var aadhar = ""
+    var pancard = ""
+    var referenceName1 = ""
+    var referenceMobile1 = ""
+    var referenceProfession1 = ""
+    var referenceName2 = ""
+    var referenceMobile2 = ""
+    var referenceProfession2 = ""
+    var documentLanguage = ""
+    var saveAs: BookingSaveAs = .draft
+
+    var serializedNotes: String? {
+        var sections: [String] = []
+
+        func section(_ title: String, _ rows: [(String, String?)]) {
+            let body = rows.compactMap { label, value -> String? in
+                guard let value = value?.nilIfBlank else { return nil }
+                return "\(label): \(value)"
+            }
+            guard !body.isEmpty else { return }
+            sections.append((["[\(title)]"] + body).joined(separator: "\n"))
+        }
+
+        section("Booking · Client Details", [
+            ("Phone", phone), ("Title", title), ("Name", name),
+            ("Father/Spouse", fatherOrSpouse), ("DOB", dob),
+            ("Anniversary", anniversary), ("Alt number", altNumber),
+            ("WhatsApp", whatsapp), ("Email", email), ("Nationality", nationality),
+            ("Home Address", homeAddress), ("Pincode", pincode),
+            ("State", state), ("District", district), ("Location", location)
+        ])
+        section("Booking · Professional Details", [
+            ("Profession", profession), ("Designation", designation),
+            ("Income Per Annum", incomePerAnnum)
+        ])
+        section("Booking · Office Details", [
+            ("Office Name", officeName), ("Office Email", officeEmail),
+            ("Office Mobile", officeMobile), ("Office Phone", officePhone),
+            ("Office Address", officeAddress)
+        ])
+        section("Booking · Booking Details", [
+            ("Booking Ref No", bookingRefNo),
+            ("Booking Type", bookingType), ("Source Type", sourceType),
+            ("CEF No", cefNo), ("Booking Date", bookingDate),
+            ("Project", project), ("Plot", plot), ("Property Type", propertyType),
+            ("Booking Mode", bookingMode),
+            ("Is Against Client Visit", isAgainstClientVisit ? "Yes" : "No (Online Sales)"),
+            ("Duplicate Bookings", duplicateBookings ? "Yes" : "No")
+        ])
+        section("Booking · Charges Details", [
+            ("Booking Cost", bookingCost), ("Guideline Value", guidelineValue),
+            ("Special Consideration", specialConsideration),
+            ("Discount Approved By", discountApprovedBy), ("SC Reason", scReason),
+            ("SC Validity (days)", scValidity), ("Promotional Offers", promotionalOffers),
+            ("Promotional Offers T&C", promotionalOffersTnc),
+            ("Promotional Offers Value", promotionalOffersValue),
+            ("Offer Validity Period (days)", offerValidityPeriod)
+        ])
+        section("Booking · Payment Details", [
+            ("Registration Charges", registrationCharges), ("GST Amount", gstAmount),
+            ("GST If Applicable", gstApplicable ? "Yes" : "No"),
+            ("Document Charges", documentCharges), ("Patta Charges", pattaCharges),
+            ("Other Charges", otherCharges),
+            ("Other Charges If Applicable", otherChargesApplicable ? "Yes" : "No"),
+            ("Advance Amount", advanceAmount), ("Payment Mode", paymentMode),
+            ("Flexi Payment", flexiPayment ? "Yes" : "No"),
+            ("Allotment Due Amount", allotmentDueAmount),
+            ("Allotment Due Date", allotmentDueDate),
+            ("2nd Payment Amount", secondPaymentAmount), ("2nd Payment Date", secondPaymentDate),
+            ("3rd Payment Amount", thirdPaymentAmount), ("3rd Payment Date", thirdPaymentDate),
+            ("4th Payment Amount", fourthPaymentAmount), ("4th Payment Date", fourthPaymentDate),
+            ("Preferred Registration Date", preferredRegistrationDate)
+        ])
+        section("Booking · Staff Details", [
+            ("AVP", avp), ("General Manager", generalManager),
+            ("Senior Manager", seniorManager), ("BDO", bdo), ("Telecaller", telecaller),
+            ("Aadhar", aadhar), ("Pancard", pancard),
+            ("Reference Name 1", referenceName1), ("Reference Mobile 1", referenceMobile1),
+            ("Reference Profession 1", referenceProfession1),
+            ("Reference Name 2", referenceName2), ("Reference Mobile 2", referenceMobile2),
+            ("Reference Profession 2", referenceProfession2),
+            ("Document to be prepared in", documentLanguage), ("Save as", saveAs.title)
+        ])
+
+        return sections.joined(separator: "\n\n").nilIfBlank
+    }
+
+    func createRequest(cpVisitId: String, leadId: String?, projects: [MarketingProject]) -> CreateBookingRequest {
+        let normalizedPhone = AppModuleFormatters.normalizePhone(phone)
+        let matchedProject = projects.first {
+            $0.name?.caseInsensitiveCompare(project) == .orderedSame
+                || $0.id.caseInsensitiveCompare(project) == .orderedSame
+        }
+        let bookingDateValue = bookingDate.nilIfBlank ?? AppModuleFormatters.ymd.string(from: Date())
+        let cost = Double(bookingCost.trimmingCharacters(in: .whitespacesAndNewlines))
+        let advance = Double(advanceAmount.trimmingCharacters(in: .whitespacesAndNewlines))
+
+        return CreateBookingRequest(
+            clientName: name.trimmingCharacters(in: .whitespacesAndNewlines),
+            mobileNumber: normalizedPhone,
+            bookingDate: bookingDateValue,
+            leadId: leadId,
+            projectId: matchedProject?.id,
+            plotId: nil,
+            plotNo: plot.nilIfBlank,
+            bookingType: bookingType.nilIfBlank,
+            bookingMode: bookingMode.nilIfBlank,
+            bookingCost: cost,
+            advanceAmount: advance,
+            balanceAmount: cost.flatMap { total in advance.map { total - $0 } },
+            email: email.nilIfBlank,
+            homeAddress: homeAddress.nilIfBlank,
+            cpVisitId: cpVisitId,
+            status: saveAs.rawValue,
+            notes: serializedNotes
+        )
+    }
+}
+
+private struct CpVisitorDraft: Identifiable, Hashable {
+    let id = UUID()
+    var name = ""
+    var relation = ""
+    var age = ""
+    var isVeg = true
+}
+
+private struct CpRejectReasonSheet: View {
+    let isSaving: Bool
+    let onSubmit: (String) async -> Void
+
+    @Environment(\.dismiss) private var dismiss
+    @State private var reason = ""
+    @State private var errorMessage: String?
+
+    var body: some View {
+        ScrollView {
+            VStack(alignment: .leading, spacing: 18) {
+                VStack(alignment: .leading, spacing: 4) {
+                    Text("Rejection Case")
+                        .font(.system(size: 17, weight: .semibold))
+                        .foregroundStyle(Color(hex: 0x101828))
+                    Text("Rejection Scenario Will Happen")
+                        .font(.system(size: 13))
+                        .foregroundStyle(Color(hex: 0x667085))
+                }
+
+                lockedOutcomeTabs
+
+                VStack(alignment: .leading, spacing: 8) {
+                    Text("Rejection Reason")
+                        .font(.system(size: 13, weight: .medium))
+                        .foregroundStyle(Color(hex: 0x344054))
+                    TextField("Tell Valid Reason For Rejection", text: $reason, axis: .vertical)
+                        .font(.system(size: 13))
+                        .lineLimit(3...6)
+                        .padding(14)
+                        .background(Color(hex: 0xF5F6FA), in: RoundedRectangle(cornerRadius: 12))
+                }
+
+                if let errorMessage {
+                    Text(errorMessage)
+                        .font(.system(size: 12, weight: .medium))
+                        .foregroundStyle(Color(hex: 0xB42318))
+                }
+
+                Button {
+                    let trimmed = reason.trimmingCharacters(in: .whitespacesAndNewlines)
+                    guard !trimmed.isEmpty else {
+                        errorMessage = "Please share a reason for the rejection"
+                        return
+                    }
+                    errorMessage = nil
+                    Task { await onSubmit(trimmed) }
+                } label: {
+                    if isSaving {
+                        ProgressView()
+                            .frame(maxWidth: .infinity)
+                    } else {
+                        Text("Submit Now")
+                            .font(.system(size: 14, weight: .semibold))
+                            .frame(maxWidth: .infinity)
+                    }
+                }
+                .buttonStyle(.borderedProminent)
+                .controlSize(.large)
+                .tint(Color(hex: 0x2DAE12))
+                .disabled(isSaving)
+            }
+            .padding(.horizontal, 20)
+            .padding(.top, 20)
+            .padding(.bottom, 24)
+        }
+        .background(.white)
+    }
+
+    private var lockedOutcomeTabs: some View {
+        HStack(spacing: 0) {
+            ForEach(Array(CpVisitOutcome.allCases.enumerated()), id: \.element.id) { index, outcome in
+                OutcomeTabView(outcome: outcome, isSelected: outcome == .siteVisit)
+                    .frame(maxWidth: .infinity)
+                    .opacity(outcome == .siteVisit ? 1 : 0.55)
+
+                if index < CpVisitOutcome.allCases.count - 1 {
+                    Rectangle()
+                        .fill(Color(hex: 0xF3F3F5))
+                        .frame(width: 1, height: 28)
+                }
+            }
+        }
+    }
+}
+
+private struct OutcomeTabView: View {
+    let outcome: CpVisitOutcome
+    let isSelected: Bool
+
+    var body: some View {
+        VStack(spacing: 4) {
+            ZStack {
+                Circle()
+                    .fill(isSelected ? Color(hex: 0x0B61CA) : Color(hex: 0xF8FAFC))
+                    .frame(width: 36, height: 36)
+                Image(systemName: outcome.icon)
+                    .font(.system(size: 16, weight: .semibold))
+                    .foregroundStyle(isSelected ? .white : Color(hex: 0x6A6D78))
+            }
+            Text(outcome.title)
+                .font(.system(size: 11, weight: isSelected ? .semibold : .medium))
+                .foregroundStyle(isSelected ? Color(hex: 0x0B61CA) : Color(hex: 0x6A6D78))
+                .lineLimit(1)
+                .minimumScaleFactor(0.72)
+            Capsule()
+                .fill(isSelected ? Color(hex: 0x0B61CA) : .clear)
+                .frame(width: 24, height: 2)
+                .padding(.top, 2)
+        }
+        .frame(height: 62)
+    }
+}
+
+private struct SegmentButton: View {
+    let title: String
+    let isSelected: Bool
+    let action: () -> Void
+
+    var body: some View {
+        Button(action: action) {
+            Text(title)
+                .font(.system(size: 13, weight: .semibold))
+                .foregroundStyle(isSelected ? .white : Color(hex: 0x475467))
+                .frame(maxWidth: .infinity)
+                .frame(height: 44)
+                .background(
+                    isSelected
+                        ? AnyShapeStyle(LinearGradient(colors: [Color(hex: 0x1ECB09), Color(hex: 0x3D9D02)], startPoint: .top, endPoint: .bottom))
+                        : AnyShapeStyle(Color(hex: 0xF8FAFC)),
+                    in: RoundedRectangle(cornerRadius: 12)
+                )
+                .overlay(
+                    RoundedRectangle(cornerRadius: 12)
+                        .stroke(isSelected ? .clear : Color(hex: 0xEAECF0), lineWidth: 1)
+                )
+        }
+        .buttonStyle(.plain)
+    }
+}
+
+private struct ReasonToggleRow: View {
+    let title: String
+    let isSelected: Bool
+    let action: () -> Void
+
+    var body: some View {
+        Button(action: action) {
+            HStack(spacing: 10) {
+                Image(systemName: isSelected ? "checkmark.circle.fill" : "circle")
+                    .font(.system(size: 18, weight: .semibold))
+                    .foregroundStyle(isSelected ? Color(hex: 0x1ECB09) : Color(hex: 0x98A2B3))
+                Text(title)
+                    .font(.system(size: 13, weight: .semibold))
+                    .foregroundStyle(Color(hex: 0x101828))
+                    .frame(maxWidth: .infinity, alignment: .leading)
+            }
+            .padding(.horizontal, 14)
+            .frame(minHeight: 46)
+            .background(isSelected ? Color(hex: 0xECFDF3) : Color(hex: 0xF8FAFC), in: RoundedRectangle(cornerRadius: 12))
+            .overlay(
+                RoundedRectangle(cornerRadius: 12)
+                    .stroke(isSelected ? Color(hex: 0x86EFAC) : Color(hex: 0xEAECF0), lineWidth: 1)
+            )
+        }
+        .buttonStyle(.plain)
+    }
+}
+
+private struct BookingSubTab: View {
+    let title: String
+    let isSelected: Bool
+
+    var body: some View {
+        Text(title)
+            .font(.system(size: 12, weight: isSelected ? .semibold : .medium))
+            .foregroundStyle(isSelected ? .white : Color(hex: 0x475467))
+            .padding(.horizontal, 14)
+            .frame(height: 32)
+            .background(
+                isSelected
+                    ? AnyShapeStyle(LinearGradient(colors: [Color(hex: 0x1ECB09), Color(hex: 0x3D9D02)], startPoint: .top, endPoint: .bottom))
+                    : AnyShapeStyle(Color(hex: 0xF8FAFC)),
+                in: Capsule()
+            )
+    }
+}
+
+private struct RadioRow: View {
+    let title: String
+    let isSelected: Bool
+    let action: () -> Void
+
+    var body: some View {
+        Button(action: action) {
+            HStack(spacing: 10) {
+                Image(systemName: isSelected ? "largecircle.fill.circle" : "circle")
+                    .font(.system(size: 18, weight: .semibold))
+                    .foregroundStyle(isSelected ? Color(hex: 0x0B61CA) : Color(hex: 0x98A2B3))
+                Text(title)
+                    .font(.system(size: 13, weight: .medium))
+                    .foregroundStyle(Color(hex: 0x101828))
+                Spacer()
+            }
+            .padding(.horizontal, 12)
+            .frame(maxWidth: .infinity, minHeight: 48)
+            .background(Color(hex: 0xF8FAFC), in: RoundedRectangle(cornerRadius: 12))
+        }
+        .buttonStyle(.plain)
+    }
+}
+
+private struct BookingReadonlyField: View {
+    let title: String
+    let value: String
+    let icon: String
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 6) {
+            Text(title)
+                .font(.system(size: 12, weight: .medium))
+                .foregroundStyle(Color(hex: 0x475467))
+            HStack(spacing: 10) {
+                Image(systemName: icon)
+                    .font(.system(size: 16, weight: .medium))
+                    .foregroundStyle(Color(hex: 0x667085))
+                    .frame(width: 16)
+                Text(value.nilIfBlank ?? "-")
+                    .font(.system(size: 13, weight: .medium))
+                    .foregroundStyle(Color(hex: 0x101828))
+                Spacer()
+            }
+            .padding(.horizontal, 14)
+            .frame(minHeight: 48)
+            .background(Color(hex: 0xF5F6FA), in: RoundedRectangle(cornerRadius: 12))
+        }
+    }
+}
+
+private struct BookingTextField: View {
+    let title: String
+    @Binding var text: String
+    let placeholder: String
+    let icon: String
+    let trailingChevron: Bool
+    let keyboard: UIKeyboardType
+    let axis: Axis
+
+    init(
+        _ title: String,
+        text: Binding<String>,
+        placeholder: String? = nil,
+        icon: String = "square.and.pencil",
+        trailingChevron: Bool = false,
+        keyboard: UIKeyboardType = .default,
+        axis: Axis = .horizontal
+    ) {
+        self.title = title
+        self._text = text
+        self.placeholder = placeholder ?? title
+        self.icon = icon
+        self.trailingChevron = trailingChevron
+        self.keyboard = keyboard
+        self.axis = axis
+    }
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 6) {
+            Text(title)
+                .font(.system(size: 12, weight: .medium))
+                .foregroundStyle(Color(hex: 0x475467))
+            HStack(spacing: 10) {
+                Image(systemName: icon)
+                    .font(.system(size: 16, weight: .medium))
+                    .foregroundStyle(Color(hex: 0x667085))
+                    .frame(width: 16)
+                TextField(placeholder, text: $text, axis: axis)
+                    .keyboardType(keyboard)
+                    .textInputAutocapitalization(keyboard == .emailAddress ? .never : .sentences)
+                    .autocorrectionDisabled(keyboard == .emailAddress)
+                    .lineLimit(axis == .vertical ? 2...4 : 1...1)
+                    .font(.system(size: 13, weight: .medium))
+                if trailingChevron {
+                    Image(systemName: "chevron.down")
+                        .font(.system(size: 12, weight: .semibold))
+                        .foregroundStyle(Color(hex: 0x667085))
+                }
+            }
+            .padding(.horizontal, 14)
+            .frame(minHeight: axis == .vertical ? 72 : 48)
+            .background(Color(hex: 0xF5F6FA), in: RoundedRectangle(cornerRadius: 12))
+        }
+    }
+}
+
+private struct BookingPickerTextField: View {
+    let title: String
+    @Binding var text: String
+    let placeholder: String
+    let icon: String
+    let options: [String]
+
+    init(
+        _ title: String,
+        text: Binding<String>,
+        placeholder: String,
+        icon: String,
+        options: [String]
+    ) {
+        self.title = title
+        self._text = text
+        self.placeholder = placeholder
+        self.icon = icon
+        self.options = options
+    }
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 6) {
+            Text(title)
+                .font(.system(size: 12, weight: .medium))
+                .foregroundStyle(Color(hex: 0x475467))
+            Menu {
+                ForEach(options, id: \.self) { option in
+                    Button(option) {
+                        text = option
+                    }
+                }
+            } label: {
+                fieldContent
+            }
+            .buttonStyle(.plain)
+        }
+    }
+
+    private var fieldContent: some View {
+        HStack(spacing: 10) {
+            Image(systemName: icon)
+                .font(.system(size: 16, weight: .medium))
+                .foregroundStyle(Color(hex: 0x667085))
+                .frame(width: 16)
+            Text(text.isEmpty ? placeholder : text)
+                .font(.system(size: 13, weight: .medium))
+                .foregroundStyle(text.isEmpty ? Color(hex: 0x94A3B8) : Color(hex: 0x101828))
+                .lineLimit(1)
+            Spacer()
+            Image(systemName: "chevron.down")
+                .font(.system(size: 12, weight: .semibold))
+                .foregroundStyle(Color(hex: 0x667085))
+        }
+        .padding(.horizontal, 14)
+        .frame(maxWidth: .infinity, minHeight: 48, alignment: .leading)
+        .background(Color(hex: 0xF5F6FA), in: RoundedRectangle(cornerRadius: 12))
+    }
+}
+
+private struct BookingDateTextField: View {
+    let title: String
+    @Binding var text: String
+    let placeholder: String
+    @State private var isPickingDate = false
+    @State private var selectedDate = Date()
+
+    init(_ title: String, text: Binding<String>, placeholder: String = "dd/mm/yyyy") {
+        self.title = title
+        self._text = text
+        self.placeholder = placeholder
+    }
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 6) {
+            Text(title)
+                .font(.system(size: 12, weight: .medium))
+                .foregroundStyle(Color(hex: 0x475467))
+            Button {
+                selectedDate = Self.dateFormatter.date(from: text) ?? Date()
+                isPickingDate = true
+            } label: {
+                HStack(spacing: 10) {
+                    Image(systemName: "calendar")
+                        .font(.system(size: 16, weight: .medium))
+                        .foregroundStyle(Color(hex: 0x667085))
+                        .frame(width: 16)
+                    Text(text.isEmpty ? placeholder : text)
+                        .font(.system(size: 13, weight: .medium))
+                        .foregroundStyle(text.isEmpty ? Color(hex: 0x94A3B8) : Color(hex: 0x101828))
+                    Spacer()
+                    Image(systemName: "chevron.down")
+                        .font(.system(size: 12, weight: .semibold))
+                        .foregroundStyle(Color(hex: 0x667085))
+                }
+                .padding(.horizontal, 14)
+                .frame(maxWidth: .infinity, minHeight: 48, alignment: .leading)
+                .background(Color(hex: 0xF5F6FA), in: RoundedRectangle(cornerRadius: 12))
+            }
+            .buttonStyle(.plain)
+        }
+        .sheet(isPresented: $isPickingDate) {
+            NavigationStack {
+                DatePicker(title, selection: $selectedDate, displayedComponents: .date)
+                    .datePickerStyle(.graphical)
+                    .padding()
+                    .navigationTitle(title)
+                    .navigationBarTitleDisplayMode(.inline)
+                    .toolbar {
+                        ToolbarItem(placement: .cancellationAction) {
+                            Button("Cancel") { isPickingDate = false }
+                        }
+                        ToolbarItem(placement: .confirmationAction) {
+                            Button("Done") {
+                                text = Self.dateFormatter.string(from: selectedDate)
+                                isPickingDate = false
+                            }
+                        }
+                    }
+            }
+            .presentationDetents([.medium])
+        }
+    }
+
+    private static let dateFormatter: DateFormatter = {
+        let formatter = DateFormatter()
+        formatter.calendar = Calendar(identifier: .gregorian)
+        formatter.locale = Locale(identifier: "en_US_POSIX")
+        formatter.dateFormat = "dd/MM/yyyy"
+        return formatter
+    }()
+}
+
+private struct FieldShell<Content: View>: View {
+    private let content: () -> Content
+
+    init(@ViewBuilder content: @escaping () -> Content) {
+        self.content = content
+    }
+
+    var body: some View {
+        content()
+            .padding(.horizontal, 14)
+            .frame(maxWidth: .infinity, minHeight: 48, alignment: .leading)
+            .background(Color(hex: 0xF5F6FA), in: RoundedRectangle(cornerRadius: 12))
+    }
+}
+
+private struct PickerField<Item: Identifiable & Hashable>: View {
+    let title: String
+    let options: [Item]
+    let label: (Item) -> String
+    @Binding var selection: Item?
+
+    var body: some View {
+        Menu {
+            Button("Clear") { selection = nil }
+            ForEach(options) { item in
+                Button(label(item)) { selection = item }
+            }
+        } label: {
+            HStack {
+                Text(title)
+                    .font(.system(size: 13, weight: .medium))
+                    .foregroundStyle(Color(hex: 0x101828))
+                    .lineLimit(1)
+                Spacer()
+                Image(systemName: "chevron.down")
+                    .font(.system(size: 12, weight: .semibold))
+                    .foregroundStyle(Color(hex: 0x667085))
+            }
+            .padding(.horizontal, 14)
+            .frame(maxWidth: .infinity, minHeight: 46, alignment: .leading)
+            .background(Color(hex: 0xF5F6FA), in: RoundedRectangle(cornerRadius: 12))
+        }
+        .buttonStyle(.plain)
+    }
+}
+
+private struct VisitorDraftRow: View {
+    @Binding var visitor: CpVisitorDraft
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 8) {
+            Text("Visitor")
+                .font(.system(size: 12, weight: .semibold))
+                .foregroundStyle(Color(hex: 0x667085))
+            TextField("Visitor name", text: $visitor.name)
+                .cpFieldStyle()
+            TextField("Relation", text: $visitor.relation)
+                .cpFieldStyle()
+            TextField("Age", text: $visitor.age)
+                .keyboardType(.numberPad)
+                .cpFieldStyle()
+            Button {
+                visitor.isVeg.toggle()
+            } label: {
+                Text(visitor.isVeg ? "Food: Veg" : "Food: Non-veg")
+                    .font(.system(size: 13, weight: .medium))
+                    .foregroundStyle(Color(hex: 0x1D2939))
+                    .padding(.horizontal, 16)
+                    .frame(height: 38)
+                    .background(Color(hex: 0xF5F6FA), in: Capsule())
+            }
+            .buttonStyle(.plain)
+        }
+        .padding(12)
+        .background(Color(hex: 0xFAFBFC), in: RoundedRectangle(cornerRadius: 12))
+    }
+}
+
+private extension String {
+    var nilIfBlank: String? {
+        let trimmed = trimmingCharacters(in: .whitespacesAndNewlines)
+        return trimmed.isEmpty ? nil : trimmed
+    }
+}
+
+private extension Array {
+    var nilIfEmpty: [Element]? {
+        isEmpty ? nil : self
+    }
+}
+
+private extension View {
+    func cpFieldStyle(icon: String? = nil) -> some View {
+        HStack(spacing: 10) {
+            if let icon {
+                Image(systemName: icon)
+                    .font(.system(size: 16, weight: .medium))
+                    .foregroundStyle(Color(hex: 0x667085))
+                    .frame(width: 16)
+            }
+            self
+                .font(.system(size: 13, weight: .medium))
+        }
+        .padding(.horizontal, 14)
+        .frame(minHeight: 48)
+        .background(Color(hex: 0xF5F6FA), in: RoundedRectangle(cornerRadius: 12))
+    }
+}
+
+private extension DateFormatter {
+    static let cpOutcomeDateTime: DateFormatter = {
+        let formatter = DateFormatter()
+        formatter.locale = Locale(identifier: "en_US_POSIX")
+        formatter.dateFormat = "dd/MM/yyyy hh:mm a"
+        return formatter
+    }()
+}

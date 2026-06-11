@@ -57,10 +57,12 @@ struct ArrivalOtpSheet: View {
             Capsule().fill(.tertiary).frame(width: 36, height: 5).padding(.top, 8)
 
             VStack(spacing: 6) {
-                Text("Confirm arrival").font(.title3.weight(.semibold))
+                Text("We have send an OTP to Client!")
+                    .font(.system(size: 16, weight: .semibold))
+                    .foregroundStyle(Color(hex: 0x101828))
                 Text(subtitleText)
-                    .font(.subheadline)
-                    .foregroundStyle(.secondary)
+                    .font(.system(size: 11))
+                    .foregroundStyle(Color(hex: 0x475467))
                     .multilineTextAlignment(.center)
                     .padding(.horizontal)
             }
@@ -92,7 +94,7 @@ struct ArrivalOtpSheet: View {
             } label: {
                 HStack {
                     if isVerifying { ProgressView().tint(.white) }
-                    Text("Verify").font(.headline)
+                    Text("Submit").font(.headline)
                 }
                 .frame(maxWidth: .infinity)
                 .padding(.vertical, 14)
@@ -110,11 +112,12 @@ struct ArrivalOtpSheet: View {
                     }
                     .font(.subheadline)
                 } else if resendSecondsRemaining > 0 {
-                    Text("Resend OTP in \(resendSecondsRemaining)s")
+                    Text("Haven't received the verification code? Resend in \(resendSecondsRemaining)s.")
                         .font(.subheadline)
                         .foregroundStyle(.secondary)
                 } else {
-                    Text("Resend OTP").font(.subheadline.weight(.semibold))
+                    Text("Haven't received the verification code? Resend it.")
+                        .font(.subheadline.weight(.semibold))
                 }
             }
             .buttonStyle(.plain)
@@ -158,15 +161,14 @@ struct ArrivalOtpSheet: View {
     }
 
     private var subtitleText: String {
-        var msg = "OTP sent to client"
+        var msg = "Please confirm if you have seen or met the client at this location."
         if let phoneMaskedState, !phoneMaskedState.isEmpty {
-            msg += " (\(phoneMaskedState))"
+            msg += " OTP sent to \(phoneMaskedState)."
         }
-        msg += ". Ask them to read it back to you."
         if expirySecondsRemaining > 0 {
             let mm = expirySecondsRemaining / 60
             let ss = expirySecondsRemaining % 60
-            msg += String(format: " Expires in %d:%02d", mm, ss)
+            msg += String(format: " Expires in %d:%02d.", mm, ss)
         } else {
             msg += " OTP expired — tap Resend."
         }

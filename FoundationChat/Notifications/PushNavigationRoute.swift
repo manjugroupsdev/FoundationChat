@@ -47,6 +47,34 @@ struct PushNavigationRoute {
         referenceId = PushNavigationRoute.stringValue(userInfo["referenceId"])
     }
 
+    init?(_ notification: AppNotification) {
+        guard let rawType = notification.type,
+              let parsedType = PushNavigationType(fromRaw: rawType)
+        else {
+            return nil
+        }
+
+        let reference = notification.referenceId?.trimmingCharacters(in: .whitespacesAndNewlines)
+        let referenceType = notification.referenceType?.trimmingCharacters(in: .whitespacesAndNewlines).lowercased()
+
+        type = parsedType
+        messageId = nil
+        referenceId = reference?.isEmpty == true ? nil : reference
+
+        switch parsedType {
+        case .directMessage:
+            conversationId = referenceType == "channel" ? nil : referenceId
+            channelId = nil
+        case .channelMessage:
+            conversationId = nil
+            channelId = referenceType == "conversation" ? nil : referenceId
+        case .leaveRequest, .leaveApproved, .leaveRejected,
+             .permissionRequest, .permissionApproved, .permissionRejected:
+            conversationId = nil
+            channelId = nil
+        }
+    }
+
     var isChat: Bool {
         type == .directMessage || type == .channelMessage
     }

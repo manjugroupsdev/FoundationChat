@@ -53,8 +53,14 @@ final class AuthStore {
   private(set) var errorMessage: String?
   private(set) var isAuthenticating = false
   private(set) var isRequestingOTP = false
+  private(set) var isEmployeeLoginInProgress = false
+  private(set) var isChangingPassword = false
   private(set) var lastKnownAPNSToken: String?
   private(set) var registeredAPNSToken: String?
+
+  var passwordChangeRequired: Bool {
+    currentSession?.mustChangePassword == true
+  }
 
   var currentUserLabel: String? {
     viewer?.name ?? viewer?.email ?? currentSession?.user.phone
@@ -62,6 +68,18 @@ final class AuthStore {
 
   var isAdmin: Bool {
     currentSession?.user.isAdmin == true
+  }
+
+  var iamPermissions: Set<String> {
+    Set(currentSession?.user.iamPermissions ?? [])
+  }
+
+  func hasPermission(_ permission: String) -> Bool {
+    isAdmin || iamPermissions.contains(permission)
+  }
+
+  func clearError() {
+    errorMessage = nil
   }
 
   // MARK: - Private
@@ -97,13 +115,13 @@ final class AuthStore {
         status = .signedOut
         return
       }
-      applySession(stored)
-      status = .signedIn
-
       let freshUser = try await AuthAPIService.validateSession(token: stored.token)
-      let refreshed = OtpSession(token: stored.token, user: freshUser)
-      applySession(refreshed)
-      try tokenStore.save(refreshed)
+      let refreshed = OtpSession(
+        token: stored.token,
+        user: freshUser,
+        mustChangePassword: stored.mustChangePassword || freshUser.mustChangePassword == true
+      )
+      await finalizeAuthenticatedSession(refreshed)
     } catch {
       try? tokenStore.clear()
       currentSession = nil
@@ -142,11 +160,93 @@ final class AuthStore {
 
     do {
       let session = try await AuthAPIService.verifyOTP(phone: phone, otp: trimmedCode)
-      applySession(session)
-      try tokenStore.save(session)
-      status = .signedIn
+      await finalizeAuthenticatedSession(session)
     } catch {
       errorMessage = error.localizedDescription
+    }
+  }
+
+  func loginWithEmployeeId(employeeId: String, password: String) async {
+    let trimmedEmployeeId = employeeId.trimmingCharacters(in: .whitespacesAndNewlines)
+    guard !trimmedEmployeeId.isEmpty else {
+      errorMessage = AuthStoreError.invalidEmployeeId.localizedDescription
+      return
+    }
+    guard !password.isEmpty else {
+      errorMessage = AuthStoreError.invalidPassword.localizedDescription
+      return
+    }
+
+    isEmployeeLoginInProgress = true
+    errorMessage = nil
+    defer { isEmployeeLoginInProgress = false }
+
+    do {
+      let session = try await AuthAPIService.loginWithEmployeeId(
+        employeeId: trimmedEmployeeId,
+        password: password
+      )
+      await finalizeAuthenticatedSession(session)
+    } catch {
+      errorMessage = error.localizedDescription
+    }
+  }
+
+  func changeRequiredPassword(newPassword: String, confirmPassword: String) async {
+    let password = newPassword.trimmingCharacters(in: .whitespacesAndNewlines)
+    guard password.count >= 8 else {
+      errorMessage = AuthStoreError.weakPassword.localizedDescription
+      return
+    }
+    guard password == confirmPassword.trimmingCharacters(in: .whitespacesAndNewlines) else {
+      errorMessage = AuthStoreError.passwordMismatch.localizedDescription
+      return
+    }
+
+    isChangingPassword = true
+    errorMessage = nil
+    defer { isChangingPassword = false }
+
+    do {
+      let t = try requireToken()
+      try await AuthAPIService.changeOwnPassword(token: t, newPassword: password)
+      guard let existing = currentSession else { throw AuthStoreError.sessionNotAvailable }
+      let refreshed = OtpSession(token: existing.token, user: existing.user, mustChangePassword: false)
+      applySession(refreshed)
+      try tokenStore.save(refreshed)
+      requestNotificationPermissions()
+    } catch {
+      errorMessage = error.localizedDescription
+    }
+  }
+
+  func refreshIAMPermissions() async {
+    guard let t = token, currentSession?.token != "FCQA_STUB_TOKEN" else { return }
+    do {
+      let iam = try await AuthAPIService.getMyIAMPermissions(token: t)
+      guard let existing = currentSession?.user else { return }
+      let updated = AuthUser(
+        _id: existing._id,
+        staffId: existing.staffId,
+        employeeId: existing.employeeId,
+        name: existing.name,
+        phone: existing.phone,
+        email: existing.email,
+        role: existing.role,
+        roleLevel: existing.roleLevel,
+        iamPermissions: iam.permissions,
+        isAdmin: iam.isAdmin,
+        designation: existing.designation,
+        department: existing.department,
+        status: existing.status,
+        photo: existing.photo,
+        mustChangePassword: existing.mustChangePassword
+      )
+      let refreshed = OtpSession(token: t, user: updated, mustChangePassword: currentSession?.mustChangePassword == true)
+      applySession(refreshed)
+      try? tokenStore.save(refreshed)
+    } catch {
+      print("[auth] failed to refresh IAM permissions: \(error.localizedDescription)")
     }
   }
 
@@ -162,7 +262,22 @@ final class AuthStore {
     errorMessage = nil
     isAuthenticating = false
     isRequestingOTP = false
+    isEmployeeLoginInProgress = false
+    isChangingPassword = false
     lastKnownAPNSToken = nil
+    registeredAPNSToken = nil
+    status = .signedOut
+  }
+
+  func expireSession(message: String = "Session expired. Please sign in again.") {
+    try? tokenStore.clear()
+    currentSession = nil
+    viewer = nil
+    errorMessage = message
+    isAuthenticating = false
+    isRequestingOTP = false
+    isEmployeeLoginInProgress = false
+    isChangingPassword = false
     registeredAPNSToken = nil
     status = .signedOut
   }
@@ -171,6 +286,7 @@ final class AuthStore {
     let normalized = apnsToken.trimmingCharacters(in: .whitespacesAndNewlines).lowercased()
     guard !normalized.isEmpty else { return }
     lastKnownAPNSToken = normalized
+    PushTokenCache.lastKnownToken = normalized
 
     // Register with backend if signed in
     guard let t = token, registeredAPNSToken != normalized else { return }
@@ -214,12 +330,14 @@ final class AuthStore {
     let existing = currentSession?.user
     let merged = AuthUser(
       _id: serverUser?._id ?? existing?._id ?? "",
+      staffId: serverUser?.staffId ?? existing?.staffId,
       employeeId: serverUser?.employeeId ?? existing?.employeeId,
       name: serverUser?.name ?? name ?? existing?.name,
       phone: serverUser?.phone ?? phone ?? existing?.phone,
       email: serverUser?.email ?? email ?? existing?.email,
       role: serverUser?.role ?? existing?.role,
       roleLevel: serverUser?.roleLevel ?? existing?.roleLevel,
+      iamPermissions: serverUser?.iamPermissions ?? existing?.iamPermissions,
       isAdmin: serverUser?.isAdmin ?? existing?.isAdmin,
       designation: serverUser?.designation ?? existing?.designation,
       department: serverUser?.department ?? existing?.department,
@@ -227,10 +345,56 @@ final class AuthStore {
       photo: serverUser?.photo ?? photoStorageId ?? existing?.photo
     )
 
-    let refreshed = OtpSession(token: t, user: merged)
+    let refreshed = OtpSession(token: t, user: merged, mustChangePassword: currentSession?.mustChangePassword == true)
     applySession(refreshed)
     try? tokenStore.save(refreshed)
     return merged
+  }
+
+  @discardableResult
+  func refreshMyStaffProfile() async throws -> AuthUser {
+    let t = try requireToken()
+    let sessionUser = currentSession?.user
+    let fallbackId = sessionUser?._id.trimmingCharacters(in: .whitespacesAndNewlines)
+    guard let staffId = sessionUser?.staffId ?? (fallbackId?.isEmpty == false ? fallbackId : nil) else {
+      throw AuthStoreError.sessionNotAvailable
+    }
+    let staff = try await HRConvexAPIService.getStaffDetail(token: t, id: staffId)
+    let existing = currentSession?.user
+    let refreshedUser = AuthUser(
+      _id: existing?._id ?? staff._id,
+      staffId: staff._id,
+      employeeId: staff.employeeId ?? existing?.employeeId,
+      name: staff.name ?? existing?.name,
+      phone: staff.phone ?? existing?.phone,
+      email: staff.email ?? existing?.email,
+      role: existing?.role,
+      roleLevel: staff.roleLevel ?? existing?.roleLevel,
+      iamPermissions: existing?.iamPermissions,
+      isAdmin: existing?.isAdmin,
+      designation: staff.designation ?? existing?.designation,
+      department: staff.department ?? existing?.department,
+      status: staff.status ?? existing?.status,
+      photo: staff.photo
+    )
+    let refreshed = OtpSession(token: t, user: refreshedUser, mustChangePassword: currentSession?.mustChangePassword == true)
+    applySession(refreshed)
+    try? tokenStore.save(refreshed)
+    return refreshedUser
+  }
+
+  @discardableResult
+  func setProfilePhoto(storageId: String) async throws -> AuthUser {
+    let t = try requireToken()
+    let serverUser = try await HRConvexAPIService.setMyProfilePhoto(token: t, storageId: storageId)
+    return try await mergeProfilePhotoUpdate(serverUser: serverUser, fallbackPhoto: storageId)
+  }
+
+  @discardableResult
+  func deleteProfilePhoto() async throws -> AuthUser {
+    let t = try requireToken()
+    let serverUser = try await HRConvexAPIService.deleteMyProfilePhoto(token: t)
+    return try await mergeProfilePhotoUpdate(serverUser: serverUser, fallbackPhoto: nil, forceClearPhoto: true)
   }
 
   /// Resolve a Convex storage id (e.g. profile photo) to a download URL.
@@ -238,6 +402,35 @@ final class AuthStore {
     let t = try requireToken()
     let urlString = try await HRConvexAPIService.getFileURL(token: t, storageId: storageId)
     return URL(string: urlString)
+  }
+
+  private func mergeProfilePhotoUpdate(
+    serverUser: AuthUser?,
+    fallbackPhoto: String?,
+    forceClearPhoto: Bool = false
+  ) async throws -> AuthUser {
+    let t = try requireToken()
+    let existing = currentSession?.user
+    let merged = AuthUser(
+      _id: serverUser?._id ?? existing?._id ?? "",
+      staffId: serverUser?.staffId ?? existing?.staffId,
+      employeeId: serverUser?.employeeId ?? existing?.employeeId,
+      name: serverUser?.name ?? existing?.name,
+      phone: serverUser?.phone ?? existing?.phone,
+      email: serverUser?.email ?? existing?.email,
+      role: serverUser?.role ?? existing?.role,
+      roleLevel: serverUser?.roleLevel ?? existing?.roleLevel,
+      iamPermissions: serverUser?.iamPermissions ?? existing?.iamPermissions,
+      isAdmin: serverUser?.isAdmin ?? existing?.isAdmin,
+      designation: serverUser?.designation ?? existing?.designation,
+      department: serverUser?.department ?? existing?.department,
+      status: serverUser?.status ?? existing?.status,
+      photo: forceClearPhoto ? nil : (serverUser?.photo ?? fallbackPhoto ?? existing?.photo)
+    )
+    let refreshed = OtpSession(token: t, user: merged, mustChangePassword: currentSession?.mustChangePassword == true)
+    applySession(refreshed)
+    try? tokenStore.save(refreshed)
+    return merged
   }
 
   // MARK: - Notifications
@@ -273,6 +466,12 @@ final class AuthStore {
 
   func fetchChannels(search: String = "") async throws -> [ChannelSummary] {
     let t = try requireToken()
+    let trimmed = search.trimmingCharacters(in: .whitespacesAndNewlines)
+
+    if !trimmed.isEmpty {
+      return try await ChatAPIService.searchChannels(token: t, query: trimmed)
+    }
+
     // Merge "my channels" + public channels (de-duped) so users see everything available.
     async let myChannels = ChatAPIService.listMyChannels(token: t)
     async let publicChannels = ChatAPIService.listPublicChannels(token: t)
@@ -285,11 +484,6 @@ final class AuthStore {
     }
     for ch in try await publicChannels {
       if seen.insert(ch.id).inserted { merged.append(ch) }
-    }
-
-    if !search.isEmpty {
-      let lowered = search.lowercased()
-      merged = merged.filter { $0.name.lowercased().contains(lowered) }
     }
 
     return merged
@@ -306,16 +500,24 @@ final class AuthStore {
   }
 
   @discardableResult
-  func sendChannelMessage(channelID: String, content: String) async throws -> ChannelChatMessage {
+  func sendChannelMessage(
+    channelID: String,
+    content: String,
+    parentMessageId: String? = nil,
+    mentionedStaffIds: [String]? = nil,
+    attachments: [[String: Any]]? = nil
+  ) async throws -> ChannelChatMessage {
     let t = try requireToken()
-    let messageId = try await ChatAPIService.sendMessage(token: t, channelId: channelID, body: content)
-    // Return a lightweight local echo
-    return ChannelChatMessage(
-      _id: messageId, channelId: channelID, senderId: viewer?.subject,
-      senderName: viewer?.name, body: content, isEdited: false, isDeleted: false,
-      replyCount: 0, lastReplyAt: nil, parentMessageId: nil,
-      _creationTime: Date().timeIntervalSince1970 * 1000
+    let messageId = try await ChatAPIService.sendMessage(
+      token: t,
+      channelId: channelID,
+      body: content,
+      parentMessageId: parentMessageId,
+      mentionedStaffIds: mentionedStaffIds,
+      attachments: attachments
     )
+    let saved = try await ChatAPIService.getMessage(token: t, messageId: messageId)
+    return ChannelChatMessage(saved)
   }
 
   @discardableResult
@@ -326,16 +528,50 @@ final class AuthStore {
   }
 
   @discardableResult
-  func inviteMember(channelID: String, memberStackUserID: String) async throws -> InviteChannelMemberResult {
-    // Join channel on behalf — use join endpoint
+  func createGroupConversation(memberIds: [String], name: String? = nil) async throws -> StartDirectConversationResult {
     let t = try requireToken()
-    try await ChatAPIService.joinChannel(token: t, channelId: channelID)
+    let conversationId = try await ChatAPIService.createGroupDM(token: t, memberIds: memberIds, name: name)
+    return StartDirectConversationResult(conversationId: conversationId)
+  }
+
+  @discardableResult
+  func inviteMember(channelID: String, memberStackUserID: String) async throws -> InviteChannelMemberResult {
+    let t = try requireToken()
+    try await ChatAPIService.addChannelMember(
+      token: t,
+      channelId: channelID,
+      memberStackUserId: memberStackUserID
+    )
     return InviteChannelMemberResult(channelId: channelID, memberStackUserId: memberStackUserID, invited: true)
+  }
+
+  func removeMember(channelID: String, memberStackUserID: String) async throws {
+    let t = try requireToken()
+    try await ChatAPIService.removeChannelMember(
+      token: t,
+      channelId: channelID,
+      memberStackUserId: memberStackUserID
+    )
+  }
+
+  func setChannelMemberRole(channelID: String, memberStackUserID: String, role: String) async throws {
+    let t = try requireToken()
+    try await ChatAPIService.setChannelRole(
+      token: t,
+      channelId: channelID,
+      memberStackUserId: memberStackUserID,
+      role: role
+    )
   }
 
   func updateChannelDescription(channelId: String, description: String) async throws {
     let t = try requireToken()
     try await ChatAPIService.updateChannel(token: t, channelId: channelId, description: description)
+  }
+
+  func archiveChannel(channelID: String) async throws {
+    let t = try requireToken()
+    try await ChatAPIService.archiveChannel(token: t, channelId: channelID)
   }
 
   func subscribeChannelMessages(channelID: String) throws -> AnyPublisher<[ChannelChatMessage]?, Never> {
@@ -344,16 +580,7 @@ final class AuthStore {
     return Future<[ChannelChatMessage]?, Never> { promise in
       Task {
         let result = try? await ChatAPIService.listChannelMessages(token: t, channelId: channelID)
-        // Map ConvexChatMessage → ChannelChatMessage
-        let mapped: [ChannelChatMessage]? = result?.page?.map { msg in
-          ChannelChatMessage(
-            _id: msg._id, channelId: msg.channelId, senderId: msg.senderId,
-            senderName: msg.senderName, body: msg.body, isEdited: msg.isEdited,
-            isDeleted: msg.isDeleted, replyCount: msg.replyCount,
-            lastReplyAt: msg.lastReplyAt, parentMessageId: msg.parentMessageId,
-            _creationTime: msg._creationTime
-          )
-        }
+        let mapped: [ChannelChatMessage]? = result?.page?.map(ChannelChatMessage.init)
         promise(.success(mapped))
       }
     }.eraseToAnyPublisher()
@@ -437,7 +664,30 @@ final class AuthStore {
   }
 
   func deleteConversation(conversationID: String) async throws {
-    // Not in current API
+    try await hideConversation(conversationID: conversationID)
+  }
+
+  func addConversationMember(conversationID: String, memberStackUserID: String) async throws {
+    let t = try requireToken()
+    try await ChatAPIService.addConversationMember(
+      token: t,
+      conversationId: conversationID,
+      memberStackUserId: memberStackUserID
+    )
+  }
+
+  func removeConversationMember(conversationID: String, memberStackUserID: String) async throws {
+    let t = try requireToken()
+    try await ChatAPIService.removeConversationMember(
+      token: t,
+      conversationId: conversationID,
+      memberStackUserId: memberStackUserID
+    )
+  }
+
+  func hideConversation(conversationID: String) async throws {
+    let t = try requireToken()
+    try await ChatAPIService.hideConversation(token: t, conversationId: conversationID)
   }
 
   func markConversationSeen(conversationID: String, readAt: Date = Date()) async throws {
@@ -455,6 +705,21 @@ final class AuthStore {
     return try await ChatAPIService.searchMessages(
       token: t, query: query, conversationId: conversationID, channelId: channelID, limit: limit
     )
+  }
+
+  func fetchMessage(messageID: String) async throws -> ConvexChatMessage {
+    let t = try requireToken()
+    return try await ChatAPIService.getMessage(token: t, messageId: messageID)
+  }
+
+  func fetchReplies(parentMessageID: String) async throws -> [ConvexChatMessage] {
+    let t = try requireToken()
+    return try await ChatAPIService.listReplies(token: t, parentMessageId: parentMessageID)
+  }
+
+  func fetchUnreadSummary() async throws -> ChatAPIService.UnreadSummary {
+    let t = try requireToken()
+    return try await ChatAPIService.getUnreadSummary(token: t)
   }
 
   func fetchConversationAttachments(
@@ -484,19 +749,20 @@ final class AuthStore {
   }
 
   func toggleConversationMute(conversationID: String, muted: Bool) async throws {
-    // Backend mute endpoint not wired in current API; surface via notification preferences if needed.
-    _ = try await upsertNotificationPreference(
-      targetType: "conversation",
-      targetId: conversationID,
-      level: muted ? .none : .all
+    let t = try requireToken()
+    try await ChatAPIService.setConversationMute(
+      token: t,
+      conversationId: conversationID,
+      muted: muted
     )
   }
 
   func toggleChannelMute(channelID: String, muted: Bool) async throws {
-    _ = try await upsertNotificationPreference(
-      targetType: "channel",
-      targetId: channelID,
-      level: muted ? .none : .all
+    let t = try requireToken()
+    try await ChatAPIService.setChannelMute(
+      token: t,
+      channelId: channelID,
+      muted: muted
     )
   }
 
@@ -508,27 +774,64 @@ final class AuthStore {
     attachmentStorageId: String? = nil,
     attachmentFileName: String? = nil,
     attachmentMimeType: String? = nil,
+    attachmentFileSize: Int? = nil,
     attachmentTitle: String? = nil,
     attachmentDescription: String? = nil,
-    attachmentThumbnail: String? = nil
+    attachmentThumbnail: String? = nil,
+    parentMessageId: String? = nil,
+    mentionedStaffIds: [String]? = nil,
+    attachments: [[String: Any]]? = nil
   ) async throws -> ConvexChatMessage {
     let t = try requireToken()
-    let messageId = try await ChatAPIService.sendMessage(token: t, conversationId: conversationID, body: content)
-    return ConvexChatMessage(
-      _id: messageId, channelId: nil, conversationId: conversationID,
-      senderId: viewer?.subject, senderName: viewer?.name, body: content,
-      isEdited: false, isDeleted: false, replyCount: 0, lastReplyAt: nil,
-      parentMessageId: nil, _creationTime: Date().timeIntervalSince1970 * 1000,
-      attachments: nil
+    let attachmentsPayload: [[String: Any]]?
+    if let attachments {
+      attachmentsPayload = attachments
+    } else if let attachmentStorageId {
+      var attachment: [String: Any] = [
+        "storageId": attachmentStorageId
+      ]
+      if let attachmentFileName, !attachmentFileName.isEmpty {
+        attachment["fileName"] = attachmentFileName
+      }
+      if let attachmentMimeType, !attachmentMimeType.isEmpty {
+        attachment["fileType"] = attachmentMimeType
+      } else if let attachmentType, !attachmentType.isEmpty {
+        attachment["fileType"] = attachmentType
+      }
+      if let attachmentFileSize {
+        attachment["fileSize"] = attachmentFileSize
+      }
+      attachmentsPayload = [attachment]
+    } else {
+      attachmentsPayload = nil
+    }
+
+    let messageId = try await ChatAPIService.sendMessage(
+      token: t,
+      conversationId: conversationID,
+      body: content,
+      parentMessageId: parentMessageId,
+      mentionedStaffIds: mentionedStaffIds,
+      attachments: attachmentsPayload
     )
+    return try await ChatAPIService.getMessage(token: t, messageId: messageId)
   }
 
   func generateAttachmentUploadURL() async throws -> URL {
-    throw AuthStoreError.notImplemented
+    let t = try requireToken()
+    let urlString = try await HRConvexAPIService.generateUploadURL(token: t)
+    guard let url = URL(string: urlString) else {
+      throw AuthStoreError.invalidUploadURL
+    }
+    return url
   }
 
   func uploadAttachmentData(_ data: Data, uploadURL: URL, mimeType: String) async throws -> String {
-    throw AuthStoreError.notImplemented
+    try await HRConvexAPIService.uploadFile(
+      uploadURL: uploadURL.absoluteString,
+      data: data,
+      contentType: mimeType
+    )
   }
 
   // MARK: - Files
@@ -585,6 +888,11 @@ final class AuthStore {
 
   func clearTypingIndicator(conversationId: String? = nil, channelId: String? = nil) async throws {
     // Typing auto-expires after 5s server-side — no explicit clear endpoint.
+  }
+
+  func fetchTypingUsers(conversationId: String? = nil, channelId: String? = nil) async throws -> [TypingUser] {
+    let t = try requireToken()
+    return try await ChatAPIService.getTyping(token: t, channelId: channelId, conversationId: conversationId)
   }
 
   func subscribeTypingUsers(conversationId: String? = nil, channelId: String? = nil) throws -> AnyPublisher<[TypingUser]?, Never> {
@@ -649,22 +957,134 @@ final class AuthStore {
   @discardableResult func markPostRead(postId: String) async throws -> MarkPostReadResult { throw AuthStoreError.notImplemented }
   func fetchUnreadPostCount() async throws -> Int { 0 }
 
-  // MARK: - Presence (not in current API)
+  // MARK: - Presence
 
-  @discardableResult func sendPresenceHeartbeat() async throws -> HeartbeatResult { throw AuthStoreError.notImplemented }
-  @discardableResult func setPresenceStatus(status: PresenceStatus, customStatusText: String? = nil, customStatusEmoji: String? = nil) async throws -> SetStatusResult { throw AuthStoreError.notImplemented }
-  func fetchPresence(for stackUserIds: [String]) async throws -> [UserPresenceInfo] { [] }
-  @discardableResult func clearPresenceStatus() async throws -> ClearStatusResult { throw AuthStoreError.notImplemented }
+  @discardableResult
+  func sendPresenceHeartbeat() async throws -> HeartbeatResult {
+    let t = try requireToken()
+    let response = try await ChatAPIService.sendPresenceHeartbeat(token: t)
+    return HeartbeatResult(status: response.status ?? PresenceStatus.online.rawValue)
+  }
 
-  // MARK: - Reactions (not in current API)
+  @discardableResult
+  func setPresenceStatus(status: PresenceStatus, customStatusText: String? = nil, customStatusEmoji: String? = nil) async throws -> SetStatusResult {
+    let t = try requireToken()
+    let response = try await ChatAPIService.sendPresenceHeartbeat(
+      token: t,
+      status: status,
+      customStatusText: customStatusText,
+      customStatusEmoji: customStatusEmoji
+    )
+    return SetStatusResult(status: response.status ?? status.rawValue)
+  }
 
-  @discardableResult func addMessageReaction(messageId: String, messageSource: String, emoji: String) async throws -> MessageReactionResult { throw AuthStoreError.notImplemented }
-  func fetchMessageReactions(messageId: String, messageSource: String) async throws -> [MessageReactionInfo] { [] }
+  func fetchPresence(for stackUserIds: [String]) async throws -> [UserPresenceInfo] {
+    let t = try requireToken()
+    return try await ChatAPIService.getPresence(token: t, stackUserIds: stackUserIds)
+  }
 
-  // MARK: - Notification preferences (not in current API)
+  func fetchOnlinePresence() async throws -> [UserPresenceInfo] {
+    let t = try requireToken()
+    return try await ChatAPIService.getOnlinePresence(token: t)
+  }
 
-  func fetchNotificationPreference(targetType: String, targetId: String) async throws -> NotificationPreference? { nil }
-  @discardableResult func upsertNotificationPreference(targetType: String, targetId: String, level: NotificationLevel, muteUntil: Double? = nil) async throws -> UpsertNotificationPrefResult { throw AuthStoreError.notImplemented }
+  @discardableResult
+  func clearPresenceStatus() async throws -> ClearStatusResult {
+    let t = try requireToken()
+    let response = try await ChatAPIService.sendPresenceHeartbeat(
+      token: t,
+      status: .online,
+      customStatusText: "",
+      customStatusEmoji: ""
+    )
+    return ClearStatusResult(cleared: response.cleared ?? response.success ?? true)
+  }
+
+  // MARK: - Reactions
+
+  @discardableResult
+  func addMessageReaction(messageId: String, messageSource: String, emoji: String) async throws -> MessageReactionResult {
+    let t = try requireToken()
+    return try await ChatAPIService.addReaction(
+      token: t,
+      messageId: messageId,
+      messageSource: messageSource,
+      emoji: emoji
+    )
+  }
+
+  @discardableResult
+  func removeMessageReaction(messageId: String, messageSource: String, emoji: String) async throws -> MessageReactionResult {
+    let t = try requireToken()
+    return try await ChatAPIService.removeReaction(
+      token: t,
+      messageId: messageId,
+      messageSource: messageSource,
+      emoji: emoji
+    )
+  }
+
+  @discardableResult
+  func toggleMessageReaction(messageId: String, messageSource: String, emoji: String) async throws -> MessageReactionResult {
+    let t = try requireToken()
+    return try await ChatAPIService.toggleReaction(
+      token: t,
+      messageId: messageId,
+      messageSource: messageSource,
+      emoji: emoji
+    )
+  }
+
+  func fetchMessageReactions(messageId: String, messageSource: String) async throws -> [MessageReactionInfo] {
+    let t = try requireToken()
+    return try await ChatAPIService.getReactions(
+      token: t,
+      messageId: messageId,
+      messageSource: messageSource
+    )
+  }
+
+  func fetchBulkMessageReactions(messageIds: [String]) async throws -> [String: [MessageReactionInfo]] {
+    let t = try requireToken()
+    return try await ChatAPIService.getBulkReactions(token: t, messageIds: messageIds)
+  }
+
+  // MARK: - Notification preferences
+
+  func fetchNotificationPreference(targetType: String, targetId: String) async throws -> NotificationPreference? {
+    switch targetType {
+    case "channel":
+      let channel = try await fetchChannel(channelID: targetId)
+      return NotificationPreference(
+        targetType: targetType,
+        targetId: targetId,
+        level: (channel.muted ?? false) ? NotificationLevel.none.rawValue : NotificationLevel.all.rawValue,
+        muteUntil: nil,
+        updatedAt: Date().timeIntervalSince1970 * 1000
+      )
+    default:
+      let conversation = try await fetchConversation(conversationID: targetId)
+      return NotificationPreference(
+        targetType: targetType,
+        targetId: targetId,
+        level: (conversation.muted ?? false) ? NotificationLevel.none.rawValue : NotificationLevel.all.rawValue,
+        muteUntil: nil,
+        updatedAt: Date().timeIntervalSince1970 * 1000
+      )
+    }
+  }
+
+  @discardableResult
+  func upsertNotificationPreference(targetType: String, targetId: String, level: NotificationLevel, muteUntil: Double? = nil) async throws -> UpsertNotificationPrefResult {
+    let isMuted = level == .none
+    switch targetType {
+    case "channel":
+      try await toggleChannelMute(channelID: targetId, muted: isMuted)
+    default:
+      try await toggleConversationMute(conversationID: targetId, muted: isMuted)
+    }
+    return UpsertNotificationPrefResult(saved: true)
+  }
 
   // MARK: - Storage folders (not in current API)
 
@@ -674,6 +1094,33 @@ final class AuthStore {
   @discardableResult func moveFileToFolder(fileId: String, folderId: String?) async throws -> MoveFileResult { throw AuthStoreError.notImplemented }
 
   // MARK: - Helpers
+
+  private func finalizeAuthenticatedSession(_ session: OtpSession) async {
+    applySession(session)
+    do {
+      try tokenStore.save(session)
+    } catch {
+      print("[auth] failed to save session: \(error.localizedDescription)")
+    }
+
+    await refreshIAMPermissions()
+
+    do {
+      _ = try await refreshMyStaffProfile()
+    } catch {
+      print("[auth] failed to refresh staff profile: \(error.localizedDescription)")
+    }
+
+    if let currentSession {
+      do {
+        try tokenStore.save(currentSession)
+      } catch {
+        print("[auth] failed to save hydrated session: \(error.localizedDescription)")
+      }
+    }
+
+    status = .signedIn
+  }
 
   private func applySession(_ session: OtpSession) {
     currentSession = session
@@ -705,12 +1152,14 @@ final class AuthStore {
     guard UserDefaults.standard.bool(forKey: "FCQAStubAuth") else { return nil }
     let user = AuthUser(
       _id: "qa-stub-user",
+      staffId: "qa-stub-user",
       employeeId: "QA-STUB",
       name: "QA Stub",
       phone: "9999999999",
       email: "qa-stub@example.local",
       role: "staff",
       roleLevel: 0,
+      iamPermissions: [],
       isAdmin: false,
       designation: "QA Automation",
       department: "QA",
@@ -728,6 +1177,11 @@ enum AuthStoreError: LocalizedError {
   case sessionNotAvailable
   case invalidPhoneNumber
   case invalidOTP
+  case invalidEmployeeId
+  case invalidPassword
+  case weakPassword
+  case passwordMismatch
+  case invalidUploadURL
   case notImplemented
 
   var errorDescription: String? {
@@ -735,6 +1189,11 @@ enum AuthStoreError: LocalizedError {
     case .sessionNotAvailable: return "Session is not available. Please sign in again."
     case .invalidPhoneNumber: return "Enter a valid 10-digit phone number."
     case .invalidOTP: return "Enter the OTP you received."
+    case .invalidEmployeeId: return "Enter your Employee ID."
+    case .invalidPassword: return "Enter your password."
+    case .weakPassword: return "New password must be at least 8 characters."
+    case .passwordMismatch: return "New password and confirmation do not match."
+    case .invalidUploadURL: return "Attachment upload URL is invalid."
     case .notImplemented: return "This feature is not yet connected."
     }
   }

@@ -6,6 +6,15 @@ struct MessageView: View {
   let message: Message
   let otherParticipantLastReadAt: Date?
   let isLastOutgoingMessage: Bool
+  let isHighlighted: Bool
+  let isSelected: Bool
+  let isSelectionMode: Bool
+  let onReply: () -> Void
+  let onTapReplyPreview: () -> Void
+  let onShowReactions: () -> Void
+  let onToggleSelection: () -> Void
+
+  @State private var horizontalDragOffset: CGFloat = 0
 
   private var isOutgoing: Bool {
     guard let currentUserStackUserId = authStore.viewer?.subject else {
@@ -29,7 +38,10 @@ struct MessageView: View {
   }
 
   private var bubbleColor: Color {
-    isOutgoing ? .blue : Color(uiColor: .systemGray5)
+    if message.isDeleted {
+      return Color.white.opacity(0.88)
+    }
+    return isOutgoing ? Color(red: 0.02, green: 0.42, blue: 0.82) : .white
   }
 
   private var hasTextContent: Bool {
@@ -41,50 +53,259 @@ struct MessageView: View {
       || message.attachementMimeType?.hasPrefix("image/") == true
   }
 
+  private var isVideoAttachment: Bool {
+    message.attachementType == "video"
+      || message.attachementMimeType?.hasPrefix("video/") == true
+  }
+
+  private var isAudioAttachment: Bool {
+    let fileExtension = (message.attachementFileName ?? message.attachementURL ?? "")
+      .split(separator: ".")
+      .last
+      .map(String.init)?
+      .lowercased()
+
+    return message.attachementType == "audio"
+      || message.attachementType == "voice"
+      || message.attachementMimeType?.hasPrefix("audio/") == true
+      || ["m4a", "mp3", "wav", "aac", "caf", "aiff", "aif", "ogg", "opus"].contains(fileExtension ?? "")
+  }
+
+  private var isMediaAttachment: Bool {
+    isImageAttachment || isVideoAttachment
+  }
+
+  private var isDocumentAttachment: Bool {
+    !isMediaAttachment
+      && !isAudioAttachment
+      && !message.isDeleted
+      && (
+        message.attachementFileName?.isEmpty == false
+          || message.attachementURL?.isEmpty == false
+          || message.attachementMimeType?.isEmpty == false
+      )
+  }
+
   private var shouldRenderImageWithoutBubble: Bool {
-    isImageAttachment && !hasTextContent
+    isImageAttachment && !hasTextContent && !message.isDeleted
+  }
+
+  private var shouldRenderDocumentWithoutBubble: Bool {
+    isDocumentAttachment && !hasTextContent
+  }
+
+  private var reactions: [MessageReactionInfo] {
+    Self.decodeReactions(from: message.reactionSummary)
   }
 
   var body: some View {
-    HStack {
-      if isOutgoing {
-        Spacer(minLength: 56)
-      }
-      VStack(alignment: isOutgoing ? .trailing : .leading, spacing: 4) {
-        if shouldRenderImageWithoutBubble {
-          MessageAttachementView(message: message, isOutgoing: isOutgoing)
-        } else {
-          VStack(alignment: .leading, spacing: 8) {
-            MessageContentView(message: message, isOutgoing: isOutgoing)
-            MessageAttachementView(message: message, isOutgoing: isOutgoing)
-          }
-          .padding(.horizontal, 14)
-          .padding(.vertical, 10)
-          .background(bubbleColor)
-          .clipShape(
-            UnevenRoundedRectangle(
-              cornerRadii: .init(
-                topLeading: 22,
-                bottomLeading: isOutgoing ? 22 : 6,
-                bottomTrailing: isOutgoing ? 6 : 22,
-                topTrailing: 22
-              ),
-              style: .continuous
-            )
-          )
-        }
+    ZStack(alignment: isOutgoing ? .trailing : .leading) {
+      Image(systemName: "arrowshape.turn.up.left.fill")
+        .font(.system(size: 18, weight: .semibold))
+        .foregroundStyle(Color(red: 0.05, green: 0.38, blue: 0.79))
+        .frame(width: 36, height: 36)
+        .background(Color.white.opacity(0.92), in: Circle())
+        .opacity(abs(horizontalDragOffset) > 14 ? 1 : 0)
+        .scaleEffect(abs(horizontalDragOffset) > 52 ? 1.08 : 0.9)
+        .padding(.horizontal, 18)
 
-        if let deliveryStatusText {
-          MessageDeliveryStatusView(text: deliveryStatusText)
-            .padding(.trailing, 6)
+      HStack {
+        if isOutgoing {
+          Spacer(minLength: 48)
+        }
+        if !isOutgoing && isSelectionMode {
+          selectionIndicator
+            .padding(.leading, 14)
+        }
+        VStack(alignment: isOutgoing ? .trailing : .leading, spacing: 6) {
+          if shouldRenderImageWithoutBubble || shouldRenderDocumentWithoutBubble {
+            MessageAttachementView(message: message, isOutgoing: isOutgoing)
+          } else {
+            VStack(alignment: .leading, spacing: 8) {
+              if message.replyPreviewText?.isEmpty == false {
+                ReplySnippetView(
+                  sender: message.replySenderName,
+                  preview: message.replyPreviewText ?? "",
+                  isOutgoing: isOutgoing,
+                  onTap: onTapReplyPreview
+                )
+              }
+              if isMediaAttachment {
+                MessageAttachementView(message: message, isOutgoing: isOutgoing)
+                MessageContentView(message: message, isOutgoing: isOutgoing)
+              } else {
+                MessageContentView(message: message, isOutgoing: isOutgoing)
+                MessageAttachementView(message: message, isOutgoing: isOutgoing)
+              }
+            }
+            .padding(.horizontal, message.isDeleted ? 12 : 14)
+            .padding(.vertical, message.isDeleted ? 9 : 11)
+            .background(bubbleColor)
+            .clipShape(RoundedRectangle(cornerRadius: 18, style: .continuous))
+            .overlay(
+              RoundedRectangle(cornerRadius: 18, style: .continuous)
+                .stroke(
+                  isHighlighted
+                    ? Color.yellow.opacity(0.95)
+                    : Color.black.opacity(message.isDeleted ? 0.08 : (isOutgoing ? 0.03 : 0.06)),
+                  lineWidth: isHighlighted ? 2 : 1
+                )
+            )
+            .shadow(color: .black.opacity(message.isDeleted ? 0.02 : 0.04), radius: 6, y: 2)
+          }
+
+          if !reactions.isEmpty {
+            MessageReactionSummaryView(reactions: reactions, isOutgoing: isOutgoing)
+              .padding(.top, -2)
+              .padding(isOutgoing ? .trailing : .leading, 8)
+          }
+
+          if let deliveryStatusText {
+            MessageDeliveryStatusView(text: deliveryStatusText)
+              .padding(.trailing, 6)
+          }
+        }
+        .padding(.horizontal, 16)
+        if isOutgoing && isSelectionMode {
+          selectionIndicator
+            .padding(.trailing, 14)
+        }
+        if !isOutgoing {
+          Spacer(minLength: 48)
         }
       }
-      .padding(.horizontal, 12)
-      .animation(.bouncy, value: message.content)
-      if !isOutgoing {
-        Spacer(minLength: 56)
+      .offset(x: horizontalDragOffset)
+      .contentShape(Rectangle())
+      .onTapGesture {
+        guard isSelectionMode, !message.isDeleted else { return }
+        onToggleSelection()
+      }
+      .gesture(replyDragGesture)
+      .simultaneousGesture(
+        LongPressGesture(minimumDuration: 0.45)
+          .onEnded { _ in
+            guard !message.isDeleted else { return }
+            onShowReactions()
+          }
+      )
+    }
+  }
+
+  private var selectionIndicator: some View {
+    ZStack {
+      Circle()
+        .fill(isSelected ? Color(red: 0.05, green: 0.42, blue: 0.82) : Color.white.opacity(0.9))
+        .frame(width: 24, height: 24)
+        .overlay(
+          Circle()
+            .stroke(isSelected ? Color.clear : Color.black.opacity(0.18), lineWidth: 1.5)
+        )
+
+      if isSelected {
+        Image(systemName: "checkmark")
+          .font(.system(size: 12, weight: .bold))
+          .foregroundStyle(.white)
       }
     }
+    .transition(.scale.combined(with: .opacity))
+  }
+
+  private var replyDragGesture: some Gesture {
+    DragGesture(minimumDistance: 16, coordinateSpace: .local)
+      .onChanged { value in
+        guard abs(value.translation.width) > abs(value.translation.height) else { return }
+        let translation = value.translation.width
+        let desiredDirection = isOutgoing ? min(0, translation) : max(0, translation)
+        horizontalDragOffset = max(-72, min(72, desiredDirection * 0.55))
+      }
+      .onEnded { _ in
+        let shouldReply = abs(horizontalDragOffset) > 38
+        withAnimation(.spring(response: 0.28, dampingFraction: 0.82)) {
+          horizontalDragOffset = 0
+        }
+        if shouldReply {
+          onReply()
+        }
+      }
+  }
+
+  private static func decodeReactions(from summary: String?) -> [MessageReactionInfo] {
+    guard let summary, !summary.isEmpty else { return [] }
+    return summary.split(separator: "|").compactMap { item in
+      let parts = item.split(separator: ",", omittingEmptySubsequences: false)
+      guard parts.count >= 3, let count = Int(parts[1]) else { return nil }
+      return MessageReactionInfo(
+        emoji: String(parts[0]),
+        count: count,
+        hasReacted: parts[2] == "1"
+      )
+    }
+  }
+}
+
+private struct MessageReactionSummaryView: View {
+  let reactions: [MessageReactionInfo]
+  let isOutgoing: Bool
+
+  private var visibleReactions: [MessageReactionInfo] {
+    Array(reactions.prefix(3))
+  }
+
+  var body: some View {
+    HStack(spacing: 3) {
+      ForEach(visibleReactions) { reaction in
+        Text(reaction.emoji)
+          .font(.system(size: 12))
+      }
+
+      let total = reactions.reduce(0) { $0 + $1.count }
+      if total > 1 {
+        Text("\(total)")
+          .font(.system(size: 10, weight: .semibold))
+          .foregroundStyle(Color.black.opacity(0.55))
+      }
+    }
+    .padding(.horizontal, 7)
+    .padding(.vertical, 4)
+    .background(Color.white, in: Capsule())
+    .overlay(
+      Capsule()
+        .stroke(Color.black.opacity(0.08), lineWidth: 1)
+    )
+    .shadow(color: .black.opacity(0.08), radius: 6, y: 2)
+  }
+}
+
+private struct ReplySnippetView: View {
+  let sender: String?
+  let preview: String
+  let isOutgoing: Bool
+  let onTap: () -> Void
+
+  var body: some View {
+    HStack(spacing: 8) {
+      RoundedRectangle(cornerRadius: 2, style: .continuous)
+        .fill(isOutgoing ? .white.opacity(0.75) : Color(red: 0.05, green: 0.38, blue: 0.79))
+        .frame(width: 3)
+
+      VStack(alignment: .leading, spacing: 2) {
+        if let sender, !sender.isEmpty {
+          Text(sender)
+            .font(.system(size: 12, weight: .semibold))
+            .foregroundStyle(isOutgoing ? .white.opacity(0.92) : Color(red: 0.05, green: 0.38, blue: 0.79))
+            .lineLimit(1)
+        }
+
+        Text(preview)
+          .font(.system(size: 12, weight: .regular))
+          .foregroundStyle(isOutgoing ? .white.opacity(0.72) : Color.black.opacity(0.55))
+          .lineLimit(2)
+      }
+    }
+    .padding(8)
+    .background(isOutgoing ? .white.opacity(0.14) : Color.black.opacity(0.04), in: RoundedRectangle(cornerRadius: 8, style: .continuous))
+    .contentShape(Rectangle())
+    .onTapGesture(perform: onTap)
   }
 }
 
@@ -93,8 +314,8 @@ private struct MessageDeliveryStatusView: View {
 
   var body: some View {
     Text(text)
-      .font(.system(size: 10, weight: .semibold))
-      .foregroundStyle(.secondary)
+      .font(.system(size: 11, weight: .medium))
+      .foregroundStyle(Color.black.opacity(0.38))
   }
 }
 
@@ -104,11 +325,25 @@ private struct MessageDeliveryStatusView: View {
                                role: .user,
                                timestamp: Date()),
                 otherParticipantLastReadAt: nil,
-                isLastOutgoingMessage: true)
+                isLastOutgoingMessage: true,
+                isHighlighted: false,
+                isSelected: false,
+                isSelectionMode: false,
+                onReply: {},
+                onTapReplyPreview: {},
+                onShowReactions: {},
+                onToggleSelection: {})
     MessageView(message: .init(content: "Hello world this is a short message",
                                role: .assistant,
                                timestamp: Date()),
                 otherParticipantLastReadAt: nil,
-                isLastOutgoingMessage: false)
+                isLastOutgoingMessage: false,
+                isHighlighted: false,
+                isSelected: false,
+                isSelectionMode: false,
+                onReply: {},
+                onTapReplyPreview: {},
+                onShowReactions: {},
+                onToggleSelection: {})
   }
 }

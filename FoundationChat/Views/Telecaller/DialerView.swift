@@ -48,6 +48,7 @@ struct DialerView: View {
             if let statusMessage {
                 Text(statusMessage)
                     .font(.footnote.weight(.medium))
+                    .font(AppModuleFont.rowMetaSemibold)
                     .padding(.horizontal, 14)
                     .padding(.vertical, 8)
                     .background(.regularMaterial, in: Capsule())
@@ -62,7 +63,7 @@ struct DialerView: View {
     private var stationField: some View {
         VStack(alignment: .leading, spacing: 6) {
             Text("STATION")
-                .font(.caption2.weight(.semibold))
+                .font(AppModuleFont.rowMetaSemibold)
                 .foregroundStyle(.secondary)
             HStack {
                 Image(systemName: "antenna.radiowaves.left.and.right")
@@ -100,7 +101,7 @@ struct DialerView: View {
                 .padding(.vertical, 24)
             if !dialed.isEmpty {
                 Text(formattedPreview(dialed))
-                    .font(.caption)
+                    .font(AppModuleFont.rowMeta)
                     .foregroundStyle(.secondary)
             }
         }
@@ -122,8 +123,7 @@ struct DialerView: View {
     }
 
     private var callRow: some View {
-        HStack(spacing: 24) {
-            Spacer()
+        ZStack {
             Button {
                 placeCall()
             } label: {
@@ -145,17 +145,21 @@ struct DialerView: View {
             .disabled(!callEnabled || isCalling)
             .accessibilityLabel("Call")
 
-            Button {
-                if !dialed.isEmpty { dialed.removeLast() }
-            } label: {
-                Image(systemName: "delete.left.fill")
-                    .font(.title3.weight(.regular))
-                    .foregroundStyle(.secondary)
-                    .frame(width: 56, height: 56)
+            HStack {
+                Spacer()
+
+                Button {
+                    if !dialed.isEmpty { dialed.removeLast() }
+                } label: {
+                    Image(systemName: "delete.left.fill")
+                        .font(.title3.weight(.regular))
+                        .foregroundStyle(.secondary)
+                        .frame(width: 56, height: 56)
+                }
+                .buttonStyle(.plain)
+                .disabled(dialed.isEmpty)
+                .accessibilityLabel("Backspace")
             }
-            .buttonStyle(.plain)
-            .disabled(dialed.isEmpty)
-            .accessibilityLabel("Backspace")
         }
         .frame(maxWidth: .infinity)
         .padding(.top, 12)
@@ -268,11 +272,13 @@ private struct DialerKeyButton: View {
                 if let subtitle = key.subtitle {
                     Text(subtitle)
                         .font(.caption2.weight(.semibold))
+                        .font(AppModuleFont.rowMetaSemibold)
                         .foregroundStyle(.secondary)
                         .tracking(1)
                 } else {
                     Text(" ")
                         .font(.caption2)
+                        .font(AppModuleFont.rowMeta)
                 }
             }
             .frame(width: 78, height: 78)
