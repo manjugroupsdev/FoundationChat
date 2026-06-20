@@ -7,7 +7,6 @@ import SwiftUI
 /// user filter by status bucket and free-text search by place / address.
 struct SiteVisitsListView: View {
     @Environment(AuthStore.self) private var authStore
-    @Environment(\.dismiss) private var dismiss
 
     @State private var visits: [ConvexSiteVisit] = []
     @State private var isLoading = false
@@ -48,15 +47,35 @@ struct SiteVisitsListView: View {
 
     var body: some View {
         VStack(spacing: 0) {
-            androidTopBar
             searchBar
             statusFilterBar
+            if isDateFilterEnabled {
+                dateFilterBar
+            }
             content
         }
         .background(Color(hex: 0xF1F3F8).ignoresSafeArea())
-        .navigationTitle("")
+        .navigationTitle("Site Visits")
         .navigationBarTitleDisplayMode(.inline)
-        .toolbar(.hidden, for: .navigationBar)
+        .toolbarBackground(Color.white, for: .navigationBar)
+        .toolbarBackground(.visible, for: .navigationBar)
+        .toolbar {
+            ToolbarItem(placement: .principal) {
+                Text("Site Visits")
+                    .font(.system(size: 20, weight: .bold))
+                    .foregroundStyle(Color(hex: 0x101828))
+            }
+
+            ToolbarItem(placement: .topBarTrailing) {
+                Button {
+                    isDateFilterEnabled.toggle()
+                } label: {
+                    Image(systemName: "calendar")
+                        .font(.system(size: 18, weight: .semibold))
+                }
+                .accessibilityLabel("Filter by date")
+            }
+        }
         .refreshable { await load() }
         .task {
             if !hasLoadedOnce { await load() }
@@ -105,50 +124,6 @@ struct SiteVisitsListView: View {
                 .padding(.horizontal, 16)
                 .padding(.top, 16)
                 .padding(.bottom, 32)
-            }
-        }
-    }
-
-    private var androidTopBar: some View {
-        HStack {
-            Button { dismiss() } label: {
-                Image(systemName: "chevron.left")
-                    .font(.system(size: 20, weight: .semibold))
-                    .foregroundStyle(Color(hex: 0x0B61CA))
-                    .frame(width: 36, height: 36)
-                    .background(Color(hex: 0xF2F6FF), in: Circle())
-            }
-            .buttonStyle(.plain)
-
-            Spacer()
-
-            Text("Site Visits")
-                .font(.system(size: 17, weight: .semibold))
-                .foregroundStyle(Color(hex: 0x101828))
-
-            Spacer()
-
-            Button {
-                isDateFilterEnabled.toggle()
-            } label: {
-                Image(systemName: "calendar")
-                    .font(.system(size: 18, weight: .semibold))
-                    .foregroundStyle(Color(hex: 0x0B61CA))
-                    .frame(width: 36, height: 36)
-                    .background(Color(hex: 0xF2F6FF), in: Circle())
-            }
-            .buttonStyle(.plain)
-        }
-        .padding(.horizontal, 16)
-        .frame(height: 56)
-        .background(Color.white)
-        .overlay(Rectangle().fill(Color(hex: 0xEEF0F5)).frame(height: 1), alignment: .bottom)
-        .overlay(alignment: .bottom) {
-            if isDateFilterEnabled {
-                DatePicker("", selection: $selectedDate, displayedComponents: .date)
-                    .labelsHidden()
-                    .padding(.bottom, -44)
-                    .opacity(0.01)
             }
         }
     }
@@ -232,22 +207,21 @@ struct SiteVisitsListView: View {
                 selection: $selectedDate,
                 displayedComponents: .date
             )
-            .labelsHidden()
-            .disabled(!isDateFilterEnabled)
+            .datePickerStyle(.compact)
 
             Button {
-                isDateFilterEnabled.toggle()
+                isDateFilterEnabled = false
             } label: {
-                Label(isDateFilterEnabled ? "Clear date" : "Filter date", systemImage: isDateFilterEnabled ? "xmark.circle" : "calendar")
+                Label("Clear date", systemImage: "xmark.circle")
             }
             .buttonStyle(.bordered)
-            .tint(isDateFilterEnabled ? .red : .accentColor)
+            .tint(.red)
 
             Spacer(minLength: 0)
         }
         .padding(.horizontal, 16)
-        .padding(.bottom, 10)
-        .background(.bar)
+        .padding(.vertical, 10)
+        .background(Color(hex: 0xF1F3F8))
     }
 
     private func countFor(status: SiteVisitStatus) -> Int {

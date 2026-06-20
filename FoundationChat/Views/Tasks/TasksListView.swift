@@ -2,7 +2,6 @@ import SwiftUI
 
 struct TasksListView: View {
     @Environment(AuthStore.self) private var authStore
-    @Environment(\.dismiss) private var dismiss
 
     @State private var tasks: [ConvexTask] = []
     @State private var summary: ConvexTaskSummary?
@@ -34,10 +33,11 @@ struct TasksListView: View {
 
                 contentSheet
             }
-            .ignoresSafeArea(edges: .top)
         }
-        .navigationBarBackButtonHidden(true)
-        .toolbar(.hidden, for: .navigationBar)
+        .navigationTitle("My Tasks")
+        .navigationBarTitleDisplayMode(.inline)
+        .toolbarBackground(Color.white, for: .navigationBar)
+        .toolbarBackground(.visible, for: .navigationBar)
         .task { await loadDataAsync() }
         .refreshable { await loadDataAsync() }
         .alert("Error", isPresented: errorAlertBinding, actions: {
@@ -70,22 +70,9 @@ struct TasksListView: View {
                 .animation(.spring(response: 0.52, dampingFraction: 0.82).delay(0.16), value: didAnimateIn)
 
             VStack(alignment: .leading, spacing: 0) {
-                Button {
-                    dismiss()
-                } label: {
-                    Image(systemName: "chevron.left")
-                        .font(.system(size: 20, weight: .semibold))
-                        .foregroundStyle(.white)
-                        .frame(width: 38, height: 38)
-                        .contentShape(Rectangle())
-                }
-                .buttonStyle(.plain)
-                .accessibilityLabel("Back")
-
                 Text("My Tasks")
                     .font(.system(size: 24, weight: .bold))
                     .foregroundStyle(.white)
-                    .padding(.top, 10)
 
                 Text("Manage and track all tasks")
                     .font(.system(size: 13, weight: .medium))
@@ -94,12 +81,12 @@ struct TasksListView: View {
             }
             .frame(maxWidth: .infinity, alignment: .leading)
             .padding(.horizontal, 20)
-            .padding(.top, 64)
+            .padding(.top, 32)
             .opacity(didAnimateIn ? 1 : 0)
             .offset(x: didAnimateIn ? 0 : -28)
             .animation(.easeOut(duration: 0.42).delay(0.08), value: didAnimateIn)
         }
-        .frame(height: 204)
+        .frame(height: 164)
     }
 
     private var contentSheet: some View {

@@ -970,7 +970,10 @@ struct LandQueriesView: View {
         .refreshable { await load() }
         .task { if !hasLoaded { await load() } }
         .sheet(item: $selectedQuery) { query in
-            LandQueryDetailSheet(query: query)
+            LandQueryDetailSheet(query: query) {
+                await load()
+                selectedQuery = nil
+            }
                 .presentationDetents([.medium, .large])
                 .presentationDragIndicator(.visible)
         }
@@ -1051,88 +1054,297 @@ private struct LandQueryRow: View {
     let query: LandQueryLog
 
     var body: some View {
-        VStack(alignment: .leading, spacing: 8) {
-            HStack(alignment: .top) {
-                VStack(alignment: .leading, spacing: 4) {
-                    Text(query.displayTitle)
-                        .font(AppModuleFont.rowTitle)
-                    Text(query.referenceNo?.landNilIfBlank ?? query.propertyName?.landNilIfBlank ?? "-")
-                        .font(AppModuleFont.rowMeta)
-                        .foregroundStyle(.secondary)
+        HStack(alignment: .top, spacing: 14) {
+            Image(systemName: "doc.text")
+                .font(.system(size: 22, weight: .semibold))
+                .foregroundStyle(Color(hex: 0x0B61CA))
+                .frame(width: 44, height: 44)
+                .background(Color(hex: 0xEAF3FF), in: Circle())
+                .offset(y: -4)
+
+            VStack(alignment: .leading, spacing: 6) {
+                Text(query.displayStatus.uppercased())
+                    .font(.system(size: 11, weight: .bold))
+                    .foregroundStyle(statusColor)
+                    .padding(.horizontal, 12)
+                    .padding(.vertical, 5)
+                    .background(statusColor.opacity(0.12), in: Capsule())
+
+                Text(query.displayTitle)
+                    .font(.system(size: 16, weight: .bold))
+                    .foregroundStyle(Color(hex: 0x101828))
+                    .lineLimit(1)
+                    .minimumScaleFactor(0.78)
+
+                if let latest = query.remarks?.landNilIfBlank ?? query.latestUpdate?.landNilIfBlank ?? query.description?.landNilIfBlank {
+                    Label {
+                        Text(latest)
+                            .lineLimit(1)
+                    } icon: {
+                        Image(systemName: "message")
+                    }
+                    .font(.system(size: 13, weight: .medium))
+                    .foregroundStyle(Color(hex: 0x9AA3B2))
                 }
-                Spacer()
-                AppModuleBadge(text: query.displayStatus, tint: statusColor)
+
+                if let date = query.rawDate {
+                    Label(date, systemImage: "calendar")
+                        .font(.system(size: 13, weight: .medium))
+                        .foregroundStyle(Color(hex: 0x9AA3B2))
+                }
             }
-            if let latest = query.remarks?.landNilIfBlank ?? query.latestUpdate?.landNilIfBlank ?? query.description?.landNilIfBlank {
-                Text(latest)
-                    .font(AppModuleFont.rowMeta)
-                    .foregroundStyle(.secondary)
-                    .lineLimit(2)
-            }
-            if let date = query.rawDate {
-                Label(date, systemImage: "calendar")
-                    .font(AppModuleFont.rowMeta)
-                    .foregroundStyle(.secondary)
-            }
+            .frame(maxWidth: .infinity, alignment: .leading)
+
+            Image(systemName: "chevron.right")
+                .font(.system(size: 16, weight: .bold))
+                .foregroundStyle(Color(hex: 0x0B61CA))
+                .frame(width: 44, height: 44)
+                .background(Color(hex: 0xEAF3FF), in: Circle())
+                .padding(.top, 24)
         }
-        .padding(14)
-        .background(Color.white, in: RoundedRectangle(cornerRadius: 14))
+        .padding(.horizontal, 16)
+        .padding(.vertical, 18)
+        .background(Color.white, in: RoundedRectangle(cornerRadius: 16, style: .continuous))
+        .shadow(color: .black.opacity(0.05), radius: 8, x: 0, y: 2)
     }
 
     private var statusColor: Color {
-        query.displayStatus.localizedCaseInsensitiveContains("completed") ? .green : Color(hex: 0x0B61CA)
+        query.displayStatus.localizedCaseInsensitiveContains("completed") ? Color(hex: 0x16A34A) : Color(hex: 0x0B61CA)
     }
 }
 
 private struct LandQueryDetailSheet: View {
+    @Environment(AuthStore.self) private var authStore
+    @Environment(\.dismiss) private var dismiss
+
     let query: LandQueryLog
+    let onChanged: () async -> Void
+
+    @State private var remarks = ""
+    @State private var isSubmitting = false
+    @State private var errorMessage: String?
+
+    private var requestedDocuments: [String] {
+        let parts = query.displayTitle
+            .components(separatedBy: CharacterSet(charactersIn: ",;"))
+            .map { $0.trimmingCharacters(in: .whitespacesAndNewlines) }
+            .filter { !$0.isEmpty }
+        return parts.isEmpty ? [query.displayTitle.landNilIfBlank ?? "Document"] : parts
+    }
 
     var body: some View {
-        NavigationStack {
-            List {
-                Section("Status") {
-                    LabeledContent("Query", value: query.queryNo?.landNilIfBlank ?? query.displayTitle)
-                    LabeledContent("Status", value: query.displayStatus)
-                    LabeledContent("Priority", value: query.priority?.landNilIfBlank ?? "-")
-                    LabeledContent("Property", value: query.propertyName?.landNilIfBlank ?? query.referenceNo?.landNilIfBlank ?? "-")
-                }
+        VStack(spacing: 0) {
+            Capsule()
+                .fill(Color(hex: 0xD0D5DD))
+                .frame(width: 40, height: 4)
+                .padding(.top, 12)
+                .padding(.bottom, 14)
 
-                if let description = query.description?.landNilIfBlank {
-                    Section("Details") { Text(description) }
-                }
+            ScrollView {
+                VStack(alignment: .leading, spacing: 14) {
+                    HStack(spacing: 8) {
+                        Image(systemName: "doc.text")
+                            .font(.system(size: 20, weight: .semibold))
+                            .foregroundStyle(Color(hex: 0x0B61CA))
+                        Text("Documents Needed (Additional)")
+                            .font(.system(size: 18, weight: .bold))
+                            .foregroundStyle(Color(hex: 0x101828))
+                            .lineLimit(1)
+                            .minimumScaleFactor(0.8)
+                    }
 
-                Section("Updates") {
-                    let updates = query.updates ?? []
-                    if updates.isEmpty {
-                        Text(query.remarks?.landNilIfBlank ?? query.latestUpdate?.landNilIfBlank ?? "No updates yet.")
-                            .foregroundStyle(.secondary)
-                    } else {
-                        ForEach(updates) { update in
-                            VStack(alignment: .leading, spacing: 5) {
-                                HStack {
-                                    Text(update.byName?.landNilIfBlank ?? "Update")
-                                        .font(AppModuleFont.rowMetaSemibold)
-                                    Spacer()
-                                    Text(update.status?.landNilIfBlank ?? "")
-                                        .font(AppModuleFont.rowMeta)
-                                        .foregroundStyle(.secondary)
-                                }
-                                Text(update.message?.landNilIfBlank ?? "-")
-                                    .font(AppModuleFont.rowBody)
-                                if let createdAt = update.createdAt?.landNilIfBlank {
-                                    Text(createdAt)
-                                        .font(AppModuleFont.rowMeta)
-                                        .foregroundStyle(.secondary)
-                                }
-                            }
-                            .padding(.vertical, 4)
+                    Text("The following documents are requested")
+                        .font(.system(size: 13, weight: .regular))
+                        .foregroundStyle(Color(hex: 0x6B7280))
+
+                    VStack(spacing: 10) {
+                        ForEach(requestedDocuments, id: \.self) { document in
+                            RequestedDocumentRow(name: document, isCompleted: query.resolved == true)
                         }
                     }
+                    .padding(.top, 2)
+
+                    if let description = query.description?.landNilIfBlank {
+                        LandQueryInfoCard(title: "Details", value: description, systemImage: "message")
+                    }
+
+                    if let property = query.propertyName?.landNilIfBlank ?? query.referenceNo?.landNilIfBlank {
+                        LandQueryInfoCard(title: "Property", value: property, systemImage: "map")
+                    }
+
+                    if query.resolved != true {
+                        TextField("Remarks", text: $remarks, axis: .vertical)
+                            .lineLimit(2...5)
+                            .padding(14)
+                            .background(Color.white, in: RoundedRectangle(cornerRadius: 14, style: .continuous))
+                            .overlay(
+                                RoundedRectangle(cornerRadius: 14, style: .continuous)
+                                    .stroke(Color(hex: 0xE4E7EC), lineWidth: 1)
+                            )
+                            .padding(.top, 2)
+                    }
+
+                    if let updates = query.updates, !updates.isEmpty {
+                        VStack(alignment: .leading, spacing: 10) {
+                            Text("Updates")
+                                .font(.system(size: 14, weight: .bold))
+                                .foregroundStyle(Color(hex: 0x101828))
+                            ForEach(updates) { update in
+                                VStack(alignment: .leading, spacing: 4) {
+                                    HStack {
+                                        Text(update.byName?.landNilIfBlank ?? "Update")
+                                            .font(AppModuleFont.rowMetaSemibold)
+                                        Spacer()
+                                        Text(update.status?.landNilIfBlank ?? "")
+                                            .font(AppModuleFont.rowMeta)
+                                            .foregroundStyle(Color(hex: 0x667085))
+                                    }
+                                    Text(update.message?.landNilIfBlank ?? "-")
+                                        .font(AppModuleFont.rowBody)
+                                        .foregroundStyle(Color(hex: 0x344054))
+                                }
+                                .padding(12)
+                                .background(Color.white, in: RoundedRectangle(cornerRadius: 12, style: .continuous))
+                            }
+                        }
+                        .padding(.top, 2)
+                    }
                 }
+                .padding(.horizontal, 20)
+                .padding(.bottom, 20)
             }
-            .navigationTitle("Query Updates")
-            .navigationBarTitleDisplayMode(.inline)
+
+            if query.resolved != true {
+                Button {
+                    Task { await markCompleted() }
+                } label: {
+                    HStack {
+                        if isSubmitting {
+                            ProgressView()
+                                .tint(.white)
+                        }
+                        Text(isSubmitting ? "Updating..." : "Completed")
+                            .font(.system(size: 15, weight: .bold))
+                            .frame(maxWidth: .infinity)
+                    }
+                }
+                .buttonStyle(.borderedProminent)
+                .controlSize(.large)
+                .tint(Color(hex: 0x0B61CA))
+                .disabled(isSubmitting)
+                .padding(.horizontal, 20)
+                .padding(.top, 8)
+                .padding(.bottom, 20)
+                .background(Color(hex: 0xF8FAFC))
+            }
         }
+        .background(Color(hex: 0xF8FAFC).ignoresSafeArea())
+        .onAppear {
+            remarks = query.remarks?.landNilIfBlank ?? query.latestUpdate?.landNilIfBlank ?? ""
+        }
+        .alert("Query Update", isPresented: Binding(
+            get: { errorMessage != nil },
+            set: { if !$0 { errorMessage = nil } }
+        )) {
+            Button("OK", role: .cancel) {}
+        } message: {
+            Text(errorMessage ?? "")
+        }
+    }
+
+    @MainActor
+    private func markCompleted() async {
+        guard !isSubmitting else { return }
+        guard let token = authStore.currentSession?.token else {
+            errorMessage = "Not signed in."
+            return
+        }
+        guard let propertyId = query.propertyId?.landNilIfBlank,
+              let queryIndex = query.queryIndex else {
+            errorMessage = "Missing query reference. Please refresh and try again."
+            return
+        }
+
+        isSubmitting = true
+        defer { isSubmitting = false }
+
+        do {
+            try await LandConvexAPIService.updateQuery(
+                token: token,
+                request: LandQueryUpdateRequest(
+                    propertyId: propertyId,
+                    queryIndex: queryIndex,
+                    remarks: remarks.landNilIfBlank,
+                    resolved: true
+                )
+            )
+            await onChanged()
+            dismiss()
+        } catch {
+            errorMessage = error.localizedDescription
+        }
+    }
+}
+
+private struct RequestedDocumentRow: View {
+    let name: String
+    let isCompleted: Bool
+
+    var body: some View {
+        HStack(spacing: 12) {
+            Image(systemName: isCompleted ? "checkmark.circle.fill" : "doc.text")
+                .font(.system(size: 18, weight: .semibold))
+                .foregroundStyle(isCompleted ? Color(hex: 0x16A34A) : Color(hex: 0x0B61CA))
+                .frame(width: 36, height: 36)
+                .background(Color(hex: 0xEAF3FF), in: Circle())
+
+            Text(name)
+                .font(.system(size: 14, weight: .semibold))
+                .foregroundStyle(Color(hex: 0x101828))
+                .lineLimit(2)
+                .frame(maxWidth: .infinity, alignment: .leading)
+
+            Text(isCompleted ? "Done" : "Required")
+                .font(.system(size: 10, weight: .semibold))
+                .foregroundStyle(isCompleted ? Color(hex: 0x16A34A) : Color(hex: 0x0B61CA))
+                .padding(.horizontal, 10)
+                .padding(.vertical, 4)
+                .background((isCompleted ? Color(hex: 0xD1FADF) : Color(hex: 0xEAF3FF)), in: Capsule())
+        }
+        .padding(.horizontal, 14)
+        .padding(.vertical, 12)
+        .background(Color.white, in: RoundedRectangle(cornerRadius: 14, style: .continuous))
+        .overlay(
+            RoundedRectangle(cornerRadius: 14, style: .continuous)
+                .stroke(Color(hex: 0xEAECF0), lineWidth: 1)
+        )
+    }
+}
+
+private struct LandQueryInfoCard: View {
+    let title: String
+    let value: String
+    let systemImage: String
+
+    var body: some View {
+        HStack(alignment: .top, spacing: 10) {
+            Image(systemName: systemImage)
+                .font(.system(size: 14, weight: .semibold))
+                .foregroundStyle(Color(hex: 0x9AA3B2))
+                .frame(width: 20)
+            VStack(alignment: .leading, spacing: 3) {
+                Text(title)
+                    .font(.system(size: 12, weight: .semibold))
+                    .foregroundStyle(Color(hex: 0x667085))
+                Text(value)
+                    .font(.system(size: 14, weight: .medium))
+                    .foregroundStyle(Color(hex: 0x101828))
+                    .fixedSize(horizontal: false, vertical: true)
+            }
+        }
+        .padding(14)
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .background(Color.white, in: RoundedRectangle(cornerRadius: 14, style: .continuous))
     }
 }
 

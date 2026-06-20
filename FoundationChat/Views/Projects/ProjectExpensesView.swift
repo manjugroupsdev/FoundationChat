@@ -6,7 +6,6 @@ import UIKit
 
 struct ProjectExpensesView: View {
     @Environment(AuthStore.self) private var authStore
-    @Environment(\.dismiss) private var dismiss
 
     @State private var projects: [ProjectSummary] = []
     @State private var selectedProject: ProjectSummary?
@@ -47,10 +46,11 @@ struct ProjectExpensesView: View {
                         .fill(Color(hex: 0xF8F9FB))
                 )
             }
-            .ignoresSafeArea(edges: .top)
         }
-        .navigationBarBackButtonHidden(true)
-        .toolbar(.hidden, for: .navigationBar)
+        .navigationTitle("Expenses")
+        .navigationBarTitleDisplayMode(.inline)
+        .toolbarBackground(Color.white, for: .navigationBar)
+        .toolbarBackground(.visible, for: .navigationBar)
         .sheet(isPresented: $showingDateFilter) {
             ExpenseDateFilterSheet(fromDate: $fromDate, toDate: $toDate) {
                 Task { await refreshExpenses() }
@@ -101,21 +101,9 @@ struct ProjectExpensesView: View {
             .animation(.spring(response: 0.52, dampingFraction: 0.82).delay(0.16), value: didAnimateIn)
 
             VStack(alignment: .leading, spacing: 0) {
-                Button {
-                    dismiss()
-                } label: {
-                    Image(systemName: "chevron.backward")
-                        .font(.system(size: 24, weight: .medium))
-                        .frame(width: 36, height: 36)
-                }
-                .buttonStyle(.bordered)
-                .tint(.white)
-                .accessibilityLabel("Back")
-
                 Text("Expenses")
                     .font(.system(size: 24, weight: .bold))
                     .foregroundStyle(.white)
-                    .padding(.top, 8)
 
                 Text("Manage and track all Expenses")
                     .font(.system(size: 13, weight: .medium))
@@ -176,12 +164,12 @@ struct ProjectExpensesView: View {
                 .padding(.top, 20)
             }
             .padding(.horizontal, 16)
-            .padding(.top, 64)
+            .padding(.top, 32)
             .opacity(didAnimateIn ? 1 : 0)
             .offset(x: didAnimateIn ? 0 : -26)
             .animation(.easeOut(duration: 0.42).delay(0.08), value: didAnimateIn)
         }
-        .frame(height: 248)
+        .frame(height: 208)
     }
 
     private var totalsCard: some View {

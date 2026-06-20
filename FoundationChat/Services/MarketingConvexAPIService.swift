@@ -333,7 +333,7 @@ enum MarketingConvexAPIService {
         if let query, !query.isEmpty {
             items.append(URLQueryItem(name: "q", value: query))
         }
-        let data = try await get(path: "/api/bookings", token: token, queryItems: items)
+        let data = try await get(path: "/api/marketing/bookings/my", token: token, queryItems: items)
         let wrapper = try decode(BookingsResponse.self, from: data)
         guard wrapper.success else { throw MarketingAPIError.server(wrapper.error ?? "Failed to load bookings") }
         return wrapper.bookings ?? []

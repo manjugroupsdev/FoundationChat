@@ -29,6 +29,12 @@ struct LeavesListView: View {
         .navigationTitle("My Leaves")
         .navigationBarTitleDisplayMode(.inline)
         .toolbar {
+            ToolbarItem(placement: .principal) {
+                Text("My Leaves")
+                    .font(.system(size: 20, weight: .bold))
+                    .foregroundStyle(Color(hex: 0x101828))
+            }
+
             if canReviewLeaves {
                 ToolbarItem(placement: .topBarTrailing) {
                     NavigationLink {
@@ -84,6 +90,7 @@ struct LeavesListView: View {
                 startPoint: .topLeading,
                 endPoint: .bottomTrailing
             )
+
             HStack(alignment: .top) {
                 VStack(alignment: .leading, spacing: 4) {
                     Text("Leave Summary")

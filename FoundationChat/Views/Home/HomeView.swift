@@ -88,7 +88,8 @@ struct HomeView: View {
                 } onCancel: {
                     showClockOutConfirm = false
                 }
-                .presentationDetents([.height(280)])
+                .presentationDetents([.height(430)])
+                .presentationBackground(Color.clear)
                 .presentationDragIndicator(.hidden)
             }
             .task {

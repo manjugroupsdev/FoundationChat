@@ -87,7 +87,7 @@ struct PunchFlowView: View {
                     )
                 }
             }
-            .sheet(isPresented: $showCamera) {
+            .fullScreenCover(isPresented: $showCamera) {
                 PunchCameraView(capturedImage: $capturedImage)
             }
             .sheet(isPresented: $showSuccessSheet, onDismiss: finishAfterSuccess) {
@@ -288,10 +288,14 @@ struct PunchFlowView: View {
             do {
                 statusText = "Checking attendance..."
                 let latestAttendance = try await HRConvexAPIService.getTodayAttendance(token: token)
+                let today = Self.dateKeyFormatter.string(from: Date())
+                let daySessions = try? await HRConvexAPIService.getDaySessions(token: token, date: today)
+                let firstPunchIn = daySessions?.firstPunchIn ?? latestAttendance?.firstPunchIn ?? latestAttendance?.punchInTime
+                let hasPunchedInToday = firstPunchIn?.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty == false
                 switch mode {
-                case .punchIn where latestAttendance?.hasPunchedIn == true:
+                case .punchIn where hasPunchedInToday:
                     throw HRConvexAPIError.server("You have already clocked in today.")
-                case .punchOut where latestAttendance?.hasPunchedIn != true:
+                case .punchOut where !hasPunchedInToday:
                     throw HRConvexAPIError.server("No attendance found for today.")
                 default:
                     break
@@ -315,7 +319,8 @@ struct PunchFlowView: View {
                         longitude: loc.coordinate.longitude,
                         address: address,
                         source: "mobile",
-                        photo: photoStorageId
+                        photo: photoStorageId,
+                        deviceId: GeoTrackBootstrapCoordinator.shared.deviceId
                     )
                 case .punchOut:
                     try await HRConvexAPIService.punchOut(
@@ -323,7 +328,8 @@ struct PunchFlowView: View {
                         latitude: loc.coordinate.latitude,
                         longitude: loc.coordinate.longitude,
                         address: address,
-                        photo: photoStorageId
+                        photo: photoStorageId,
+                        deviceId: GeoTrackBootstrapCoordinator.shared.deviceId
                     )
                 }
 
@@ -416,6 +422,13 @@ struct PunchFlowView: View {
         formatter.dateFormat = "h:mm a"
         return formatter.string(from: date)
     }
+
+    private static let dateKeyFormatter: DateFormatter = {
+        let formatter = DateFormatter()
+        formatter.dateFormat = "yyyy-MM-dd"
+        formatter.locale = Locale(identifier: "en_US_POSIX")
+        return formatter
+    }()
 }
 
 private struct PunchSuccessSheet: View {

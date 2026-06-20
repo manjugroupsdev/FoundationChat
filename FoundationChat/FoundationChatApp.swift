@@ -19,6 +19,7 @@ struct FoundationChatApp: App {
     @State private var launchPhase: LaunchPhase
 
     init() {
+        UINavigationController.enableGlobalSwipeBack()
         let mgr = OnboardingManager()
         _launchPhase = State(initialValue: mgr.shouldShowOnboarding ? .splash : .auth)
     }
@@ -51,6 +52,10 @@ struct FoundationChatApp: App {
                 }
             }
             .animation(.easeInOut(duration: 0.4), value: launchPhase)
+            .background {
+                GlobalSwipeBackInstaller()
+                    .frame(width: 0, height: 0)
+            }
             .environment(\.locale, Locale(identifier: languagePreference))
             .preferredColorScheme(ProfileAppearance(rawValue: appearancePreference)?.colorScheme)
             .modelContainer(for: [Conversation.self, Message.self])

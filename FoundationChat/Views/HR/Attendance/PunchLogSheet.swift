@@ -306,7 +306,11 @@ private extension String {
             approvedAttendance: nil,
             approvedBy: nil,
             approvedByName: nil,
-            approvedOn: nil
+            approvedOn: nil,
+            lateMinutes: nil,
+            fineAmount: nil,
+            lateFineDeduction: nil,
+            otherFines: nil
         )
     )
 }

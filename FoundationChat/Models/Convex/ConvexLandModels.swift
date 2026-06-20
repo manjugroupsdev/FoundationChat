@@ -384,6 +384,13 @@ struct LandQueryUpdate: Decodable, Identifiable, Hashable, Sendable {
     var id: String { rawId ?? "\(createdAt ?? "")|\(message ?? "")" }
 }
 
+struct LandQueryUpdateRequest: Encodable, Sendable {
+    let propertyId: String
+    let queryIndex: Int
+    let remarks: String?
+    let resolved: Bool?
+}
+
 extension String {
     var landNilIfBlank: String? {
         let trimmed = trimmingCharacters(in: .whitespacesAndNewlines)

@@ -254,7 +254,7 @@ private struct NativeAppLibraryRow: View {
 }
 
 private enum AppLibraryFilter: String, CaseIterable, Identifiable {
-    case all, hr, marketing, project, land, settings
+    case all, hr, marketing, project, land, fleet, sales, accounts, settings
 
     var id: String { rawValue }
 
@@ -265,6 +265,9 @@ private enum AppLibraryFilter: String, CaseIterable, Identifiable {
         case .marketing: return "Marketing"
         case .project: return "Project"
         case .land: return "Land"
+        case .fleet: return "Fleet"
+        case .sales: return "Sales"
+        case .accounts: return "Accounts"
         case .settings: return "Settings"
         }
     }
@@ -276,6 +279,9 @@ private enum AppLibraryFilter: String, CaseIterable, Identifiable {
         case .marketing: return "AppLibraryIconAppsPillMarketing"
         case .project: return "AppLibraryIconAppsPillProject"
         case .land: return "AppLibraryIconAppsPillProject"
+        case .fleet: return "AppLibraryIconAppsPillAll"
+        case .sales: return "AppLibraryIconAppsPillMarketing"
+        case .accounts: return "AppLibraryIconAppsPillSettings"
         case .settings: return "AppLibraryIconAppsPillSettings"
         }
     }
@@ -287,6 +293,9 @@ private enum AppLibraryFilter: String, CaseIterable, Identifiable {
         case .marketing: return "megaphone"
         case .project: return "folder"
         case .land: return "map"
+        case .fleet: return "car"
+        case .sales: return "creditcard"
+        case .accounts: return "checkmark.seal"
         case .settings: return "gearshape"
         }
     }
@@ -298,6 +307,9 @@ private enum AppLibraryFilter: String, CaseIterable, Identifiable {
         case .marketing: return "megaphone.fill"
         case .project: return "folder.fill"
         case .land: return "map.fill"
+        case .fleet: return "car.fill"
+        case .sales: return "creditcard.fill"
+        case .accounts: return "checkmark.seal.fill"
         case .settings: return "gearshape.fill"
         }
     }
@@ -316,6 +328,10 @@ private struct AppLibrarySection: Identifiable {
             permissions.isEmpty || permissions.contains { authStore.hasPermission($0) }
         }
 
+        let isDriverMode = authStore.currentSession?.user.designation?
+            .trimmingCharacters(in: .whitespacesAndNewlines)
+            .localizedCaseInsensitiveCompare("Driver") == .orderedSame
+
         let hrItems: [AppLibraryItem] = [
             canAny(["attendance.view", "attendance.viewAll"])
                 ? .init(title: "Attendance", icon: "AppLibraryIconAppsAttendance", destination: .attendance)
@@ -329,49 +345,64 @@ private struct AppLibrarySection: Identifiable {
             canAny(["loans.view", "loans.manage", "loans.approve"])
                 ? .init(title: "Loans", icon: "AppLibraryIconAppsLoans", destination: .loans)
                 : nil,
-            canAny(["attendance.approve", "attendance.viewAll"])
+            canAny(["attendance.approve"])
                 ? .init(title: "Attendance Approvals", icon: "AppLibraryIconAppsAttendance", destination: .attendanceReview)
                 : nil
         ].compactMap(\.self)
 
         let marketingItems: [AppLibraryItem] = [
-            canAny(["marketing.cpVisits.view", "cpvisits.view", "sitevisits.view", "marketing.view"])
+            canAny(["marketing.cpVisits.view"])
                 ? .init(title: "CP Visits", icon: "AppLibraryIconAppsDealer", destination: .cpVisits)
                 : nil,
-            canAny(["marketing.siteVisits.view", "sitevisits.view", "marketing.view"])
+            canAny(["marketing.siteVisits.view"])
                 ? .init(title: "Site Visits", icon: "AppLibraryIconAppsFieldVisits", destination: .siteVisits)
                 : nil,
-            canAny(["telecaller.leads.view", "leads.view", "marketing.view"])
-                ? .init(title: "Leads", icon: "AppLibraryIconAppsLeads", destination: .leads)
+            canAny(["telecaller.externalLeads.viewOwn", "telecaller.externalLeads.viewAll"])
+                ? .init(title: "Leads", icon: "AppLibraryIconAppsLeads", destination: .leads, isComingSoon: true)
                 : nil,
-            canAny(["telecaller.dialer.view", "dialer.view", "marketing.view"])
+            canAny(["telecaller.dashboard", "telecaller.calls"])
                 ? .init(title: "Dialer", icon: "AppLibraryIconAppsLeads", destination: .dialer, isComingSoon: true)
                 : nil,
-            canAny(["projects.view", "marketing.inventory.view", "inventory.view", "marketing.view"])
-                ? .init(title: "Inventory", icon: "AppLibraryIconAppsFieldVisits", destination: .inventory)
+            canAny(["projects.view"])
+                ? .init(title: "Inventory", icon: "AppLibraryIconAppsFieldVisits", destination: .inventory, isComingSoon: true)
                 : nil,
-            canAny(["marketing.bookings.create", "bookings.view", "marketing.view"])
+            canAny(["marketing.bookings.view", "marketing.bookings.create"])
                 ? .init(title: "Booking", icon: "AppLibraryIconAppsDealer", destination: .bookings)
                 : nil
         ].compactMap(\.self)
 
         let projectItems: [AppLibraryItem] = [
-            canAny(["tasks.view", "projects.tasks.view", "projects.view"])
+            canAny(["tasks.view", "tasks.viewAll", "tasks.create"])
                 ? .init(title: "Tasks", icon: "AppLibraryIconAppsTasks", destination: .tasks)
                 : nil,
-            canAny(["projects.expenses.view", "expenses.view", "projects.view"])
+            canAny(["projects.expenses.view", "projects.expenses.create", "projects.expenses.approve"])
                 ? .init(title: "Expenses", icon: "AppLibraryIconAppsLoans", destination: .expenses)
                 : nil
         ].compactMap(\.self)
 
         let landItems: [AppLibraryItem] = [
-            canAny(["land.inspection.view", "land.view"])
+            canAny(["land.inspect", "land.inspection.view", "land.inspection.edit", "land.view"])
                 ? .init(title: "Inspection", icon: "AppLibraryIconAppsFieldVisits", destination: .landInspection)
                 : nil,
-            canAny(["land.queries.view", "land.view"])
+            canAny(["land.view", "land.inspect", "land.inspection.view"])
                 ? .init(title: "Queries", icon: "AppLibraryIconAppsLeads", destination: .landQueries)
                 : nil
         ].compactMap(\.self)
+
+        let fleetItems: [AppLibraryItem] = [
+            (isDriverMode || canAny(["marketing.siteVisits.view", "fleet.view"]))
+                ? .init(title: "My Trips", icon: "AppLibraryIconAppsFieldVisits", destination: .fleetMyTrips)
+                : nil
+        ].compactMap(\.self)
+
+        let salesItems: [AppLibraryItem] = [
+            .init(title: "Collections", icon: "AppLibraryIconAppsLoans", destination: .collections),
+            .init(title: "Loan Desk", icon: "AppLibraryIconAppsLoans", destination: .loanDesk)
+        ]
+
+        let accountsItems: [AppLibraryItem] = [
+            .init(title: "Post Sales Verification", icon: "AppLibraryIconAppsSettingsCard", destination: .postSalesVerification)
+        ]
 
         let settingsItems: [AppLibraryItem] = [
             AppLibraryItem(title: "Profile", icon: "AppLibraryIconAppsSettingsCard", destination: .settings)
@@ -411,6 +442,30 @@ private struct AppLibrarySection: Identifiable {
                 items: landItems
             ),
             .init(
+                id: "fleet",
+                filter: .fleet,
+                title: "Fleet",
+                subtitle: "Trips • Drivers",
+                icon: "AppLibraryIconAppsCatPm",
+                items: fleetItems
+            ),
+            .init(
+                id: "sales",
+                filter: .sales,
+                title: "Sales",
+                subtitle: "Collections • Loan Desk",
+                icon: "AppLibraryIconAppsCatMarketing",
+                items: salesItems
+            ),
+            .init(
+                id: "accounts",
+                filter: .accounts,
+                title: "Accounts",
+                subtitle: "Verification • Cases",
+                icon: "AppLibraryIconAppsCatConfig",
+                items: accountsItems
+            ),
+            .init(
                 id: "configuration",
                 filter: .settings,
                 title: "Settings",
@@ -423,14 +478,15 @@ private struct AppLibrarySection: Identifiable {
 }
 
 private struct AppLibraryItem: Identifiable {
-    let id = UUID()
     let title: String
     let icon: String
     let destination: AppLibraryDestination
     var isComingSoon = false
+
+    var id: String { destination.rawValue }
 }
 
-private enum AppLibraryDestination {
+private enum AppLibraryDestination: String {
     case attendance
     case attendanceReview
     case leave
@@ -446,6 +502,10 @@ private enum AppLibraryDestination {
     case expenses
     case landInspection
     case landQueries
+    case fleetMyTrips
+    case collections
+    case loanDesk
+    case postSalesVerification
     case settings
 
     @ViewBuilder
@@ -481,6 +541,14 @@ private enum AppLibraryDestination {
             LandInspectionView()
         case .landQueries:
             LandQueriesView()
+        case .fleetMyTrips:
+            FleetMyTripsView()
+        case .collections:
+            CollectionsView()
+        case .loanDesk:
+            LoanDeskView()
+        case .postSalesVerification:
+            AccountsCollectionsReviewView()
         case .settings:
             ProfileView()
         }
@@ -490,50 +558,31 @@ private enum AppLibraryDestination {
 private struct AppLibraryFilterStrip: View {
     @Binding var selectedFilter: AppLibraryFilter
 
-    private var selectedIndex: Int {
-        AppLibraryFilter.allCases.firstIndex(of: selectedFilter) ?? 0
-    }
-
     var body: some View {
-        GeometryReader { proxy in
-            let tabWidth = proxy.size.width / CGFloat(AppLibraryFilter.allCases.count)
-
-            ZStack(alignment: .leading) {
-                RoundedRectangle(cornerRadius: 25, style: .continuous)
-                    .fill(.ultraThinMaterial)
-                    .overlay {
-                        RoundedRectangle(cornerRadius: 25, style: .continuous)
-                            .fill(Color.white.opacity(0.78))
-                    }
-                    .overlay {
-                        RoundedRectangle(cornerRadius: 25, style: .continuous)
-                            .stroke(Color.white.opacity(0.85), lineWidth: 1)
-                    }
-                    .shadow(color: .black.opacity(0.14), radius: 16, x: 0, y: 6)
-                    .frame(width: tabWidth - 8, height: 58)
-                    .offset(x: CGFloat(selectedIndex) * tabWidth + 4)
-                    .animation(.interactiveSpring(response: 0.34, dampingFraction: 0.82, blendDuration: 0.08), value: selectedFilter)
-
+        ScrollView(.horizontal, showsIndicators: false) {
+            ScrollViewReader { proxy in
                 HStack(spacing: 0) {
                     ForEach(AppLibraryFilter.allCases) { filter in
                         Button {
                             withAnimation(.interactiveSpring(response: 0.34, dampingFraction: 0.82, blendDuration: 0.08)) {
                                 selectedFilter = filter
+                                proxy.scrollTo(filter.id, anchor: .center)
                             }
                         } label: {
                             AppLibraryFilterTab(filter: filter, isSelected: selectedFilter == filter)
-                                .frame(width: tabWidth, height: 64)
+                                .frame(width: 82, height: 64)
                                 .contentShape(Rectangle())
                         }
                         .buttonStyle(AppLibraryTabButtonStyle())
                         .accessibilityLabel(filter.title)
                         .accessibilityAddTraits(selectedFilter == filter ? .isSelected : [])
+                        .id(filter.id)
                     }
                 }
+                .padding(.horizontal, 6)
             }
         }
         .frame(height: 70)
-        .padding(6)
         .background {
             RoundedRectangle(cornerRadius: 34, style: .continuous)
                 .fill(.regularMaterial)
@@ -558,8 +607,10 @@ private struct AppLibraryFilterTab: View {
             Image(systemName: isSelected ? filter.selectedSystemIcon : filter.systemIcon)
                 .font(.system(size: 21, weight: .semibold))
                 .symbolRenderingMode(.hierarchical)
-                .foregroundStyle(isSelected ? Color(hex: 0x0B61CA) : Color(hex: 0x1D1D1F))
+                .foregroundStyle(isSelected ? .white : Color(hex: 0x6A6D78))
                 .frame(height: 25)
+                .frame(width: 38, height: 38)
+                .background(isSelected ? Color(hex: 0x0B61CA) : Color.clear, in: Circle())
 
             Text(filter.title)
                 .font(isSelected ? AppModuleFont.rowMetaSemibold : AppModuleFont.tabLabel)

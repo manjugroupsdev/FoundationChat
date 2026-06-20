@@ -210,11 +210,7 @@ struct ProfileEditView: View {
   }
 
   private func loadRemoteAvatar() async {
-    guard let storageId = authStore.viewer?.photo, !storageId.isEmpty else {
-      remotePhotoURL = nil
-      return
-    }
-    remotePhotoURL = try? await authStore.resolveStorageURL(storageId: storageId)
+    remotePhotoURL = await authStore.resolveProfilePhotoURL(authStore.viewer?.photo)
   }
 
   private var trimmedName: String { name.trimmingCharacters(in: .whitespacesAndNewlines) }

@@ -186,6 +186,33 @@ enum HRConvexAPIService {
         let success: Bool; let attendanceId: String?; let error: String?
     }
 
+    private struct HomeFenceResponse: Decodable {
+        let success: Bool
+        let fence: ConvexHomeFence?
+        let error: String?
+    }
+
+    private struct AttendanceRequestResponse: Decodable {
+        let success: Bool
+        let requestId: String?
+        let error: String?
+    }
+
+    private struct OnDutyTripResponse: Decodable {
+        let success: Bool
+        let tripId: String?
+        let alreadyActive: Bool?
+        let distanceMeters: Int?
+        let alreadyCompleted: Bool?
+        let error: String?
+    }
+
+    private struct VendorsResponse: Decodable {
+        let success: Bool
+        let vendors: [OnDutyVendor]?
+        let error: String?
+    }
+
     static func getMyAttendance(token: String, fromDate: String, toDate: String) async throws -> [ConvexAttendanceRecord] {
         let path = "/api/hr/attendance/my?fromDate=\(fromDate)&toDate=\(toDate)"
         let data = try await get(path: path, token: token)
@@ -218,7 +245,8 @@ enum HRConvexAPIService {
         token: String,
         latitude: Double? = nil, longitude: Double? = nil,
         address: String? = nil, source: String = "mobile",
-        photo: String? = nil, remarks: String? = nil
+        photo: String? = nil, remarks: String? = nil,
+        deviceId: String? = nil
     ) async throws -> String {
         var body: [String: Any] = ["source": source]
         if let latitude { body["latitude"] = latitude }
@@ -226,6 +254,7 @@ enum HRConvexAPIService {
         if let address { body["address"] = address }
         if let photo { body["photo"] = photo }
         if let remarks { body["remarks"] = remarks }
+        if let deviceId { body["deviceId"] = deviceId }
         let data = try await post(path: "/api/hr/attendance/punch-in", token: token, jsonBody: body)
         let wrapper = try decode(PunchResponse.self, from: data)
         guard wrapper.success else { throw HRConvexAPIError.server(wrapper.error ?? "Punch in failed") }
@@ -236,14 +265,17 @@ enum HRConvexAPIService {
     static func punchOut(
         token: String,
         latitude: Double? = nil, longitude: Double? = nil,
-        address: String? = nil, photo: String? = nil, remarks: String? = nil
+        address: String? = nil, source: String = "mobile",
+        photo: String? = nil, remarks: String? = nil,
+        deviceId: String? = nil
     ) async throws {
-        var body: [String: Any] = [:]
+        var body: [String: Any] = ["source": source]
         if let latitude { body["latitude"] = latitude }
         if let longitude { body["longitude"] = longitude }
         if let address { body["address"] = address }
         if let photo { body["photo"] = photo }
         if let remarks { body["remarks"] = remarks }
+        if let deviceId { body["deviceId"] = deviceId }
         let data = try await post(path: "/api/hr/attendance/punch-out", token: token, jsonBody: body)
         let wrapper = try decode(PunchResponse.self, from: data)
         guard wrapper.success else { throw HRConvexAPIError.server(wrapper.error ?? "Punch out failed") }
@@ -274,6 +306,98 @@ enum HRConvexAPIService {
         let data = try await post(path: "/api/hr/attendance/cancel", token: token, jsonBody: body)
         let wrapper = try decode(GenericSuccessResponse.self, from: data)
         guard wrapper.success else { throw HRConvexAPIError.server(wrapper.error ?? "Failed to withdraw attendance") }
+    }
+
+    static func getHomeFence(token: String) async throws -> ConvexHomeFence? {
+        let data = try await get(path: "/api/hr/attendance/home-fence", token: token)
+        let wrapper = try decode(HomeFenceResponse.self, from: data)
+        guard wrapper.success else { throw HRConvexAPIError.server(wrapper.error ?? "Failed to load home fence") }
+        return wrapper.fence
+    }
+
+    static func submitAttendanceRequest(
+        token: String,
+        attendanceId: String,
+        date: String,
+        type: String,
+        remark: String? = nil,
+        correctedPunchIn: String? = nil,
+        correctedPunchOut: String? = nil,
+        correctionReason: String? = nil
+    ) async throws -> String {
+        var body: [String: Any] = [
+            "attendanceId": attendanceId,
+            "date": date,
+            "type": type
+        ]
+        if let remark { body["remark"] = remark }
+        if let correctedPunchIn { body["correctedPunchIn"] = correctedPunchIn }
+        if let correctedPunchOut { body["correctedPunchOut"] = correctedPunchOut }
+        if let correctionReason { body["correctionReason"] = correctionReason }
+        let data = try await post(path: "/api/hr/attendance/request", token: token, jsonBody: body)
+        let wrapper = try decode(AttendanceRequestResponse.self, from: data)
+        guard wrapper.success else {
+            throw HRConvexAPIError.server(wrapper.error ?? "Failed to submit attendance request")
+        }
+        return wrapper.requestId ?? ""
+    }
+
+    static func startOnDutyTrip(
+        token: String,
+        latitude: Double? = nil,
+        longitude: Double? = nil,
+        address: String? = nil,
+        category: String? = nil,
+        targetId: String? = nil,
+        targetName: String? = nil,
+        targetAddress: String? = nil,
+        vehicleOwnership: String? = nil,
+        vehicleType: String? = nil
+    ) async throws -> String {
+        var body: [String: Any] = [:]
+        if let latitude { body["lat"] = latitude }
+        if let longitude { body["lng"] = longitude }
+        if let address { body["address"] = address }
+        if let category { body["category"] = category }
+        if let targetId { body["targetId"] = targetId }
+        if let targetName { body["targetName"] = targetName }
+        if let targetAddress { body["targetAddress"] = targetAddress }
+        if let vehicleOwnership { body["vehicleOwnership"] = vehicleOwnership }
+        if let vehicleType { body["vehicleType"] = vehicleType }
+        let data = try await post(path: "/api/geotrack/on-duty/start", token: token, jsonBody: body)
+        let wrapper = try decode(OnDutyTripResponse.self, from: data)
+        guard wrapper.success || wrapper.alreadyActive == true else {
+            throw HRConvexAPIError.server(wrapper.error ?? "Failed to start on duty")
+        }
+        return wrapper.tripId ?? ""
+    }
+
+    static func getVendors(token: String) async throws -> [OnDutyVendor] {
+        let data = try await get(path: "/api/library/vendors", token: token)
+        let wrapper = try decode(VendorsResponse.self, from: data)
+        guard wrapper.success else {
+            throw HRConvexAPIError.server(wrapper.error ?? "Failed to load vendors")
+        }
+        return (wrapper.vendors ?? []).filter { $0.status?.localizedCaseInsensitiveContains("inactive") != true }
+    }
+
+    static func completeOnDutyTrip(
+        token: String,
+        tripId: String? = nil,
+        latitude: Double? = nil,
+        longitude: Double? = nil,
+        address: String? = nil
+    ) async throws {
+        var body: [String: Any] = [:]
+        if let tripId { body["tripId"] = tripId }
+        if let latitude { body["lat"] = latitude }
+        if let longitude { body["lng"] = longitude }
+        if let address { body["address"] = address }
+        let data = try await post(path: "/api/geotrack/on-duty/complete", token: token, jsonBody: body)
+        let wrapper = try decode(OnDutyTripResponse.self, from: data)
+        guard wrapper.success || wrapper.alreadyCompleted == true else {
+            throw HRConvexAPIError.server(wrapper.error ?? "Failed to complete on duty")
+        }
     }
 
     // MARK: - Marketing / Site Visits
@@ -588,6 +712,18 @@ enum HRConvexAPIService {
             throw HRConvexAPIError.server("Request failed (\(http.statusCode))")
         }
     }
+}
+
+struct OnDutyVendor: Decodable, Identifiable, Hashable, Sendable {
+    let id: String
+    let name: String
+    let nickname: String?
+    let companyName: String?
+    let type: String?
+    let phone: String?
+    let email: String?
+    let address: String?
+    let status: String?
 }
 
 // MARK: - Errors

@@ -40,7 +40,7 @@ struct BookingCreateView: View {
 
     var body: some View {
         ScrollView {
-            VStack(alignment: .leading, spacing: 16) {
+            VStack(alignment: .leading, spacing: 12) {
                 header
                 tabStrip
 
@@ -62,9 +62,9 @@ struct BookingCreateView: View {
 
                 footerAction
             }
-            .padding(.horizontal, 20)
-            .padding(.top, 18)
-            .padding(.bottom, 28)
+            .padding(.horizontal, 16)
+            .padding(.top, 12)
+            .padding(.bottom, 24)
         }
         .background(Color.white.ignoresSafeArea())
         .navigationBarTitleDisplayMode(.inline)
@@ -99,19 +99,19 @@ struct BookingCreateView: View {
         HStack(alignment: .center) {
             VStack(alignment: .leading, spacing: 2) {
                 Text("New Booking")
-                    .font(.system(size: 22, weight: .bold))
+                    .font(.system(size: 20, weight: .bold))
                     .foregroundStyle(Color(hex: 0x101828))
                 Text("Booking form")
-                    .font(.system(size: 14, weight: .medium))
+                    .font(.system(size: 13, weight: .medium))
                     .foregroundStyle(Color(hex: 0x94A3B8))
             }
             Spacer()
             Button("Back") { dismiss() }
                 .buttonStyle(.bordered)
-                .controlSize(.large)
+                .controlSize(.regular)
             Button("Clear") { clearForm() }
                 .buttonStyle(.bordered)
-                .controlSize(.large)
+                .controlSize(.regular)
                 .tint(Color(hex: 0x2DAE12))
         }
     }
@@ -122,15 +122,15 @@ struct BookingCreateView: View {
                 ForEach(DirectBookingTab.allCases) { tab in
                     if selectedTab == tab {
                         Button(tab.title) { selectedTab = tab }
-                            .font(.system(size: 14, weight: .semibold))
+                            .font(.system(size: 13, weight: .semibold))
                             .buttonStyle(.borderedProminent)
-                            .controlSize(.large)
+                            .controlSize(.regular)
                             .tint(Color(hex: 0x2DAE12))
                     } else {
                         Button(tab.title) { selectedTab = tab }
-                            .font(.system(size: 14, weight: .semibold))
+                            .font(.system(size: 13, weight: .semibold))
                             .buttonStyle(.bordered)
-                            .controlSize(.large)
+                            .controlSize(.regular)
                             .tint(Color(hex: 0x2DAE12))
                     }
                 }
@@ -200,7 +200,7 @@ struct BookingCreateView: View {
     }
 
     private var clientDetails: some View {
-        VStack(alignment: .leading, spacing: 14) {
+        VStack(alignment: .leading, spacing: 10) {
             DirectBookingTextField("Client Phone Number *", text: $booking.phone, placeholder: "Enter Mobile Number", icon: "phone", keyboard: .phonePad)
                 .onChange(of: booking.phone) { _, value in
                     Task { await lookupLeadIfNeeded(phone: AppModuleFormatters.normalizePhone(value)) }
@@ -224,7 +224,7 @@ struct BookingCreateView: View {
     }
 
     private var professionalDetails: some View {
-        VStack(alignment: .leading, spacing: 14) {
+        VStack(alignment: .leading, spacing: 10) {
             DirectBookingPicker("Profession", value: $booking.profession, placeholder: "Select Profession", icon: "briefcase", options: ["Business", "Salaried", "Self-Employed", "Other"])
             DirectBookingTextField("Designation", text: $booking.designation, placeholder: "Enter Designation", icon: "person")
             DirectBookingTextField("Income Per Annum", text: $booking.incomePerAnnum, placeholder: "Enter Income", icon: "indianrupeesign", keyboard: .decimalPad)
@@ -232,7 +232,7 @@ struct BookingCreateView: View {
     }
 
     private var officeDetails: some View {
-        VStack(alignment: .leading, spacing: 14) {
+        VStack(alignment: .leading, spacing: 10) {
             DirectBookingTextField("Office Name", text: $booking.officeName, placeholder: "Enter Name", icon: "building.2")
             DirectBookingTextField("Office Email", text: $booking.officeEmail, placeholder: "Enter Email", icon: "envelope", keyboard: .emailAddress)
             DirectBookingTextField("Office Mobile", text: $booking.officeMobile, placeholder: "Enter Number", icon: "phone", keyboard: .phonePad)
@@ -242,7 +242,7 @@ struct BookingCreateView: View {
     }
 
     private var bookingDetails: some View {
-        VStack(alignment: .leading, spacing: 14) {
+        VStack(alignment: .leading, spacing: 10) {
             DirectBookingPickerShell(title: "Booking Ref No", value: "Auto", icon: "number")
             DirectBookingPicker("Booking Type", value: $booking.bookingType, placeholder: "Select Type", icon: "briefcase", options: ["NEW", "CONVERSION", "EXCHANGE", "INTERNAL EXCHANGE"])
             DirectBookingPicker("Source Type", value: $booking.sourceType, placeholder: "Select Type", icon: "briefcase", options: ["walk_in", "cp_visit", "site_visit"])
@@ -262,7 +262,7 @@ struct BookingCreateView: View {
     }
 
     private var chargesDetails: some View {
-        VStack(alignment: .leading, spacing: 14) {
+        VStack(alignment: .leading, spacing: 10) {
             DirectBookingTextField("Booking Cost", text: $booking.bookingCost, placeholder: "Enter Cost", icon: "indianrupeesign", keyboard: .decimalPad)
             DirectBookingTextField("Guideline Value", text: $booking.guidelineValue, placeholder: "Enter Value", icon: "indianrupeesign", keyboard: .decimalPad)
             DirectBookingTextField("Special Consideration", text: $booking.specialConsideration, placeholder: "Enter Details", icon: "indianrupeesign", keyboard: .decimalPad)
@@ -277,7 +277,7 @@ struct BookingCreateView: View {
     }
 
     private var paymentDetails: some View {
-        VStack(alignment: .leading, spacing: 14) {
+        VStack(alignment: .leading, spacing: 10) {
             DirectBookingTextField("Registration Charges", text: $booking.registrationCharges, placeholder: "Enter Cost", icon: "indianrupeesign", keyboard: .decimalPad)
             DirectBookingTextField("Gst Amount", text: $booking.gstAmount, placeholder: "Enter Value", icon: "indianrupeesign", keyboard: .decimalPad)
             androidCheckRow("If Applicable", isOn: $booking.gstApplicable, onText: "Yes")
@@ -301,7 +301,7 @@ struct BookingCreateView: View {
     }
 
     private var staffDetails: some View {
-        VStack(alignment: .leading, spacing: 14) {
+        VStack(alignment: .leading, spacing: 10) {
             staffPicker("AVP", selection: $booking.originalAvpStaffId)
             staffPicker("General Manager", selection: $booking.originalGmStaffId)
             staffPicker("Senior Manager", selection: $booking.originalSeniorManagerStaffId)
@@ -356,7 +356,7 @@ struct BookingCreateView: View {
     private func androidCheckRow(_ title: String, isOn: Binding<Bool>, onText: String, offText: String? = nil) -> some View {
         VStack(alignment: .leading, spacing: 8) {
             Text(title)
-                .font(.system(size: 14, weight: .semibold))
+                .font(.system(size: 13, weight: .semibold))
                 .foregroundStyle(Color(hex: 0x475467))
             HStack(spacing: 12) {
                 Button {
@@ -369,12 +369,12 @@ struct BookingCreateView: View {
                     Spacer()
                 }
                 .buttonStyle(.plain)
-                .foregroundStyle(isOn.wrappedValue ? Color(hex: 0x2DAE12) : Color(hex: 0x475467))
+            .foregroundStyle(isOn.wrappedValue ? Color(hex: 0x2DAE12) : Color(hex: 0x475467))
             }
-            .padding(.horizontal, 16)
-            .frame(minHeight: 56)
-            .background(Color.white, in: RoundedRectangle(cornerRadius: 14))
-            .overlay(RoundedRectangle(cornerRadius: 14).stroke(Color(hex: 0xE4E7EC), lineWidth: 1))
+            .padding(.horizontal, 12)
+            .frame(minHeight: 46)
+            .background(Color.white, in: RoundedRectangle(cornerRadius: 12))
+            .overlay(RoundedRectangle(cornerRadius: 12).stroke(Color(hex: 0xE4E7EC), lineWidth: 1))
         }
     }
 
@@ -891,25 +891,27 @@ private struct DirectBookingTextField: View {
     }
 
     var body: some View {
-        VStack(alignment: .leading, spacing: 8) {
+        VStack(alignment: .leading, spacing: 6) {
             Text(title)
-                .font(.system(size: 14, weight: .semibold))
+                .font(.system(size: 13, weight: .semibold))
                 .foregroundStyle(Color(hex: 0x475467))
-            HStack(alignment: axis == .vertical ? .top : .center, spacing: 12) {
+            HStack(alignment: axis == .vertical ? .top : .center, spacing: 10) {
                 Image(systemName: icon)
                     .foregroundStyle(Color(hex: 0x98A2B3))
-                    .frame(width: 20)
+                    .font(.system(size: 15, weight: .medium))
+                    .frame(width: 18)
                 TextField(placeholder, text: $text, axis: axis)
                     .keyboardType(keyboard)
                     .textInputAutocapitalization(keyboard == .default ? .words : .never)
                     .autocorrectionDisabled(keyboard != .default)
                     .lineLimit(axis == .vertical ? 3...5 : 1...1)
             }
-            .font(.system(size: 15, weight: .medium))
-            .padding(.horizontal, 16)
-            .frame(minHeight: 56)
-            .background(Color.white, in: RoundedRectangle(cornerRadius: 14))
-            .overlay(RoundedRectangle(cornerRadius: 14).stroke(Color(hex: 0xE4E7EC), lineWidth: 1))
+            .font(.system(size: 14, weight: .medium))
+            .padding(.horizontal, 12)
+            .padding(.vertical, axis == .vertical ? 11 : 0)
+            .frame(minHeight: axis == .vertical ? 72 : 46)
+            .background(Color.white, in: RoundedRectangle(cornerRadius: 12))
+            .overlay(RoundedRectangle(cornerRadius: 12).stroke(Color(hex: 0xE4E7EC), lineWidth: 1))
         }
     }
 }
@@ -966,26 +968,29 @@ private struct DirectBookingPickerShell: View {
     }
 
     var body: some View {
-        VStack(alignment: .leading, spacing: 8) {
+        VStack(alignment: .leading, spacing: 6) {
             Text(title)
-                .font(.system(size: 14, weight: .semibold))
+                .font(.system(size: 13, weight: .semibold))
                 .foregroundStyle(Color(hex: 0x475467))
-            HStack(spacing: 12) {
+            HStack(spacing: 10) {
                 Image(systemName: icon)
                     .foregroundStyle(Color(hex: 0x98A2B3))
-                    .frame(width: 20)
+                    .font(.system(size: 15, weight: .medium))
+                    .frame(width: 18)
                 Text(value)
                     .foregroundStyle(isPlaceholder ? Color(hex: 0x98A2B3) : Color(hex: 0x101828))
+                    .lineLimit(1)
+                    .minimumScaleFactor(0.85)
                 Spacer()
                 Image(systemName: "chevron.down")
                     .font(.system(size: 12, weight: .semibold))
                     .foregroundStyle(Color(hex: 0x98A2B3))
             }
-            .font(.system(size: 15, weight: .medium))
-            .padding(.horizontal, 16)
-            .frame(height: 56)
-            .background(Color.white, in: RoundedRectangle(cornerRadius: 14))
-            .overlay(RoundedRectangle(cornerRadius: 14).stroke(Color(hex: 0xE4E7EC), lineWidth: 1))
+            .font(.system(size: 14, weight: .medium))
+            .padding(.horizontal, 12)
+            .frame(height: 46)
+            .background(Color.white, in: RoundedRectangle(cornerRadius: 12))
+            .overlay(RoundedRectangle(cornerRadius: 12).stroke(Color(hex: 0xE4E7EC), lineWidth: 1))
         }
     }
 }

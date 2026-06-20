@@ -141,9 +141,7 @@ struct ConversationDetailView: View {
         .ignoresSafeArea()
 
       VStack(spacing: 0) {
-        if selectedMessageIDs.isEmpty {
-          conversationHeader
-        } else {
+        if !selectedMessageIDs.isEmpty {
           messageSelectionHeader
         }
 
@@ -456,111 +454,98 @@ struct ConversationDetailView: View {
         await handleImportedFile(result)
       }
     }
-    .toolbar(.hidden, for: .navigationBar)
+    .navigationTitle(conversationTitle)
+    .navigationBarTitleDisplayMode(.inline)
+    .toolbarBackground(Color.white.opacity(0.94), for: .navigationBar)
+    .toolbarBackground(.visible, for: .navigationBar)
+    .toolbar {
+      if selectedMessageIDs.isEmpty {
+        ToolbarItem(placement: .principal) {
+          Button {
+            isInputFocused = false
+            activeDetailSheet = .info
+          } label: {
+            HStack(spacing: 10) {
+              conversationAvatar
+              VStack(spacing: 1) {
+                Text(conversationTitle)
+                  .font(.system(size: 18, weight: .semibold))
+                  .foregroundStyle(Color.black.opacity(0.9))
+                  .lineLimit(1)
+
+                Text(conversationSubtitle)
+                  .font(.system(size: 12, weight: .regular))
+                  .foregroundStyle(typingUsers.isEmpty ? Color.black.opacity(0.35) : Color(red: 0.05, green: 0.52, blue: 0.22))
+                  .lineLimit(1)
+              }
+            }
+            .contentShape(Rectangle())
+          }
+          .buttonStyle(.plain)
+          .disabled(conversation.remoteConversationID == nil)
+        }
+
+        ToolbarItem(placement: .topBarTrailing) {
+          conversationOptionsMenu
+        }
+      }
+    }
     .toolbar(.hidden, for: .tabBar)
   }
 
-  private var conversationHeader: some View {
-    HStack(spacing: 4) {
-      Button {
-        dismiss()
-      } label: {
-        Image(systemName: "chevron.left")
-          .font(.system(size: 16, weight: .semibold))
-          .foregroundStyle(Color(red: 0.43, green: 0.52, blue: 0.89))
-          .frame(width: 32, height: 32)
-          .background(Color.white.opacity(0.8), in: Circle())
+  private var conversationAvatar: some View {
+    Circle()
+      .fill(
+        LinearGradient(
+          colors: [
+            Color(red: 0.92, green: 0.80, blue: 0.71),
+            Color(red: 0.70, green: 0.48, blue: 0.28)
+          ],
+          startPoint: .topLeading,
+          endPoint: .bottomTrailing
+        )
+      )
+      .frame(width: 32, height: 32)
+      .overlay(
+        Text(String(conversationTitle.prefix(1)).uppercased())
+          .font(.system(size: 14, weight: .semibold))
+          .foregroundStyle(Color.black.opacity(0.8))
+      )
+      .overlay(alignment: .bottomTrailing) {
+        if let otherParticipantPresence {
+          PresenceIndicatorView(status: otherParticipantPresence.presenceStatus, size: 10)
+            .offset(x: 1, y: 1)
+        }
       }
-      .buttonStyle(.plain)
+  }
+
+  private var conversationOptionsMenu: some View {
+    Menu {
+      Button {
+        isInputFocused = false
+        activeDetailSheet = .search
+      } label: {
+        Label("Search Messages", systemImage: "magnifyingglass")
+      }
+
+      Button {
+        isInputFocused = false
+        activeDetailSheet = .media
+      } label: {
+        Label("Media, Files & Links", systemImage: "photo.on.rectangle")
+      }
 
       Button {
         isInputFocused = false
         activeDetailSheet = .info
       } label: {
-        HStack(spacing: 12) {
-          Circle()
-            .fill(
-              LinearGradient(
-                colors: [
-                  Color(red: 0.92, green: 0.80, blue: 0.71),
-                  Color(red: 0.70, green: 0.48, blue: 0.28)
-                ],
-                startPoint: .topLeading,
-                endPoint: .bottomTrailing
-              )
-            )
-            .frame(width: 32, height: 32)
-            .overlay(
-              Text(String(conversationTitle.prefix(1)).uppercased())
-                .font(.system(size: 14, weight: .semibold))
-                .foregroundStyle(Color.black.opacity(0.8))
-            )
-            .overlay(alignment: .bottomTrailing) {
-              if let otherParticipantPresence {
-                PresenceIndicatorView(status: otherParticipantPresence.presenceStatus, size: 10)
-                  .offset(x: 1, y: 1)
-              }
-            }
-
-          VStack(spacing: 1) {
-            Text(conversationTitle)
-              .font(.system(size: 18, weight: .semibold))
-              .foregroundStyle(Color.black.opacity(0.9))
-              .lineLimit(1)
-
-            Text(conversationSubtitle)
-              .font(.system(size: 12, weight: .regular))
-              .foregroundStyle(typingUsers.isEmpty ? Color.black.opacity(0.35) : Color(red: 0.05, green: 0.52, blue: 0.22))
-              .lineLimit(1)
-          }
-          .frame(maxWidth: .infinity)
-        }
-        .contentShape(Rectangle())
+        Label("Conversation Info", systemImage: "info.circle")
       }
-      .frame(maxWidth: .infinity)
-      .buttonStyle(.plain)
-      .disabled(conversation.remoteConversationID == nil)
-
-      Menu {
-        Button {
-          isInputFocused = false
-          activeDetailSheet = .search
-        } label: {
-          Label("Search Messages", systemImage: "magnifyingglass")
-        }
-
-        Button {
-          isInputFocused = false
-          activeDetailSheet = .media
-        } label: {
-          Label("Media, Files & Links", systemImage: "photo.on.rectangle")
-        }
-
-        Button {
-          isInputFocused = false
-          activeDetailSheet = .info
-        } label: {
-          Label("Conversation Info", systemImage: "info.circle")
-        }
-      } label: {
-        Image(systemName: "magnifyingglass")
-          .font(.system(size: 16, weight: .medium))
-          .foregroundStyle(Color(red: 0.43, green: 0.52, blue: 0.89))
-          .frame(width: 32, height: 32)
-          .background(Color.white.opacity(0.8), in: Circle())
-      }
-      .buttonStyle(.plain)
-      .disabled(conversation.remoteConversationID == nil)
+    } label: {
+      Image(systemName: "magnifyingglass")
+        .font(.system(size: 18, weight: .medium))
     }
-    .padding(.horizontal, 14)
-    .padding(.top, 10)
-    .padding(.bottom, 12)
-    .background(Color.white.opacity(0.9))
-    .overlay(alignment: .bottom) {
-      Rectangle()
-        .fill(Color.black.opacity(0.06))
-        .frame(height: 1)
-    }
+    .disabled(conversation.remoteConversationID == nil)
   }
 
   private var messageSelectionHeader: some View {

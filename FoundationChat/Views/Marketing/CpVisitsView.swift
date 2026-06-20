@@ -4,7 +4,6 @@ import UIKit
 
 struct CpVisitsView: View {
     @Environment(AuthStore.self) private var authStore
-    @Environment(\.dismiss) private var dismiss
     @State private var visits: [ConvexSiteVisit] = []
     @State private var isLoading = false
     @State private var hasLoaded = false
@@ -23,7 +22,6 @@ struct CpVisitsView: View {
 
     var body: some View {
         ScrollView {
-            topBar
             searchBar
             filterPills
 
@@ -75,9 +73,25 @@ struct CpVisitsView: View {
         }
         .refreshable { await load() }
         .background(Color(hex: 0xF1F3F8).ignoresSafeArea())
-        .navigationTitle("")
+        .navigationTitle("CP Visits")
         .navigationBarTitleDisplayMode(.inline)
-        .toolbar(.hidden, for: .navigationBar)
+        .toolbarBackground(Color.white, for: .navigationBar)
+        .toolbarBackground(.visible, for: .navigationBar)
+        .toolbar {
+            ToolbarItem(placement: .principal) {
+                Text("CP Visits")
+                    .font(.system(size: 20, weight: .bold))
+                    .foregroundStyle(Color(hex: 0x101828))
+            }
+
+            ToolbarItem(placement: .topBarTrailing) {
+                Button { showCreateSheet = true } label: {
+                    Image(systemName: "plus")
+                        .font(.system(size: 20, weight: .semibold))
+                }
+                .accessibilityLabel("Create CP visit")
+            }
+        }
         .task { if !hasLoaded { await load() } }
         .sheet(isPresented: $showCreateSheet) {
             NavigationStack {
@@ -87,36 +101,6 @@ struct CpVisitsView: View {
                 }
             }
         }
-    }
-
-    private var topBar: some View {
-        ZStack {
-            Text("CP Visits")
-                .font(.system(size: 17, weight: .semibold))
-                .foregroundStyle(Color(hex: 0x101828))
-
-            HStack {
-                Button { dismiss() } label: {
-                    Image(systemName: "chevron.left")
-                        .font(.system(size: 18, weight: .semibold))
-                        .frame(width: 36, height: 36)
-                }
-                .buttonStyle(.bordered)
-
-                Spacer()
-
-                Button { showCreateSheet = true } label: {
-                    Image(systemName: "plus")
-                        .font(.system(size: 20, weight: .semibold))
-                        .frame(width: 36, height: 36)
-                }
-                .buttonStyle(.borderedProminent)
-                .tint(Color(hex: 0x0B61CA))
-            }
-            .padding(.horizontal, 8)
-        }
-        .frame(height: 56)
-        .background(.white)
     }
 
     private var searchBar: some View {

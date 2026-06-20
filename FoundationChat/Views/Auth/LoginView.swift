@@ -1,4 +1,5 @@
 import SwiftUI
+import UIKit
 
 // MARK: - Root
 
@@ -44,6 +45,8 @@ struct LoginView: View {
                 .offset(y: -keyboardHeight)
             }
             .animation(.spring(response: 0.4, dampingFraction: 0.85), value: step)
+            .contentShape(Rectangle())
+            .simultaneousGesture(backSwipeGesture)
         }
         .ignoresSafeArea()
         .onReceive(NotificationCenter.default.publisher(for: UIResponder.keyboardWillShowNotification)) { notification in
@@ -207,8 +210,8 @@ struct LoginView: View {
                 .textContentType(.telephoneNumber)
                 .font(.system(size: 14))
                 .foregroundStyle(Color(red: 0.012, green: 0.016, blue: 0.027))
+                .tint(Color(red: 0.10, green: 0.45, blue: 0.96))
                 .focused($phoneFieldFocused)
-                .onAppear { phoneFieldFocused = true }
         }
         .padding(.horizontal, 12)
         .frame(height: 48)
@@ -272,6 +275,7 @@ struct LoginView: View {
         Button {
             withAnimation(.spring(response: 0.35)) {
                 authStore.clearError()
+                clearFocus()
                 step = .employee
             }
         } label: {
@@ -317,6 +321,7 @@ struct LoginView: View {
                 withAnimation(.spring(response: 0.35)) {
                     authStore.clearError()
                     employeePassword = ""
+                    clearFocus()
                     step = .phone
                 }
             } label: {
@@ -331,7 +336,6 @@ struct LoginView: View {
             .buttonStyle(.plain)
             .frame(maxWidth: .infinity)
         }
-        .onAppear { employeeFieldFocused = .employeeId }
     }
 
     private var employeeTextField: some View {
@@ -350,6 +354,8 @@ struct LoginView: View {
                     .textInputAutocapitalization(.characters)
                     .autocorrectionDisabled()
                     .font(.system(size: 14))
+                    .foregroundStyle(Color(red: 0.012, green: 0.016, blue: 0.027))
+                    .tint(Color(red: 0.10, green: 0.45, blue: 0.96))
                     .focused($employeeFieldFocused, equals: .employeeId)
             }
             .padding(.horizontal, 12)
@@ -389,6 +395,8 @@ struct LoginView: View {
                 }
                 .textContentType(.password)
                 .font(.system(size: 14))
+                .foregroundStyle(Color(red: 0.012, green: 0.016, blue: 0.027))
+                .tint(Color(red: 0.10, green: 0.45, blue: 0.96))
                 .focused($employeeFieldFocused, equals: .password)
 
                 Button {
@@ -549,6 +557,7 @@ struct LoginView: View {
             await MainActor.run {
                 verifiedPhone = phone
                 otpDigits = Array(repeating: "", count: 6)
+                clearFocus()
                 withAnimation(.spring(response: 0.4)) { step = .otp }
             }
         } catch {}
@@ -560,6 +569,42 @@ struct LoginView: View {
 
     private func handleEmployeeLogin() async {
         await authStore.loginWithEmployeeId(employeeId: employeeId, password: employeePassword)
+    }
+
+    private var backSwipeGesture: some Gesture {
+        DragGesture(minimumDistance: 24, coordinateSpace: .local)
+            .onEnded { value in
+                guard value.translation.width > 72,
+                      abs(value.translation.height) < 60 else { return }
+                goBackOneStep()
+            }
+    }
+
+    private func goBackOneStep() {
+        withAnimation(.spring(response: 0.35)) {
+            authStore.clearError()
+            clearFocus()
+            if step == .phone {
+                dismissKeyboard()
+            } else if step == .otp {
+                otpDigits = Array(repeating: "", count: 6)
+                step = .phone
+            } else if step == .employee {
+                employeePassword = ""
+                step = .phone
+            }
+        }
+    }
+
+    private func clearFocus() {
+        phoneFieldFocused = false
+        focusedOtpBox = nil
+        employeeFieldFocused = nil
+        dismissKeyboard()
+    }
+
+    private func dismissKeyboard() {
+        UIApplication.shared.sendAction(#selector(UIResponder.resignFirstResponder), to: nil, from: nil, for: nil)
     }
 
     private var title: String {

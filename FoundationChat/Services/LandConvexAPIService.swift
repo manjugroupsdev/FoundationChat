@@ -65,6 +65,12 @@ enum LandConvexAPIService {
         return wrapper.items ?? wrapper.queries ?? wrapper.logs ?? []
     }
 
+    static func updateQuery(token: String, request: LandQueryUpdateRequest) async throws {
+        let data = try await post(path: "/api/land/queries/update", token: token, body: request)
+        let wrapper = try decode(MutationResponse.self, from: data)
+        guard wrapper.success else { throw MarketingAPIError.server(wrapper.error ?? "Failed to update query") }
+    }
+
     private static func get(path: String, token: String, queryItems: [URLQueryItem] = []) async throws -> Data {
         var components = URLComponents(string: "\(baseURL)\(path)")
         if !queryItems.isEmpty { components?.queryItems = queryItems }

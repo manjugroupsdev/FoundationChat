@@ -106,6 +106,16 @@ struct ConvexAttendanceSession: Decodable, Equatable, Sendable {
     let source: String?
 }
 
+struct ConvexAttendanceFine: Decodable, Equatable, Sendable, Identifiable {
+    let typeName: String?
+    let amount: Double?
+    let reason: String?
+
+    var id: String {
+        "\(typeName ?? "fine")-\(amount ?? 0)-\(reason ?? "")"
+    }
+}
+
 struct ConvexAttendanceRecord: Decodable, Identifiable, Equatable, Sendable {
     let _id: String?
     let _creationTime: Double?
@@ -126,6 +136,10 @@ struct ConvexAttendanceRecord: Decodable, Identifiable, Equatable, Sendable {
     let approvedBy: String?
     let approvedByName: String?
     let approvedOn: String?
+    let lateMinutes: Int?
+    let fineAmount: Double?
+    let lateFineDeduction: Double?
+    let otherFines: [ConvexAttendanceFine]?
 
     var id: String { _id ?? attendanceId ?? UUID().uuidString }
 
@@ -157,6 +171,42 @@ struct ConvexAttendanceRecord: Decodable, Identifiable, Equatable, Sendable {
         }
         return iso
     }
+
+    static func placeholder(date: String) -> ConvexAttendanceRecord {
+        ConvexAttendanceRecord(
+            _id: nil,
+            _creationTime: nil,
+            attendanceId: nil,
+            date: date,
+            firstPunchIn: nil,
+            lastPunchOut: nil,
+            sessionCount: nil,
+            sessions: [],
+            totalMinutes: 0,
+            cumulativeMinutes: 0,
+            attendanceValue: nil,
+            staffId: nil,
+            staffName: nil,
+            source: nil,
+            status: nil,
+            approvedAttendance: nil,
+            approvedBy: nil,
+            approvedByName: nil,
+            approvedOn: nil,
+            lateMinutes: nil,
+            fineAmount: nil,
+            lateFineDeduction: nil,
+            otherFines: nil
+        )
+    }
+}
+
+struct ConvexHomeFence: Decodable, Equatable, Sendable {
+    let enabled: Bool
+    let lat: Double?
+    let lng: Double?
+    let radiusMeters: Int
+    let enforceable: Bool?
 }
 
 struct ConvexTodayAttendance: Decodable, Equatable, Sendable {

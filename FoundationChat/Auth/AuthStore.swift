@@ -404,6 +404,26 @@ final class AuthStore {
     return URL(string: urlString)
   }
 
+  /// Resolve profile photos returned either as a full URL or as a bare Convex
+  /// storage id, matching the Android `ProfilePhotos.resolve` behavior.
+  func resolveProfilePhotoURL(_ value: String?) async -> URL? {
+    guard let raw = value?.trimmingCharacters(in: .whitespacesAndNewlines), !raw.isEmpty else {
+      return nil
+    }
+    if raw.hasPrefix("http://") || raw.hasPrefix("https://") {
+      return URL(string: raw)
+    }
+    if raw.hasPrefix("/") {
+      return URL(string: AppConfig.baseURL.trimmingCharacters(in: CharacterSet(charactersIn: "/")) + raw)
+    }
+    if let signedURL = try? await resolveStorageURL(storageId: raw) {
+      return signedURL
+    }
+    var components = URLComponents(string: "\(AppConfig.baseURL)/api/storage/serve")
+    components?.queryItems = [URLQueryItem(name: "storageId", value: raw)]
+    return components?.url
+  }
+
   private func mergeProfilePhotoUpdate(
     serverUser: AuthUser?,
     fallbackPhoto: String?,

@@ -11,6 +11,10 @@ struct BookingsListView: View {
     @State private var showCreate = false
     @State private var selectedBooking: AppBooking?
 
+    private var canCreateBooking: Bool {
+        authStore.hasPermission("marketing.bookings.create")
+    }
+
     private var filteredBookings: [AppBooking] {
         let query = searchText.trimmingCharacters(in: .whitespacesAndNewlines).lowercased()
         return bookings.filter { booking in
@@ -33,17 +37,34 @@ struct BookingsListView: View {
 
     var body: some View {
         VStack(spacing: 0) {
-            bookingTopBar
-            Divider()
-                .background(Color(hex: 0xEEF0F5))
             searchBar
             filterBar
             content
         }
         .background(Color(hex: 0xF1F3F8).ignoresSafeArea())
-        .navigationTitle("")
+        .navigationTitle("Booking")
         .navigationBarTitleDisplayMode(.inline)
-        .toolbar(.hidden, for: .navigationBar)
+        .toolbarBackground(Color.white, for: .navigationBar)
+        .toolbarBackground(.visible, for: .navigationBar)
+        .toolbar {
+            ToolbarItem(placement: .principal) {
+                Text("Booking")
+                    .font(.system(size: 20, weight: .bold))
+                    .foregroundStyle(Color(hex: 0x101828))
+            }
+
+            if canCreateBooking {
+                ToolbarItem(placement: .topBarTrailing) {
+                    Button {
+                        showCreate = true
+                    } label: {
+                        Image(systemName: "plus")
+                            .font(.system(size: 20, weight: .semibold))
+                    }
+                    .accessibilityLabel("Create booking")
+                }
+            }
+        }
         .sheet(isPresented: $showCreate, onDismiss: {
             Task { await load() }
         }) {
@@ -104,36 +125,6 @@ struct BookingsListView: View {
             }
             .refreshable { await load() }
         }
-    }
-
-    private var bookingTopBar: some View {
-        HStack {
-            Color.clear
-                .frame(width: 44, height: 44)
-
-            Spacer()
-
-            Text("Booking")
-                .font(.system(size: 18, weight: .bold))
-                .foregroundStyle(Color(hex: 0x101828))
-
-            Spacer()
-
-            Button {
-                showCreate = true
-            } label: {
-                Image(systemName: "plus")
-                    .font(.system(size: 17, weight: .semibold))
-                    .frame(width: 36, height: 36)
-            }
-            .buttonStyle(.borderedProminent)
-            .tint(Color(hex: 0x0B61CA))
-            .frame(width: 44, height: 44)
-            .accessibilityLabel("Create booking")
-        }
-        .padding(.horizontal, 4)
-        .frame(height: 56)
-        .background(Color.white)
     }
 
     private var searchBar: some View {

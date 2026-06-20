@@ -25,82 +25,88 @@ struct ProfileView: View {
   }
 
   var body: some View {
-    List {
-      Section {
+    ScrollView {
+      VStack(spacing: 20) {
         ProfileInfoHeader(
           label: authStore.currentUserLabel,
           photoURL: remotePhotoURL,
-          designation: authStore.currentSession?.user.designation,
-          department: authStore.currentSession?.user.department,
-          status: authStore.currentSession?.user.status
+          phone: authStore.viewer?.phone ?? authStore.currentUserLabel
         )
-        .frame(maxWidth: .infinity)
-        .padding(.vertical, 18)
-        .listRowInsets(EdgeInsets(top: 0, leading: 0, bottom: 0, trailing: 0))
-        .listRowBackground(Color.white)
-      }
 
-      Section("Account") {
-        if let name = authStore.viewer?.name, !name.isEmpty {
-          LabeledContent("Name", value: name)
-        }
-        if let email = authStore.viewer?.email, !email.isEmpty {
-          LabeledContent("Email", value: email)
-            .lineLimit(1)
-            .truncationMode(.middle)
-        }
-        LabeledContent("Phone", value: authStore.viewer?.phone ?? authStore.currentUserLabel ?? "Unavailable")
+        VStack(spacing: 0) {
+          Button {
+            isPresentingEdit = true
+          } label: {
+            ProfileMenuRow(title: "Edit Profile", systemImage: "person.crop.circle.badge.pencil")
+          }
+          .buttonStyle(.plain)
 
-        if let subject = authStore.viewer?.subject {
-          LabeledContent("User ID", value: subject)
-            .lineLimit(1)
-            .truncationMode(.middle)
-        }
-      }
+          ProfileDivider()
 
-      Section("Notifications") {
-        Toggle("Enable notifications", isOn: $notificationsEnabled)
-        Toggle("Sounds", isOn: $notificationSoundsEnabled)
-          .disabled(!notificationsEnabled)
-        Toggle("Mentions only", isOn: $mentionNotificationsEnabled)
-          .disabled(!notificationsEnabled)
-      }
+          Button {
+            isPresentingLanguage = true
+          } label: {
+            ProfileMenuRow(title: "Language", value: selectedLanguage.title, systemImage: "globe")
+          }
+          .buttonStyle(.plain)
 
-      Section("Preferences") {
-        Button {
-          isPresentingLanguage = true
-        } label: {
-          SettingsDisclosureRow(
-            title: "Language",
-            value: selectedLanguage.title,
-            systemImage: "globe"
+          ProfileDivider()
+
+          Button {
+            isPresentingAppearance = true
+          } label: {
+            ProfileMenuRow(title: "Appearance", value: selectedAppearance.title, systemImage: selectedAppearance.systemImage)
+          }
+          .buttonStyle(.plain)
+
+          ProfileDivider()
+
+          HStack(spacing: 16) {
+            Image(systemName: "bell")
+              .font(.system(size: 21, weight: .medium))
+              .foregroundStyle(Color(hex: 0x6B7280))
+              .frame(width: 24)
+
+            Text("Manage Notification")
+              .font(.system(size: 18, weight: .regular))
+              .foregroundStyle(Color(hex: 0x6B7280))
+
+            Spacer()
+
+            Toggle("", isOn: $notificationsEnabled)
+              .labelsHidden()
+              .tint(Color(hex: 0x0B61CA))
+          }
+          .frame(height: 56)
+          .contentShape(Rectangle())
+
+          ProfileDivider()
+
+          ProfileMenuRow(
+            title: "App Version",
+            value: appVersionText,
+            systemImage: "info.circle",
+            showsChevron: false
           )
-        }
-        .buttonStyle(.plain)
 
-        Button {
-          isPresentingAppearance = true
-        } label: {
-          SettingsDisclosureRow(
-            title: "Appearance",
-            value: selectedAppearance.title,
-            systemImage: selectedAppearance.systemImage
-          )
-        }
-        .buttonStyle(.plain)
-      }
+          ProfileDivider()
 
-      Section {
-        Button(role: .destructive) {
-          isConfirmingLogout = true
-        } label: {
-          Text("Log Out")
-            .frame(maxWidth: .infinity, alignment: .center)
+          Button(role: .destructive) {
+            isConfirmingLogout = true
+          } label: {
+            ProfileMenuRow(title: "Log Out", systemImage: "rectangle.portrait.and.arrow.right", showsChevron: false)
+          }
+          .buttonStyle(.plain)
         }
       }
+      .padding(.horizontal, 24)
+      .padding(.top, 16)
+      .padding(.bottom, 40)
     }
-    .navigationTitle("Profile")
+    .background(Color.white.ignoresSafeArea())
+    .navigationTitle("Profile Overview")
     .navigationBarTitleDisplayMode(.inline)
+    .toolbar(.hidden, for: .tabBar)
     .toolbar {
       ToolbarItem(placement: .navigationBarTrailing) {
         Button {
@@ -150,17 +156,22 @@ struct ProfileView: View {
   }
 
   private func loadRemoteAvatar() async {
-    guard let storageId = authStore.viewer?.photo, !storageId.isEmpty else {
-      remotePhotoURL = nil
-      return
-    }
-    remotePhotoURL = try? await authStore.resolveStorageURL(storageId: storageId)
+    remotePhotoURL = await authStore.resolveProfilePhotoURL(authStore.viewer?.photo)
   }
 
   private func refreshStaffProfile() async {
     hasLoadedStaffProfile = true
     _ = try? await authStore.refreshMyStaffProfile()
     await loadRemoteAvatar()
+  }
+
+  private var appVersionText: String {
+    let version = Bundle.main.infoDictionary?["CFBundleShortVersionString"] as? String
+    let build = Bundle.main.infoDictionary?["CFBundleVersion"] as? String
+    if let version, !version.isEmpty {
+      return build?.isEmpty == false ? "v.\(version)" : "v.\(version)"
+    }
+    return build?.isEmpty == false ? "v.\(build!)" : "v.1.0"
   }
 }
 
@@ -314,6 +325,51 @@ private struct SettingsDisclosureRow: View {
   }
 }
 
+private struct ProfileMenuRow: View {
+  let title: String
+  var value: String? = nil
+  let systemImage: String
+  var showsChevron = true
+
+  var body: some View {
+    HStack(spacing: 16) {
+      Image(systemName: systemImage)
+        .font(.system(size: 21, weight: .medium))
+        .foregroundStyle(Color(hex: 0x6B7280))
+        .frame(width: 24)
+
+      Text(title)
+        .font(.system(size: 18, weight: .regular))
+        .foregroundStyle(Color(hex: 0x6B7280))
+
+      Spacer(minLength: 12)
+
+      if let value, !value.isEmpty {
+        Text(value)
+          .font(.system(size: 14, weight: .regular))
+          .foregroundStyle(Color(hex: 0x6B7280))
+          .lineLimit(1)
+      }
+
+      if showsChevron {
+        Image(systemName: "chevron.right")
+          .font(.system(size: 13, weight: .semibold))
+          .foregroundStyle(Color(hex: 0x6B7280))
+      }
+    }
+    .frame(height: 56)
+    .contentShape(Rectangle())
+  }
+}
+
+private struct ProfileDivider: View {
+  var body: some View {
+    Rectangle()
+      .fill(Color(hex: 0xF2F4F7))
+      .frame(height: 1)
+  }
+}
+
 private struct LanguageSettingsView: View {
   @Environment(\.dismiss) private var dismiss
   @Binding var selection: String
@@ -417,9 +473,7 @@ private struct PreferenceOptionRow: View {
 private struct ProfileInfoHeader: View {
   let label: String?
   let photoURL: URL?
-  let designation: String?
-  let department: String?
-  let status: String?
+  let phone: String?
 
   private var displayName: String {
     guard let label, !label.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else {
@@ -428,54 +482,31 @@ private struct ProfileInfoHeader: View {
     return label
   }
 
-  private var subtitle: String {
-    [designation, department]
-      .compactMap { value in
-        let trimmed = value?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
-        return trimmed.isEmpty ? nil : trimmed
-      }
-      .joined(separator: " · ")
-  }
-
-  private var normalizedStatus: String {
-    let trimmed = status?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
-    return trimmed.isEmpty ? "Active" : trimmed.capitalized
-  }
-
-  private var isActive: Bool {
-    normalizedStatus.localizedCaseInsensitiveContains("active")
-      && !normalizedStatus.localizedCaseInsensitiveContains("inactive")
+  private var phoneText: String {
+    let trimmed = phone?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
+    return trimmed.isEmpty ? "—" : trimmed
   }
 
   var body: some View {
-    VStack(spacing: 16) {
-      ProfileHeroAvatar(label: label, photoURL: photoURL, size: 104)
+    VStack(spacing: 4) {
+      ProfileHeroAvatar(label: label, photoURL: photoURL, size: 140)
+        .padding(.bottom, 0)
 
-      VStack(spacing: 10) {
-        Text(displayName.uppercased())
-          .font(.system(size: 24, weight: .bold))
-          .foregroundStyle(Color.black)
-          .multilineTextAlignment(.center)
-          .lineLimit(2)
-          .minimumScaleFactor(0.78)
+      Text(displayName)
+        .font(.system(size: 18, weight: .regular))
+        .foregroundStyle(Color(hex: 0x1F2A37))
+        .multilineTextAlignment(.center)
+        .lineLimit(2)
+        .minimumScaleFactor(0.82)
 
-        if !subtitle.isEmpty {
-          Text(subtitle)
-            .font(.system(size: 18, weight: .regular))
-            .foregroundStyle(Color.gray)
-            .multilineTextAlignment(.center)
-            .lineLimit(2)
-        }
-
-        Text(normalizedStatus)
-          .font(.system(size: 15, weight: .bold))
-          .foregroundStyle(isActive ? Color.green : Color.red)
-          .padding(.horizontal, 18)
-          .padding(.vertical, 7)
-          .background((isActive ? Color.green : Color.red).opacity(0.16), in: Capsule())
-      }
+      Text(phoneText)
+        .font(.system(size: 18, weight: .regular))
+        .foregroundStyle(Color(hex: 0x6B7280))
+        .multilineTextAlignment(.center)
+        .lineLimit(1)
     }
-    .padding(.horizontal, 24)
+    .frame(maxWidth: .infinity)
+    .padding(.vertical, 16)
   }
 }
 
@@ -519,18 +550,9 @@ private struct ProfileHeroAvatar: View {
   private var initialsBackground: some View {
     Text(initials)
       .font(.system(size: size * 0.38, weight: .bold))
-      .foregroundStyle(.white)
+      .foregroundStyle(Color(hex: 0x0B61CA))
       .frame(maxWidth: .infinity, maxHeight: .infinity)
-      .background(
-        LinearGradient(
-          colors: [
-            Color(red: 0.24, green: 0.06, blue: 0.32),
-            Color(red: 0.47, green: 0.12, blue: 0.52)
-          ],
-          startPoint: .topLeading,
-          endPoint: .bottomTrailing
-        )
-      )
+      .background(Color(hex: 0xEAF3FF))
   }
 }
 

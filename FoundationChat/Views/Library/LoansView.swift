@@ -22,6 +22,13 @@ struct LoansView: View {
         .background(Color(.systemGroupedBackground))
         .navigationTitle("Loans")
         .navigationBarTitleDisplayMode(.inline)
+        .toolbar {
+            ToolbarItem(placement: .principal) {
+                Text("Loans")
+                    .font(.system(size: 20, weight: .bold))
+                    .foregroundStyle(Color(hex: 0x101828))
+            }
+        }
         .refreshable { await load() }
         .task { if !hasLoaded { await load() } }
         .sheet(isPresented: $showingLoanRequest) {

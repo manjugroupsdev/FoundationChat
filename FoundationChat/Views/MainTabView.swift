@@ -124,10 +124,10 @@ struct MainTabView: View {
             openChannelIDFromPush = channelID
         case .leaveRequest, .leaveApproved, .leaveRejected:
             selectedTab = .hr
-            openHRRouteFromPush = .leaves
+            openHRRouteFromPush = route.workflowTargetMode?.lowercased() == "approval" ? .leaveApprovals : .leaves
         case .permissionRequest, .permissionApproved, .permissionRejected:
             selectedTab = .hr
-            openHRRouteFromPush = .permissions
+            openHRRouteFromPush = route.workflowTargetMode?.lowercased() == "approval" ? .permissionApprovals : .permissions
         }
     }
 }

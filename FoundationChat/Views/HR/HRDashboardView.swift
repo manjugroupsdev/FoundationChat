@@ -1,9 +1,12 @@
 import Combine
+import CoreLocation
 import SwiftUI
 
 enum HRDashboardRoute: Hashable {
     case leaves
+    case leaveApprovals
     case permissions
+    case permissionApprovals
 }
 
 struct HRDashboardView: View {
@@ -21,6 +24,13 @@ struct HRDashboardView: View {
     @State private var showPunchOut = false
     @State private var showClockOutConfirm = false
     @State private var errorMessage: String?
+    @State private var homeFence: ConvexHomeFence?
+    @State private var showHomeFenceWarning = false
+    @State private var isCheckingHomeFence = false
+    @State private var showOnDutySheet = false
+    @State private var isOnDutyBusy = false
+    @AppStorage("attendance.onDuty.active") private var isOnDuty = false
+    @AppStorage("attendance.onDuty.tripId") private var onDutyTripId = ""
 
     private let timer = Timer.publish(every: 1, on: .main, in: .common).autoconnect()
 
@@ -80,8 +90,12 @@ struct HRDashboardView: View {
                 switch route {
                 case .leaves:
                     LeavesListView()
+                case .leaveApprovals:
+                    LeaveApprovalsView()
                 case .permissions:
                     ConvexPermissionListView()
+                case .permissionApprovals:
+                    PermissionApprovalsView()
                 }
             }
             .task { await reloadAll() }
@@ -96,17 +110,36 @@ struct HRDashboardView: View {
                 PunchFlowView(mode: .punchIn) { Task { await reloadAll() } }
             }
             .sheet(isPresented: $showPunchOut) {
-                PunchFlowView(mode: .punchOut) { Task { await reloadAll() } }
+                PunchFlowView(mode: .punchOut) {
+                    isOnDuty = false
+                    onDutyTripId = ""
+                    Task { await reloadAll() }
+                }
+            }
+            .sheet(isPresented: $showOnDutySheet) {
+                OnDutyStartSheet { request in
+                    await startOnDuty(request)
+                }
+                .presentationDetents([.large])
             }
             .sheet(isPresented: $showClockOutConfirm) {
-                ClockOutConfirmSheet {
+                ClockOutConfirmSheet(
+                    todayMinutes: max(0, Int(todayTotalSeconds / 60)),
+                    overtimeMinutes: max(0, Int(todayTotalSeconds / 60) - 480)
+                ) {
                     showClockOutConfirm = false
                     showPunchOut = true
                 } onCancel: {
                     showClockOutConfirm = false
                 }
-                .presentationDetents([.height(280)])
+                .presentationDetents([.height(430)])
+                .presentationBackground(Color.clear)
                 .presentationDragIndicator(.hidden)
+            }
+            .alert("You are at Home!", isPresented: $showHomeFenceWarning) {
+                Button("Got it", role: .cancel) {}
+            } message: {
+                Text("Please move outside your configured home radius before clocking in.")
             }
         }
     }
@@ -241,28 +274,47 @@ struct HRDashboardView: View {
     @ViewBuilder
     private var actionButtons: some View {
         if hasPunchedIn {
-            Button {
-                showClockOutConfirm = true
-            } label: {
-                Text("Clock Out")
-                    .font(.system(size: 14, weight: .medium))
-                    .frame(maxWidth: .infinity)
+            HStack(spacing: 10) {
+                Button {
+                    if isOnDuty {
+                        Task { await completeOnDuty() }
+                    } else {
+                        showOnDutySheet = true
+                    }
+                } label: {
+                    Text(isOnDuty ? "Complete On Duty" : "On Duty")
+                        .font(.system(size: 13, weight: .semibold))
+                        .frame(maxWidth: .infinity)
+                }
+                .buttonStyle(.bordered)
+                .controlSize(.large)
+                .tint(isOnDuty ? Color(hex: 0x0B61CA) : androidGreen)
+                .disabled(isOnDutyBusy)
+
+                Button {
+                    showClockOutConfirm = true
+                } label: {
+                    Text("Clock Out")
+                        .font(.system(size: 14, weight: .medium))
+                        .frame(maxWidth: .infinity)
+                }
+                .buttonStyle(.borderedProminent)
+                .controlSize(.large)
+                .tint(androidGreen)
+                .sensoryFeedback(.impact, trigger: showPunchOut)
             }
-            .buttonStyle(.borderedProminent)
-            .controlSize(.large)
-            .tint(androidGreen)
-            .sensoryFeedback(.impact, trigger: showPunchOut)
         } else {
             Button {
-                showPunchIn = true
+                Task { await openClockInRespectingHomeFence() }
             } label: {
-                Text("Clock In Now")
+                Text(isCheckingHomeFence ? "Checking..." : "Clock In Now")
                     .font(.system(size: 14, weight: .medium))
                     .frame(maxWidth: .infinity)
             }
             .buttonStyle(.borderedProminent)
             .controlSize(.large)
             .tint(androidGreen)
+            .disabled(isCheckingHomeFence)
             .sensoryFeedback(.impact, trigger: showPunchIn)
         }
     }
@@ -593,6 +645,99 @@ struct HRDashboardView: View {
         return "\(i) - \(o)"
     }
 
+    @MainActor
+    private func openClockInRespectingHomeFence() async {
+        isCheckingHomeFence = true
+        defer { isCheckingHomeFence = false }
+
+        if homeFence == nil {
+            await loadHomeFence()
+        }
+
+        guard let fence = homeFence,
+              fence.enabled,
+              let lat = fence.lat,
+              let lng = fence.lng
+        else {
+            showPunchIn = true
+            return
+        }
+
+        do {
+            let location = try await OneShotLocationReader.requestLocation()
+            let distance = Self.haversineMeters(
+                from: location.coordinate,
+                to: CLLocationCoordinate2D(latitude: lat, longitude: lng)
+            )
+            if distance <= Double(fence.radiusMeters) {
+                showHomeFenceWarning = true
+            } else {
+                showPunchIn = true
+            }
+        } catch {
+            // Match Android's fail-open behavior when the policy cannot be
+            // enforced locally; the server still remains the final guard.
+            showPunchIn = true
+        }
+    }
+
+    @MainActor
+    private func loadHomeFence() async {
+        guard let token = authStore.currentSession?.token else { return }
+        homeFence = try? await HRConvexAPIService.getHomeFence(token: token)
+    }
+
+    @MainActor
+    private func startOnDuty(_ request: OnDutyStartRequest) async {
+        guard let token = authStore.currentSession?.token else { return }
+        isOnDutyBusy = true
+        defer { isOnDutyBusy = false }
+        do {
+            let location = try? await OneShotLocationReader.requestLocation()
+            let tripId = try await HRConvexAPIService.startOnDutyTrip(
+                token: token,
+                latitude: location?.coordinate.latitude,
+                longitude: location?.coordinate.longitude,
+                address: nil,
+                category: request.category,
+                targetId: request.targetId,
+                targetName: request.targetName,
+                targetAddress: request.targetAddress,
+                vehicleOwnership: request.vehicleOwnership,
+                vehicleType: request.vehicleType
+            )
+            onDutyTripId = tripId
+            isOnDuty = true
+            showOnDutySheet = false
+        } catch {
+            errorMessage = error.localizedDescription
+        }
+    }
+
+    @MainActor
+    private func completeOnDuty() async {
+        guard let token = authStore.currentSession?.token else { return }
+        isOnDutyBusy = true
+        defer { isOnDutyBusy = false }
+        do {
+            let location = try? await OneShotLocationReader.requestLocation()
+            try await HRConvexAPIService.completeOnDutyTrip(
+                token: token,
+                tripId: onDutyTripId.nilIfBlank,
+                latitude: location?.coordinate.latitude,
+                longitude: location?.coordinate.longitude
+            )
+            onDutyTripId = ""
+            isOnDuty = false
+        } catch {
+            // Android clears local state even if the network call fails so the
+            // user does not get stuck on a stale On Duty pill.
+            onDutyTripId = ""
+            isOnDuty = false
+            errorMessage = error.localizedDescription
+        }
+    }
+
     private func formatClockTime(_ raw: String?) -> String? {
         guard let raw, let date = parseAttendanceDate(raw) else { return nil }
         let f = DateFormatter()
@@ -629,6 +774,7 @@ struct HRDashboardView: View {
         await withTaskGroup(of: Void.self) { group in
             group.addTask { await self.loadToday() }
             group.addTask { await self.loadMonthHistory() }
+            group.addTask { await self.loadHomeFence() }
         }
     }
 
@@ -662,16 +808,114 @@ struct HRDashboardView: View {
                 fromDate: formatter.string(from: firstOfMonth),
                 toDate: formatter.string(from: now)
             )
-            historyRecords = records.sorted { ($0.date ?? "") > ($1.date ?? "") }
+            historyRecords = fillMonthGaps(records, from: firstOfMonth, to: now)
+                .sorted { ($0.date ?? "") > ($1.date ?? "") }
         } catch {
             guard !Self.isCancellation(error) else { return }
             errorMessage = error.localizedDescription
         }
     }
 
+    private func fillMonthGaps(_ records: [ConvexAttendanceRecord], from start: Date, to end: Date) -> [ConvexAttendanceRecord] {
+        let calendar = Calendar.current
+        let keyed = Dictionary(uniqueKeysWithValues: records.compactMap { record -> (String, ConvexAttendanceRecord)? in
+            guard let date = record.date else { return nil }
+            return (date, record)
+        })
+        var output: [ConvexAttendanceRecord] = []
+        var day = calendar.startOfDay(for: start)
+        let last = calendar.startOfDay(for: end)
+        while day <= last {
+            let key = Self.dateKeyFormatter.string(from: day)
+            output.append(keyed[key] ?? ConvexAttendanceRecord.placeholder(date: key))
+            guard let next = calendar.date(byAdding: .day, value: 1, to: day) else { break }
+            day = next
+        }
+        return output
+    }
+
     private static func isCancellation(_ error: Error) -> Bool {
         if error is CancellationError { return true }
         return (error as NSError).code == NSURLErrorCancelled
+    }
+
+    private static let dateKeyFormatter: DateFormatter = {
+        let formatter = DateFormatter()
+        formatter.dateFormat = "yyyy-MM-dd"
+        formatter.locale = Locale(identifier: "en_US_POSIX")
+        return formatter
+    }()
+
+    private static func haversineMeters(from a: CLLocationCoordinate2D, to b: CLLocationCoordinate2D) -> Double {
+        let radius = 6_371_000.0
+        let dLat = (b.latitude - a.latitude) * .pi / 180
+        let dLng = (b.longitude - a.longitude) * .pi / 180
+        let lat1 = a.latitude * .pi / 180
+        let lat2 = b.latitude * .pi / 180
+        let h = sin(dLat / 2) * sin(dLat / 2)
+            + cos(lat1) * cos(lat2) * sin(dLng / 2) * sin(dLng / 2)
+        return radius * 2 * atan2(sqrt(h), sqrt(1 - h))
+    }
+}
+
+@MainActor
+private final class OneShotLocationReader: NSObject, CLLocationManagerDelegate {
+    private let manager = CLLocationManager()
+    private var continuation: CheckedContinuation<CLLocation, Error>?
+
+    static func requestLocation() async throws -> CLLocation {
+        let reader = OneShotLocationReader()
+        return try await reader.location()
+    }
+
+    override init() {
+        super.init()
+        manager.delegate = self
+        manager.desiredAccuracy = kCLLocationAccuracyBest
+    }
+
+    private func location() async throws -> CLLocation {
+        try await withCheckedThrowingContinuation { continuation in
+            self.continuation = continuation
+            switch manager.authorizationStatus {
+            case .notDetermined:
+                manager.requestWhenInUseAuthorization()
+            case .authorizedAlways, .authorizedWhenInUse:
+                manager.requestLocation()
+            default:
+                continuation.resume(throwing: CLError(.denied))
+                self.continuation = nil
+            }
+        }
+    }
+
+    nonisolated func locationManager(_ manager: CLLocationManager, didUpdateLocations locations: [CLLocation]) {
+        guard let location = locations.last else { return }
+        Task { @MainActor in
+            continuation?.resume(returning: location)
+            continuation = nil
+        }
+    }
+
+    nonisolated func locationManager(_ manager: CLLocationManager, didFailWithError error: Error) {
+        Task { @MainActor in
+            continuation?.resume(throwing: error)
+            continuation = nil
+        }
+    }
+
+    nonisolated func locationManagerDidChangeAuthorization(_ manager: CLLocationManager) {
+        Task { @MainActor in
+            switch manager.authorizationStatus {
+            case .authorizedAlways, .authorizedWhenInUse:
+                manager.requestLocation()
+            case .denied, .restricted:
+                continuation?.resume(throwing: CLError(.denied))
+                continuation = nil
+            default:
+                break
+            }
+        }
     }
 }
 
@@ -857,6 +1101,463 @@ private struct HRDashboardLoadingStrip: View {
         }
         .frame(height: 4)
         .animation(.easeOut(duration: 0.18), value: isLoading)
+    }
+}
+
+private struct OnDutyStartRequest {
+    let category: String
+    let targetId: String?
+    let targetName: String
+    let targetAddress: String?
+    let vehicleOwnership: String
+    let vehicleType: String
+}
+
+private struct OnDutyStartSheet: View {
+    @Environment(AuthStore.self) private var authStore
+    @Environment(\.dismiss) private var dismiss
+
+    let onSubmit: (OnDutyStartRequest) async -> Void
+
+    @State private var step: OnDutyStep = .category
+    @State private var selectedCategory: OnDutyCategory?
+    @State private var searchText = ""
+    @State private var remarks = ""
+    @State private var selectedTarget: OnDutyTarget?
+    @State private var selectedVehicleOwnership: String?
+    @State private var selectedVehicleType: String?
+    @State private var projects: [ProjectSummary] = []
+    @State private var vendors: [OnDutyVendor] = []
+    @State private var isLoadingMasters = false
+    @State private var isSubmitting = false
+    @State private var errorMessage: String?
+
+    private var title: String {
+        switch step {
+        case .category:
+            return "On Duty Details"
+        case .target:
+            switch selectedCategory {
+            case .projects: return "Select Project"
+            case .vendors: return "Select Vendor"
+            case .others: return "Enter Remarks"
+            case nil: return "On Duty Details"
+            }
+        case .vehicle:
+            return "Select Vehicle"
+        }
+    }
+
+    private var subtitle: String {
+        switch step {
+        case .category:
+            return "Select a category to start on duty flow"
+        case .target:
+            switch selectedCategory {
+            case .projects: return "Select a Project Which ever you want"
+            case .vendors: return "Select a Vendor Which ever you want"
+            case .others: return "Provide remarks for on-duty"
+            case nil: return "Select a category to start on duty flow"
+            }
+        case .vehicle:
+            return "Which Vehicle You are going to use"
+        }
+    }
+
+    private var currentTargets: [OnDutyTarget] {
+        switch selectedCategory {
+        case .projects:
+            return projects.map { OnDutyTarget(id: $0.id, name: $0.displayName, address: $0.location) }
+        case .vendors:
+            return vendors.map { OnDutyTarget(id: $0.id, name: $0.name, address: $0.address) }
+        default:
+            return []
+        }
+    }
+
+    private var filteredTargets: [OnDutyTarget] {
+        let clean = searchText.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !clean.isEmpty else { return currentTargets }
+        return currentTargets.filter { $0.name.localizedCaseInsensitiveContains(clean) }
+    }
+
+    private var canGoNext: Bool {
+        switch selectedCategory {
+        case .projects, .vendors:
+            return selectedTarget != nil
+        case .others:
+            return remarks.nilIfBlank != nil
+        case nil:
+            return false
+        }
+    }
+
+    private var canSubmit: Bool {
+        selectedVehicleOwnership != nil && selectedVehicleType != nil
+    }
+
+    var body: some View {
+        VStack(spacing: 0) {
+            Capsule()
+                .fill(Color(hex: 0xD0D5DD))
+                .frame(width: 40, height: 4)
+                .padding(.top, 16)
+                .padding(.bottom, 14)
+
+            VStack(alignment: .leading, spacing: 2) {
+                Text(title)
+                    .font(.system(size: 20, weight: .bold))
+                    .foregroundStyle(Color(hex: 0x101828))
+                Text(subtitle)
+                    .font(.system(size: 13, weight: .medium))
+                    .foregroundStyle(Color(hex: 0x667085))
+            }
+            .frame(maxWidth: .infinity, alignment: .leading)
+            .padding(.horizontal, 20)
+            .padding(.bottom, 16)
+
+            ScrollView {
+                VStack(spacing: 10) {
+                    switch step {
+                    case .category:
+                        categoryStep
+                    case .target:
+                        targetStep
+                    case .vehicle:
+                        vehicleStep
+                    }
+                }
+                .padding(.horizontal, 20)
+                .padding(.bottom, 92)
+            }
+
+            bottomButton
+                .padding(.horizontal, 20)
+                .padding(.top, 12)
+                .padding(.bottom, 24)
+                .background(Color(hex: 0xF8FAFC))
+        }
+        .background(Color(hex: 0xF8FAFC).ignoresSafeArea())
+        .task { await loadMasterData() }
+        .interactiveDismissDisabled(isSubmitting)
+        .alert("On Duty", isPresented: Binding(
+            get: { errorMessage != nil },
+            set: { if !$0 { errorMessage = nil } }
+        )) {
+            Button("OK", role: .cancel) {}
+        } message: {
+            Text(errorMessage ?? "")
+        }
+    }
+
+    private var categoryStep: some View {
+        VStack(spacing: 10) {
+            ForEach(OnDutyCategory.allCases) { category in
+                OnDutyCategoryCard(category: category) {
+                    selectedCategory = category
+                    selectedTarget = nil
+                    searchText = ""
+                    remarks = ""
+                    withAnimation(.easeOut(duration: 0.18)) {
+                        step = .target
+                    }
+                }
+            }
+        }
+    }
+
+    @ViewBuilder
+    private var targetStep: some View {
+        if selectedCategory == .others {
+            TextField("Enter remarks details...", text: $remarks, axis: .vertical)
+                .lineLimit(4...6)
+                .padding(12)
+                .frame(minHeight: 80, alignment: .topLeading)
+                .background(Color.white, in: RoundedRectangle(cornerRadius: 12, style: .continuous))
+                .overlay(RoundedRectangle(cornerRadius: 12, style: .continuous).stroke(Color(hex: 0xE4E7EC), lineWidth: 1))
+        } else {
+            VStack(spacing: 12) {
+                HStack(spacing: 10) {
+                    TextField(selectedCategory == .vendors ? "Search Vendors" : "Search Projects", text: $searchText)
+                        .textInputAutocapitalization(.never)
+                    Image(systemName: "magnifyingglass")
+                        .foregroundStyle(Color(hex: 0x667085))
+                }
+                .padding(.horizontal, 16)
+                .frame(height: 48)
+                .background(Color.white, in: RoundedRectangle(cornerRadius: 12, style: .continuous))
+                .overlay(RoundedRectangle(cornerRadius: 12, style: .continuous).stroke(Color(hex: 0xEAECF0), lineWidth: 1))
+
+                if isLoadingMasters && currentTargets.isEmpty {
+                    ProgressView()
+                        .frame(maxWidth: .infinity)
+                        .padding(.vertical, 24)
+                } else if filteredTargets.isEmpty {
+                    ContentUnavailableView(
+                        selectedCategory == .vendors ? "No Vendors" : "No Projects",
+                        systemImage: selectedCategory == .vendors ? "building.2" : "building",
+                        description: Text("Pull to refresh attendance if the list looks outdated.")
+                    )
+                    .padding(.vertical, 24)
+                } else {
+                    VStack(spacing: 12) {
+                        ForEach(filteredTargets) { target in
+                            OnDutyTargetRow(target: target, isSelected: selectedTarget?.id == target.id) {
+                                selectedTarget = target
+                            }
+                        }
+                    }
+                }
+            }
+        }
+    }
+
+    private var vehicleStep: some View {
+        VStack(alignment: .leading, spacing: 8) {
+            vehicleGroup(title: "Own Vehicle", ownership: "Own Vehicle")
+                .padding(.bottom, 10)
+            vehicleGroup(title: "Office Vehicle", ownership: "Office Vehicle")
+        }
+    }
+
+    private func vehicleGroup(title: String, ownership: String) -> some View {
+        VStack(alignment: .leading, spacing: 8) {
+            Text(title)
+                .font(.system(size: 14, weight: .semibold))
+                .foregroundStyle(Color(hex: 0x344054))
+            HStack(spacing: 12) {
+                vehicleCard(ownership: ownership, type: "2 Wheeler", title: "Two Wheeler", systemImage: "bicycle")
+                vehicleCard(ownership: ownership, type: "4 Wheeler", title: "Four Wheeler", systemImage: "car.fill")
+            }
+        }
+    }
+
+    private func vehicleCard(ownership: String, type: String, title: String, systemImage: String) -> some View {
+        let isSelected = selectedVehicleOwnership == ownership && selectedVehicleType == type
+        return Button {
+            withAnimation(.spring(response: 0.28, dampingFraction: 0.86)) {
+                selectedVehicleOwnership = ownership
+                selectedVehicleType = type
+            }
+        } label: {
+            ZStack {
+                if isSelected {
+                    Image(systemName: systemImage)
+                        .font(.system(size: 30, weight: .bold))
+                        .foregroundStyle(.white.opacity(0.24))
+                        .offset(x: -44)
+                        .transition(.move(edge: .leading).combined(with: .opacity))
+                }
+                Text(title)
+                    .font(.system(size: 14, weight: .semibold))
+                    .foregroundStyle(isSelected ? .white : Color(hex: 0x101828))
+            }
+            .frame(maxWidth: .infinity)
+            .frame(height: 54)
+            .background(isSelected ? Color(hex: 0x0B61CA) : Color.white, in: RoundedRectangle(cornerRadius: 14, style: .continuous))
+            .overlay(
+                RoundedRectangle(cornerRadius: 14, style: .continuous)
+                    .stroke(isSelected ? Color(hex: 0x0B61CA) : Color(hex: 0xE4E7EC), lineWidth: 1)
+            )
+        }
+        .buttonStyle(.plain)
+    }
+
+    private var bottomButton: some View {
+        Button {
+            switch step {
+            case .category:
+                break
+            case .target:
+                withAnimation(.easeOut(duration: 0.18)) {
+                    selectedVehicleOwnership = nil
+                    selectedVehicleType = nil
+                    step = .vehicle
+                }
+            case .vehicle:
+                submit()
+            }
+        } label: {
+            HStack {
+                if isSubmitting {
+                    ProgressView()
+                        .tint(.white)
+                }
+                Text(step == .vehicle ? "Start Now" : "Next")
+                    .font(.system(size: 14, weight: .semibold))
+                    .frame(maxWidth: .infinity)
+            }
+            .frame(height: 48)
+        }
+        .buttonStyle(.borderedProminent)
+        .tint((step == .vehicle ? canSubmit : canGoNext) ? Color(hex: 0x0B61CA) : Color(hex: 0xD0D5DD))
+        .disabled(isSubmitting || (step == .vehicle ? !canSubmit : !canGoNext))
+        .opacity(step == .category ? 0 : 1)
+        .allowsHitTesting(step != .category)
+    }
+
+    private func loadMasterData() async {
+        guard let token = authStore.currentSession?.token else { return }
+        isLoadingMasters = true
+        defer { isLoadingMasters = false }
+        async let loadedProjects = ProjectConvexAPIService.getMyProjects(token: token)
+        async let loadedVendors = HRConvexAPIService.getVendors(token: token)
+        do {
+            projects = try await loadedProjects
+            vendors = try await loadedVendors
+        } catch {
+            errorMessage = error.localizedDescription
+        }
+    }
+
+    private func submit() {
+        guard !isSubmitting else { return }
+        guard let selectedVehicleOwnership, let selectedVehicleType else { return }
+
+        let request: OnDutyStartRequest
+        switch selectedCategory {
+        case .projects, .vendors:
+            guard let selectedCategory, let selectedTarget else { return }
+            request = OnDutyStartRequest(
+                category: selectedCategory.apiValue,
+                targetId: selectedTarget.id,
+                targetName: selectedTarget.name,
+                targetAddress: selectedTarget.address,
+                vehicleOwnership: selectedVehicleOwnership,
+                vehicleType: selectedVehicleType
+            )
+        case .others:
+            guard let targetName = remarks.nilIfBlank else { return }
+            request = OnDutyStartRequest(
+                category: OnDutyCategory.others.apiValue,
+                targetId: nil,
+                targetName: targetName,
+                targetAddress: nil,
+                vehicleOwnership: selectedVehicleOwnership,
+                vehicleType: selectedVehicleType
+            )
+        case nil:
+            return
+        }
+
+        isSubmitting = true
+        Task {
+            await onSubmit(request)
+            await MainActor.run {
+                isSubmitting = false
+            }
+        }
+    }
+
+    private enum OnDutyStep {
+        case category
+        case target
+        case vehicle
+    }
+
+    private enum OnDutyCategory: String, CaseIterable, Identifiable {
+        case projects
+        case vendors
+        case others
+
+        var id: String { rawValue }
+        var apiValue: String {
+            switch self {
+            case .projects: return "Projects"
+            case .vendors: return "Vendors"
+            case .others: return "Others"
+            }
+        }
+        var title: String {
+            switch self {
+            case .projects: return "Projects"
+            case .vendors: return "Vendors"
+            case .others: return "Others (Remarks)"
+            }
+        }
+        var subtitle: String {
+            switch self {
+            case .projects: return "Duty on developer/construction projects"
+            case .vendors: return "Duty on third-party vendor sites"
+            case .others: return "Duty for general meetings or custom tasks"
+            }
+        }
+        var icon: String {
+            switch self {
+            case .projects: return "building.2"
+            case .vendors: return "building"
+            case .others: return "square.and.pencil"
+            }
+        }
+    }
+
+    private struct OnDutyTarget: Identifiable, Hashable {
+        let id: String
+        let name: String
+        let address: String?
+    }
+
+    private struct OnDutyCategoryCard: View {
+        let category: OnDutyCategory
+        let onTap: () -> Void
+
+        var body: some View {
+            Button(action: onTap) {
+                HStack(spacing: 12) {
+                    Image(systemName: category.icon)
+                        .font(.system(size: 22, weight: .semibold))
+                        .foregroundStyle(Color(hex: 0x0B61CA))
+                        .frame(width: 28)
+                    VStack(alignment: .leading, spacing: 2) {
+                        Text(category.title)
+                            .font(.system(size: 14, weight: .semibold))
+                            .foregroundStyle(Color(hex: 0x101828))
+                        Text(category.subtitle)
+                            .font(.system(size: 11, weight: .regular))
+                            .foregroundStyle(Color(hex: 0x667085))
+                    }
+                    Spacer()
+                }
+                .padding(12)
+                .background(Color.white, in: RoundedRectangle(cornerRadius: 14, style: .continuous))
+                .overlay(RoundedRectangle(cornerRadius: 14, style: .continuous).stroke(Color(hex: 0xE4E7EC), lineWidth: 1))
+            }
+            .buttonStyle(.plain)
+        }
+    }
+
+    private struct OnDutyTargetRow: View {
+        let target: OnDutyTarget
+        let isSelected: Bool
+        let onTap: () -> Void
+
+        var body: some View {
+            Button(action: onTap) {
+                HStack(spacing: 12) {
+                    Text(target.name)
+                        .font(.system(size: 15, weight: .semibold))
+                        .foregroundStyle(Color(hex: 0x101828))
+                        .lineLimit(2)
+                        .frame(maxWidth: .infinity, alignment: .leading)
+                    Image(systemName: isSelected ? "largecircle.fill.circle" : "circle")
+                        .font(.system(size: 20, weight: .semibold))
+                        .foregroundStyle(isSelected ? Color(hex: 0x0B61CA) : Color(hex: 0x98A2B3))
+                }
+                .padding(.horizontal, 16)
+                .padding(.vertical, 14)
+                .frame(minHeight: 56)
+                .background(isSelected ? Color(hex: 0xEAF3FF) : Color.white, in: RoundedRectangle(cornerRadius: 14, style: .continuous))
+                .overlay(RoundedRectangle(cornerRadius: 14, style: .continuous).stroke(isSelected ? Color(hex: 0x0B61CA) : Color(hex: 0xE4E7EC), lineWidth: 1))
+            }
+            .buttonStyle(.plain)
+        }
+    }
+}
+
+private extension String {
+    var nilIfBlank: String? {
+        let trimmed = trimmingCharacters(in: .whitespacesAndNewlines)
+        return trimmed.isEmpty ? nil : trimmed
     }
 }
 
