@@ -37,6 +37,18 @@ enum AppModuleFormatters {
         return f
     }()
 
+    static let dayNumber: DateFormatter = {
+        let f = DateFormatter()
+        f.dateFormat = "d"
+        return f
+    }()
+
+    static let shortMonth: DateFormatter = {
+        let f = DateFormatter()
+        f.dateFormat = "MMM"
+        return f
+    }()
+
     static let ymd: DateFormatter = {
         let f = DateFormatter()
         f.dateFormat = "yyyy-MM-dd"

@@ -75,7 +75,8 @@ struct ConvexAttendanceListView: View {
         }
         .sheet(isPresented: $showFilter) {
             AttendanceFilterSheet(filter: $filter)
-                .presentationDetents([.medium, .large])
+                .presentationDetents([.height(250)])
+                .presentationDragIndicator(.hidden)
         }
         .sheet(item: $selectedRecord) { record in
             PunchLogSheet(record: record)
@@ -88,6 +89,8 @@ struct ConvexAttendanceListView: View {
             }
             .presentationDetents([.height(560), .large])
             .presentationBackground(Color.clear)
+            .presentationCornerRadius(28)
+            .presentationDragIndicator(.hidden)
         }
         .task(id: filter.apiRange.from + "_" + filter.apiRange.to) {
             await loadDataAsync()
@@ -385,7 +388,7 @@ private struct AttendanceHistoryCard: View {
     private var clockRange: String {
         let firstIn = record.firstPunchIn ?? record.sessions?.first?.punchInTime
         let inLabel = firstIn.flatMap(Self.formatTime) ?? "--"
-        let resolvedOut = record.lastPunchOut ?? record.sessions?.last?.punchOutTime
+        let resolvedOut = resolvedPunchOut
         let outLabel: String
         if let resolvedOut, let formatted = Self.formatTime(resolvedOut) {
             outLabel = formatted
@@ -397,6 +400,14 @@ private struct AttendanceHistoryCard: View {
             outLabel = "--"
         }
         return "\(inLabel) · \(outLabel)"
+    }
+
+    private var resolvedPunchOut: String? {
+        let firstIn = record.firstPunchIn ?? record.sessions?.first?.punchInTime
+        guard !hasOpenSession else { return nil }
+        let candidate = record.lastPunchOut ?? record.sessions?.last?.punchOutTime
+        guard let candidate, candidate != firstIn else { return nil }
+        return candidate
     }
 
     private var statusBadge: (title: String, color: Color)? {
@@ -427,7 +438,8 @@ private struct AttendanceHistoryCard: View {
     }
 
     private var hasOpenSession: Bool {
-        record.sessions?.contains { session in
+        if record.hasOpenSession == true { return true }
+        return record.sessions?.contains { session in
             session.punchInTime != nil && session.punchOutTime == nil
         } == true
     }
@@ -605,7 +617,17 @@ private struct AttendanceRequestSheet: View {
         .padding(.horizontal, 20)
         .padding(.top, 12)
         .padding(.bottom, 20)
-        .background(Color.white, in: UnevenRoundedRectangle(topLeadingRadius: 28, bottomLeadingRadius: 0, bottomTrailingRadius: 0, topTrailingRadius: 28, style: .continuous))
+        .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
+        .background(Color.white)
+        .clipShape(
+            UnevenRoundedRectangle(
+                topLeadingRadius: 28,
+                bottomLeadingRadius: 0,
+                bottomTrailingRadius: 0,
+                topTrailingRadius: 28,
+                style: .continuous
+            )
+        )
         .onAppear {
             let existingIn = initialDateIfPresent(from: record.firstPunchIn ?? record.sessions?.first?.punchInTime)
             let existingOut = initialDateIfPresent(from: record.lastPunchOut ?? record.sessions?.last?.punchOutTime)

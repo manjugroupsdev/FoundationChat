@@ -4,6 +4,7 @@ import UIKit
 struct SiteVisitOutcomeSheet: View {
     let siteVisitId: String
     let initialOutcome: String?
+    let locksOutcome: Bool
     let onCompleted: () -> Void
 
     @Environment(AuthStore.self) private var authStore
@@ -44,9 +45,10 @@ struct SiteVisitOutcomeSheet: View {
     private let paymentModeOptions = ["Cash", "Cheque", "NEFT", "Online", "Loan"]
     private let documentLanguageOptions = ["English", "Tamil", "Hindi"]
 
-    init(siteVisitId: String, initialOutcome: String? = nil, onCompleted: @escaping () -> Void) {
+    init(siteVisitId: String, initialOutcome: String? = nil, locksOutcome: Bool = false, onCompleted: @escaping () -> Void) {
         self.siteVisitId = siteVisitId
         self.initialOutcome = initialOutcome
+        self.locksOutcome = locksOutcome
         self.onCompleted = onCompleted
         _selectedOutcome = State(initialValue: SiteVisitOutcome(rawValue: initialOutcome ?? "") ?? .booking)
     }
@@ -160,13 +162,16 @@ struct SiteVisitOutcomeSheet: View {
         HStack(spacing: 0) {
             ForEach(Array(SiteVisitOutcome.allCases.enumerated()), id: \.element.id) { index, outcome in
                 Button {
+                    guard !locksOutcome || outcome == selectedOutcome else { return }
                     selectedOutcome = outcome
                     errorMessage = nil
                 } label: {
                     SiteVisitOutcomeTabView(outcome: outcome, isSelected: selectedOutcome == outcome)
                         .frame(maxWidth: .infinity)
+                        .opacity(locksOutcome && outcome != selectedOutcome ? 0.35 : 1)
                 }
                 .buttonStyle(.plain)
+                .disabled(locksOutcome && outcome != selectedOutcome)
 
                 if index < SiteVisitOutcome.allCases.count - 1 {
                     Rectangle()

@@ -12,23 +12,22 @@ struct LoansView: View {
     @State private var selectedTab: LoansScreenTab = .loans
 
     var body: some View {
-        ScrollView {
-            VStack(spacing: 0) {
-                header
-                loansContent
-            }
-            .padding(.bottom, 24)
-        }
-        .background(Color(.systemGroupedBackground))
-        .navigationTitle("Loans")
-        .navigationBarTitleDisplayMode(.inline)
-        .toolbar {
-            ToolbarItem(placement: .principal) {
-                Text("Loans")
-                    .font(.system(size: 20, weight: .bold))
-                    .foregroundStyle(Color(hex: 0x101828))
+        ZStack {
+            Color(hex: 0xF1F3F8)
+                .ignoresSafeArea()
+
+            ScrollView(showsIndicators: false) {
+                VStack(spacing: 0) {
+                    header
+                    loansContent
+                }
+                .padding(.bottom, 40)
             }
         }
+        .ignoresSafeArea(edges: .top)
+        .navigationBarBackButtonHidden(false)
+        .toolbar(.hidden, for: .navigationBar)
+        .toolbar(.hidden, for: .tabBar)
         .refreshable { await load() }
         .task { if !hasLoaded { await load() } }
         .sheet(isPresented: $showingLoanRequest) {
@@ -66,27 +65,31 @@ struct LoansView: View {
             HStack {
                 VStack(alignment: .leading, spacing: 5) {
                     Text("My Loans")
-                        .font(.system(size: 28, weight: .bold))
+                        .font(.system(size: 24, weight: .semibold))
                         .foregroundStyle(.white)
-                    Text("Manage salary advances and loan repayments")
-                        .font(.system(size: 13))
-                        .foregroundStyle(.white.opacity(0.78))
+                    Text("Manage Loans and Advances")
+                        .font(.system(size: 13, weight: .medium))
+                        .foregroundStyle(Color(hex: 0xD9D6FE))
                         .fixedSize(horizontal: false, vertical: true)
                 }
+                .frame(maxWidth: .infinity, alignment: .leading)
                 Spacer()
-                Image(systemName: "indianrupeesign.circle.fill")
-                    .font(.system(size: 62))
-                    .foregroundStyle(.white)
-                    .opacity(0.9)
+                Image("LoansHeaderArt")
+                    .resizable()
+                    .scaledToFit()
+                    .frame(width: 150, height: 110)
+                    .offset(x: 8)
             }
-            .padding(.horizontal, 24)
-            .padding(.top, 42)
+            .padding(.leading, 16)
+            .padding(.trailing, 0)
+            .padding(.top, 86)
         }
-        .frame(height: 212)
+        .frame(height: 236)
+        .ignoresSafeArea(edges: .top)
     }
 
     private var loansContent: some View {
-        VStack(spacing: 16) {
+        VStack(spacing: 0) {
             if selectedTab == .loans, let hero = active.first {
                 NavigationLink {
                     RepaymentHistoryView(loanId: hero.id, status: hero.status)
@@ -94,30 +97,29 @@ struct LoansView: View {
                     LoanHeroCard(loan: hero)
                 }
                 .buttonStyle(.plain)
+                .padding(.top, 20)
             } else {
                 emptyHeroCard
+                    .padding(.top, 20)
             }
 
-            loanTabs
-            actionButtons
+            loansControlRow
+                .padding(.top, 16)
 
             if selectedTab == .salary {
                 salaryAdvanceInfo
+                    .padding(.top, 22)
             } else if isLoading && !hasLoaded {
                 AppModuleLoadingRows()
-                    .padding(.horizontal)
+                    .padding(.horizontal, 16)
+                    .padding(.top, 22)
             } else if active.isEmpty && previous.isEmpty {
-                ContentUnavailableView(
-                    "No Loans",
-                    systemImage: "indianrupeesign.circle",
-                    description: Text(errorMessage ?? "When your finance team disburses a loan, you'll see it grouped here with EMI dates and repayment history.")
-                )
-                .padding(.vertical, 34)
-                .background(Color.white, in: RoundedRectangle(cornerRadius: 18))
-                .padding(.horizontal)
+                loansEmptyState
+                    .padding(.top, 48)
             } else {
                 if active.count > 1 {
-                    loanSectionTitle("Active Loans", count: active.count - 1)
+                    loanSectionTitle("Requested Loans", count: active.count - 1)
+                        .padding(.top, 22)
                     LazyVStack(spacing: 12) {
                         ForEach(Array(active.dropFirst())) { loan in
                             NavigationLink {
@@ -128,11 +130,12 @@ struct LoansView: View {
                             .buttonStyle(.plain)
                         }
                     }
-                    .padding(.horizontal)
+                    .padding(.horizontal, 16)
                 }
 
                 if !previous.isEmpty {
-                    loanSectionTitle("Previous Loans", count: previous.count)
+                    loanSectionTitle("Previous Loans", count: previous.count, showsViewAll: true)
+                        .padding(.top, 22)
                     LazyVStack(spacing: 12) {
                         ForEach(previous) { loan in
                             NavigationLink {
@@ -143,11 +146,14 @@ struct LoansView: View {
                             .buttonStyle(.plain)
                         }
                     }
-                    .padding(.horizontal)
+                    .padding(.horizontal, 16)
                 }
             }
         }
-        .padding(.top, -64)
+        .padding(.bottom, 32)
+        .background(Color.white)
+        .clipShape(.rect(topLeadingRadius: 30, topTrailingRadius: 30))
+        .padding(.top, -44)
     }
 
     private var emptyHeroCard: some View {
@@ -173,21 +179,28 @@ struct LoansView: View {
                 metricTile("Next EMI", "—")
             }
         }
-        .padding(18)
-        .background(Color.white, in: RoundedRectangle(cornerRadius: 20))
-        .padding(.horizontal, 20)
-        .shadow(color: .black.opacity(0.08), radius: 16, y: 8)
+        .padding(.horizontal, 16)
+        .padding(.top, 18)
+        .padding(.bottom, 16)
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .background(Color.white)
     }
 
-    private func loanSectionTitle(_ title: String, count: Int) -> some View {
+    private func loanSectionTitle(_ title: String, count: Int, showsViewAll: Bool = false) -> some View {
         HStack {
             Text(title)
                 .font(.system(size: 18, weight: .bold))
                 .foregroundStyle(Color(hex: 0x101828))
             Spacer()
-            Text("\(count)")
-                .font(.system(size: 13, weight: .semibold))
-                .foregroundStyle(Color(hex: 0x667085))
+            if showsViewAll {
+                Text("View All")
+                    .font(.system(size: 12, weight: .semibold))
+                    .foregroundStyle(Color(hex: 0x0B61CA))
+            } else {
+                Text("\(count)")
+                    .font(.system(size: 13, weight: .semibold))
+                    .foregroundStyle(Color(hex: 0x667085))
+            }
         }
         .padding(.horizontal, 20)
     }
@@ -206,41 +219,46 @@ struct LoansView: View {
         .background(Color(hex: 0xF8FAFC), in: RoundedRectangle(cornerRadius: 12))
     }
 
-    private var loanTabs: some View {
-        Picker("Loan type", selection: $selectedTab) {
-            ForEach(LoansScreenTab.allCases) { tab in
-                Text(tab.title).tag(tab)
-            }
-        }
-        .pickerStyle(.segmented)
-        .padding(.horizontal, 20)
-    }
-
-    private var actionButtons: some View {
+    private var loansControlRow: some View {
         HStack(spacing: 12) {
-            if selectedTab == .loans {
-                Button {
-                    showingLoanRequest = true
-                } label: {
-                    Label("Create Loan", systemImage: "plus.circle.fill")
+            HStack(spacing: 0) {
+                ForEach(LoansScreenTab.allCases) { tab in
+                    Button {
+                        withAnimation(.snappy(duration: 0.2)) {
+                            selectedTab = tab
+                        }
+                    } label: {
+                        Text(tab.title)
+                            .font(.system(size: 15, weight: selectedTab == tab ? .semibold : .medium))
+                            .foregroundStyle(selectedTab == tab ? .white : Color(hex: 0x475467))
+                            .frame(maxWidth: .infinity)
+                            .frame(height: 32)
+                            .background(selectedTab == tab ? Color(hex: 0x0B61CA) : Color.clear, in: Capsule())
+                    }
+                    .buttonStyle(.plain)
                 }
-                .buttonStyle(.borderedProminent)
-                .controlSize(.large)
-                .tint(Color(hex: 0x0B61CA))
-                .frame(maxWidth: .infinity)
-            } else {
-                Button {
-                    showingSalaryAdvance = true
-                } label: {
-                    Label("Create Salary Advance", systemImage: "indianrupeesign.circle.fill")
-                }
-                .buttonStyle(.borderedProminent)
-                .controlSize(.large)
-                .tint(Color(hex: 0x0B61CA))
-                .frame(maxWidth: .infinity)
             }
+            .padding(3)
+            .frame(height: 38)
+            .background(Color(hex: 0xEAECF0), in: Capsule())
+
+            Button {
+                if selectedTab == .loans {
+                    showingLoanRequest = true
+                } else {
+                    showingSalaryAdvance = true
+                }
+            } label: {
+                Image(systemName: "plus")
+                    .font(.system(size: 18, weight: .bold))
+                    .foregroundStyle(Color(hex: 0x101828))
+                    .frame(width: 38, height: 38)
+                    .background(Color.white, in: RoundedRectangle(cornerRadius: 10, style: .continuous))
+                    .shadow(color: .black.opacity(0.08), radius: 6, y: 2)
+            }
+            .buttonStyle(.plain)
         }
-        .padding(.horizontal)
+        .padding(.horizontal, 16)
     }
 
     private var salaryAdvanceInfo: some View {
@@ -248,7 +266,7 @@ struct LoansView: View {
             Text("Salary Advance")
                 .font(AppModuleFont.rowTitle)
                 .foregroundStyle(Color(hex: 0x101828))
-            Text("Use this tab to request an advance against salary. Submitted requests are handled through the same loan approval flow.")
+            Text("Use this tab to request an advance against salary. Submitted requests are handled through the same approval flow.")
                 .font(AppModuleFont.rowBody)
                 .foregroundStyle(Color(hex: 0x667085))
                 .fixedSize(horizontal: false, vertical: true)
@@ -256,7 +274,25 @@ struct LoansView: View {
         .padding(16)
         .frame(maxWidth: .infinity, alignment: .leading)
         .background(Color.white, in: RoundedRectangle(cornerRadius: 14, style: .continuous))
-        .padding(.horizontal)
+        .padding(.horizontal, 16)
+    }
+
+    private var loansEmptyState: some View {
+        VStack(spacing: 12) {
+            Image(systemName: "indianrupeesign.circle")
+                .font(.system(size: 54, weight: .semibold))
+                .foregroundStyle(Color(hex: 0x98A2B3))
+            Text("No Loans Yet")
+                .font(.system(size: 21, weight: .bold))
+                .foregroundStyle(Color(hex: 0x101828))
+            Text(errorMessage ?? "When your finance team disburses a loan, you'll see it grouped here with EMI dates and a full repayment history.")
+                .font(.system(size: 13, weight: .medium))
+                .foregroundStyle(Color(hex: 0x667085))
+                .multilineTextAlignment(.center)
+                .padding(.horizontal, 32)
+        }
+        .frame(maxWidth: .infinity)
+        .padding(.vertical, 40)
     }
 
     @MainActor
@@ -330,103 +366,101 @@ private struct LoanRequestSheet: View {
     private let documentOptions = ["Aadhaar Card", "PAN Card", "Salary Slip", "Bond Certificate", "Other"]
 
     var body: some View {
-        NavigationStack {
-            Form {
-                Section("Staff") {
-                    Menu {
-                        ForEach(staff) { item in
-                            Button {
-                                selectedStaff = item
-                            } label: {
-                                if selectedStaff?.id == item.id {
-                                    Label(item.displayName, systemImage: "checkmark")
-                                } else {
-                                    Text(item.displayName)
-                                }
-                            }
-                        }
-                    } label: {
-                        pickerRow("Staff", value: selectedStaff?.displayName ?? "Select staff")
-                    }
+        ZStack(alignment: .bottom) {
+            Color.white.ignoresSafeArea()
 
-                    nomineePicker(title: "Nominee 1", selection: $selectedNominee1)
-                    nomineePicker(title: "Nominee 2", selection: $selectedNominee2)
-                }
+            ScrollView(showsIndicators: false) {
+                VStack(alignment: .leading, spacing: 0) {
+                    Capsule()
+                        .fill(Color(hex: 0xD9D9D9))
+                        .frame(width: 52, height: 5)
+                        .frame(maxWidth: .infinity)
+                        .padding(.top, 8)
+                        .padding(.bottom, 16)
 
-                Section("Loan") {
-                    TextField("Loan amount", text: $amount)
-                        .keyboardType(.decimalPad)
-                    Menu {
+                    Text("Request Loan")
+                        .font(.system(size: 16, weight: .semibold))
+                        .foregroundStyle(Color(hex: 0x101828))
+                    Text("Information about Loans")
+                        .font(.system(size: 12, weight: .regular))
+                        .foregroundStyle(Color(hex: 0x667085))
+                        .padding(.top, 2)
+                        .padding(.bottom, 16)
+
+                    nomineeMenuField(title: "Nominee 1 *", selection: $selectedNominee1)
+                    nomineeMenuField(title: "Nominee 2 *", selection: $selectedNominee2)
+
+                    Text("Both Nominee must approve with a digital signature before the request moves to GM->AVP->HR->Accountant.")
+                        .font(.system(size: 10, weight: .regular))
+                        .foregroundStyle(Color(hex: 0xB1B1B1))
+                        .fixedSize(horizontal: false, vertical: true)
+                        .padding(.bottom, 24)
+
+                    loanTextField(title: "Loan Amount *", placeholder: "Enter Amount", icon: "indianrupeesign.circle", text: $amount, keyboard: .decimalPad)
+
+                    menuField(title: "Interest Type", value: interestType, placeholder: "Select Type", icon: "doc.text") {
                         ForEach(interestOptions, id: \.self) { option in
                             Button(option) { interestType = option }
                         }
-                    } label: {
-                        pickerRow("Interest type", value: interestType)
                     }
-                    DatePicker("Disbursed date", selection: $disbursedDate, displayedComponents: .date)
-                    DatePicker("Repayment start month", selection: $repaymentStartMonth, displayedComponents: .date)
-                    TextField("Tenure in months", text: $tenure)
-                        .keyboardType(.numberPad)
-                    Menu {
+
+                    dateInputField(title: "Disbursed Date *", value: $disbursedDate, components: .date, placeholder: "Select Date")
+                    dateInputField(title: "Repayment Start Month *", value: $repaymentStartMonth, components: .date, placeholder: "Select Month")
+
+                    loanTextField(title: "Tenure (Months) *", placeholder: "Maximum 6", icon: "clock", text: $tenure, keyboard: .numberPad)
+
+                    menuField(title: "Original Document To be Submit *", value: submittedDocument, placeholder: "Select the document", icon: "doc.text") {
                         ForEach(documentOptions, id: \.self) { document in
                             Button(document) { submittedDocument = document }
                         }
-                    } label: {
-                        pickerRow("Submitted document", value: submittedDocument)
                     }
-                    TextField("Purpose", text: $purpose, axis: .vertical)
-                        .lineLimit(3...5)
-                    TextField("Notes", text: $notes, axis: .vertical)
-                        .lineLimit(2...4)
-                }
 
-                if let errorMessage {
-                    Section {
+                    loanTextField(title: "Purpose", placeholder: "Enter Details", icon: "doc.text", text: $purpose, keyboard: .default)
+                    loanTextField(title: "Notes", placeholder: "Enter Notes", icon: "note.text", text: $notes, keyboard: .default, minHeight: 80, axis: .vertical)
+
+                    if let errorMessage {
                         Text(errorMessage)
-                            .foregroundStyle(.red)
+                            .font(.system(size: 12, weight: .medium))
+                            .foregroundStyle(Color(hex: 0xB42318))
+                            .padding(.top, 4)
                     }
                 }
+                .padding(.horizontal, 16)
+                .padding(.bottom, 90)
             }
-            .navigationTitle("Create Loan")
-            .navigationBarTitleDisplayMode(.inline)
-            .toolbar {
-                ToolbarItem(placement: .cancellationAction) {
-                    Button("Cancel") { dismiss() }
-                }
-                ToolbarItem(placement: .confirmationAction) {
-                    Button {
-                        submit()
-                    } label: {
+
+            VStack(spacing: 0) {
+                Divider()
+                    .overlay(Color(hex: 0xD0D5DD))
+                Button {
+                    submit()
+                } label: {
+                    ZStack {
+                        Text("Submit Now")
+                            .opacity(isSubmitting ? 0 : 1)
                         if isSubmitting {
                             ProgressView()
-                        } else {
-                            Text("Submit")
+                                .tint(.white)
                         }
                     }
-                    .buttonStyle(.borderedProminent)
-                    .disabled(isSubmitting || isLoadingStaff)
+                    .font(.system(size: 15, weight: .semibold))
+                    .foregroundStyle(.white)
+                    .frame(maxWidth: .infinity)
+                    .frame(height: 48)
+                    .background(loanSubmitGradient, in: Capsule())
                 }
+                .buttonStyle(.plain)
+                .disabled(isSubmitting || isLoadingStaff)
+                .padding(.horizontal, 24)
+                .padding(.vertical, 14)
+                .background(Color.white)
             }
-            .task { await loadStaff() }
         }
+        .task { await loadStaff() }
     }
 
-    private func pickerRow(_ title: String, value: String) -> some View {
-        HStack {
-            Text(title)
-                .foregroundStyle(.primary)
-            Spacer()
-            Text(value)
-                .foregroundStyle(.secondary)
-                .multilineTextAlignment(.trailing)
-            Image(systemName: "chevron.down")
-                .font(.caption.weight(.semibold))
-                .foregroundStyle(.tertiary)
-        }
-    }
-
-    private func nomineePicker(title: String, selection: Binding<ConvexStaffListItem?>) -> some View {
-        Menu {
+    private func nomineeMenuField(title: String, selection: Binding<ConvexStaffListItem?>) -> some View {
+        menuField(title: title, value: selection.wrappedValue?.displayName ?? "", placeholder: "Select Nominee", icon: "person.crop.circle") {
             ForEach(staff.filter { $0.id != selectedStaff?.id }) { item in
                 Button {
                     selection.wrappedValue = item
@@ -438,9 +472,95 @@ private struct LoanRequestSheet: View {
                     }
                 }
             }
-        } label: {
-            pickerRow(title, value: selection.wrappedValue?.displayName ?? "Select nominee")
         }
+    }
+
+    private func menuField<Content: View>(
+        title: String,
+        value: String,
+        placeholder: String,
+        icon: String,
+        @ViewBuilder content: () -> Content
+    ) -> some View {
+        Menu {
+            content()
+        } label: {
+            inputShell(title: title, icon: icon, trailingChevron: true) {
+                Text(value.isEmpty ? placeholder : value)
+                    .font(.system(size: 14, weight: .regular))
+                    .foregroundStyle(value.isEmpty ? Color(hex: 0x98A2B3) : Color(hex: 0x101828))
+                    .frame(maxWidth: .infinity, alignment: .leading)
+            }
+        }
+        .buttonStyle(.plain)
+    }
+
+    private func dateInputField(title: String, value: Binding<Date>, components: DatePickerComponents, placeholder: String) -> some View {
+        inputShell(title: title, icon: "calendar", trailingChevron: true) {
+            DatePicker(placeholder, selection: value, displayedComponents: components)
+                .labelsHidden()
+                .datePickerStyle(.compact)
+                .tint(Color(hex: 0x0B61CA))
+                .frame(maxWidth: .infinity, alignment: .leading)
+        }
+    }
+
+    private func loanTextField(
+        title: String,
+        placeholder: String,
+        icon: String,
+        text: Binding<String>,
+        keyboard: UIKeyboardType,
+        minHeight: CGFloat = 44,
+        axis: Axis = .horizontal
+    ) -> some View {
+        inputShell(title: title, icon: icon, minHeight: minHeight) {
+            TextField(placeholder, text: text, axis: axis)
+                .font(.system(size: 14, weight: .regular))
+                .foregroundStyle(Color(hex: 0x101828))
+                .keyboardType(keyboard)
+                .lineLimit(axis == .vertical ? 3...5 : 1...1)
+                .frame(maxWidth: .infinity, minHeight: max(24, minHeight - 20), alignment: .leading)
+        }
+    }
+
+    private func inputShell<Content: View>(
+        title: String,
+        icon: String,
+        minHeight: CGFloat = 44,
+        trailingChevron: Bool = false,
+        @ViewBuilder content: () -> Content
+    ) -> some View {
+        VStack(alignment: .leading, spacing: 4) {
+            Text(title)
+                .font(.system(size: 12, weight: .medium))
+                .foregroundStyle(Color(hex: 0x344054))
+            HStack(spacing: 10) {
+                Image(systemName: icon)
+                    .font(.system(size: 18, weight: .medium))
+                    .foregroundStyle(Color(hex: 0x667085))
+                    .frame(width: 20)
+                content()
+                if trailingChevron {
+                    Image(systemName: "chevron.down")
+                        .font(.system(size: 13, weight: .bold))
+                        .foregroundStyle(Color(hex: 0x667085))
+                }
+            }
+            .padding(.horizontal, 12)
+            .padding(.vertical, minHeight > 44 ? 10 : 0)
+            .frame(maxWidth: .infinity, minHeight: minHeight, alignment: .center)
+            .background(Color(hex: 0xF8FAFC), in: RoundedRectangle(cornerRadius: 12, style: .continuous))
+            .overlay {
+                RoundedRectangle(cornerRadius: 12, style: .continuous)
+                    .stroke(Color(hex: 0xE5E7EB), lineWidth: 1)
+            }
+        }
+        .padding(.bottom, 12)
+    }
+
+    private var loanSubmitGradient: LinearGradient {
+        LinearGradient(colors: [Color(hex: 0x1BCB0B), Color(hex: 0x3DA302)], startPoint: .leading, endPoint: .trailing)
     }
 
     @MainActor
@@ -553,37 +673,103 @@ private struct SalaryAdvanceRequestSheet: View {
     @State private var errorMessage: String?
 
     var body: some View {
-        NavigationStack {
-            Form {
-                Section("Salary Advance") {
-                    TextField("Amount", text: $amount)
-                        .keyboardType(.decimalPad)
-                    TextField("Purpose", text: $purpose, axis: .vertical)
-                        .lineLimit(2...4)
-                }
+        ZStack(alignment: .bottom) {
+            Color.white.ignoresSafeArea()
+
+            VStack(alignment: .leading, spacing: 0) {
+                Capsule()
+                    .fill(Color(hex: 0xD9D9D9))
+                    .frame(width: 52, height: 5)
+                    .frame(maxWidth: .infinity)
+                    .padding(.top, 8)
+                    .padding(.bottom, 16)
+
+                Text("Request Advance")
+                    .font(.system(size: 16, weight: .semibold))
+                    .foregroundStyle(Color(hex: 0x101828))
+                Text("Information about Salary Advance")
+                    .font(.system(size: 12, weight: .regular))
+                    .foregroundStyle(Color(hex: 0x667085))
+                    .padding(.top, 2)
+                    .padding(.bottom, 16)
+
+                advanceInput(title: "Amount *", placeholder: "Enter Amount", icon: "indianrupeesign.circle", text: $amount, keyboard: .decimalPad)
+                advanceInput(title: "Purpose", placeholder: "Enter Details", icon: "doc.text", text: $purpose, keyboard: .default, minHeight: 80, axis: .vertical)
 
                 if let errorMessage {
-                    Section {
-                        Text(errorMessage)
-                            .foregroundStyle(.red)
-                    }
+                    Text(errorMessage)
+                        .font(.system(size: 12, weight: .medium))
+                        .foregroundStyle(Color(hex: 0xB42318))
+                        .padding(.top, 4)
                 }
+
+                Spacer(minLength: 90)
             }
-            .navigationTitle("Salary Advance")
-            .navigationBarTitleDisplayMode(.inline)
-            .toolbar {
-                ToolbarItem(placement: .cancellationAction) {
-                    Button("Cancel") { dismiss() }
-                }
-                ToolbarItem(placement: .confirmationAction) {
-                    Button(isSubmitting ? "Submitting..." : "Submit") {
-                        submit()
+            .padding(.horizontal, 16)
+
+            VStack(spacing: 0) {
+                Divider()
+                    .overlay(Color(hex: 0xD0D5DD))
+                Button {
+                    submit()
+                } label: {
+                    ZStack {
+                        Text("Submit Now")
+                            .opacity(isSubmitting ? 0 : 1)
+                        if isSubmitting {
+                            ProgressView()
+                                .tint(.white)
+                        }
                     }
-                    .buttonStyle(.borderedProminent)
-                    .disabled(isSubmitting)
+                    .font(.system(size: 15, weight: .semibold))
+                    .foregroundStyle(.white)
+                    .frame(maxWidth: .infinity)
+                    .frame(height: 48)
+                    .background(LinearGradient(colors: [Color(hex: 0x1BCB0B), Color(hex: 0x3DA302)], startPoint: .leading, endPoint: .trailing), in: Capsule())
                 }
+                .buttonStyle(.plain)
+                .disabled(isSubmitting)
+                .padding(.horizontal, 24)
+                .padding(.vertical, 14)
+                .background(Color.white)
             }
         }
+    }
+
+    private func advanceInput(
+        title: String,
+        placeholder: String,
+        icon: String,
+        text: Binding<String>,
+        keyboard: UIKeyboardType,
+        minHeight: CGFloat = 44,
+        axis: Axis = .horizontal
+    ) -> some View {
+        VStack(alignment: .leading, spacing: 4) {
+            Text(title)
+                .font(.system(size: 12, weight: .medium))
+                .foregroundStyle(Color(hex: 0x344054))
+            HStack(spacing: 10) {
+                Image(systemName: icon)
+                    .font(.system(size: 18, weight: .medium))
+                    .foregroundStyle(Color(hex: 0x667085))
+                    .frame(width: 20)
+                TextField(placeholder, text: text, axis: axis)
+                    .font(.system(size: 14, weight: .regular))
+                    .keyboardType(keyboard)
+                    .lineLimit(axis == .vertical ? 3...5 : 1...1)
+                    .frame(maxWidth: .infinity, minHeight: max(24, minHeight - 20), alignment: .leading)
+            }
+            .padding(.horizontal, 12)
+            .padding(.vertical, minHeight > 44 ? 10 : 0)
+            .frame(maxWidth: .infinity, minHeight: minHeight, alignment: .center)
+            .background(Color(hex: 0xF8FAFC), in: RoundedRectangle(cornerRadius: 12, style: .continuous))
+            .overlay {
+                RoundedRectangle(cornerRadius: 12, style: .continuous)
+                    .stroke(Color(hex: 0xE5E7EB), lineWidth: 1)
+            }
+        }
+        .padding(.bottom, 12)
     }
 
     private func submit() {
@@ -623,61 +809,96 @@ private struct LoanHeroCard: View {
     let loan: AppLoan
 
     var body: some View {
-        VStack(alignment: .leading, spacing: 16) {
-            HStack(alignment: .top) {
-                Image(systemName: loan.type == .education ? "graduationcap.fill" : "house.fill")
-                    .font(.title2)
+        VStack(alignment: .leading, spacing: 12) {
+            HStack(alignment: .top, spacing: 12) {
+                Image(systemName: loanIcon)
+                    .font(.system(size: 22, weight: .semibold))
                     .foregroundStyle(Color(hex: 0x0B61CA))
                     .frame(width: 48, height: 48)
                     .background(Color(hex: 0xEAF3FF), in: Circle())
                 VStack(alignment: .leading, spacing: 5) {
                     Text(loan.title)
-                        .font(.system(size: 18, weight: .bold))
+                        .font(.system(size: 16, weight: .semibold))
                         .foregroundStyle(Color(hex: 0x101828))
                     Text("Loan ID: \(loan.loanId.isEmpty ? "—" : loan.loanId)")
-                        .font(.system(size: 12, weight: .medium))
+                        .font(.system(size: 13, weight: .regular))
                         .foregroundStyle(Color(hex: 0x667085))
                 }
                 Spacer()
-                AppModuleBadge(
-                    text: loan.status == .pending ? "Pending" : "Active Loan",
-                    tint: loan.status == .pending ? .orange : .blue
-                )
+                Text(loan.status == .pending ? "Pending" : "Active Loan")
+                    .font(.system(size: 12, weight: .medium))
+                    .foregroundStyle(loan.status == .pending ? Color(hex: 0xF79009) : Color(hex: 0x0B61CA))
+                    .padding(.horizontal, 12)
+                    .padding(.vertical, 4)
+                    .background((loan.status == .pending ? Color(hex: 0xFFF4E5) : Color(hex: 0xEAF3FF)), in: Capsule())
             }
 
-            HStack(spacing: 14) {
-                metric("Outstanding", AppModuleFormatters.rupees(loan.outstandingBalance))
-                metric("Next EMI", loan.nextEmiAmount > 0 ? AppModuleFormatters.rupees(loan.nextEmiAmount) : "—")
-                metric("Due Date", loan.nextEmiDueDate.map(AppModuleFormatters.day.string) ?? "—")
+            Divider()
+                .overlay(Color(hex: 0xF2F4F7))
+
+            HStack(alignment: .center, spacing: 0) {
+                VStack(alignment: .leading, spacing: 2) {
+                    Text("Outstanding Amount")
+                        .font(.system(size: 12, weight: .regular))
+                        .foregroundStyle(Color(hex: 0x6B7280))
+                    Text(AppModuleFormatters.rupees(loan.outstandingBalance))
+                        .font(.system(size: 20, weight: .semibold))
+                        .foregroundStyle(Color(hex: 0x111827))
+                        .lineLimit(1)
+                        .minimumScaleFactor(0.65)
+                }
+                .frame(maxWidth: .infinity, alignment: .leading)
+
+                Rectangle()
+                    .fill(Color(hex: 0xE4E7EC))
+                    .frame(width: 1, height: 32)
+                    .padding(.horizontal, 8)
+
+                VStack(alignment: .leading, spacing: 2) {
+                    Text(loan.status == .pending ? "Next EMI Amount" : "Next EMI Due")
+                        .font(.system(size: 12, weight: .regular))
+                        .foregroundStyle(Color(hex: 0x6B7280))
+                    HStack(spacing: 4) {
+                        if loan.status != .pending {
+                            Image(systemName: "calendar")
+                                .font(.system(size: 12, weight: .semibold))
+                                .foregroundStyle(Color(hex: 0x0B61CA))
+                        }
+                        Text(nextEmiDisplay)
+                            .font(.system(size: 15, weight: .semibold))
+                            .foregroundStyle(loan.status == .pending ? Color(hex: 0x111827) : Color(hex: 0x0B61CA))
+                            .lineLimit(1)
+                            .minimumScaleFactor(0.6)
+                    }
+                }
+                .frame(maxWidth: .infinity, alignment: .leading)
             }
 
             Label("View Repayment History", systemImage: "clock.arrow.circlepath")
-                .font(.system(size: 14, weight: .semibold))
+                .font(.system(size: 15, weight: .semibold))
                 .foregroundStyle(Color(hex: 0x0B61CA))
                 .frame(maxWidth: .infinity)
-                .padding(.vertical, 10)
+                .frame(height: 44)
                 .background(Color(hex: 0xEAF3FF), in: RoundedRectangle(cornerRadius: 12))
         }
-        .padding(18)
-        .background(Color.white, in: RoundedRectangle(cornerRadius: 20))
-        .padding(.horizontal, 20)
-        .shadow(color: .black.opacity(0.08), radius: 16, y: 8)
+        .padding(.horizontal, 16)
+        .padding(.vertical, 16)
+        .background(Color.white)
     }
 
-    private func metric(_ title: String, _ value: String) -> some View {
-        VStack(alignment: .leading, spacing: 4) {
-            Text(title)
-                .font(.system(size: 11, weight: .medium))
-                .foregroundStyle(Color(hex: 0x667085))
-            Text(value)
-                .font(.system(size: 15, weight: .bold))
-                .foregroundStyle(Color(hex: 0x101828))
-                .lineLimit(1)
-                .minimumScaleFactor(0.65)
+    private var loanIcon: String {
+        switch loan.type {
+        case .education: return "graduationcap.fill"
+        case .home: return "house.fill"
+        case .other: return "indianrupeesign"
         }
-        .frame(maxWidth: .infinity, alignment: .leading)
-        .padding(10)
-        .background(Color(hex: 0xF8FAFC), in: RoundedRectangle(cornerRadius: 12))
+    }
+
+    private var nextEmiDisplay: String {
+        if loan.status == .pending {
+            return loan.nextEmiAmount > 0 ? AppModuleFormatters.rupees(loan.nextEmiAmount) : "—"
+        }
+        return loan.nextEmiDueDate.map(AppModuleFormatters.day.string) ?? "—"
     }
 }
 
@@ -685,26 +906,65 @@ private struct PreviousLoanRow: View {
     let loan: AppLoan
 
     var body: some View {
-        HStack(spacing: 12) {
-            Image(systemName: loan.type == .education ? "graduationcap.fill" : "house.fill")
-                .font(.headline)
-                .foregroundStyle(Color(hex: 0x0B61CA))
-                .frame(width: 38, height: 38)
-                .background(Color(hex: 0xEAF3FF), in: RoundedRectangle(cornerRadius: 10))
-            VStack(alignment: .leading, spacing: 4) {
-                Text(loan.title)
-                    .font(AppModuleFont.rowTitle)
-                Text("Principal \(AppModuleFormatters.rupees(loan.principal))")
-                    .font(AppModuleFont.rowMeta)
-                    .foregroundStyle(.secondary)
+        VStack(alignment: .leading, spacing: 14) {
+            HStack(spacing: 12) {
+                Image(systemName: loan.type == .education ? "graduationcap.fill" : "house.fill")
+                    .font(.system(size: 18, weight: .semibold))
+                    .foregroundStyle(Color(hex: 0x0B61CA))
+                    .frame(width: 44, height: 44)
+                    .background(Color(hex: 0xF2F4F7), in: RoundedRectangle(cornerRadius: 12, style: .continuous))
+                VStack(alignment: .leading, spacing: 4) {
+                    Text(loan.title)
+                        .font(.system(size: 15, weight: .semibold))
+                        .foregroundStyle(Color(hex: 0x101828))
+                    Text(loan.loanId.isEmpty ? "—" : loan.loanId)
+                        .font(.system(size: 11, weight: .regular))
+                        .foregroundStyle(Color(hex: 0x667085))
+                }
+                Spacer()
+                Text(loan.status == .repaid ? "• REPAID" : "• \(loan.status.rawValue.uppercased())")
+                    .font(.system(size: 10, weight: .semibold))
+                    .foregroundStyle(loan.status == .pending ? Color(hex: 0xF79009) : Color(hex: 0x12B76A))
+                    .padding(.horizontal, 10)
+                    .padding(.vertical, 4)
+                    .background((loan.status == .pending ? Color(hex: 0xFFF4E5) : Color(hex: 0xECFDF3)), in: Capsule())
             }
-            Spacer()
-            Image(systemName: "chevron.right")
-                .font(AppModuleFont.rowMetaSemibold)
-                .foregroundStyle(.tertiary)
+
+            Divider()
+                .overlay(Color(hex: 0xF2F4F7))
+
+            HStack(spacing: 0) {
+                metricColumn("Principal", AppModuleFormatters.rupees(loan.principal))
+                Rectangle()
+                    .fill(Color(hex: 0xE4E7EC))
+                    .frame(width: 1, height: 32)
+                    .padding(.horizontal, 8)
+                metricColumn("Disbursed", loan.disbursedDate.map(AppModuleFormatters.day.string) ?? "—")
+            }
+
+            Text("View Repayment History")
+                .font(.system(size: 13, weight: .semibold))
+                .foregroundStyle(.white)
+                .frame(maxWidth: .infinity)
+                .frame(height: 44)
+                .background(Color(hex: 0x0B61CA), in: RoundedRectangle(cornerRadius: 12, style: .continuous))
         }
-        .padding(14)
-        .background(Color(.secondarySystemGroupedBackground), in: RoundedRectangle(cornerRadius: 14))
+        .padding(18)
+        .background(Color.white, in: RoundedRectangle(cornerRadius: 18, style: .continuous))
+    }
+
+    private func metricColumn(_ title: String, _ value: String) -> some View {
+        VStack(alignment: .leading, spacing: 2) {
+            Text(title)
+                .font(.system(size: 11, weight: .regular))
+                .foregroundStyle(Color(hex: 0x667085))
+            Text(value)
+                .font(.system(size: 15, weight: .semibold))
+                .foregroundStyle(Color(hex: 0x101828))
+                .lineLimit(1)
+                .minimumScaleFactor(0.68)
+        }
+        .frame(maxWidth: .infinity, alignment: .leading)
     }
 }
 

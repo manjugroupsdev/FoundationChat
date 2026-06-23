@@ -1,0 +1,13 @@
+{
+  "images" : [
+    {
+      "filename" : "wgzzx_loan.png",
+      "idiom" : "universal",
+      "scale" : "1x"
+    }
+  ],
+  "info" : {
+    "author" : "xcode",
+    "version" : 1
+  }
+}

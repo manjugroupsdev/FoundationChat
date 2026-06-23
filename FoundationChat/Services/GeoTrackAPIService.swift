@@ -324,6 +324,18 @@ final class GeoTrackAPIService {
         return result.data ?? []
     }
 
+    /// GET /api/marketing/clientPlaceVisits/my
+    func marketingCPVisits(fromDate: String? = nil, toDate: String? = nil, scope: String = "all") async throws -> [GeoTrackCPVisitDetail] {
+        var items = [URLQueryItem(name: "scope", value: scope)]
+        if let fromDate { items.append(URLQueryItem(name: "fromDate", value: fromDate)) }
+        if let toDate { items.append(URLQueryItem(name: "toDate", value: toDate)) }
+        let request = try makeGETRequest(path: "/api/marketing/clientPlaceVisits/my", queryItems: items)
+        let result: GeoTrackMarketingCPVisitsResponse = try await perform(request)
+        if let err = result.error { throw GeoTrackAPIError.serverError(err) }
+        guard result.success else { throw GeoTrackAPIError.serverError("Failed to load CP visits.") }
+        return result.visits
+    }
+
     /// GET /api/tracking/places/search?q=...
     func searchPlaces(query: String) async throws -> [GeoTrackPlaceSuggestion] {
         let trimmed = query.trimmingCharacters(in: .whitespacesAndNewlines)

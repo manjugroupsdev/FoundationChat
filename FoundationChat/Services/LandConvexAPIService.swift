@@ -58,6 +58,12 @@ enum LandConvexAPIService {
         guard wrapper.success else { throw MarketingAPIError.server(wrapper.error ?? "Failed to reschedule inspection") }
     }
 
+    static func acceptInspection(token: String, request: AcceptLandInspectionRequest) async throws {
+        let data = try await post(path: "/api/land/inspections/accept", token: token, body: request)
+        let wrapper = try decode(MutationResponse.self, from: data)
+        guard wrapper.success else { throw MarketingAPIError.server(wrapper.error ?? "Failed to accept inspection") }
+    }
+
     static func listQueries(token: String) async throws -> [LandQueryLog] {
         let data = try await get(path: "/api/land/queries/my", token: token)
         let wrapper = try decode(QueriesResponse.self, from: data)

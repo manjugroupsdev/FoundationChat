@@ -13,13 +13,14 @@ struct FoundationChatApp: App {
     private var pushNotificationAppDelegate
 
     @AppStorage("app.language") private var languagePreference = ProfileLanguage.english.rawValue
-    @AppStorage("app.appearance") private var appearancePreference = ProfileAppearance.system.rawValue
+    @AppStorage("app.appearance") private var appearancePreference = ProfileAppearance.light.rawValue
 
     @State private var authStore = AuthStore()
     @State private var launchPhase: LaunchPhase
 
     init() {
         UINavigationController.enableGlobalSwipeBack()
+        Self.configureLightInputAppearance()
         let mgr = OnboardingManager()
         _launchPhase = State(initialValue: mgr.shouldShowOnboarding ? .splash : .auth)
     }
@@ -52,14 +53,38 @@ struct FoundationChatApp: App {
                 }
             }
             .animation(.easeInOut(duration: 0.4), value: launchPhase)
+            .background(Color.white.ignoresSafeArea())
             .background {
                 GlobalSwipeBackInstaller()
                     .frame(width: 0, height: 0)
             }
             .environment(\.locale, Locale(identifier: languagePreference))
-            .preferredColorScheme(ProfileAppearance(rawValue: appearancePreference)?.colorScheme)
+            .preferredColorScheme(appColorScheme)
             .modelContainer(for: [Conversation.self, Message.self])
             .environment(authStore)
         }
+    }
+
+    private var appColorScheme: ColorScheme {
+        switch ProfileAppearance(rawValue: appearancePreference) {
+        case .dark:
+            return .dark
+        case .light, .system, .none:
+            return .light
+        }
+    }
+
+    private static func configureLightInputAppearance() {
+        let textColor = UIColor.label
+        let tintColor = UIColor(red: 0.043, green: 0.380, blue: 0.792, alpha: 1)
+
+        UITextField.appearance().overrideUserInterfaceStyle = .light
+        UITextField.appearance().textColor = textColor
+        UITextField.appearance().tintColor = tintColor
+        UITextField.appearance().keyboardAppearance = .light
+
+        UITextView.appearance().overrideUserInterfaceStyle = .light
+        UITextView.appearance().textColor = textColor
+        UITextView.appearance().tintColor = tintColor
     }
 }

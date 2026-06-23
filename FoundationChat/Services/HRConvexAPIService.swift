@@ -18,6 +18,22 @@ enum HRConvexAPIService {
         let success: Bool; let leaveId: String?; let error: String?
     }
 
+    private struct PolicyResponse: Decodable {
+        let success: Bool
+        let policy: PolicyData?
+    }
+
+    private struct PolicyData: Decodable {
+        let leave: LeavePolicy?
+    }
+
+    struct LeavePolicy: Decodable, Sendable {
+        let casualPerYear: Int?
+        let sickPerYear: Int?
+        let earnedPerYear: Int?
+        let types: [String]?
+    }
+
     static func getMyLeaves(token: String) async throws -> [ConvexLeave] {
         let data = try await get(path: "/api/hr/leaves/my", token: token)
         let wrapper = try decode(LeavesListResponse.self, from: data)
@@ -39,6 +55,12 @@ enum HRConvexAPIService {
         let data = try await get(path: "/api/hr/leaves/pending-approvals", token: token)
         let wrapper = try decode(LeavesListResponse.self, from: data)
         return wrapper.leaves ?? []
+    }
+
+    static func getLeavePolicy(token: String) async throws -> LeavePolicy? {
+        let data = try await get(path: "/api/hr/policy", token: token)
+        let wrapper = try decode(PolicyResponse.self, from: data)
+        return wrapper.policy?.leave
     }
 
     static func applyLeave(

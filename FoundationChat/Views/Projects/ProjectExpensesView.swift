@@ -6,6 +6,7 @@ import UIKit
 
 struct ProjectExpensesView: View {
     @Environment(AuthStore.self) private var authStore
+    @Environment(\.dismiss) private var dismiss
 
     @State private var projects: [ProjectSummary] = []
     @State private var selectedProject: ProjectSummary?
@@ -22,40 +23,42 @@ struct ProjectExpensesView: View {
     @State private var didAnimateIn = false
 
     var body: some View {
-        ZStack(alignment: .top) {
-            Color(hex: 0xF8F9FB).ignoresSafeArea()
+        GeometryReader { proxy in
+            let topInset = proxy.safeAreaInsets.top
 
-            VStack(spacing: 0) {
-                header
+            ZStack(alignment: .top) {
+                Color(hex: 0xF8F9FB).ignoresSafeArea()
 
                 VStack(spacing: 0) {
-                    totalsCard
-                        .padding(.horizontal, 16)
-                        .padding(.top, 22)
-                        .zIndex(1)
+                    header(topInset: topInset)
 
-                    categoryChips
-                        .padding(.top, 14)
+                    VStack(spacing: 0) {
+                        totalsCard
+                            .padding(.horizontal, 16)
+                            .padding(.top, 12)
+                            .zIndex(1)
 
-                    expenseList
+                        categoryChips
+                            .padding(.top, 14)
 
-                    addExpenseButton
+                        expenseList
+
+                        addExpenseButton
+                    }
+                    .background(Color(hex: 0xF8F9FB))
                 }
-                .background(
-                    UnevenRoundedRectangle(topLeadingRadius: 30, topTrailingRadius: 30)
-                        .fill(Color(hex: 0xF8F9FB))
-                )
             }
         }
-        .navigationTitle("Expenses")
-        .navigationBarTitleDisplayMode(.inline)
-        .toolbarBackground(Color.white, for: .navigationBar)
-        .toolbarBackground(.visible, for: .navigationBar)
+        .navigationBarBackButtonHidden(true)
+        .toolbar(.hidden, for: .navigationBar)
+        .toolbar(.hidden, for: .tabBar)
         .sheet(isPresented: $showingDateFilter) {
             ExpenseDateFilterSheet(fromDate: $fromDate, toDate: $toDate) {
                 Task { await refreshExpenses() }
             }
-            .presentationDetents([.medium])
+            .presentationDetents([.height(620), .large])
+            .presentationCornerRadius(28)
+            .presentationDragIndicator(.hidden)
         }
         .sheet(isPresented: $showingCreateExpense) {
             if let selectedProject {
@@ -87,30 +90,44 @@ struct ProjectExpensesView: View {
         )
     }
 
-    private var header: some View {
+    private func header(topInset: CGFloat) -> some View {
         ZStack(alignment: .topTrailing) {
             Color(hex: 0x0B61CA)
+                .ignoresSafeArea(edges: .top)
 
             Image("ProjectExpensesHeaderIllustration")
                 .resizable()
                 .scaledToFit()
-                .frame(width: 148, height: 116)
-                .offset(x: 8, y: 54)
-            .opacity(didAnimateIn ? 1 : 0)
-            .scaleEffect(didAnimateIn ? 1 : 0.88)
-            .animation(.spring(response: 0.52, dampingFraction: 0.82).delay(0.16), value: didAnimateIn)
+                .frame(width: 130, height: 100)
+                .padding(.trailing, 16)
+                .offset(y: topInset + 20)
+                .opacity(didAnimateIn ? 1 : 0)
+                .scaleEffect(didAnimateIn ? 1 : 0.88)
+                .animation(.spring(response: 0.52, dampingFraction: 0.82).delay(0.16), value: didAnimateIn)
 
             VStack(alignment: .leading, spacing: 0) {
+                Button {
+                    dismiss()
+                } label: {
+                    Image(systemName: "chevron.left")
+                        .font(.system(size: 24, weight: .semibold))
+                        .foregroundStyle(.white)
+                        .frame(width: 36, height: 36)
+                }
+                .buttonStyle(.plain)
+                .accessibilityLabel("Back")
+
                 Text("Expenses")
                     .font(.system(size: 24, weight: .bold))
                     .foregroundStyle(.white)
+                    .padding(.top, 8)
 
                 Text("Manage and track all Expenses")
                     .font(.system(size: 13, weight: .medium))
                     .foregroundStyle(Color(hex: 0xD9D6FE))
                     .padding(.top, 4)
 
-                HStack(spacing: 10) {
+                HStack(spacing: 8) {
                     Menu {
                         ForEach(projects) { project in
                             Button {
@@ -143,11 +160,11 @@ struct ProjectExpensesView: View {
                                 .font(.system(size: 14, weight: .semibold))
                                 .foregroundStyle(Color(hex: 0x667085))
                         }
-                        .padding(.horizontal, 16)
-                        .frame(height: 48)
-                        .background(.white, in: Capsule())
+                        .padding(.horizontal, 14)
+                        .frame(height: 44)
+                        .background(.white, in: RoundedRectangle(cornerRadius: 10, style: .continuous))
                     }
-                    .buttonStyle(.bordered)
+                    .buttonStyle(.plain)
                     .disabled(projects.isEmpty)
 
                     Button {
@@ -155,21 +172,29 @@ struct ProjectExpensesView: View {
                     } label: {
                         Image(systemName: "calendar")
                             .font(.system(size: 22, weight: .semibold))
-                            .frame(width: 36, height: 36)
+                            .foregroundStyle(Color(hex: 0x0B61CA))
+                            .frame(width: 44, height: 44)
+                            .background(.white, in: RoundedRectangle(cornerRadius: 10, style: .continuous))
                     }
-                    .buttonStyle(.borderedProminent)
-                    .tint(.white)
+                    .buttonStyle(.plain)
                     .accessibilityLabel("Date filter")
                 }
-                .padding(.top, 20)
+                .padding(.top, 14)
             }
             .padding(.horizontal, 16)
-            .padding(.top, 32)
+            .padding(.top, topInset + 8)
             .opacity(didAnimateIn ? 1 : 0)
             .offset(x: didAnimateIn ? 0 : -26)
             .animation(.easeOut(duration: 0.42).delay(0.08), value: didAnimateIn)
         }
-        .frame(height: 208)
+        .frame(height: topInset + 176)
+        .clipShape(
+            UnevenRoundedRectangle(
+                bottomLeadingRadius: 24,
+                bottomTrailingRadius: 24,
+                style: .continuous
+            )
+        )
     }
 
     private var totalsCard: some View {
@@ -194,7 +219,7 @@ struct ProjectExpensesView: View {
                 Spacer(minLength: 16)
 
                 ExpenseDonutChart(totals: totals.byCategory)
-                    .frame(width: 104, height: 104)
+                    .frame(width: 108, height: 108)
             }
 
             HStack(alignment: .top, spacing: 8) {
@@ -203,9 +228,9 @@ struct ProjectExpensesView: View {
                 ExpenseLegendItem(title: "Equipments", value: formatRs(totals.byCategory.equipment), color: ProjectExpenseCategory.equipment.color)
             }
         }
-        .padding(20)
-        .background(Color.white, in: RoundedRectangle(cornerRadius: 24, style: .continuous))
-        .shadow(color: .black.opacity(0.08), radius: 8, x: 0, y: 2)
+        .padding(16)
+        .background(Color.white, in: RoundedRectangle(cornerRadius: 16, style: .continuous))
+        .shadow(color: .black.opacity(0.08), radius: 4, x: 0, y: 2)
         .opacity(didAnimateIn ? 1 : 0)
         .offset(y: didAnimateIn ? 0 : 40)
         .animation(.easeOut(duration: 0.4).delay(0.1), value: didAnimateIn)
@@ -254,7 +279,7 @@ struct ProjectExpensesView: View {
                 .frame(maxWidth: .infinity, maxHeight: .infinity)
         } else {
             ScrollView(showsIndicators: false) {
-                LazyVStack(spacing: 16) {
+                LazyVStack(spacing: 12) {
                     ForEach(Array(expenses.enumerated()), id: \.element.id) { index, expense in
                         Button {
                             selectedExpenseForDetail = expense
@@ -272,7 +297,7 @@ struct ProjectExpensesView: View {
                     }
                 }
                 .padding(.top, 8)
-                .padding(.bottom, 10)
+                .padding(.bottom, 8)
             }
             .refreshable { await refreshExpenses() }
         }
@@ -287,11 +312,13 @@ struct ProjectExpensesView: View {
             }
         } label: {
             Text("Add Expense")
+                .font(.system(size: 16, weight: .bold))
+                .foregroundStyle(.white)
+                .frame(maxWidth: .infinity)
+                .frame(height: 56)
+                .background(Color(hex: 0x1BCA0B), in: Capsule())
         }
-        .buttonStyle(.borderedProminent)
-        .controlSize(.large)
-        .tint(Color(hex: 0x1BCA0B))
-        .frame(maxWidth: .infinity)
+        .buttonStyle(.plain)
         .padding(16)
     }
 
@@ -463,10 +490,10 @@ private struct ProjectExpenseCard: View {
                 ZStack {
                     Circle()
                         .fill(category.color)
-                        .frame(width: 48, height: 48)
+                        .frame(width: 44, height: 44)
 
                     Image(systemName: "wallet.pass.fill")
-                        .font(.system(size: 22, weight: .semibold))
+                        .font(.system(size: 21, weight: .semibold))
                         .foregroundStyle(.white)
                 }
 
@@ -498,7 +525,7 @@ private struct ProjectExpenseCard: View {
 
             Divider()
                 .overlay(Color(hex: 0xF2F4F7))
-                .padding(.top, 16)
+                .padding(.top, 12)
 
             HStack(spacing: 4) {
                 Text("View Details")
@@ -512,9 +539,9 @@ private struct ProjectExpenseCard: View {
             .frame(maxWidth: .infinity)
             .padding(.top, 12)
         }
-        .padding(16)
-        .background(Color.white, in: RoundedRectangle(cornerRadius: 16, style: .continuous))
-        .shadow(color: .black.opacity(0.05), radius: 4, x: 0, y: 1)
+        .padding(14)
+        .background(Color.white, in: RoundedRectangle(cornerRadius: 14, style: .continuous))
+        .shadow(color: .black.opacity(0.05), radius: 3, x: 0, y: 1)
     }
 
     private func monthYear(_ raw: String) -> String {
@@ -550,8 +577,9 @@ private struct ExpenseDateFilterSheet: View {
     private let weekdays = ["Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat"]
 
     var body: some View {
-        VStack(alignment: .leading, spacing: 22) {
+        VStack(alignment: .leading, spacing: 0) {
             sheetGrabber
+                .padding(.bottom, 16)
 
             VStack(alignment: .leading, spacing: 6) {
                 Text("Date Filter")
@@ -567,9 +595,9 @@ private struct ExpenseDateFilterSheet: View {
                     Image(systemName: "chevron.left")
                         .font(.system(size: 22, weight: .medium))
                         .foregroundStyle(Color(hex: 0x0B61CA))
-                        .frame(width: 44, height: 44)
+                        .frame(width: 36, height: 36)
                 }
-                .buttonStyle(.bordered)
+                .buttonStyle(.plain)
 
                 Spacer()
 
@@ -583,10 +611,11 @@ private struct ExpenseDateFilterSheet: View {
                     Image(systemName: "chevron.right")
                         .font(.system(size: 22, weight: .medium))
                         .foregroundStyle(Color(hex: 0x0B61CA))
-                        .frame(width: 44, height: 44)
+                        .frame(width: 36, height: 36)
                 }
-                .buttonStyle(.bordered)
+                .buttonStyle(.plain)
             }
+            .padding(.top, 20)
 
             LazyVGrid(columns: Array(repeating: GridItem(.flexible(), spacing: 4), count: 7), spacing: 12) {
                 ForEach(weekdays, id: \.self) { day in
@@ -615,6 +644,7 @@ private struct ExpenseDateFilterSheet: View {
                     .buttonStyle(.plain)
                 }
             }
+            .padding(.top, 12)
 
             Button {
                 fromDate = min(draftFrom, draftTo)
@@ -623,16 +653,19 @@ private struct ExpenseDateFilterSheet: View {
                 dismiss()
             } label: {
                 Text("Submit Date")
+                    .font(.system(size: 16, weight: .semibold))
+                    .foregroundStyle(.white)
+                    .frame(maxWidth: .infinity)
+                    .frame(height: 52)
+                    .background(Color(hex: 0x18B900), in: Capsule())
             }
-            .buttonStyle(.borderedProminent)
-            .controlSize(.large)
-            .tint(Color(hex: 0x18B900))
-            .frame(maxWidth: .infinity)
-            .padding(.top, 8)
+            .buttonStyle(.plain)
+            .padding(.top, 20)
         }
         .padding(.horizontal, 24)
-        .padding(.top, 8)
-        .padding(.bottom, 18)
+        .padding(.top, 12)
+        .padding(.bottom, 20)
+        .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
         .background(Color.white)
         .onAppear {
             draftFrom = fromDate ?? Date()
@@ -644,7 +677,7 @@ private struct ExpenseDateFilterSheet: View {
     private var sheetGrabber: some View {
         RoundedRectangle(cornerRadius: 2)
             .fill(Color(hex: 0xD9D9D9))
-            .frame(width: 42, height: 4)
+            .frame(width: 32, height: 4)
             .frame(maxWidth: .infinity)
     }
 
@@ -744,80 +777,65 @@ private struct ExpenseCreationSheet: View {
     var body: some View {
         VStack(spacing: 0) {
             ScrollView(showsIndicators: false) {
-                VStack(alignment: .leading, spacing: 14) {
-                sheetHeader(title: "Expense Creation", subtitle: "In this you can able to create expenses")
+                VStack(alignment: .leading, spacing: 16) {
+                    sheetHeader(title: "Expense Creation", subtitle: "In this you can able to create expenses")
+                        .padding(.bottom, 6)
 
-                fieldLabel("Project *")
-                Menu {
-                    ForEach(projects) { item in
-                        Button {
-                            selectedProject = item
-                        } label: {
-                            if selectedProject?.id == item.id {
-                                Label(item.displayName, systemImage: "checkmark")
-                            } else {
-                                Text(item.displayName)
+                    VStack(alignment: .leading, spacing: 6) {
+                        fieldLabel("Expense Category *")
+                        Menu {
+                            ForEach(categories) { item in
+                                Button(item.title) { category = item }
                             }
+                        } label: {
+                            pickerField(
+                                icon: "doc.text",
+                                iconColor: Color(hex: 0x7A5AF8),
+                                title: category?.title ?? "Enter Expense",
+                                showsChevron: true
+                            )
                         }
+                        .buttonStyle(.plain)
                     }
-                } label: {
-                    pickerField(
-                        icon: "building.2",
-                        iconColor: Color(hex: 0x0B61CA),
-                        title: selectedProject?.displayName ?? project.displayName,
-                        showsChevron: true
-                    )
-                }
-                .buttonStyle(.bordered)
 
-                fieldLabel("Expense Category *")
-                Menu {
-                    ForEach(categories) { item in
-                        Button(item.title) { category = item }
-                    }
-                } label: {
-                    pickerField(icon: "xmark.circle", iconColor: Color(hex: 0x2563EB), title: category?.title ?? "Enter Expense")
-                }
-                .buttonStyle(.bordered)
-
-                VStack(alignment: .leading, spacing: 8) {
-                    fieldLabel("Date")
-                    Button {
-                        showingDatePicker = true
-                    } label: {
-                        pickerField(icon: "calendar", iconColor: Color(hex: 0x0B61CA), title: didSelectDate ? displayDate(date) : "Select Date")
-                    }
-                    .buttonStyle(.bordered)
-                }
-
-                iconTextField(label: "Money *", icon: "indianrupeesign.circle", placeholder: "Enter Money", text: $amount, keyboard: .decimalPad)
-                iconTextEditor(label: "Notes (Optional)", icon: "note.text", placeholder: "Enter Notes", text: $notes)
-
-                VStack(alignment: .leading, spacing: 8) {
-                    fieldLabel("Payment Method *")
-                    Menu {
-                        ForEach(paymentMethods, id: \.self) { method in
-                            Button(method) { paymentMethod = method }
+                    VStack(alignment: .leading, spacing: 6) {
+                        fieldLabel("Date")
+                        Button {
+                            showingDatePicker = true
+                        } label: {
+                            pickerField(icon: "calendar", iconColor: Color(hex: 0x0B61CA), title: didSelectDate ? displayDate(date) : "Select Date")
                         }
-                    } label: {
-                        pickerField(icon: "arrow.triangle.2.circlepath", iconColor: Color(hex: 0x16A34A), title: paymentMethod.isEmpty ? "Select Payment Method" : paymentMethod, showsChevron: true)
+                        .buttonStyle(.plain)
                     }
-                    .buttonStyle(.plain)
-                }
 
-                photosBlock
+                    iconTextField(label: "Money *", icon: "wallet.pass", placeholder: "Enter Money", text: $amount, keyboard: .decimalPad)
+                    iconTextEditor(label: "Notes (Optional)", icon: "doc.text", placeholder: "Enter Notes", text: $notes)
 
-                if let errorMessage {
-                    Text(errorMessage)
-                        .font(.system(size: 12, weight: .medium))
-                        .foregroundStyle(.red)
-                        .frame(maxWidth: .infinity, alignment: .center)
-                }
+                    VStack(alignment: .leading, spacing: 6) {
+                        fieldLabel("Payment Method *")
+                        Menu {
+                            ForEach(paymentMethods, id: \.self) { method in
+                                Button(method) { paymentMethod = method }
+                            }
+                        } label: {
+                            pickerField(icon: "banknote", iconColor: Color(hex: 0x16A34A), title: paymentMethod.isEmpty ? "Select Payment Method" : paymentMethod, showsChevron: true)
+                        }
+                        .buttonStyle(.plain)
+                    }
+
+                    photosBlock
+
+                    if let errorMessage {
+                        Text(errorMessage)
+                            .font(.system(size: 12, weight: .medium))
+                            .foregroundStyle(.red)
+                            .frame(maxWidth: .infinity, alignment: .center)
+                    }
 
                 }
-                .padding(.horizontal, 12)
-                .padding(.top, 10)
-                .padding(.bottom, 18)
+                .padding(.horizontal, 20)
+                .padding(.top, 16)
+                .padding(.bottom, 24)
             }
 
             Button {
@@ -825,18 +843,24 @@ private struct ExpenseCreationSheet: View {
             } label: {
                 if isSaving {
                     ProgressView()
+                        .tint(.white)
+                        .frame(maxWidth: .infinity)
+                        .frame(height: 56)
                 } else {
                     Text("Save It")
+                        .font(.system(size: 15, weight: .bold))
+                        .foregroundStyle(.white)
+                        .frame(maxWidth: .infinity)
+                        .frame(height: 56)
                 }
             }
-            .buttonStyle(.borderedProminent)
-            .controlSize(.large)
-            .tint(Color(hex: 0x18B900))
-            .frame(maxWidth: .infinity)
+            .buttonStyle(.plain)
+            .background(Color(hex: 0x1BCA0B), in: Capsule())
             .disabled(isSaving)
-            .padding(.horizontal, 16)
-            .padding(.vertical, 18)
-            .background(Color(hex: 0xF2F4F7))
+            .padding(.horizontal, 20)
+            .padding(.top, 4)
+            .padding(.bottom, 24)
+            .background(Color.white)
         }
         .background(Color.white)
         .onAppear {
@@ -878,24 +902,25 @@ private struct ExpenseCreationSheet: View {
             .padding(.horizontal, 20)
             .padding(.bottom, 20)
             .background(Color.white)
-            .presentationDetents([.height(560)])
+            .presentationDetents([.height(470)])
             .presentationBackground(Color.white)
             .presentationCornerRadius(28)
+            .presentationDragIndicator(.hidden)
         }
     }
 
     private func sheetHeader(title: String, subtitle: String) -> some View {
         VStack(spacing: 8) {
             RoundedRectangle(cornerRadius: 2)
-                .fill(Color(hex: 0xE4E7EC))
+                .fill(Color(hex: 0xD0D5DD))
                 .frame(width: 40, height: 4)
                 .padding(.bottom, 14)
             Text(title)
-                .font(.system(size: 25, weight: .bold))
+                .font(.system(size: 22, weight: .bold))
                 .foregroundStyle(Color(hex: 0x101828))
             Text(subtitle)
-                .font(.system(size: 14, weight: .regular))
-                .foregroundStyle(Color(hex: 0x98A2B3))
+                .font(.system(size: 13, weight: .medium))
+                .foregroundStyle(Color(hex: 0x667085))
                 .multilineTextAlignment(.center)
         }
         .frame(maxWidth: .infinity)
@@ -904,7 +929,7 @@ private struct ExpenseCreationSheet: View {
     private func fieldLabel(_ text: String) -> some View {
         Text(text)
             .font(.system(size: 12, weight: .medium))
-            .foregroundStyle(Color(hex: 0x475467))
+            .foregroundStyle(Color(hex: 0x667085))
     }
 
     private func readOnlyField(title: String) -> some View {
@@ -928,8 +953,9 @@ private struct ExpenseCreationSheet: View {
                 .foregroundStyle(iconColor)
                 .frame(width: 22)
             Text(title)
-                .font(.system(size: 15, weight: .regular))
+                .font(.system(size: 14, weight: .medium))
                 .foregroundStyle(Color(hex: 0x101828))
+                .lineLimit(1)
             Spacer()
             if showsChevron {
                 Image(systemName: "chevron.down")
@@ -937,12 +963,12 @@ private struct ExpenseCreationSheet: View {
                     .foregroundStyle(Color(hex: 0x101828))
             }
         }
-        .padding(.horizontal, 12)
-        .frame(height: 46)
-        .background(.white, in: RoundedRectangle(cornerRadius: 8, style: .continuous))
+        .padding(.horizontal, 14)
+        .frame(height: 54)
+        .background(.white, in: RoundedRectangle(cornerRadius: 12, style: .continuous))
         .overlay {
-            RoundedRectangle(cornerRadius: 8, style: .continuous)
-                .stroke(Color(hex: 0x98A2B3), lineWidth: 1)
+            RoundedRectangle(cornerRadius: 12, style: .continuous)
+                .stroke(Color(hex: 0xD0D5DD), lineWidth: 1)
         }
     }
 
@@ -961,15 +987,15 @@ private struct ExpenseCreationSheet: View {
                     .foregroundStyle(icon == "doc" ? Color(hex: 0x0B61CA) : Color(hex: 0x16A34A))
                     .frame(width: 22)
                 TextField(placeholder, text: text)
-                    .font(.system(size: 15, weight: .regular))
+                    .font(.system(size: 14, weight: .medium))
                     .keyboardType(keyboard)
             }
-            .padding(.horizontal, 12)
-            .frame(height: 46)
-            .background(.white, in: RoundedRectangle(cornerRadius: 8, style: .continuous))
+            .padding(.horizontal, 14)
+            .frame(height: 54)
+            .background(.white, in: RoundedRectangle(cornerRadius: 12, style: .continuous))
             .overlay {
-                RoundedRectangle(cornerRadius: 8, style: .continuous)
-                    .stroke(Color(hex: 0x98A2B3), lineWidth: 1)
+                RoundedRectangle(cornerRadius: 12, style: .continuous)
+                    .stroke(Color(hex: 0xD0D5DD), lineWidth: 1)
             }
         }
     }
@@ -986,23 +1012,23 @@ private struct ExpenseCreationSheet: View {
                 ZStack(alignment: .topLeading) {
                     if text.wrappedValue.isEmpty {
                         Text(placeholder)
-                            .font(.system(size: 15))
-                            .foregroundStyle(Color(hex: 0x71717A))
+                            .font(.system(size: 14, weight: .medium))
+                            .foregroundStyle(Color(hex: 0x98A2B3))
                             .padding(.top, 10)
                             .padding(.leading, 4)
                     }
                     TextEditor(text: text)
-                        .font(.system(size: 15))
+                        .font(.system(size: 14, weight: .medium))
                         .scrollContentBackground(.hidden)
                         .background(Color.clear)
                 }
             }
-            .padding(.horizontal, 12)
-            .frame(height: 94)
-            .background(.white, in: RoundedRectangle(cornerRadius: 8, style: .continuous))
+            .padding(.horizontal, 14)
+            .frame(height: 92)
+            .background(.white, in: RoundedRectangle(cornerRadius: 12, style: .continuous))
             .overlay {
-                RoundedRectangle(cornerRadius: 8, style: .continuous)
-                    .stroke(Color(hex: 0x98A2B3), lineWidth: 1)
+                RoundedRectangle(cornerRadius: 12, style: .continuous)
+                    .stroke(Color(hex: 0xD0D5DD), lineWidth: 1)
             }
         }
     }
@@ -1045,7 +1071,7 @@ private struct ExpenseCreationSheet: View {
                         }
                         .frame(width: 72, height: 72)
                     }
-                    .buttonStyle(.bordered)
+                    .buttonStyle(.plain)
                     .disabled(isSaving || isLoadingPhotos)
                     .accessibilityLabel("Add receipt photo")
                 }
@@ -1184,45 +1210,41 @@ private struct ExpenseDetailSheet: View {
         VStack(alignment: .leading, spacing: 0) {
             RoundedRectangle(cornerRadius: 2)
                 .fill(Color(hex: 0xD9D9D9))
-                .frame(width: 42, height: 4)
+                .frame(width: 40, height: 4)
                 .frame(maxWidth: .infinity)
-                .padding(.top, 6)
+                .padding(.top, 8)
                 .padding(.bottom, 14)
 
             Text("Expense Details")
-                .font(.system(size: 18, weight: .bold))
+                .font(.system(size: 22, weight: .bold))
                 .foregroundStyle(Color(hex: 0x101828))
-                .padding(.bottom, 14)
-
-            Divider()
-                .overlay(Color(hex: 0xF2F4F7))
-                .padding(.horizontal, -20)
-                .padding(.bottom, 14)
+                .padding(.bottom, 20)
 
             HStack(alignment: .center, spacing: 14) {
                 ZStack {
                     Circle()
                         .fill(category.color)
-                        .frame(width: 52, height: 52)
+                        .frame(width: 56, height: 56)
                     Image(systemName: "wallet.pass.fill")
-                        .font(.system(size: 22, weight: .semibold))
+                        .font(.system(size: 25, weight: .semibold))
                         .foregroundStyle(.white)
                 }
 
                 VStack(alignment: .leading, spacing: 6) {
                     Text(category.title)
-                        .font(.system(size: 26, weight: .bold))
+                        .font(.system(size: 20, weight: .bold))
                         .foregroundStyle(Color(hex: 0x101828))
                     Text(displayExpense.paid ? "Paid" : "Pending")
-                        .font(.system(size: 13, weight: .medium))
+                        .font(.system(size: 11, weight: .semibold))
                         .foregroundStyle(displayExpense.paid ? Color(hex: 0x16A34A) : Color(hex: 0xF97316))
-                        .frame(width: 86, height: 24)
-                        .background(displayExpense.paid ? Color(hex: 0xDDFAD7) : Color(hex: 0xFFFAEB), in: Capsule())
+                        .padding(.horizontal, 12)
+                        .frame(height: 22)
+                        .background(displayExpense.paid ? Color(hex: 0xECFDF3) : Color(hex: 0xFFFAEB), in: Capsule())
                 }
 
                 Spacer()
             }
-            .padding(.bottom, 16)
+            .padding(.bottom, 28)
 
             detailRow("Amount", value: formatRs(displayExpense.amount))
             detailRow("Date", value: displayDate(displayExpense.date))
@@ -1231,14 +1253,15 @@ private struct ExpenseDetailSheet: View {
             if let notes = displayExpense.notes?.projectExpenseNilIfBlank {
                 VStack(alignment: .leading, spacing: 10) {
                     Text("Notes")
-                        .font(.system(size: 15, weight: .bold))
+                        .font(.system(size: 15, weight: .semibold))
                         .foregroundStyle(Color(hex: 0x101828))
                     Text(notes)
-                        .font(.system(size: 15, weight: .regular))
-                        .foregroundStyle(Color(hex: 0x101828))
+                        .font(.system(size: 14, weight: .regular))
+                        .foregroundStyle(Color(hex: 0x475467))
+                        .lineSpacing(4)
                         .fixedSize(horizontal: false, vertical: true)
                 }
-                .padding(.top, 12)
+                .padding(.top, 24)
             }
 
             if let errorMessage {
@@ -1250,30 +1273,25 @@ private struct ExpenseDetailSheet: View {
 
             Spacer(minLength: 0)
         }
-        .padding(.horizontal, 22)
+        .padding(.horizontal, 20)
         .padding(.top, 8)
-        .padding(.bottom, 20)
+        .padding(.bottom, 24)
         .background(Color.white)
         .task { await loadExpense() }
     }
 
     private func detailRow(_ title: String, value: String) -> some View {
-        VStack(spacing: 0) {
-            HStack {
+        HStack(alignment: .center) {
             Text(title)
-                    .font(.system(size: 17, weight: .bold))
-                    .foregroundStyle(Color(hex: 0x101828))
+                .font(.system(size: 15, weight: .semibold))
+                .foregroundStyle(Color(hex: 0x101828))
             Spacer()
             Text(value)
-                    .font(.system(size: 17, weight: .regular))
-                .foregroundStyle(Color(hex: 0x101828))
+                .font(.system(size: title == "Amount" ? 16 : 14, weight: title == "Amount" ? .bold : .medium))
+                .foregroundStyle(title == "Amount" ? Color(hex: 0x101828) : Color(hex: 0x475467))
                 .multilineTextAlignment(.trailing)
-            }
-            .frame(height: 54)
-
-            Divider()
-                .overlay(Color(hex: 0xF2F4F7))
         }
+        .padding(.bottom, 20)
     }
 
     private func loadExpense() async {

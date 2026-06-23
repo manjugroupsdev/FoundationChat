@@ -526,7 +526,7 @@ struct LoginView: View {
         } label: {
             ZStack {
                 if authStore.isAuthenticating {
-                    ProgressView().tint(.white)
+                    AuthPulsingLoadingCircle()
                 } else {
                     Text("Verify OTP")
                         .font(.system(size: 14, weight: .medium))
@@ -644,6 +644,22 @@ struct LoginView: View {
 // MARK: - OTP Box
 
 private enum AuthStep { case phone, otp, employee }
+
+private struct AuthPulsingLoadingCircle: View {
+    @State private var isBright = false
+
+    var body: some View {
+        Circle()
+            .fill(Color.white.opacity(0.66))
+            .frame(width: 22, height: 22)
+            .opacity(isBright ? 1 : 0.35)
+            .onAppear {
+                withAnimation(.easeInOut(duration: 0.85).repeatForever(autoreverses: true)) {
+                    isBright = true
+                }
+            }
+    }
+}
 
 private struct OtpBox: View {
     @Binding var digit: String

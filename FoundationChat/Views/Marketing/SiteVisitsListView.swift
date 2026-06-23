@@ -3,8 +3,8 @@ import SwiftUI
 
 /// Marketing > Site Visits list. Mirrors the Android `SiteVisitsListFragment`:
 /// pulls scheduled visits across a ±30-day window from
-/// `GET /api/sitevisits/my`, sorts newest scheduled date first, and lets the
-/// user filter by status bucket and free-text search by place / address.
+/// `GET /api/sitevisits/my`, sorts newest scheduled date first, and opens the
+/// Android-parity overview sheet before outcome capture.
 struct SiteVisitsListView: View {
     @Environment(AuthStore.self) private var authStore
 
@@ -12,14 +12,8 @@ struct SiteVisitsListView: View {
     @State private var isLoading = false
     @State private var loadFailed = false
     @State private var errorMessage: String?
-    @State private var selectedStatus: SiteVisitStatus = .scheduled
-    @State private var searchText = ""
-    @State private var isDateFilterEnabled = false
-    @State private var selectedDate = Date()
     @State private var hasLoadedOnce = false
     @State private var selectedVisit: ConvexSiteVisit?
-
-    private let visibleStatuses: [SiteVisitStatus] = [.all, .scheduled, .clientStarted, .pickedUp, .completed]
 
     private static let dateFormatter: DateFormatter = {
         let f = DateFormatter()
@@ -30,28 +24,12 @@ struct SiteVisitsListView: View {
     }()
 
     private var filteredVisits: [ConvexSiteVisit] {
-        let trimmed = searchText.trimmingCharacters(in: .whitespacesAndNewlines).lowercased()
-        return visits.filter { visit in
-            let isProperSiteVisit = (visit.tripType ?? "").lowercased() != "client_place"
-                && visit.clientPlaceVisitId == nil
-            let matchesStatus = selectedStatus == .all || visit.statusBucket == selectedStatus
-            let matchesDate = !isDateFilterEnabled || Self.dateFormatter.string(from: selectedDate) == (visit.scheduledDate ?? "")
-            let matchesQuery: Bool = {
-                guard !trimmed.isEmpty else { return true }
-                let haystacks = [visit.placeName, visit.placeAddress, visit.placeType, visit.status]
-                return haystacks.contains { $0?.lowercased().contains(trimmed) == true }
-            }()
-            return isProperSiteVisit && matchesStatus && matchesDate && matchesQuery
-        }
+        visits.filter { ($0.tripType ?? "").lowercased() != "client_place" && $0.clientPlaceVisitId == nil }
     }
 
     var body: some View {
         VStack(spacing: 0) {
-            searchBar
-            statusFilterBar
-            if isDateFilterEnabled {
-                dateFilterBar
-            }
+            headerCount
             content
         }
         .background(Color(hex: 0xF1F3F8).ignoresSafeArea())
@@ -65,16 +43,6 @@ struct SiteVisitsListView: View {
                     .font(.system(size: 20, weight: .bold))
                     .foregroundStyle(Color(hex: 0x101828))
             }
-
-            ToolbarItem(placement: .topBarTrailing) {
-                Button {
-                    isDateFilterEnabled.toggle()
-                } label: {
-                    Image(systemName: "calendar")
-                        .font(.system(size: 18, weight: .semibold))
-                }
-                .accessibilityLabel("Filter by date")
-            }
         }
         .refreshable { await load() }
         .task {
@@ -84,7 +52,7 @@ struct SiteVisitsListView: View {
             SiteVisitOverviewSheet(visit: visit) {
                 Task { await load() }
             }
-            .presentationDetents([.fraction(0.65), .large])
+            .presentationDetents([.fraction(0.78), .large])
             .presentationDragIndicator(.visible)
         }
     }
@@ -105,21 +73,23 @@ struct SiteVisitsListView: View {
             }
         } else if filteredVisits.isEmpty {
             ContentUnavailableView {
-                Label(emptyTitle, systemImage: "mappin.slash")
+                Label("No site visits", systemImage: "mappin.slash")
             } description: {
-                Text(emptyDescription)
+                Text("No site visits assigned to you yet.")
             }
         } else {
             ScrollView {
                 LazyVStack(spacing: 14) {
-                ForEach(filteredVisits) { visit in
-                    Button {
-                        selectedVisit = visit
-                    } label: {
-                        SiteVisitRow(visit: visit)
+                    ForEach(filteredVisits) { visit in
+                        Button {
+                            guard !visit.siteVisitStatus.isCancelled else { return }
+                            selectedVisit = visit
+                        } label: {
+                            SiteVisitRow(visit: visit)
+                        }
+                        .buttonStyle(.plain)
+                        .disabled(visit.siteVisitStatus.isCancelled)
                     }
-                    .buttonStyle(.plain)
-                }
                 }
                 .padding(.horizontal, 16)
                 .padding(.top, 16)
@@ -128,105 +98,20 @@ struct SiteVisitsListView: View {
         }
     }
 
-    private var searchBar: some View {
-        HStack(spacing: 10) {
-            TextField("Search SV", text: $searchText)
-                .font(.system(size: 15, weight: .regular))
-                .textInputAutocapitalization(.never)
-                .autocorrectionDisabled()
-            Image(systemName: "magnifyingglass")
-                .font(.system(size: 22, weight: .medium))
+    private var headerCount: some View {
+        HStack(spacing: 8) {
+            Text("Assigned Site Visits")
+                .font(.system(size: 16, weight: .semibold))
                 .foregroundStyle(Color(hex: 0x101828))
+            Spacer()
+            Text("\(filteredVisits.count)")
+                .font(.system(size: 15, weight: .bold))
+                .foregroundStyle(Color(hex: 0x0B61CA))
         }
-        .padding(.horizontal, 14)
-        .frame(height: 44)
-        .background(Color.white, in: RoundedRectangle(cornerRadius: 14))
-        .overlay(RoundedRectangle(cornerRadius: 14).stroke(Color(hex: 0xE4E7EC), lineWidth: 1))
         .padding(.horizontal, 16)
         .padding(.top, 16)
-    }
-
-    private var emptyTitle: String {
-        if !searchText.trimmingCharacters(in: .whitespaces).isEmpty {
-            return "No matches"
-        }
-        return selectedStatus == .all ? "No site visits" : "No \(selectedStatus.title.lowercased()) visits"
-    }
-
-    private var emptyDescription: String {
-        if !searchText.trimmingCharacters(in: .whitespaces).isEmpty {
-            return "Try a different place name or address."
-        }
-        return "Scheduled visits in the last 30 days will appear here."
-    }
-
-    private var statusFilterBar: some View {
-        ScrollView(.horizontal, showsIndicators: false) {
-            HStack(spacing: 8) {
-                ForEach(visibleStatuses) { status in
-                    let count = countFor(status: status)
-                    Button {
-                        selectedStatus = status
-                    } label: {
-                        HStack(spacing: 6) {
-                            Text(status.title)
-                            if status != .all && count > 0 {
-                                Text("\(count)")
-                                    .font(.caption2.weight(.semibold))
-                                    .padding(.horizontal, 6)
-                                    .padding(.vertical, 1)
-                                    .background(.white.opacity(0.25), in: Capsule())
-                            }
-                        }
-                        .font(.system(size: 13, weight: selectedStatus == status ? .semibold : .medium))
-                        .padding(.horizontal, 16)
-                        .frame(height: 34)
-                        .foregroundStyle(selectedStatus == status ? Color.white : Color(hex: 0x475467))
-                        .background(
-                            selectedStatus == status
-                                ? Color(hex: 0x0B61CA)
-                                : Color.white,
-                            in: Capsule()
-                        )
-                        .overlay(Capsule().stroke(Color(hex: 0xE4E7EC), lineWidth: selectedStatus == status ? 0 : 1))
-                    }
-                    .buttonStyle(.plain)
-                }
-            }
-            .padding(.horizontal)
-            .padding(.top, 16)
-            .padding(.bottom, 2)
-        }
+        .padding(.bottom, 4)
         .background(Color(hex: 0xF1F3F8))
-    }
-
-    private var dateFilterBar: some View {
-        HStack(spacing: 10) {
-            DatePicker(
-                "Date",
-                selection: $selectedDate,
-                displayedComponents: .date
-            )
-            .datePickerStyle(.compact)
-
-            Button {
-                isDateFilterEnabled = false
-            } label: {
-                Label("Clear date", systemImage: "xmark.circle")
-            }
-            .buttonStyle(.bordered)
-            .tint(.red)
-
-            Spacer(minLength: 0)
-        }
-        .padding(.horizontal, 16)
-        .padding(.vertical, 10)
-        .background(Color(hex: 0xF1F3F8))
-    }
-
-    private func countFor(status: SiteVisitStatus) -> Int {
-        guard status != .all else { return visits.count }
-        return visits.filter { $0.statusBucket == status }.count
     }
 
     private func coordinate(for visit: ConvexSiteVisit) -> CLLocationCoordinate2D? {
@@ -275,149 +160,37 @@ struct SiteVisitRow: View {
     let visit: ConvexSiteVisit
 
     var body: some View {
-        HStack(spacing: 12) {
-            dateTile
-
-            Rectangle()
-                .fill(Color(hex: 0xE4E7EC))
-                .frame(width: 1)
+        HStack(spacing: 14) {
+            Image(systemName: "mappin.and.ellipse")
+                .font(.system(size: 18, weight: .semibold))
+                .foregroundStyle(Color(hex: 0x0B61CA))
+                .frame(width: 42, height: 42)
+                .background(Color(hex: 0xEAF3FF), in: RoundedRectangle(cornerRadius: 12))
 
             VStack(alignment: .leading, spacing: 10) {
-                HStack(alignment: .top, spacing: 10) {
-                    VStack(alignment: .leading, spacing: 7) {
-                        Text(visit.leadName?.nilIfBlank ?? visit.placeName ?? "Site Visit")
-                            .font(.system(size: 16, weight: .bold))
-                            .foregroundStyle(Color(hex: 0x101828))
-                            .lineLimit(1)
-                        Label(visit.leadPhone?.nilIfBlank ?? "—", systemImage: "phone.fill")
-                            .font(.system(size: 12, weight: .medium))
-                            .foregroundStyle(Color(hex: 0x98A2B3))
-                    }
-                    .frame(maxWidth: .infinity, alignment: .leading)
-
-                    Spacer()
-
-                    VStack(alignment: .trailing, spacing: 8) {
-                        statusBadge
-                        vehicleBadge
-                    }
-                    .fixedSize(horizontal: true, vertical: false)
-                }
-
-                Divider()
-                    .overlay(Color(hex: 0xEAECF0))
-
-                HStack(alignment: .top, spacing: 12) {
-                    VStack(alignment: .leading, spacing: 3) {
-                        Label(staffName, systemImage: "person")
-                            .font(.system(size: 12, weight: .bold))
-                            .foregroundStyle(Color(hex: 0x344054))
-                            .lineLimit(1)
-                            .minimumScaleFactor(0.75)
-                        Text("BDO")
-                            .font(.system(size: 11, weight: .medium))
-                            .foregroundStyle(Color(hex: 0x98A2B3))
-                    }
-                    .frame(maxWidth: .infinity, alignment: .leading)
-
-                    VStack(alignment: .leading, spacing: 3) {
-                        Label(visit.placeName?.nilIfBlank ?? "—", systemImage: "mappin")
-                            .font(.system(size: 12, weight: .bold))
-                            .foregroundStyle(Color(hex: 0x344054))
-                            .lineLimit(1)
-                            .minimumScaleFactor(0.75)
-                        Text("ORIGIN")
-                            .font(.system(size: 11, weight: .medium))
-                            .foregroundStyle(Color(hex: 0x98A2B3))
-                    }
-                    .frame(maxWidth: .infinity, alignment: .leading)
-                }
-        }
-        }
-        .padding(14)
-        .frame(maxWidth: .infinity, alignment: .leading)
-        .background(Color.white, in: RoundedRectangle(cornerRadius: 18))
-    }
-
-    private var dateTile: some View {
-        VStack(spacing: 8) {
-            VStack(spacing: 2) {
-                Text(dateParts.weekday)
-                    .font(.system(size: 11, weight: .semibold))
-                    .foregroundStyle(Color(hex: 0x667085))
-                Text(dateParts.day)
-                    .font(.system(size: 23, weight: .bold))
+                Text(visit.placeName?.nilIfBlank ?? "Site visit")
+                    .font(.system(size: 16, weight: .bold))
                     .foregroundStyle(Color(hex: 0x101828))
-                Text(dateParts.month)
-                    .font(.system(size: 11, weight: .bold))
-                    .foregroundStyle(Color(hex: 0x0B61CA))
+                    .lineLimit(1)
+
+                Text(visit.androidWhenText)
+                    .font(.system(size: 13, weight: .medium))
+                    .foregroundStyle(Color(hex: 0x667085))
+                    .lineLimit(1)
             }
-            .frame(width: 58, height: 70)
-            .background(Color(hex: 0xEEF4FF), in: RoundedRectangle(cornerRadius: 12))
+            .frame(maxWidth: .infinity, alignment: .leading)
 
-            Text(formattedTimeRange() ?? "")
-                .font(.system(size: 12, weight: .bold))
-                .foregroundStyle(Color(hex: 0x0B61CA))
-                .frame(width: 58, height: 28)
-                .background(Color(hex: 0xDCEBFF), in: RoundedRectangle(cornerRadius: 5))
+            Text(visit.androidActionTitle)
+                .font(.system(size: 13, weight: .bold))
+                .foregroundStyle(visit.androidActionForeground)
+                .padding(.horizontal, 14)
+                .frame(height: 34)
+                .background(visit.androidActionBackground, in: Capsule())
         }
-    }
-
-    private var statusBadge: some View {
-        HStack(spacing: 5) {
-            Circle()
-                .fill(visit.statusBucket.tint)
-                .frame(width: 7, height: 7)
-            Text(visit.statusBucket.title)
-                .font(.system(size: 11, weight: .semibold))
-        }
-        .foregroundStyle(Color(hex: 0xB45309))
-        .padding(.horizontal, 9)
-        .frame(height: 24)
-        .background(Color(hex: 0xFFF7E6), in: Capsule())
-    }
-
-    private var vehicleBadge: some View {
-        Label("No Vehicle Assigned", systemImage: "car.fill")
-            .font(.system(size: 11, weight: .semibold))
-            .foregroundStyle(Color(hex: 0xD92D20))
-            .padding(.horizontal, 9)
-            .frame(height: 24)
-            .background(Color(hex: 0xFFF1F0), in: Capsule())
-    }
-
-    private var staffName: String {
-        "MANOJ PRABHA..."
-    }
-
-    private var dateParts: (weekday: String, day: String, month: String) {
-        guard let date = parsedDate(visit.scheduledDate) else { return ("--", "--", "---") }
-        let weekday = DateFormatter()
-        weekday.dateFormat = "EEE"
-        let day = DateFormatter()
-        day.dateFormat = "dd"
-        let month = DateFormatter()
-        month.dateFormat = "MMM"
-        return (weekday.string(from: date).uppercased(), day.string(from: date), month.string(from: date).uppercased())
-    }
-
-    private func parsedDate(_ raw: String?) -> Date? {
-        guard let raw, !raw.isEmpty else { return nil }
-        let parser = DateFormatter()
-        parser.dateFormat = "yyyy-MM-dd"
-        parser.locale = Locale(identifier: "en_US_POSIX")
-        return parser.date(from: raw)
-    }
-
-    private func formattedTimeRange() -> String? {
-        let start = visit.scheduledStartTime?.trimmingCharacters(in: .whitespaces)
-        let end = visit.scheduledEndTime?.trimmingCharacters(in: .whitespaces)
-        switch (start?.isEmpty == false ? start : nil, end?.isEmpty == false ? end : nil) {
-        case (let s?, let e?): return "\(s) – \(e)"
-        case (let s?, nil): return s
-        case (nil, let e?): return e
-        default: return nil
-        }
+        .padding(.horizontal, 14)
+        .padding(.vertical, 13)
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .background(Color.white, in: RoundedRectangle(cornerRadius: 14))
     }
 }
 
@@ -434,11 +207,130 @@ private struct StatusPill: View {
     }
 }
 
+private enum AndroidSiteVisitRowStatus {
+    case start
+    case inProgress
+    case completed
+    case cancelled
+
+    var isCancelled: Bool {
+        if case .cancelled = self { return true }
+        return false
+    }
+}
+
+private extension ConvexSiteVisit {
+    var siteVisitStatus: AndroidSiteVisitRowStatus {
+        let value = (status ?? "")
+            .trimmingCharacters(in: .whitespacesAndNewlines)
+            .lowercased()
+            .replacingOccurrences(of: "-", with: "_")
+
+        switch value {
+        case "completed", "complete", "done", "closed":
+            return .completed
+        case "cancelled", "canceled", "no_show":
+            return .cancelled
+        case "in_progress", "ongoing", "active", "arrived", "on_site", "picked_up", "client_started", "started":
+            return .inProgress
+        default:
+            return .start
+        }
+    }
+
+    var androidActionTitle: String {
+        switch siteVisitStatus {
+        case .start: return "Start Trip"
+        case .inProgress: return "In progress"
+        case .completed: return "Completed"
+        case .cancelled: return "Cancelled"
+        }
+    }
+
+    var androidActionForeground: Color {
+        switch siteVisitStatus {
+        case .start: return .white
+        case .inProgress: return Color(hex: 0xB45309)
+        case .completed, .cancelled: return Color(hex: 0x667085)
+        }
+    }
+
+    var androidActionBackground: Color {
+        switch siteVisitStatus {
+        case .start: return Color(hex: 0x10C400)
+        case .inProgress: return Color(hex: 0xFFF4DB)
+        case .completed, .cancelled: return Color(hex: 0xEEF0F4)
+        }
+    }
+
+    var androidWhenText: String {
+        let time = scheduledStartTime?.nilIfBlank.map { SiteVisitDateFormatter.displayTime($0) } ?? ""
+        guard let date = scheduledDate?.nilIfBlank else {
+            return time.isEmpty ? "Available Today" : "Available Today · \(time)"
+        }
+
+        let prefix = SiteVisitDateFormatter.isToday(date) ? "Available Today" : SiteVisitDateFormatter.dayMonth(date)
+        return time.isEmpty ? prefix : "\(prefix) · \(time)"
+    }
+}
+
+private enum SiteVisitDateFormatter {
+    static func isToday(_ raw: String) -> Bool {
+        guard let date = parseDate(raw) else { return false }
+        return Calendar.current.isDateInToday(date)
+    }
+
+    static func dayMonth(_ raw: String) -> String {
+        guard let date = parseDate(raw) else { return raw }
+        let formatter = DateFormatter()
+        formatter.locale = Locale(identifier: "en_US_POSIX")
+        formatter.dateFormat = "d MMM"
+        return formatter.string(from: date)
+    }
+
+    static func displayDate(_ raw: String) -> String {
+        guard let date = parseDate(raw) else { return raw }
+        let formatter = DateFormatter()
+        formatter.locale = Locale(identifier: "en_US_POSIX")
+        formatter.dateFormat = "dd MMM yyyy"
+        return formatter.string(from: date)
+    }
+
+    static func displayTime(_ raw: String) -> String {
+        let trimmed = raw.trimmingCharacters(in: .whitespacesAndNewlines)
+        let inputFormats = ["HH:mm:ss", "HH:mm", "h:mm a", "hh:mm a"]
+        for format in inputFormats {
+            let parser = DateFormatter()
+            parser.locale = Locale(identifier: "en_US_POSIX")
+            parser.dateFormat = format
+            if let date = parser.date(from: trimmed.uppercased()) {
+                let formatter = DateFormatter()
+                formatter.locale = Locale(identifier: "en_US_POSIX")
+                formatter.dateFormat = "h:mm a"
+                return formatter.string(from: date)
+            }
+        }
+        return trimmed
+    }
+
+    private static func parseDate(_ raw: String) -> Date? {
+        let parser = DateFormatter()
+        parser.locale = Locale(identifier: "en_US_POSIX")
+        parser.dateFormat = "yyyy-MM-dd"
+        return parser.date(from: raw)
+    }
+}
+
 private struct SiteVisitOverviewSheet: View {
     let visit: ConvexSiteVisit
     let onChanged: () -> Void
 
+    @Environment(AuthStore.self) private var authStore
+
     @State private var selectedOutcome: SiteVisitOverviewOutcome?
+    @State private var detail: CpVisitDetail?
+    @State private var staffDirectory: [ConvexStaffListItem] = []
+    @State private var isLoadingDetail = false
 
     var body: some View {
         ScrollView {
@@ -452,28 +344,40 @@ private struct SiteVisitOverviewSheet: View {
                 header
                 progressStepper
 
+                if isLoadingDetail {
+                    HStack(spacing: 10) {
+                        ProgressView()
+                        Text("Loading visit details...")
+                            .font(.system(size: 13, weight: .medium))
+                            .foregroundStyle(Color(hex: 0x667085))
+                    }
+                    .frame(maxWidth: .infinity, alignment: .leading)
+                    .padding(12)
+                    .background(Color(hex: 0xF8FAFC), in: RoundedRectangle(cornerRadius: 12))
+                }
+
                 LazyVGrid(columns: [GridItem(.flexible()), GridItem(.flexible())], spacing: 12) {
-                    overviewCard(icon: "person", tint: Color(hex: 0x0B61CA), label: "CLIENT", value: visit.leadName?.nilIfBlank ?? "—")
-                    overviewCard(icon: "phone", tint: Color(hex: 0x7C3AED), label: "PHONE", value: visit.leadPhone?.nilIfBlank ?? "—")
-                    overviewCard(icon: "building.2", tint: Color(hex: 0xDB2777), label: "PROJECT / PLOT", value: visit.placeName?.nilIfBlank ?? "—")
-                    overviewCard(icon: "person", tint: Color(hex: 0xF97316), label: "BDO / TELECALLER", value: "—")
+                    overviewCard(icon: "person", tint: Color(hex: 0x0B61CA), label: "CLIENT", value: clientName)
+                    overviewCard(icon: "phone", tint: Color(hex: 0x7C3AED), label: "PHONE", value: clientPhone)
+                    overviewCard(icon: "building.2", tint: Color(hex: 0xDB2777), label: "PROJECT / PLOT", value: projectName)
+                    overviewCard(icon: "person", tint: Color(hex: 0xF97316), label: "BDO / TELECALLER", value: staffName)
                 }
 
                 wideCard(
                     icon: "mappin.circle",
                     tint: Color(hex: 0x0B61CA),
                     label: "PICKUP ADDRESS",
-                    value: visit.placeAddress?.nilIfBlank ?? "—"
+                    value: pickupAddress
                 )
 
                 LazyVGrid(columns: [GridItem(.flexible()), GridItem(.flexible())], spacing: 12) {
-                    overviewCard(icon: "person.2", tint: Color(hex: 0x667085), label: "ATTENDEES", value: "—")
-                    overviewCard(icon: "checkmark.circle.fill", tint: Color(hex: 0x475467), label: "SITE INCHARGE", value: "—")
+                    overviewCard(icon: "person.2", tint: Color(hex: 0x667085), label: "ATTENDEES", value: attendeeCountText)
+                    overviewCard(icon: "checkmark.circle.fill", tint: Color(hex: 0x475467), label: "SITE INCHARGE", value: inchargeName)
                 }
 
                 HStack(spacing: 12) {
-                    bottomTintCard(title: "Visitors", value: visit.leadName?.nilIfBlank ?? "—", tint: Color(hex: 0x0B61CA), bg: Color(hex: 0xEEF4FF))
-                    bottomTintCard(title: "Notes", value: "No notes recorded yet.", tint: Color(hex: 0x92400E), bg: Color(hex: 0xFFF8E1))
+                    bottomTintCard(title: "Visitors", value: visitorSummary, tint: Color(hex: 0x0B61CA), bg: Color(hex: 0xEEF4FF))
+                    bottomTintCard(title: "Notes", value: notesText, tint: Color(hex: 0x92400E), bg: Color(hex: 0xFFF8E1))
                 }
 
                 outcomeButtons
@@ -483,8 +387,9 @@ private struct SiteVisitOverviewSheet: View {
             .padding(.bottom, 24)
         }
         .background(Color.white)
+        .task { await loadEnrichedDetail() }
         .sheet(item: $selectedOutcome) { outcome in
-            SiteVisitOutcomeSheet(siteVisitId: visit.id, initialOutcome: outcome.rawValue) {
+            SiteVisitOutcomeSheet(siteVisitId: visit.id, initialOutcome: outcome.rawValue, locksOutcome: true) {
                 onChanged()
             }
             .presentationDetents([.large])
@@ -505,7 +410,7 @@ private struct SiteVisitOverviewSheet: View {
                         Circle()
                             .fill(Color(hex: 0x0B61CA))
                             .frame(width: 8, height: 8)
-                        Text(visit.statusBucket.title.uppercased())
+                        Text(androidStatusTitle.uppercased())
                             .font(.system(size: 13, weight: .bold))
                             .foregroundStyle(Color(hex: 0x0B61CA))
                     }
@@ -527,7 +432,7 @@ private struct SiteVisitOverviewSheet: View {
                     .font(.system(size: 14, weight: .medium))
                     .foregroundStyle(Color(hex: 0x475467))
                 Spacer()
-                Label("Site Visit", systemImage: "mappin")
+                Label(visitTypeTitle, systemImage: "mappin")
                     .font(.system(size: 14, weight: .medium))
                     .foregroundStyle(Color(hex: 0x475467))
             }
@@ -684,6 +589,112 @@ private struct SiteVisitOverviewSheet: View {
         .background(bg, in: RoundedRectangle(cornerRadius: 16))
     }
 
+    @MainActor
+    private func loadEnrichedDetail() async {
+        guard let token = authStore.currentSession?.token else { return }
+        isLoadingDetail = true
+        defer { isLoadingDetail = false }
+
+        async let detailTask: CpVisitDetail? = {
+            do {
+                return try await MarketingConvexAPIService.getCpVisitDetail(token: token, id: visit.id)
+            } catch {
+                return nil
+            }
+        }()
+
+        async let staffTask: [ConvexStaffListItem] = {
+            do {
+                return try await HRConvexAPIService.listAllStaff(token: token)
+            } catch {
+                return []
+            }
+        }()
+
+        detail = await detailTask
+        staffDirectory = await staffTask
+    }
+
+    private var clientName: String {
+        detail?.lead?.contactName?.nilIfBlank
+            ?? detail?.client?.clientName?.nilIfBlank
+            ?? visit.leadName?.nilIfBlank
+            ?? "—"
+    }
+
+    private var clientPhone: String {
+        detail?.lead?.mobileNumber?.nilIfBlank
+            ?? detail?.client?.mobileNumber?.nilIfBlank
+            ?? visit.leadPhone?.nilIfBlank
+            ?? "—"
+    }
+
+    private var projectName: String {
+        detail?.project?.name?.nilIfBlank
+            ?? visit.placeName?.nilIfBlank
+            ?? "—"
+    }
+
+    private var staffName: String {
+        detail?.assignedStaff?.displayName
+            ?? detail?.telecaller?.displayName
+            ?? "—"
+    }
+
+    private var pickupAddress: String {
+        detail?.clientPlace?.formattedAddress?.nilIfBlank
+            ?? detail?.clientPlace?.address?.nilIfBlank
+            ?? visit.placeAddress?.nilIfBlank
+            ?? "—"
+    }
+
+    private var attendeeCountText: String {
+        if let count = detail?.expectedAttendeeCount, count > 0 { return "\(count)" }
+        if let count = detail?.attendees?.count, count > 0 { return "\(count)" }
+        return "—"
+    }
+
+    private var inchargeName: String {
+        detail?.inchargeStaff?.displayName
+            ?? inchargeFromDirectory
+            ?? "—"
+    }
+
+    private var inchargeFromDirectory: String? {
+        guard let id = detail?.proposedSiteVisit?.inchargeStaffId?.nilIfBlank else { return nil }
+        return staffDirectory.first { $0.id == id }?.displayName
+    }
+
+    private var visitorSummary: String {
+        guard let attendee = detail?.attendees?.first else { return "—" }
+        let parts = [
+            attendee.name?.nilIfBlank,
+            attendee.relation?.nilIfBlank,
+            attendee.age?.nilIfBlank.map { "\($0) yrs" },
+            attendee.isVeg.map { $0 ? "Veg" : "Non-Veg" }
+        ]
+        .compactMap { $0 }
+        return parts.isEmpty ? "—" : parts.joined(separator: " · ")
+    }
+
+    private var notesText: String {
+        detail?.notes?.nilIfBlank ?? "No notes recorded yet."
+    }
+
+    private var visitTypeTitle: String {
+        switch (detail?.cpType ?? "").trimmingCharacters(in: .whitespacesAndNewlines).lowercased() {
+        case "sv_cum_cp": return "SV confirmation CP"
+        case "direct_cp": return "Direct CP"
+        case "site_visit": return "Site Visit"
+        default: return "Site Visit"
+        }
+    }
+
+    private var androidStatusTitle: String {
+        let value = normalizedStatus.replacingOccurrences(of: "_", with: " ")
+        return value.isEmpty ? "Scheduled" : value.capitalized
+    }
+
     private var vehicleTitle: String {
         isOwnVehicle ? "Own Vehicle" : "Cab Vehicle"
     }
@@ -695,27 +706,42 @@ private struct SiteVisitOverviewSheet: View {
     }
 
     private var normalizedStatus: String {
-        (visit.status ?? "")
+        (detail?.proposedSiteVisit?.status ?? detail?.status ?? visit.status ?? "")
             .trimmingCharacters(in: .whitespacesAndNewlines)
             .lowercased()
+            .replacingOccurrences(of: "-", with: "_")
     }
 
     private var isOwnVehicle: Bool {
-        normalizedTripType == "own_vehicle"
-            || normalizedTripType == "own vehicle"
-            || normalizedTripType == "own"
-            || normalizedTripType == "self"
-            || normalizedTripType == "self_vehicle"
+        let mode = (detail?.proposedSiteVisit?.travelMode ?? detail?.vehiclePreference ?? normalizedTripType)
+            .trimmingCharacters(in: .whitespacesAndNewlines)
+            .lowercased()
+            .replacingOccurrences(of: " ", with: "_")
+        return mode == "own_vehicle"
+            || mode == "own"
+            || mode == "self"
+            || mode == "self_vehicle"
     }
 
     private var isVisitClosed: Bool {
         visit.hasLockedOutcome
+            || detail?.convertedBookingId?.nilIfBlank != nil
+            || detail?.convertedSiteVisitId?.nilIfBlank != nil
+            || detail?.outcome?.nilIfBlank != nil
+            || detail?.completedAt != nil
+            || detail?.cancelledAt != nil
             || ["completed", "complete", "done", "closed", "cancelled", "canceled"].contains(normalizedStatus)
     }
 
     private var displayDateTime: String {
-        let date = visit.scheduledDate?.nilIfBlank.map { formatDisplayDate($0) } ?? "—"
-        let time = visit.scheduledStartTime?.nilIfBlank ?? ""
+        let rawDate = detail?.proposedSiteVisit?.scheduledDate?.nilIfBlank
+            ?? detail?.scheduledDate?.nilIfBlank
+            ?? visit.scheduledDate?.nilIfBlank
+        let date = rawDate.map { SiteVisitDateFormatter.displayDate($0) } ?? "—"
+        let rawTime = detail?.proposedSiteVisit?.scheduledTime?.nilIfBlank
+            ?? detail?.scheduledTime?.nilIfBlank
+            ?? visit.scheduledStartTime?.nilIfBlank
+        let time = rawTime.map { SiteVisitDateFormatter.displayTime($0) } ?? ""
         return [date, time].filter { !$0.isEmpty }.joined(separator: ", ")
     }
 
@@ -739,31 +765,53 @@ private struct SiteVisitOverviewSheet: View {
     }
 
     private var currentStepIndex: Int {
+        let proposed = detail?.proposedSiteVisit
+        var cabIndex: Int
         switch normalizedStatus {
-        case "completed", "done": return stepItems.count - 1
-        case "dropped": return min(4, stepItems.count - 1)
-        case "on_site", "arrived": return isOwnVehicle ? 2 : 3
-        case "picked_up": return isOwnVehicle ? 1 : 2
-        case "client_started", "started", "client_departure", "departed": return isOwnVehicle ? 1 : 0
-        case "assigned": return 1
-        default: return 0
+        case "completed", "complete", "done", "closed":
+            cabIndex = 5
+        case "dropped":
+            cabIndex = 4
+        case "on_site", "arrived", "site_reached":
+            cabIndex = 3
+        case "picked_up":
+            cabIndex = 2
+        case "client_started", "started", "client_departure", "departed":
+            cabIndex = 2
+        case "assigned":
+            cabIndex = 1
+        default:
+            cabIndex = 0
         }
+
+        if proposed?.travelDeskEndedAt != nil || proposed?.droppedAt != nil || proposed?.completedAt != nil {
+            cabIndex = max(cabIndex, 4)
+        }
+        if proposed?.travelDeskOnSiteAt != nil || proposed?.arrivedSiteAt != nil {
+            cabIndex = max(cabIndex, 3)
+        }
+        if proposed?.travelDeskStartedAt != nil || proposed?.pickedUpAt != nil {
+            cabIndex = max(cabIndex, 2)
+        }
+        if cabIndex == 0 && (proposed?.vehicleId?.nilIfBlank != nil || proposed?.travelAgencyId?.nilIfBlank != nil) {
+            cabIndex = 1
+        }
+
+        if isOwnVehicle {
+            switch cabIndex {
+            case ...1: return 0
+            case 2: return 1
+            case 3...4: return 2
+            default: return 3
+            }
+        }
+        return min(cabIndex, stepItems.count - 1)
     }
 
     private var isOutcomeEnabled: Bool {
         guard !isVisitClosed else { return false }
         let onSiteIndex = isOwnVehicle ? 2 : 3
         return currentStepIndex >= onSiteIndex
-    }
-
-    private func formatDisplayDate(_ raw: String) -> String {
-        let parser = DateFormatter()
-        parser.dateFormat = "yyyy-MM-dd"
-        parser.locale = Locale(identifier: "en_US_POSIX")
-        guard let date = parser.date(from: raw) else { return raw }
-        let formatter = DateFormatter()
-        formatter.dateFormat = "dd MMM yyyy"
-        return formatter.string(from: date)
     }
 }
 
@@ -779,6 +827,12 @@ private extension String {
     var nilIfBlank: String? {
         let trimmed = trimmingCharacters(in: .whitespacesAndNewlines)
         return trimmed.isEmpty ? nil : trimmed
+    }
+}
+
+private extension CpVisitStaff {
+    var displayName: String? {
+        staffName?.nilIfBlank ?? staffCode?.nilIfBlank
     }
 }
 

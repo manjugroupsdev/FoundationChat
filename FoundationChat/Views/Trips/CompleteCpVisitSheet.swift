@@ -813,8 +813,7 @@ struct CompleteCpVisitSheet: View {
         defer { isDetectingLockedSvMode = false }
 
         do {
-            let visits = try await MarketingConvexAPIService.getMyMarketingCpVisits(token: token)
-            guard let visit = visits.first(where: { $0.id == cpVisitId }) else { return }
+            let visit = try await loadCpVisitDetailForLockedDetection(token: token)
             cpVisitDetail = visit
             prefillBookingFromCpVisit(visit)
 
@@ -823,6 +822,16 @@ struct CompleteCpVisitSheet: View {
             applyLockedSvMode(visit: visit, proposed: proposed)
         } catch {
             // Locked mode is progressive enhancement. If detection fails, keep the normal CP flow usable.
+        }
+    }
+
+    private func loadCpVisitDetailForLockedDetection(token: String) async throws -> CpVisitDetail {
+        do {
+            return try await MarketingConvexAPIService.getCpVisitDetail(token: token, id: cpVisitId)
+        } catch {
+            let visits = try await MarketingConvexAPIService.getMyMarketingCpVisits(token: token)
+            guard let visit = visits.first(where: { $0.id == cpVisitId }) else { throw error }
+            return visit
         }
     }
 
@@ -918,17 +927,27 @@ struct CompleteCpVisitSheet: View {
         selectedGm = staff(with: proposed?.gmStaffId)
         selectedSeniorManager = staff(with: proposed?.seniorManagerStaffId)
 
-        let count = visit.expectedAttendeeCount ?? visit.attendees?.count ?? 0
-        if count > 0 {
-            visitorCount = "\(count)"
-            syncVisitorRows(count: count)
-            if let attendees = visit.attendees {
-                for (index, attendee) in attendees.prefix(visitors.count).enumerated() {
-                    visitors[index].name = attendee.name ?? ""
-                    visitors[index].relation = attendee.relation ?? ""
-                    visitors[index].age = attendee.age ?? ""
-                    visitors[index].isVeg = attendee.isVeg ?? true
-                }
+        let count = max(visit.expectedAttendeeCount ?? visit.attendees?.count ?? 0, 1)
+        visitorCount = "\(count)"
+        syncVisitorRows(count: count)
+        if let attendees = visit.attendees, !attendees.isEmpty {
+            for (index, attendee) in attendees.prefix(visitors.count).enumerated() {
+                visitors[index].name = attendee.name ?? ""
+                visitors[index].relation = attendee.relation ?? ""
+                visitors[index].age = attendee.age ?? ""
+                visitors[index].isVeg = attendee.isVeg ?? true
+            }
+        } else if let first = visitors.indices.first {
+            let fallbackName = visit.client?.clientName?.nilIfBlank
+                ?? visit.lead?.contactName?.nilIfBlank
+                ?? visit.clientPlace?.contactPerson?.nilIfBlank
+                ?? visit.clientPlace?.name?.nilIfBlank
+                ?? ""
+            if visitors[first].name.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
+                visitors[first].name = fallbackName
+            }
+            if visitors[first].relation.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
+                visitors[first].relation = "Self"
             }
         }
         foodPreferences = visit.foodPreferences ?? ""
@@ -994,7 +1013,8 @@ struct CompleteCpVisitSheet: View {
             errorMessage = "Please share at least one reason"
             return
         }
-        if selectedOutcome == .siteVisit && selectedProject == nil {
+        let confirmsExistingLockedSiteVisit = isLockedSvMode && cpVisitDetail?.convertedSiteVisitId?.nilIfBlank != nil
+        if selectedOutcome == .siteVisit && selectedProject == nil && !confirmsExistingLockedSiteVisit {
             errorMessage = "Please select a project"
             return
         }
@@ -1027,27 +1047,39 @@ struct CompleteCpVisitSheet: View {
                     )
                 )
             } else if selectedOutcome == .siteVisit {
-                guard let selectedProject else { return }
-                _ = try await MarketingConvexAPIService.convertCpVisitToSiteVisit(
-                    token: token,
-                    request: ConvertCpVisitToSiteVisitRequest(
-                        id: cpVisitId,
-                        projectId: selectedProject.id,
-                        scheduledDate: dateString(siteVisitDate),
-                        scheduledTime: timeString(siteVisitTime),
-                        inchargeStaffId: selectedIncharge?.id,
-                        hodStaffId: selectedHod?.id,
-                        avpStaffId: selectedAvp?.id,
-                        gmStaffId: selectedGm?.id,
-                        seniorManagerStaffId: selectedSeniorManager?.id,
-                        expectedAttendeeCount: Int(visitorCount.trimmingCharacters(in: .whitespacesAndNewlines)),
-                        attendees: visitorPayload.nilIfEmpty,
-                        pickupAddress: pickupAddress.nilIfBlank,
-                        travelMode: travelMode.rawValue,
-                        foodPreferences: foodPreferences.nilIfBlank,
-                        notes: "Created from iOS CP visit"
+                if isLockedSvMode, cpVisitDetail?.convertedSiteVisitId?.nilIfBlank != nil {
+                    try await MarketingConvexAPIService.setCpVisitOutcome(
+                        token: token,
+                        request: SetCpVisitOutcomeRequest(
+                            id: cpVisitId,
+                            outcome: "interested",
+                            postponeReasons: nil,
+                            notes: "Confirmed by field staff"
+                        )
                     )
-                )
+                } else {
+                    guard let selectedProject else { return }
+                    _ = try await MarketingConvexAPIService.convertCpVisitToSiteVisit(
+                        token: token,
+                        request: ConvertCpVisitToSiteVisitRequest(
+                            id: cpVisitId,
+                            projectId: selectedProject.id,
+                            scheduledDate: dateString(siteVisitDate),
+                            scheduledTime: timeString(siteVisitTime),
+                            inchargeStaffId: selectedIncharge?.id,
+                            hodStaffId: selectedHod?.id,
+                            avpStaffId: selectedAvp?.id,
+                            gmStaffId: selectedGm?.id,
+                            seniorManagerStaffId: selectedSeniorManager?.id,
+                            expectedAttendeeCount: Int(visitorCount.trimmingCharacters(in: .whitespacesAndNewlines)),
+                            attendees: visitorPayload.nilIfEmpty,
+                            pickupAddress: pickupAddress.nilIfBlank,
+                            travelMode: travelMode.rawValue,
+                            foodPreferences: foodPreferences.nilIfBlank,
+                            notes: "Created from iOS CP visit"
+                        )
+                    )
+                }
             } else {
                 try await MarketingConvexAPIService.setCpVisitOutcome(
                     token: token,

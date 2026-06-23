@@ -19,6 +19,7 @@ struct MainTabView: View {
     @State private var openConversationIDFromPush: String?
     @State private var openChannelIDFromPush: String?
     @State private var openHRRouteFromPush: HRDashboardRoute?
+    @State private var hasPlayedHomeEntryAnimation = false
 
     init() {
         Self.configureTabBarColors()
@@ -46,7 +47,7 @@ struct MainTabView: View {
 
     var body: some View {
         TabView(selection: $selectedTab) {
-            HomeView()
+            HomeView(hasPlayedEntryAnimation: $hasPlayedHomeEntryAnimation)
                 .tabItem {
                     Label {
                         Text("Home")

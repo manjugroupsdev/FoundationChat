@@ -459,6 +459,11 @@ struct GeoTrackTodayVisit: Decodable, Sendable {
     let cpVisit: GeoTrackCPVisitState?
     let scheduledStartTime: String?
     let scheduledEndTime: String?
+    let visitCategory: String?
+    let travelMode: String?
+    let vehiclePreference: String?
+    let vehicleAssigned: Bool?
+    let creationTime: Double?
 
     enum CodingKeys: String, CodingKey {
         case id = "_id"
@@ -466,6 +471,8 @@ struct GeoTrackTodayVisit: Decodable, Sendable {
         case placeName, placeAddress, placeType, placeLat, placeLng
         case tripType, clientPlaceVisitId, leadName, leadPhone, cpVisit
         case scheduledStartTime, scheduledEndTime
+        case visitCategory, travelMode, vehiclePreference, vehicleAssigned
+        case creationTime = "_creationTime"
     }
 }
 
@@ -475,12 +482,99 @@ struct GeoTrackCPVisitState: Decodable, Sendable {
     let clientNoShowReason: String?
     let outcome: String?
     let postponeReasons: [String]?
+    let cpType: String?
 }
 
 struct GeoTrackTodayVisitsResponse: Decodable, Sendable {
     let success: Bool
     let error: String?
     let data: [GeoTrackTodayVisit]?
+}
+
+struct GeoTrackMarketingCPVisitsResponse: Decodable, Sendable {
+    let success: Bool
+    let total: Int?
+    let visits: [GeoTrackCPVisitDetail]
+    let error: String?
+}
+
+struct GeoTrackCPVisitDetail: Decodable, Sendable {
+    let id: String?
+    let leadId: String?
+    let clientId: String?
+    let clientPlaceId: String?
+    let scheduledDate: String?
+    let scheduledTime: String?
+    let status: String?
+    let clientMet: Bool?
+    let clientMetAt: Double?
+    let clientNoShowReason: String?
+    let outcome: String?
+    let postponeReasons: [String]?
+    let cpType: String?
+    let expectedAttendeeCount: Int?
+    let foodPreferences: String?
+    let vehiclePreference: String?
+    let createdAt: Double?
+    let proposedSiteVisit: GeoTrackProposedSiteVisit?
+    let attendees: [GeoTrackCPVisitAttendee]?
+    let lead: GeoTrackCPVisitLead?
+    let client: GeoTrackCPVisitClient?
+    let clientPlace: GeoTrackCPVisitPlace?
+    let fieldVisit: GeoTrackCPVisitFieldVisit?
+
+    enum CodingKeys: String, CodingKey {
+        case id = "_id"
+        case leadId, clientId, clientPlaceId, scheduledDate, scheduledTime, status
+        case clientMet, clientMetAt, clientNoShowReason, outcome, postponeReasons
+        case cpType, expectedAttendeeCount, foodPreferences, vehiclePreference, createdAt
+        case proposedSiteVisit, attendees, lead, client, clientPlace, fieldVisit
+    }
+}
+
+struct GeoTrackProposedSiteVisit: Decodable, Sendable {
+    let projectId: String?
+    let scheduledDate: String?
+    let scheduledTime: String?
+    let inchargeStaffId: String?
+    let hodStaffId: String?
+    let bdoStaffId: String?
+    let avpStaffId: String?
+    let gmStaffId: String?
+    let seniorManagerStaffId: String?
+}
+
+struct GeoTrackCPVisitAttendee: Decodable, Sendable {
+    let name: String?
+}
+
+struct GeoTrackCPVisitLead: Decodable, Sendable {
+    let contactName: String?
+    let mobileNumber: String?
+    let followUpStatus: String?
+}
+
+struct GeoTrackCPVisitClient: Decodable, Sendable {
+    let clientName: String?
+    let mobileNumber: String?
+}
+
+struct GeoTrackCPVisitPlace: Decodable, Sendable {
+    let name: String?
+    let address: String?
+    let formattedAddress: String?
+    let lat: Double?
+    let lng: Double?
+}
+
+struct GeoTrackCPVisitFieldVisit: Decodable, Sendable {
+    let id: String?
+    let status: String?
+
+    enum CodingKeys: String, CodingKey {
+        case id = "_id"
+        case status
+    }
 }
 
 // MARK: - Place Search / Directions

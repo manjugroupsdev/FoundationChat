@@ -123,6 +123,7 @@ struct ConvexAttendanceRecord: Decodable, Identifiable, Equatable, Sendable {
     let date: String?
     let firstPunchIn: String?
     let lastPunchOut: String?
+    let hasOpenSession: Bool?
     let sessionCount: Int?
     let sessions: [ConvexAttendanceSession]?
     let totalMinutes: Int?
@@ -157,8 +158,16 @@ struct ConvexAttendanceRecord: Decodable, Identifiable, Equatable, Sendable {
     }
 
     var punchOutFormatted: String {
-        guard let t = lastPunchOut ?? sessions?.last?.punchOutTime else { return "--" }
+        guard let t = resolvedPunchOut else { return "--" }
         return Self.formatTime(t)
+    }
+
+    var resolvedPunchOut: String? {
+        let firstIn = firstPunchIn ?? sessions?.first?.punchInTime
+        guard hasOpenSession != true else { return nil }
+        let candidate = lastPunchOut ?? sessions?.last?.punchOutTime
+        guard let candidate, candidate != firstIn else { return nil }
+        return candidate
     }
 
     private static func formatTime(_ iso: String) -> String {
@@ -180,6 +189,7 @@ struct ConvexAttendanceRecord: Decodable, Identifiable, Equatable, Sendable {
             date: date,
             firstPunchIn: nil,
             lastPunchOut: nil,
+            hasOpenSession: nil,
             sessionCount: nil,
             sessions: [],
             totalMinutes: 0,

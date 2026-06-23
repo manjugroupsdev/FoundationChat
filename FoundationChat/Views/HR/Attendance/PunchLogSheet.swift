@@ -294,6 +294,7 @@ private extension String {
             date: "2026-06-08",
             firstPunchIn: "2026-06-08T03:30:00.000Z",
             lastPunchOut: "2026-06-08T12:30:00.000Z",
+            hasOpenSession: false,
             sessionCount: 1,
             sessions: [],
             totalMinutes: 540,

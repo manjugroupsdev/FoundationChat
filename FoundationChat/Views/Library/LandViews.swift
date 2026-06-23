@@ -1,4 +1,5 @@
 import SwiftUI
+import UIKit
 
 struct LandInspectionView: View {
     @Environment(AuthStore.self) private var authStore
@@ -13,6 +14,9 @@ struct LandInspectionView: View {
     @State private var errorMessage: String?
     @State private var editingInspection: LandInspection?
     @State private var reschedulingInspection: LandInspection?
+    @State private var showingDateFilter = false
+    @State private var acceptingInspectionIDs: Set<String> = []
+    @State private var actionMessage: String?
 
     private var filteredInspections: [LandInspection] {
         inspections.filter { inspection in
@@ -21,13 +25,15 @@ struct LandInspectionView: View {
                 || inspection.title.localizedCaseInsensitiveContains(query)
                 || inspection.subtitle.localizedCaseInsensitiveContains(query)
                 || (inspection.referenceNo ?? "").localizedCaseInsensitiveContains(query)
-            let status = (inspection.derivedInspectionStatus ?? inspection.status ?? "").lowercased()
+                || inspection.inspectionPlace.localizedCaseInsensitiveContains(query)
+                || inspection.inspectionAreaLabel.localizedCaseInsensitiveContains(query)
+            let status = inspection.inspectionStatusKey
             let matchesStatus: Bool = {
                 switch selectedStatus {
                 case .all: return true
-                case .inProgress: return status.contains("progress") || status.contains("saved")
-                case .completed: return status.contains("completed") || status.contains("approved")
-                case .notStarted: return status.isEmpty || status.contains("not_started") || status.contains("pending")
+                case .inProgress: return status == "in_progress"
+                case .completed: return status == "completed"
+                case .notStarted: return status == "not_started"
                 }
             }()
             let matchesDate = !useDateFilter
@@ -37,49 +43,31 @@ struct LandInspectionView: View {
     }
 
     var body: some View {
-        ScrollView {
-            VStack(spacing: 14) {
-                controls
+        ZStack {
+            Color(hex: 0xF1F3F8)
+                .ignoresSafeArea()
 
-                if isLoading && inspections.isEmpty {
-                    AppModuleLoadingRows()
-                } else if filteredInspections.isEmpty {
-                    ContentUnavailableView(
-                        inspections.isEmpty ? "No Inspections" : "No Matches",
-                        systemImage: "map",
-                        description: Text(errorMessage ?? "Inspection/property list will appear here.")
-                    )
-                    .padding(.top, 60)
-                } else {
-                    LazyVStack(spacing: 12) {
-                        ForEach(filteredInspections) { inspection in
-                            LandInspectionRow(inspection: inspection)
-                                .contentShape(Rectangle())
-                                .onTapGesture { editingInspection = inspection }
-                                .contextMenu {
-                                    Button {
-                                        editingInspection = inspection
-                                    } label: {
-                                        Label("Inspect", systemImage: "square.and.pencil")
-                                    }
-                                    Button {
-                                        reschedulingInspection = inspection
-                                    } label: {
-                                        Label("Reschedule", systemImage: "calendar")
-                                    }
-                                }
-                        }
-                    }
-                    .padding(.horizontal)
+            ScrollView(showsIndicators: false) {
+                VStack(spacing: 0) {
+                    header
+                    contentPanel
                 }
+                .padding(.bottom, 40)
             }
-            .padding(.vertical, 16)
         }
-        .background(Color(.systemGroupedBackground))
-        .navigationTitle("Land Inspection")
-        .navigationBarTitleDisplayMode(.inline)
+        .ignoresSafeArea(edges: .top)
+        .toolbar(.hidden, for: .navigationBar)
+        .toolbar(.hidden, for: .tabBar)
         .refreshable { await load() }
         .task { if !hasLoaded { await load() } }
+        .sheet(isPresented: $showingDateFilter) {
+            LandInspectionDateFilterSheet(date: $filterDate) {
+                useDateFilter = true
+                showingDateFilter = false
+            }
+            .presentationDetents([.medium])
+            .presentationDragIndicator(.visible)
+        }
         .sheet(item: $editingInspection) { inspection in
             LandInspectionSheet(inspection: inspection) {
                 await load()
@@ -95,51 +83,187 @@ struct LandInspectionView: View {
             .presentationDragIndicator(.visible)
         }
         .alert("Land Inspection", isPresented: Binding(
-            get: { errorMessage != nil && hasLoaded && inspections.isEmpty },
+            get: { (errorMessage != nil && hasLoaded && inspections.isEmpty) || actionMessage != nil },
             set: { if !$0 { errorMessage = nil } }
         )) {
-            Button("OK", role: .cancel) { errorMessage = nil }
+            Button("OK", role: .cancel) {
+                errorMessage = nil
+                actionMessage = nil
+            }
         } message: {
-            Text(errorMessage ?? "")
+            Text(actionMessage ?? errorMessage ?? "")
         }
     }
 
-    private var controls: some View {
-        VStack(spacing: 12) {
-            HStack(spacing: 10) {
-                Image(systemName: "magnifyingglass")
-                    .foregroundStyle(.secondary)
-                TextField("Search inspections", text: $searchText)
-                    .textInputAutocapitalization(.never)
-                Button {
-                    useDateFilter.toggle()
-                } label: {
-                    Image(systemName: useDateFilter ? "calendar.badge.checkmark" : "calendar")
+    private var header: some View {
+        ZStack(alignment: .bottomLeading) {
+            LinearGradient(
+                colors: [Color(hex: 0x0B61CA), Color(hex: 0x02499D)],
+                startPoint: .topLeading,
+                endPoint: .bottomTrailing
+            )
+
+            HStack(alignment: .center, spacing: 14) {
+                VStack(alignment: .leading, spacing: 5) {
+                    Text("Inspection")
+                        .font(.system(size: 24, weight: .semibold))
+                        .foregroundStyle(.white)
+                    Text("Manage and track all Inspection")
+                        .font(.system(size: 13, weight: .medium))
+                        .foregroundStyle(Color(hex: 0xD9D6FE))
                 }
-                .buttonStyle(.bordered)
-                .tint(Color(hex: 0x0B61CA))
+                .frame(maxWidth: .infinity, alignment: .leading)
+
+                Image("LandInspectionHero")
+                    .resizable()
+                    .scaledToFit()
+                    .frame(width: 128, height: 104)
             }
-            .padding(12)
-            .background(Color.white, in: RoundedRectangle(cornerRadius: 12))
+            .padding(.horizontal, 16)
+            .padding(.bottom, 48)
+        }
+        .frame(height: 226)
+    }
+
+    private var contentPanel: some View {
+        VStack(spacing: 0) {
+            controls
+                .padding(.top, 16)
+
+            if isLoading && inspections.isEmpty {
+                AppModuleLoadingRows()
+                    .padding(.horizontal, 16)
+                    .padding(.top, 16)
+            } else if filteredInspections.isEmpty {
+                inspectionEmptyState
+            } else {
+                LazyVStack(spacing: 0) {
+                    ForEach(filteredInspections) { inspection in
+                        LandInspectionRow(
+                            inspection: inspection,
+                            isAccepting: acceptingInspectionIDs.contains(inspection.id),
+                            onOpen: { handleCardTap(inspection) },
+                            onReschedule: { reschedulingInspection = inspection },
+                            onAccept: { Task { await accept(inspection) } }
+                        )
+                    }
+                }
+                .padding(.horizontal, 16)
+                .padding(.top, 12)
+            }
+        }
+        .padding(.bottom, 32)
+        .background(Color(hex: 0xF1F3F8))
+        .clipShape(.rect(topLeadingRadius: 30, topTrailingRadius: 30))
+        .padding(.top, -28)
+    }
+
+    private var controls: some View {
+        VStack(alignment: .leading, spacing: 12) {
+            HStack(spacing: 10) {
+                HStack(spacing: 10) {
+                    TextField("Search Inspection List", text: $searchText)
+                        .font(.system(size: 14, weight: .medium))
+                        .textInputAutocapitalization(.never)
+                    Image(systemName: "magnifyingglass")
+                        .font(.system(size: 17, weight: .semibold))
+                        .foregroundStyle(Color(hex: 0x0B61CA))
+                }
+                .padding(.horizontal, 18)
+                .frame(height: 50)
+                .background(Color.white, in: RoundedRectangle(cornerRadius: 10))
+                .shadow(color: .black.opacity(0.04), radius: 6, y: 2)
+
+                Button {
+                    showingDateFilter = true
+                } label: {
+                    if useDateFilter {
+                        VStack(spacing: 0) {
+                            Text(AppModuleFormatters.dayNumber.string(from: filterDate))
+                                .font(.system(size: 14, weight: .bold))
+                            Text(AppModuleFormatters.shortMonth.string(from: filterDate))
+                                .font(.system(size: 9, weight: .semibold))
+                        }
+                        .foregroundStyle(.white)
+                    } else {
+                        Image(systemName: "calendar")
+                            .font(.system(size: 21, weight: .semibold))
+                            .foregroundStyle(Color(hex: 0x0B61CA))
+                    }
+                }
+                .frame(width: 50, height: 50)
+                .background(useDateFilter ? Color(hex: 0x0B61CA) : .white, in: RoundedRectangle(cornerRadius: 10))
+                .shadow(color: .black.opacity(0.04), radius: 6, y: 2)
+            }
 
             if useDateFilter {
-                HStack {
-                    DatePicker("Date", selection: $filterDate, displayedComponents: .date)
-                    Button("Clear") { useDateFilter = false }
-                        .buttonStyle(.bordered)
+                HStack(spacing: 6) {
+                    Text("Date · \(AppModuleFormatters.day.string(from: filterDate))")
+                        .font(.system(size: 12, weight: .semibold))
+                    Button {
+                        useDateFilter = false
+                    } label: {
+                        Image(systemName: "xmark")
+                            .font(.system(size: 10, weight: .bold))
+                    }
                 }
-                .padding(12)
-                .background(Color.white, in: RoundedRectangle(cornerRadius: 12))
+                .foregroundStyle(.white)
+                .padding(.leading, 12)
+                .padding(.trailing, 8)
+                .padding(.vertical, 7)
+                .background(Color(hex: 0x0B61CA), in: Capsule())
             }
 
-            Picker("Status", selection: $selectedStatus) {
-                ForEach(LandInspectionStatusFilter.allCases) { filter in
-                    Text(filter.title).tag(filter)
+            ScrollView(.horizontal, showsIndicators: false) {
+                HStack(spacing: 8) {
+                    ForEach(LandInspectionStatusFilter.allCases) { filter in
+                        Button {
+                            selectedStatus = filter
+                        } label: {
+                            Text(filter.title)
+                                .font(.system(size: 13, weight: selectedStatus == filter ? .semibold : .medium))
+                                .foregroundStyle(selectedStatus == filter ? .white : Color(hex: 0x6B7280))
+                                .padding(.horizontal, 20)
+                                .frame(height: 38)
+                                .background(
+                                    selectedStatus == filter ? Color(hex: 0x0B61CA) : Color(hex: 0xEEF2F7),
+                                    in: Capsule()
+                                )
+                        }
+                        .buttonStyle(.plain)
+                    }
                 }
             }
-            .pickerStyle(.segmented)
         }
         .padding(.horizontal)
+    }
+
+    private var inspectionEmptyState: some View {
+        VStack(spacing: 6) {
+            Text(emptyTitle)
+                .font(.system(size: 15, weight: .semibold))
+                .foregroundStyle(Color(hex: 0x101828))
+            Text(emptySubtitle)
+                .font(.system(size: 13))
+                .foregroundStyle(Color(hex: 0x6B7280))
+                .multilineTextAlignment(.center)
+        }
+        .frame(maxWidth: .infinity)
+        .padding(.horizontal, 24)
+        .padding(.top, 52)
+    }
+
+    private var emptyTitle: String {
+        if !hasLoaded { return "Loading inspections..." }
+        return inspections.isEmpty ? "No inspections assigned" : "No matches"
+    }
+
+    private var emptySubtitle: String {
+        if !hasLoaded { return "Hang on while we fetch your assignments." }
+        if inspections.isEmpty {
+            return errorMessage ?? "When an admin assigns you to a land property on the web, it will appear here."
+        }
+        return "Try clearing the date filter, the status chip, or the search box."
     }
 
     @MainActor
@@ -153,13 +277,38 @@ struct LandInspectionView: View {
         defer { isLoading = false; hasLoaded = true }
         do {
             inspections = try await LandConvexAPIService.listInspections(
-                token: token,
-                fromDate: useDateFilter ? AppModuleFormatters.ymd.string(from: filterDate) : nil,
-                toDate: useDateFilter ? AppModuleFormatters.ymd.string(from: filterDate) : nil
+                token: token
             )
             errorMessage = nil
         } catch {
             errorMessage = error.localizedDescription
+        }
+    }
+
+    private func handleCardTap(_ inspection: LandInspection) {
+        if inspection.canOpenInspectionForm {
+            editingInspection = inspection
+        } else {
+            actionMessage = "Accept the inspection before filling the form."
+        }
+    }
+
+    @MainActor
+    private func accept(_ inspection: LandInspection) async {
+        guard let token = authStore.currentSession?.token else {
+            actionMessage = "Not signed in."
+            return
+        }
+        acceptingInspectionIDs.insert(inspection.id)
+        defer { acceptingInspectionIDs.remove(inspection.id) }
+        do {
+            try await LandConvexAPIService.acceptInspection(
+                token: token,
+                request: AcceptLandInspectionRequest(propertyId: inspection.acceptancePropertyID)
+            )
+            await load()
+        } catch {
+            actionMessage = error.localizedDescription
         }
     }
 }
@@ -181,53 +330,269 @@ private enum LandInspectionStatusFilter: String, CaseIterable, Identifiable {
     }
 }
 
-private struct LandInspectionRow: View {
-    let inspection: LandInspection
-
-    var body: some View {
-        VStack(alignment: .leading, spacing: 10) {
-            HStack(alignment: .top) {
-                VStack(alignment: .leading, spacing: 4) {
-                    Text(inspection.title)
-                        .font(AppModuleFont.rowTitle)
-                    if !inspection.subtitle.isEmpty {
-                        Text(inspection.subtitle)
-                            .font(AppModuleFont.rowMeta)
-                            .foregroundStyle(.secondary)
-                    }
-                }
-                Spacer()
-                AppModuleBadge(text: inspection.displayStatus, tint: statusColor)
-            }
-
-            HStack(spacing: 12) {
-                if let date = inspection.scheduledDate?.landNilIfBlank {
-                    Label(String(date.prefix(10)), systemImage: "calendar")
-                }
-                if let area = inspection.totalArea {
-                    Label("\(area, specifier: "%.0f") \(inspection.areaUnit ?? "")", systemImage: "square")
-                }
-                Spacer()
-                Image(systemName: "chevron.right")
-            }
-            .font(AppModuleFont.rowMeta)
-            .foregroundStyle(.secondary)
-        }
-        .padding(14)
-        .background(Color.white, in: RoundedRectangle(cornerRadius: 14))
+private extension LandInspection {
+    var inspectionStatusKey: String {
+        if reportId?.landNilIfBlank != nil { return "completed" }
+        let raw = (derivedInspectionStatus ?? status ?? "")
+            .lowercased()
+            .replacingOccurrences(of: " ", with: "_")
+        if raw.contains("completed") || raw.contains("approved") { return "completed" }
+        if raw.contains("progress") || raw.contains("saved") { return "in_progress" }
+        return "not_started"
     }
 
-    private var statusColor: Color {
-        switch (inspection.derivedInspectionStatus ?? inspection.status ?? "").lowercased() {
-        case let value where value.contains("completed") || value.contains("approved"):
-            return .green
-        case let value where value.contains("progress") || value.contains("saved"):
-            return .orange
-        case let value where value.contains("rejected") || value.contains("cancelled"):
-            return .red
-        default:
-            return Color(hex: 0x0B61CA)
+    var inspectionStatusLabel: String {
+        switch inspectionStatusKey {
+        case "completed": return "Completed"
+        case "in_progress": return "In Progress"
+        default: return "Not Started"
         }
+    }
+
+    var inspectionPhone: String {
+        ownerName?.landNilIfBlank ?? subtitle.landNilIfBlank ?? "—"
+    }
+
+    var inspectionPlace: String {
+        [locality?.landNilIfBlank ?? city?.landNilIfBlank ?? village?.landNilIfBlank,
+         district?.landNilIfBlank ?? taluk?.landNilIfBlank]
+            .compactMap { $0 }
+            .joined(separator: ", ")
+            .landNilIfBlank
+        ?? fullAddress?.landNilIfBlank
+        ?? location?.landNilIfBlank
+        ?? "—"
+    }
+
+    var inspectionAreaLabel: String {
+        guard let totalArea else { return "—" }
+        let unit = areaUnit?.landNilIfBlank?.capitalized ?? "Acres"
+        return String(format: "%.2f %@", totalArea, unit)
+    }
+
+    var inspectionFormattedDate: String {
+        guard let raw = scheduledDate?.landNilIfBlank else { return "—" }
+        if let date = AppModuleFormatters.ymd.date(from: String(raw.prefix(10))) {
+            return AppModuleFormatters.day.string(from: date)
+        }
+        return raw
+    }
+
+    var inspectionAreaDateLabel: String {
+        "\(inspectionAreaLabel) • \(inspectionFormattedDate)"
+    }
+
+    var isRescheduleRequested: Bool {
+        inspectionAcceptanceStatus == "date_change_requested"
+    }
+
+    var acceptancePropertyID: String {
+        propertyId?.landNilIfBlank ?? id
+    }
+
+    var isAcceptedInspection: Bool {
+        inspectionAcceptanceStatus == "accepted"
+    }
+
+    var canOpenInspectionForm: Bool {
+        isAcceptedInspection
+            || inspectionAcceptanceStatus?.landNilIfBlank == nil
+            || inspectionStatusKey != "not_started"
+    }
+
+    var showsOpenArrow: Bool {
+        inspectionStatusKey == "completed" || canOpenInspectionForm
+    }
+
+    var showsPendingActions: Bool {
+        !isRescheduleRequested && !isAcceptedInspection && inspectionStatusKey != "completed"
+    }
+}
+
+private struct LandInspectionRow: View {
+    let inspection: LandInspection
+    let isAccepting: Bool
+    let onOpen: () -> Void
+    let onReschedule: () -> Void
+    let onAccept: () -> Void
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 12) {
+            HStack(spacing: 12) {
+                Image(systemName: "doc.text.magnifyingglass")
+                    .font(.system(size: 20, weight: .semibold))
+                    .foregroundStyle(.white)
+                    .frame(width: 44, height: 44)
+                    .background(
+                        LinearGradient(
+                            colors: [Color(hex: 0x0B61CA), Color(hex: 0x3B82F6)],
+                            startPoint: .topLeading,
+                            endPoint: .bottomTrailing
+                        ),
+                        in: Circle()
+                    )
+
+                VStack(alignment: .leading, spacing: 4) {
+                    Text(inspection.title)
+                        .font(.system(size: 15, weight: .semibold))
+                        .foregroundStyle(Color(hex: 0x101828))
+                        .lineLimit(1)
+                    Text(inspection.inspectionPhone)
+                        .font(.system(size: 12))
+                        .foregroundStyle(Color(hex: 0x9CA3AF))
+                        .lineLimit(1)
+                }
+                Spacer()
+                Text(inspection.inspectionStatusLabel)
+                    .font(.system(size: 11, weight: .semibold))
+                    .foregroundStyle(statusStyle.foreground)
+                    .padding(.horizontal, 12)
+                    .padding(.vertical, 6)
+                    .background(statusStyle.background, in: Capsule())
+            }
+
+            Divider()
+                .overlay(Color(hex: 0xF2F4F7))
+
+            HStack(alignment: .center, spacing: 12) {
+                VStack(alignment: .leading, spacing: 8) {
+                    Label(inspection.inspectionAreaDateLabel, systemImage: "arrow.left.arrow.right")
+                        .font(.system(size: 12, weight: .medium))
+                        .foregroundStyle(Color(hex: 0x475467))
+                        .lineLimit(1)
+
+                    Label(inspection.inspectionPlace, systemImage: "mappin")
+                        .font(.system(size: 11, weight: .semibold))
+                        .foregroundStyle(Color(hex: 0x065F46))
+                        .lineLimit(1)
+                        .padding(.horizontal, 10)
+                        .padding(.vertical, 5)
+                        .background(Color(hex: 0xDFF7E8), in: Capsule())
+                }
+                Spacer()
+
+                if inspection.showsOpenArrow {
+                    Button(action: onOpen) {
+                        Image(systemName: "arrow.right")
+                            .font(.system(size: 18, weight: .bold))
+                            .foregroundStyle(Color(hex: 0x0B61CA))
+                            .frame(width: 44, height: 44)
+                            .background(Color(hex: 0xEAF3FF), in: Circle())
+                    }
+                    .buttonStyle(.plain)
+                }
+            }
+
+            actionRow
+        }
+        .padding(.horizontal, 8)
+        .padding(.vertical, 16)
+        .background(Color.white, in: RoundedRectangle(cornerRadius: 14))
+        .shadow(color: .black.opacity(0.04), radius: 5, y: 1)
+        .padding(.vertical, 8)
+        .contentShape(Rectangle())
+        .onTapGesture(perform: onOpen)
+    }
+
+    @ViewBuilder
+    private var actionRow: some View {
+        if inspection.isRescheduleRequested {
+            disabledActionButton("Reschedule Requested", systemImage: nil)
+        } else if inspection.isAcceptedInspection {
+            Button(action: onOpen) {
+                actionButtonLabel("Accepted", systemImage: "checkmark", foreground: Color(hex: 0x667085))
+                    .frame(maxWidth: .infinity, minHeight: 48)
+                    .background(Color(hex: 0xE5E7EB), in: RoundedRectangle(cornerRadius: 12))
+            }
+            .buttonStyle(.plain)
+            .padding(.horizontal, 4)
+            .padding(.top, 2)
+        } else if inspection.showsPendingActions {
+            HStack(spacing: 10) {
+                Button(action: onReschedule) {
+                    actionButtonLabel("Reschedule", systemImage: "calendar.badge.clock", foreground: Color(hex: 0x16A34A))
+                        .frame(maxWidth: .infinity, minHeight: 48)
+                        .background(Color.white, in: RoundedRectangle(cornerRadius: 12))
+                        .overlay(
+                            RoundedRectangle(cornerRadius: 12)
+                                .stroke(Color(hex: 0x16A34A), lineWidth: 1)
+                        )
+                }
+                .buttonStyle(.plain)
+
+                Button(action: onAccept) {
+                    actionButtonLabel(isAccepting ? "Accepting..." : "Accept", systemImage: "checkmark", foreground: .white)
+                        .frame(maxWidth: .infinity, minHeight: 48)
+                        .background(Color(hex: 0x08BE00), in: RoundedRectangle(cornerRadius: 12))
+                }
+                .buttonStyle(.plain)
+                .disabled(isAccepting)
+            }
+            .padding(.horizontal, 4)
+            .padding(.top, 2)
+        }
+    }
+
+    private func disabledActionButton(_ title: String, systemImage: String?) -> some View {
+        actionButtonLabel(title, systemImage: systemImage, foreground: .white)
+            .frame(maxWidth: .infinity, minHeight: 48)
+            .background(Color(hex: 0x08BE00).opacity(0.7), in: RoundedRectangle(cornerRadius: 12))
+            .padding(.horizontal, 4)
+            .padding(.top, 2)
+    }
+
+    private func actionButtonLabel(_ title: String, systemImage: String?, foreground: Color) -> some View {
+        HStack(spacing: 8) {
+            if let systemImage {
+                Image(systemName: systemImage)
+                    .font(.system(size: 16, weight: .bold))
+            }
+            Text(title)
+                .font(.system(size: 14, weight: .bold))
+        }
+        .foregroundStyle(foreground)
+    }
+
+    private var statusStyle: (foreground: Color, background: Color) {
+        switch inspection.inspectionStatusKey {
+        case "completed":
+            return (Color(hex: 0x065F46), Color(hex: 0xDFF7E8))
+        case "in_progress":
+            return (Color(hex: 0x92400E), Color(hex: 0xFEF3C7))
+        default:
+            return (Color(hex: 0x991B1B), Color(hex: 0xFEE2E2))
+        }
+    }
+}
+
+private struct LandInspectionDateFilterSheet: View {
+    @Binding var date: Date
+    let onSelect: () -> Void
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 18) {
+            Capsule()
+                .fill(Color(hex: 0xD1D5DB))
+                .frame(width: 52, height: 5)
+                .frame(maxWidth: .infinity)
+            Text("Date Filter")
+                .font(.system(size: 24, weight: .bold))
+                .foregroundStyle(Color(hex: 0x101828))
+            Text("Select Date Filter")
+                .font(.system(size: 15, weight: .medium))
+                .foregroundStyle(Color(hex: 0x667085))
+            DatePicker("Inspection Date", selection: $date, displayedComponents: .date)
+                .datePickerStyle(.graphical)
+            Button(action: onSelect) {
+                Text("Select")
+                    .font(.system(size: 17, weight: .bold))
+                    .foregroundStyle(.white)
+                    .frame(maxWidth: .infinity, minHeight: 54)
+                    .background(Color(hex: 0x08BE00), in: Capsule())
+            }
+        }
+        .padding(.horizontal, 22)
+        .padding(.top, 12)
     }
 }
 
@@ -914,19 +1279,19 @@ struct LandQueriesView: View {
     @State private var isLoading = false
     @State private var hasLoaded = false
     @State private var errorMessage: String?
+    @State private var showingDateFilter = false
 
     private var filteredQueries: [LandQueryLog] {
         queries.filter { query in
             let search = searchText.trimmingCharacters(in: .whitespacesAndNewlines)
             let matchesSearch = search.isEmpty
                 || query.displayTitle.localizedCaseInsensitiveContains(search)
-                || (query.description ?? "").localizedCaseInsensitiveContains(search)
-                || (query.referenceNo ?? "").localizedCaseInsensitiveContains(search)
+                || query.queryDetail.localizedCaseInsensitiveContains(search)
             let matchesStatus: Bool = {
                 switch selectedStatus {
                 case .all: return true
-                case .pending: return query.resolved != true && !query.displayStatus.localizedCaseInsensitiveContains("completed")
-                case .completed: return query.resolved == true || query.displayStatus.localizedCaseInsensitiveContains("completed")
+                case .pending: return !query.isCompletedQuery
+                case .completed: return query.isCompletedQuery
                 }
             }()
             let matchesDate = !useDateFilter
@@ -936,85 +1301,203 @@ struct LandQueriesView: View {
     }
 
     var body: some View {
-        ScrollView {
-            VStack(spacing: 14) {
-                queryControls
-                if isLoading && queries.isEmpty {
-                    AppModuleLoadingRows()
-                } else if filteredQueries.isEmpty {
-                    ContentUnavailableView(
-                        queries.isEmpty ? "No Queries" : "No Matches",
-                        systemImage: "questionmark.bubble",
-                        description: Text(errorMessage ?? "Query logs will appear here.")
-                    )
-                    .padding(.top, 60)
-                } else {
-                    LazyVStack(spacing: 12) {
-                        ForEach(filteredQueries) { query in
-                            Button {
-                                selectedQuery = query
-                            } label: {
-                                LandQueryRow(query: query)
-                            }
-                            .buttonStyle(.plain)
-                        }
-                    }
-                    .padding(.horizontal)
+        ZStack {
+            Color(hex: 0xF1F3F8)
+                .ignoresSafeArea()
+
+            ScrollView(showsIndicators: false) {
+                VStack(spacing: 0) {
+                    queriesHeader
+                    queriesContentPanel
                 }
+                .padding(.bottom, 40)
             }
-            .padding(.vertical, 16)
         }
-        .background(Color(.systemGroupedBackground))
-        .navigationTitle("Queries")
-        .navigationBarTitleDisplayMode(.inline)
+        .ignoresSafeArea(edges: .top)
+        .toolbar(.hidden, for: .navigationBar)
+        .toolbar(.hidden, for: .tabBar)
         .refreshable { await load() }
         .task { if !hasLoaded { await load() } }
+        .sheet(isPresented: $showingDateFilter) {
+            LandInspectionDateFilterSheet(date: $filterDate) {
+                useDateFilter = true
+                showingDateFilter = false
+            }
+            .presentationDetents([.medium])
+            .presentationDragIndicator(.visible)
+        }
         .sheet(item: $selectedQuery) { query in
             LandQueryDetailSheet(query: query) {
                 await load()
                 selectedQuery = nil
             }
-                .presentationDetents([.medium, .large])
-                .presentationDragIndicator(.visible)
+            .presentationDetents([.medium, .large])
+            .presentationDragIndicator(.visible)
         }
     }
 
-    private var queryControls: some View {
-        VStack(spacing: 12) {
-            HStack(spacing: 10) {
-                Image(systemName: "magnifyingglass")
-                    .foregroundStyle(.secondary)
-                TextField("Search queries", text: $searchText)
-                    .textInputAutocapitalization(.never)
-                Button {
-                    useDateFilter.toggle()
-                } label: {
-                    Image(systemName: useDateFilter ? "calendar.badge.checkmark" : "calendar")
+    private var queriesHeader: some View {
+        ZStack(alignment: .bottomLeading) {
+            LinearGradient(
+                colors: [Color(hex: 0x0B61CA), Color(hex: 0x02499D)],
+                startPoint: .topLeading,
+                endPoint: .bottomTrailing
+            )
+
+            HStack(spacing: 14) {
+                VStack(alignment: .leading, spacing: 5) {
+                    Text("Queries")
+                        .font(.system(size: 24, weight: .bold))
+                        .foregroundStyle(.white)
+                    Text("Manage and track all Queries")
+                        .font(.system(size: 13, weight: .medium))
+                        .foregroundStyle(Color(hex: 0xD9D6FE))
                 }
-                .buttonStyle(.bordered)
-                .tint(Color(hex: 0x0B61CA))
+                .frame(maxWidth: .infinity, alignment: .leading)
+
+                Image("LandQueriesHero")
+                    .resizable()
+                    .scaledToFit()
+                    .frame(width: 120, height: 104)
             }
-            .padding(12)
-            .background(Color.white, in: RoundedRectangle(cornerRadius: 12))
+            .padding(.horizontal, 16)
+            .padding(.bottom, 48)
+        }
+        .frame(height: 226)
+    }
+
+    private var queriesContentPanel: some View {
+        VStack(spacing: 0) {
+            queryControls
+                .padding(.top, 16)
+
+            if isLoading && queries.isEmpty {
+                AppModuleLoadingRows()
+                    .padding(.horizontal, 16)
+                    .padding(.top, 16)
+            } else if filteredQueries.isEmpty {
+                queriesEmptyState
+            } else {
+                LazyVStack(spacing: 0) {
+                    ForEach(filteredQueries) { query in
+                        Button {
+                            selectedQuery = query
+                        } label: {
+                            LandQueryRow(query: query)
+                        }
+                        .buttonStyle(.plain)
+                    }
+                }
+                .padding(.horizontal, 16)
+                .padding(.top, 12)
+            }
+        }
+        .padding(.bottom, 32)
+        .background(Color(hex: 0xF1F3F8))
+        .clipShape(.rect(topLeadingRadius: 24, topTrailingRadius: 24))
+        .padding(.top, -28)
+    }
+
+    private var queryControls: some View {
+        VStack(alignment: .leading, spacing: 12) {
+            HStack(spacing: 10) {
+                NativeInlineSearchBar(text: $searchText, placeholder: "Search Queries")
+                    .frame(height: 50)
+
+                Button {
+                    showingDateFilter = true
+                } label: {
+                    if useDateFilter {
+                        VStack(spacing: 0) {
+                            Text(AppModuleFormatters.dayNumber.string(from: filterDate))
+                                .font(.system(size: 14, weight: .bold))
+                            Text(AppModuleFormatters.shortMonth.string(from: filterDate))
+                                .font(.system(size: 9, weight: .semibold))
+                        }
+                        .foregroundStyle(.white)
+                    } else {
+                        Image(systemName: "calendar")
+                            .font(.system(size: 21, weight: .semibold))
+                            .foregroundStyle(Color(hex: 0x0B61CA))
+                    }
+                }
+                .frame(width: 50, height: 50)
+                .background(useDateFilter ? Color(hex: 0x0B61CA) : .white, in: RoundedRectangle(cornerRadius: 10))
+                .shadow(color: .black.opacity(0.04), radius: 6, y: 2)
+            }
 
             if useDateFilter {
-                HStack {
-                    DatePicker("Date", selection: $filterDate, displayedComponents: .date)
-                    Button("Clear") { useDateFilter = false }
-                        .buttonStyle(.bordered)
+                HStack(spacing: 6) {
+                    Text("Date · \(AppModuleFormatters.day.string(from: filterDate))")
+                        .font(.system(size: 12, weight: .semibold))
+                    Button {
+                        useDateFilter = false
+                    } label: {
+                        Image(systemName: "xmark")
+                            .font(.system(size: 10, weight: .bold))
+                    }
                 }
-                .padding(12)
-                .background(Color.white, in: RoundedRectangle(cornerRadius: 12))
+                .foregroundStyle(.white)
+                .padding(.leading, 12)
+                .padding(.trailing, 8)
+                .padding(.vertical, 7)
+                .background(Color(hex: 0x0B61CA), in: Capsule())
             }
 
-            Picker("Status", selection: $selectedStatus) {
+            HStack(spacing: 0) {
                 ForEach(LandQueryStatusFilter.allCases) { filter in
-                    Text(filter.title).tag(filter)
+                    Button {
+                        selectedStatus = filter
+                    } label: {
+                        Text(filter.title)
+                            .font(.system(size: 13, weight: .semibold))
+                            .foregroundStyle(selectedStatus == filter ? .white : Color(hex: 0x101828))
+                            .frame(maxWidth: .infinity, minHeight: 30)
+                            .background(
+                                selectedStatus == filter ? Color(hex: 0x0B61CA) : .clear,
+                                in: Capsule()
+                            )
+                    }
+                    .buttonStyle(.plain)
                 }
             }
-            .pickerStyle(.segmented)
+            .padding(3)
+            .frame(height: 36)
+            .background(Color.white, in: Capsule())
+            .overlay(
+                Capsule()
+                    .stroke(Color(hex: 0xD7E7FF), lineWidth: 1)
+            )
         }
         .padding(.horizontal)
+    }
+
+    private var queriesEmptyState: some View {
+        VStack(spacing: 6) {
+            Text(queriesEmptyTitle)
+                .font(.system(size: 15, weight: .semibold))
+                .foregroundStyle(Color(hex: 0x101828))
+            Text(queriesEmptySubtitle)
+                .font(.system(size: 13))
+                .foregroundStyle(Color(hex: 0x6B7280))
+                .multilineTextAlignment(.center)
+        }
+        .frame(maxWidth: .infinity)
+        .padding(.horizontal, 24)
+        .padding(.top, 52)
+    }
+
+    private var queriesEmptyTitle: String {
+        if !hasLoaded { return "Loading queries..." }
+        return queries.isEmpty ? "No queries yet" : "No matches"
+    }
+
+    private var queriesEmptySubtitle: String {
+        if !hasLoaded { return "Hang on while we fetch your queries." }
+        if queries.isEmpty {
+            return errorMessage ?? "Document verification queries for your properties will appear here."
+        }
+        return "Try clearing the date filter, the status chip, or the search box."
     }
 
     @MainActor
@@ -1063,12 +1546,12 @@ private struct LandQueryRow: View {
                 .offset(y: -4)
 
             VStack(alignment: .leading, spacing: 6) {
-                Text(query.displayStatus.uppercased())
+                Text(query.queryStatusText)
                     .font(.system(size: 11, weight: .bold))
-                    .foregroundStyle(statusColor)
+                    .foregroundStyle(query.statusForeground)
                     .padding(.horizontal, 12)
                     .padding(.vertical, 5)
-                    .background(statusColor.opacity(0.12), in: Capsule())
+                    .background(query.statusBackground, in: Capsule())
 
                 Text(query.displayTitle)
                     .font(.system(size: 16, weight: .bold))
@@ -1076,22 +1559,18 @@ private struct LandQueryRow: View {
                     .lineLimit(1)
                     .minimumScaleFactor(0.78)
 
-                if let latest = query.remarks?.landNilIfBlank ?? query.latestUpdate?.landNilIfBlank ?? query.description?.landNilIfBlank {
-                    Label {
-                        Text(latest)
-                            .lineLimit(1)
-                    } icon: {
-                        Image(systemName: "message")
-                    }
+                Label {
+                    Text(query.queryDetail)
+                        .lineLimit(1)
+                } icon: {
+                    Image(systemName: "message")
+                }
+                .font(.system(size: 13, weight: .medium))
+                .foregroundStyle(Color(hex: 0x9AA3B2))
+
+                Label(query.formattedQueryDate, systemImage: "calendar")
                     .font(.system(size: 13, weight: .medium))
                     .foregroundStyle(Color(hex: 0x9AA3B2))
-                }
-
-                if let date = query.rawDate {
-                    Label(date, systemImage: "calendar")
-                        .font(.system(size: 13, weight: .medium))
-                        .foregroundStyle(Color(hex: 0x9AA3B2))
-                }
             }
             .frame(maxWidth: .infinity, alignment: .leading)
 
@@ -1105,11 +1584,42 @@ private struct LandQueryRow: View {
         .padding(.horizontal, 16)
         .padding(.vertical, 18)
         .background(Color.white, in: RoundedRectangle(cornerRadius: 16, style: .continuous))
-        .shadow(color: .black.opacity(0.05), radius: 8, x: 0, y: 2)
+        .shadow(color: .black.opacity(0.05), radius: 5, x: 0, y: 1)
+        .padding(.vertical, 8)
+    }
+}
+
+private extension LandQueryLog {
+    var isCompletedQuery: Bool {
+        resolved == true || displayStatus.localizedCaseInsensitiveContains("completed")
     }
 
-    private var statusColor: Color {
-        query.displayStatus.localizedCaseInsensitiveContains("completed") ? Color(hex: 0x16A34A) : Color(hex: 0x0B61CA)
+    var queryStatusText: String {
+        isCompletedQuery ? "Completed" : "PENDING"
+    }
+
+    var queryDetail: String {
+        referenceNo?.landNilIfBlank
+            ?? description?.landNilIfBlank
+            ?? remarks?.landNilIfBlank
+            ?? latestUpdate?.landNilIfBlank
+            ?? "—"
+    }
+
+    var formattedQueryDate: String {
+        guard let rawDate else { return "—" }
+        if let date = AppModuleFormatters.ymd.date(from: rawDate) {
+            return AppModuleFormatters.day.string(from: date)
+        }
+        return rawDate
+    }
+
+    var statusForeground: Color {
+        isCompletedQuery ? Color(hex: 0x065F46) : Color(hex: 0x0B61CA)
+    }
+
+    var statusBackground: Color {
+        isCompletedQuery ? Color(hex: 0xDFF7E8) : Color(hex: 0xEAF3FF)
     }
 }
 
@@ -1140,7 +1650,7 @@ private struct LandQueryDetailSheet: View {
                 .padding(.top, 12)
                 .padding(.bottom, 14)
 
-            ScrollView {
+            ScrollView(showsIndicators: false) {
                 VStack(alignment: .leading, spacing: 14) {
                     HStack(spacing: 8) {
                         Image(systemName: "doc.text")
@@ -1163,52 +1673,6 @@ private struct LandQueryDetailSheet: View {
                         }
                     }
                     .padding(.top, 2)
-
-                    if let description = query.description?.landNilIfBlank {
-                        LandQueryInfoCard(title: "Details", value: description, systemImage: "message")
-                    }
-
-                    if let property = query.propertyName?.landNilIfBlank ?? query.referenceNo?.landNilIfBlank {
-                        LandQueryInfoCard(title: "Property", value: property, systemImage: "map")
-                    }
-
-                    if query.resolved != true {
-                        TextField("Remarks", text: $remarks, axis: .vertical)
-                            .lineLimit(2...5)
-                            .padding(14)
-                            .background(Color.white, in: RoundedRectangle(cornerRadius: 14, style: .continuous))
-                            .overlay(
-                                RoundedRectangle(cornerRadius: 14, style: .continuous)
-                                    .stroke(Color(hex: 0xE4E7EC), lineWidth: 1)
-                            )
-                            .padding(.top, 2)
-                    }
-
-                    if let updates = query.updates, !updates.isEmpty {
-                        VStack(alignment: .leading, spacing: 10) {
-                            Text("Updates")
-                                .font(.system(size: 14, weight: .bold))
-                                .foregroundStyle(Color(hex: 0x101828))
-                            ForEach(updates) { update in
-                                VStack(alignment: .leading, spacing: 4) {
-                                    HStack {
-                                        Text(update.byName?.landNilIfBlank ?? "Update")
-                                            .font(AppModuleFont.rowMetaSemibold)
-                                        Spacer()
-                                        Text(update.status?.landNilIfBlank ?? "")
-                                            .font(AppModuleFont.rowMeta)
-                                            .foregroundStyle(Color(hex: 0x667085))
-                                    }
-                                    Text(update.message?.landNilIfBlank ?? "-")
-                                        .font(AppModuleFont.rowBody)
-                                        .foregroundStyle(Color(hex: 0x344054))
-                                }
-                                .padding(12)
-                                .background(Color.white, in: RoundedRectangle(cornerRadius: 12, style: .continuous))
-                            }
-                        }
-                        .padding(.top, 2)
-                    }
                 }
                 .padding(.horizontal, 20)
                 .padding(.bottom, 20)
@@ -1228,17 +1692,17 @@ private struct LandQueryDetailSheet: View {
                             .frame(maxWidth: .infinity)
                     }
                 }
-                .buttonStyle(.borderedProminent)
-                .controlSize(.large)
-                .tint(Color(hex: 0x0B61CA))
+                .foregroundStyle(.white)
+                .frame(maxWidth: .infinity, minHeight: 52)
+                .background(Color(hex: 0x0B61CA), in: RoundedRectangle(cornerRadius: 12, style: .continuous))
                 .disabled(isSubmitting)
                 .padding(.horizontal, 20)
                 .padding(.top, 8)
                 .padding(.bottom, 20)
-                .background(Color(hex: 0xF8FAFC))
+                .background(Color.white)
             }
         }
-        .background(Color(hex: 0xF8FAFC).ignoresSafeArea())
+        .background(Color.white.ignoresSafeArea())
         .onAppear {
             remarks = query.remarks?.landNilIfBlank ?? query.latestUpdate?.landNilIfBlank ?? ""
         }
@@ -1345,6 +1809,57 @@ private struct LandQueryInfoCard: View {
         .padding(14)
         .frame(maxWidth: .infinity, alignment: .leading)
         .background(Color.white, in: RoundedRectangle(cornerRadius: 14, style: .continuous))
+    }
+}
+
+private struct NativeInlineSearchBar: UIViewRepresentable {
+    @Binding var text: String
+    let placeholder: String
+
+    func makeCoordinator() -> Coordinator {
+        Coordinator(text: $text)
+    }
+
+    func makeUIView(context: Context) -> UISearchBar {
+        let searchBar = UISearchBar(frame: .zero)
+        searchBar.searchBarStyle = .minimal
+        searchBar.placeholder = placeholder
+        searchBar.delegate = context.coordinator
+        searchBar.autocapitalizationType = .none
+        searchBar.autocorrectionType = .no
+        searchBar.backgroundImage = UIImage()
+        searchBar.searchTextField.backgroundColor = UIColor.secondarySystemGroupedBackground
+        searchBar.searchTextField.layer.cornerRadius = 10
+        searchBar.searchTextField.clipsToBounds = true
+        return searchBar
+    }
+
+    func updateUIView(_ uiView: UISearchBar, context: Context) {
+        if uiView.text != text {
+            uiView.text = text
+        }
+    }
+
+    final class Coordinator: NSObject, UISearchBarDelegate {
+        @Binding var text: String
+
+        init(text: Binding<String>) {
+            _text = text
+        }
+
+        func searchBar(_ searchBar: UISearchBar, textDidChange searchText: String) {
+            text = searchText
+        }
+
+        func searchBarSearchButtonClicked(_ searchBar: UISearchBar) {
+            searchBar.resignFirstResponder()
+        }
+
+        func searchBarCancelButtonClicked(_ searchBar: UISearchBar) {
+            text = ""
+            searchBar.text = ""
+            searchBar.resignFirstResponder()
+        }
     }
 }
 

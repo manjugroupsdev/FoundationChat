@@ -2,6 +2,7 @@ import Foundation
 
 struct LandInspection: Decodable, Identifiable, Hashable, Sendable {
     let id: String
+    let propertyId: String?
     let referenceNo: String?
     let totalArea: Double?
     let areaUnit: String?
@@ -78,8 +79,9 @@ struct LandInspection: Decodable, Identifiable, Hashable, Sendable {
 
     init(from decoder: Decoder) throws {
         let container = try decoder.container(keyedBy: CodingKeys.self)
+        propertyId = try container.decodeIfPresent(String.self, forKey: .propertyId)
         id = try container.decodeIfPresent(String.self, forKey: .id)
-            ?? container.decodeIfPresent(String.self, forKey: .propertyId)
+            ?? propertyId
             ?? UUID().uuidString
         referenceNo = try container.decodeIfPresent(String.self, forKey: .referenceNo)
         totalArea = try container.decodeIfPresent(Double.self, forKey: .totalArea)
@@ -299,6 +301,10 @@ struct SaveLandInspectionRequest: Encodable {
 struct RescheduleLandInspectionRequest: Encodable {
     let id: String
     let scheduledDate: String
+}
+
+struct AcceptLandInspectionRequest: Encodable {
+    let propertyId: String
 }
 
 struct LandQueryLog: Decodable, Identifiable, Hashable, Sendable {

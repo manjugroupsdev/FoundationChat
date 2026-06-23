@@ -86,8 +86,26 @@ final class AuthStore {
 
   private let tokenStore = KeychainTokenStore()
   private var didAttemptRestore = false
+  private var isRefreshingIAMPermissions = false
 
   private var token: String? { currentSession?.token }
+
+  init() {
+    #if DEBUG
+    if let stub = Self.qaStubSessionIfRequested() {
+      applySession(stub)
+      status = .signedIn
+      return
+    }
+    #endif
+
+    if let stored = try? tokenStore.load() {
+      applySession(stored)
+      status = .signedIn
+    } else {
+      status = .signedOut
+    }
+  }
 
   private func requireToken() throws -> String {
     guard let t = token else { throw AuthStoreError.sessionNotAvailable }
@@ -99,7 +117,6 @@ final class AuthStore {
   func restoreSessionIfNeeded() async {
     guard !didAttemptRestore else { return }
     didAttemptRestore = true
-    status = .loading
     errorMessage = nil
 
     #if DEBUG
@@ -111,9 +128,19 @@ final class AuthStore {
     #endif
 
     do {
-      guard let stored = try tokenStore.load() else {
+      let stored: OtpSession?
+      if let currentSession {
+        stored = currentSession
+      } else {
+        stored = try tokenStore.load()
+      }
+      guard let stored else {
         status = .signedOut
         return
+      }
+      if currentSession == nil {
+        applySession(stored)
+        status = .signedIn
       }
       let freshUser = try await AuthAPIService.validateSession(token: stored.token)
       let refreshed = OtpSession(
@@ -222,6 +249,9 @@ final class AuthStore {
 
   func refreshIAMPermissions() async {
     guard let t = token, currentSession?.token != "FCQA_STUB_TOKEN" else { return }
+    guard !isRefreshingIAMPermissions else { return }
+    isRefreshingIAMPermissions = true
+    defer { isRefreshingIAMPermissions = false }
     do {
       let iam = try await AuthAPIService.getMyIAMPermissions(token: t)
       guard let existing = currentSession?.user else { return }
@@ -246,6 +276,10 @@ final class AuthStore {
       applySession(refreshed)
       try? tokenStore.save(refreshed)
     } catch {
+      if error is CancellationError { return }
+      if (error as? URLError)?.code == .cancelled { return }
+      let nsError = error as NSError
+      if nsError.domain == NSURLErrorDomain && nsError.code == URLError.cancelled.rawValue { return }
       print("[auth] failed to refresh IAM permissions: \(error.localizedDescription)")
     }
   }

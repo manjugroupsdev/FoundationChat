@@ -33,6 +33,7 @@ struct HRDashboardView: View {
     @AppStorage("attendance.onDuty.tripId") private var onDutyTripId = ""
 
     private let timer = Timer.publish(every: 1, on: .main, in: .common).autoconnect()
+    private let attendancePanelTopOffset: CGFloat = 161
 
     init(openRoute: HRDashboardRoute? = nil, onOpenRouteHandled: @escaping () -> Void = {}) {
         self.openRoute = openRoute
@@ -47,7 +48,7 @@ struct HRDashboardView: View {
         if todayAttendance?.isOpen == true {
             return true
         }
-        return firstPunchIn(for: todayHistoryRecord) != nil && lastPunchOut(for: todayHistoryRecord) == nil
+        return firstPunchIn(for: todayHistoryRecord) != nil && resolvedPunchOut(for: todayHistoryRecord) == nil
     }
 
     private var availableShortcuts: [HRDashboardShortcut] {
@@ -64,39 +65,51 @@ struct HRDashboardView: View {
                 Color(red: 0.945, green: 0.953, blue: 0.973)
                     .ignoresSafeArea()
 
-                VStack(spacing: 0) {
-                    fixedAttendanceHeader
-                        .zIndex(1)
+                fixedAttendanceHeader
+                    .zIndex(0)
 
-                    HRDashboardLoadingStrip(isLoading: isLoading)
-
-                    ScrollView {
-                        VStack(spacing: 14) {
-                            dashboardErrorBanner
-                            attendanceHistoryCards
-                        }
-                        .padding(.bottom, 120)
+                ScrollView {
+                    VStack(spacing: 14) {
+                        workingHourCard
+                        HRDashboardLoadingStrip(isLoading: isLoading)
+                        dashboardErrorBanner
+                        attendanceHistoryCards
                     }
-                    .refreshable {
-                        await reloadAll()
+                    .padding(.top, attendancePanelTopOffset)
+                    .padding(.bottom, 120)
+                    .background(alignment: .top) {
+                        VStack(spacing: 0) {
+                            Color.clear
+                                .frame(height: attendancePanelTopOffset)
+                            Color.white
+                                .clipShape(.rect(topLeadingRadius: 30, topTrailingRadius: 30))
+                                .frame(height: 176)
+                            Color(red: 0.945, green: 0.953, blue: 0.973)
+                        }
+                        .allowsHitTesting(false)
                     }
                 }
-
-                attendanceTopFill
-                    .zIndex(2)
+                .scrollIndicators(.hidden)
+                .refreshable {
+                    await reloadAll()
+                }
+                .zIndex(1)
             }
             .toolbar(.hidden, for: .navigationBar)
             .navigationDestination(for: HRDashboardRoute.self) { route in
-                switch route {
-                case .leaves:
-                    LeavesListView()
-                case .leaveApprovals:
-                    LeaveApprovalsView()
-                case .permissions:
-                    ConvexPermissionListView()
-                case .permissionApprovals:
-                    PermissionApprovalsView()
+                Group {
+                    switch route {
+                    case .leaves:
+                        LeavesListView()
+                    case .leaveApprovals:
+                        LeaveApprovalsView()
+                    case .permissions:
+                        ConvexPermissionListView()
+                    case .permissionApprovals:
+                        PermissionApprovalsView()
+                    }
                 }
+                .toolbar(.hidden, for: .tabBar)
             }
             .task { await reloadAll() }
             .task(id: openRoute) {
@@ -145,38 +158,24 @@ struct HRDashboardView: View {
     }
 
     private var fixedAttendanceHeader: some View {
-        VStack(spacing: 0) {
-            ZStack(alignment: .top) {
-                headerBackground
-                androidHeader
-            }
-
-            workingHourCard
-                .padding(.top, -89)
+        ZStack(alignment: .top) {
+            headerBackground
+            androidHeader
         }
-    }
-
-    private var attendanceTopFill: some View {
-        Color(hex: 0x0B61CA)
-            .frame(height: 74)
-            .frame(maxWidth: .infinity, alignment: .top)
-            .ignoresSafeArea(edges: .top)
+        .frame(maxWidth: .infinity, alignment: .top)
+        .ignoresSafeArea(edges: .top)
     }
 
     private var headerBackground: some View {
+        attendanceHeaderGradient
+        .frame(height: 250)
+    }
+
+    private var attendanceHeaderGradient: LinearGradient {
         LinearGradient(
-            colors: [Color(red: 0.043, green: 0.38, blue: 0.792), Color(red: 0.008, green: 0.286, blue: 0.616)],
+            colors: [Color(hex: 0x0B61CA), Color(hex: 0x02499D)],
             startPoint: .top,
             endPoint: .bottom
-        )
-        .frame(height: 250)
-        .clipShape(
-            .rect(
-                topLeadingRadius: 0,
-                bottomLeadingRadius: 24,
-                bottomTrailingRadius: 24,
-                topTrailingRadius: 0
-            )
         )
     }
 
@@ -443,7 +442,7 @@ struct HRDashboardView: View {
                     Text("Clock in & Out")
                         .font(.system(size: 12, weight: .medium))
                         .foregroundStyle(Color(red: 0.278, green: 0.329, blue: 0.404))
-                    Text(formatAndroidTimeRange(in: firstPunchIn(for: record), out: lastPunchOut(for: record)))
+                    Text(formatAndroidTimeRange(in: firstPunchIn(for: record), out: resolvedPunchOut(for: record)))
                         .font(.system(size: 16, weight: .medium))
                         .foregroundStyle(Color(red: 0.204, green: 0.251, blue: 0.329))
                         .lineLimit(1)
@@ -520,7 +519,7 @@ struct HRDashboardView: View {
     }
 
     private var lastPunchOutDate: Date? {
-        if let raw = lastPunchOut(for: todayHistoryRecord), let date = parseAttendanceDate(raw) { return date }
+        if let raw = resolvedPunchOut(for: todayHistoryRecord), let date = parseAttendanceDate(raw) { return date }
         return parseAttendanceDate(todayAttendance?.punchOutTime)
     }
 
@@ -588,8 +587,13 @@ struct HRDashboardView: View {
         record?.firstPunchIn ?? record?.sessions?.first?.punchInTime
     }
 
-    private func lastPunchOut(for record: ConvexAttendanceRecord?) -> String? {
-        record?.lastPunchOut ?? record?.sessions?.last?.punchOutTime
+    private func resolvedPunchOut(for record: ConvexAttendanceRecord?) -> String? {
+        guard let record else { return nil }
+        guard record.hasOpenSession != true else { return nil }
+        let firstIn = firstPunchIn(for: record)
+        let candidate = record.lastPunchOut ?? record.sessions?.last?.punchOutTime
+        guard let candidate, candidate != firstIn else { return nil }
+        return candidate
     }
 
     private func formatHM(seconds: Int) -> String {
@@ -1026,26 +1030,29 @@ private enum HRDashboardShortcutDestination {
 
     @ViewBuilder
     var view: some View {
-        switch self {
-        case .attendance:
-            ConvexAttendanceListView()
-        case .attendanceReview:
-            AttendanceReviewView()
-        case .leave:
-            LeavesListView()
-        case .leaveReview:
-            LeaveApprovalsView()
-        case .permissions:
-            ConvexPermissionListView()
-        case .permissionReview:
-            PermissionApprovalsView()
-        case .loans:
-            LoansView()
-        case .staff:
-            StaffListView()
-        case .geoTrackLive:
-            GeoTrackLiveStatusView()
+        Group {
+            switch self {
+            case .attendance:
+                ConvexAttendanceListView()
+            case .attendanceReview:
+                AttendanceReviewView()
+            case .leave:
+                LeavesListView()
+            case .leaveReview:
+                LeaveApprovalsView()
+            case .permissions:
+                ConvexPermissionListView()
+            case .permissionReview:
+                PermissionApprovalsView()
+            case .loans:
+                LoansView()
+            case .staff:
+                StaffListView()
+            case .geoTrackLive:
+                GeoTrackLiveStatusView()
+            }
         }
+        .toolbar(.hidden, for: .tabBar)
     }
 }
 

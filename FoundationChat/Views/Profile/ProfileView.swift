@@ -11,8 +11,6 @@ struct ProfileView: View {
 
   @State private var remotePhotoURL: URL?
   @State private var isPresentingEdit = false
-  @State private var isPresentingLanguage = false
-  @State private var isPresentingAppearance = false
   @State private var isConfirmingLogout = false
   @State private var hasLoadedStaffProfile = false
 
@@ -43,21 +41,21 @@ struct ProfileView: View {
 
           ProfileDivider()
 
-          Button {
-            isPresentingLanguage = true
-          } label: {
-            ProfileMenuRow(title: "Language", value: selectedLanguage.title, systemImage: "globe")
-          }
-          .buttonStyle(.plain)
+          ProfileMenuRow(
+            title: "Language",
+            value: selectedLanguage.title,
+            systemImage: "globe",
+            showsChevron: false
+          )
 
           ProfileDivider()
 
-          Button {
-            isPresentingAppearance = true
-          } label: {
-            ProfileMenuRow(title: "Appearance", value: selectedAppearance.title, systemImage: selectedAppearance.systemImage)
-          }
-          .buttonStyle(.plain)
+          ProfileMenuRow(
+            title: "Appearance",
+            value: selectedAppearance.title,
+            systemImage: selectedAppearance.systemImage,
+            showsChevron: false
+          )
 
           ProfileDivider()
 
@@ -130,16 +128,6 @@ struct ProfileView: View {
         ProfileEditView(onSaved: {
           Task { await refreshStaffProfile() }
         })
-      }
-    }
-    .sheet(isPresented: $isPresentingLanguage) {
-      NavigationStack {
-        LanguageSettingsView(selection: $languagePreference)
-      }
-    }
-    .sheet(isPresented: $isPresentingAppearance) {
-      NavigationStack {
-        AppearanceSettingsView(selection: $appearancePreference)
       }
     }
     .sheet(isPresented: $isConfirmingLogout) {

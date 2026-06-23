@@ -10,20 +10,8 @@ struct AuthRootView: View {
         Group {
             switch authStore.status {
             case .loading:
-                if authStore.currentSession == nil {
-                    ZStack(alignment: .top) {
-                        LoginView()
-                            .allowsHitTesting(false)
-                        ProgressView("Checking session...")
-                            .padding(.horizontal, 16)
-                            .padding(.vertical, 12)
-                            .background(.ultraThinMaterial, in: Capsule())
-                            .padding(.top, 24)
-                    }
-                } else {
-                    ProgressView("Restoring session...")
-                        .frame(maxWidth: .infinity, maxHeight: .infinity)
-                }
+                ProgressView("Restoring session...")
+                    .frame(maxWidth: .infinity, maxHeight: .infinity)
             case .signedOut:
                 LoginView()
             case .signedIn:

@@ -53,6 +53,8 @@ struct GeoTrackTodayVisitsView: View {
                 clientPlaceVisitId: visit.clientPlaceVisitId,
                 cpClientMet: visit.cpVisit?.clientMet,
                 cpOutcome: visit.cpVisit?.outcome,
+                cpVisitCategory: visit.visitCategory,
+                cpType: visit.cpVisit?.cpType,
                 requiresOpenAttendance: true,
                 onTripChanged: {
                     Task { await load() }

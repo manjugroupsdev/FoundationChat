@@ -42,9 +42,8 @@ struct TaskUpdateSheet: View {
             VStack(alignment: .leading, spacing: 22) {
                 header
                 dateField
+                textArea(title: "Today’s Update", required: true, systemImage: "doc.text", text: $todaysUpdate, placeholder: "Enter Title of this meeting", minHeight: 46)
                 progressField
-                statusField
-                textArea(title: "Today’s Update", required: true, systemImage: "note.text", text: $todaysUpdate, placeholder: "Enter Title of this meeting", minHeight: 136)
                 singleLineField(title: "Issues/ Blockers", required: true, systemImage: "xmark.circle", text: $blocker, placeholder: "No Issues")
                 singleLineField(title: "Tomorrows Plan", required: true, systemImage: "calendar.badge.clock", text: $tomorrowsPlan, placeholder: "Need to Update Place")
                 photosBlock
@@ -72,8 +71,7 @@ struct TaskUpdateSheet: View {
                 .disabled(isSubmitting)
                 .padding(.top, 2)
             }
-            .padding(.horizontal, 20)
-            .padding(.top, 18)
+            .padding(24)
             .padding(.bottom, 28)
         }
         .background(Color.white)
@@ -87,7 +85,9 @@ struct TaskUpdateSheet: View {
         .sheet(isPresented: $showingDatePicker) {
             taskUpdateDatePicker
                 .presentationDetents([.height(470)])
+                .presentationBackground(Color.clear)
                 .presentationCornerRadius(28)
+                .presentationDragIndicator(.hidden)
         }
     }
 
@@ -95,25 +95,26 @@ struct TaskUpdateSheet: View {
         VStack(alignment: .center, spacing: 6) {
             RoundedRectangle(cornerRadius: 2)
                 .fill(Color(hex: 0xE4E7EC))
-                .frame(width: 40, height: 4)
+                .frame(width: 32, height: 4)
                 .frame(maxWidth: .infinity)
-                .padding(.bottom, 28)
+                .padding(.bottom, 16)
 
             Text("Today’s Update")
-                .font(.system(size: 26, weight: .bold))
+                .font(.system(size: 22, weight: .bold))
                 .foregroundStyle(Color(hex: 0x101828))
 
             Text("Update your daily tasks in this form")
-                .font(.system(size: 15, weight: .regular))
-                .foregroundStyle(Color(hex: 0x8A8A8A))
+                .font(.system(size: 13, weight: .medium))
+                .foregroundStyle(Color(hex: 0x667085))
+                .padding(.bottom, 18)
         }
     }
 
     private var dateField: some View {
         VStack(alignment: .leading, spacing: 8) {
             Text("Date")
-                .font(.system(size: 16, weight: .regular))
-                .foregroundStyle(Color(hex: 0x475467))
+                .font(.system(size: 12, weight: .medium))
+                .foregroundStyle(Color(hex: 0x667085))
 
             Button {
                 showingDatePicker = true
@@ -124,7 +125,7 @@ struct TaskUpdateSheet: View {
                         .foregroundStyle(Color(hex: 0x0B61CA))
 
                     Text(didSelectDate ? selectedDate.formatted(.dateTime.month(.abbreviated).day().year()) : "Select Date")
-                        .font(.system(size: 18, weight: .regular))
+                        .font(.system(size: 14, weight: .medium))
                         .foregroundStyle(Color(hex: 0x101828))
 
                     Spacer()
@@ -133,10 +134,10 @@ struct TaskUpdateSheet: View {
             .buttonStyle(.bordered)
             .padding(.horizontal, 16)
             .frame(height: 46)
-            .background(Color.white, in: RoundedRectangle(cornerRadius: 9, style: .continuous))
+            .background(Color.white, in: RoundedRectangle(cornerRadius: 12, style: .continuous))
             .overlay {
-                RoundedRectangle(cornerRadius: 9, style: .continuous)
-                    .stroke(Color(hex: 0x98A2B3), lineWidth: 1)
+                RoundedRectangle(cornerRadius: 12, style: .continuous)
+                    .stroke(Color(hex: 0xD0D5DD), lineWidth: 1)
             }
         }
     }
@@ -150,8 +151,8 @@ struct TaskUpdateSheet: View {
                     .tint(Color(hex: 0x0B61CA))
 
                 Text("\(Int(progress.rounded()))%")
-                    .font(.system(size: 22, weight: .regular))
-                    .foregroundStyle(Color(hex: 0x1F2937))
+                    .font(.system(size: 14, weight: .bold))
+                    .foregroundStyle(Color(hex: 0x101828))
                     .monospacedDigit()
                     .frame(width: 52, alignment: .trailing)
             }
@@ -162,7 +163,7 @@ struct TaskUpdateSheet: View {
                     .foregroundStyle(Color(hex: 0x0B61CA))
 
                 TextField("Select or Type Progress", text: $progressText)
-                    .font(.system(size: 18, weight: .regular))
+                    .font(.system(size: 14, weight: .medium))
                     .keyboardType(.numberPad)
                     .foregroundStyle(Color(hex: 0x101828))
                     .onChange(of: progressText) { _, value in
@@ -184,10 +185,10 @@ struct TaskUpdateSheet: View {
             }
             .padding(.horizontal, 16)
             .frame(height: 46)
-            .background(Color.white, in: RoundedRectangle(cornerRadius: 9, style: .continuous))
+            .background(Color.white, in: RoundedRectangle(cornerRadius: 12, style: .continuous))
             .overlay {
-                RoundedRectangle(cornerRadius: 9, style: .continuous)
-                    .stroke(Color(hex: 0x98A2B3), lineWidth: 1)
+                RoundedRectangle(cornerRadius: 12, style: .continuous)
+                    .stroke(Color(hex: 0xD0D5DD), lineWidth: 1)
             }
         }
     }
@@ -239,8 +240,8 @@ struct TaskUpdateSheet: View {
                 requiredLabel(title)
             } else {
                 Text(title)
-                    .font(.system(size: 16, weight: .regular))
-                    .foregroundStyle(Color(hex: 0x475467))
+                    .font(.system(size: 12, weight: .medium))
+                    .foregroundStyle(Color(hex: 0x667085))
             }
 
             HStack(alignment: .top, spacing: 16) {
@@ -260,7 +261,7 @@ struct TaskUpdateSheet: View {
 
                     if text.wrappedValue.isEmpty {
                         Text(placeholder)
-                            .font(.system(size: 18, weight: .regular))
+                            .font(.system(size: 14, weight: .medium))
                             .foregroundStyle(Color(hex: 0x101828))
                             .padding(.top, 16)
                             .allowsHitTesting(false)
@@ -268,10 +269,11 @@ struct TaskUpdateSheet: View {
                 }
             }
             .padding(.horizontal, 16)
-            .background(Color.white, in: RoundedRectangle(cornerRadius: 9, style: .continuous))
+            .frame(minHeight: minHeight)
+            .background(Color.white, in: RoundedRectangle(cornerRadius: 12, style: .continuous))
             .overlay {
-                RoundedRectangle(cornerRadius: 9, style: .continuous)
-                    .stroke(Color(hex: 0x98A2B3), lineWidth: 1)
+                RoundedRectangle(cornerRadius: 12, style: .continuous)
+                    .stroke(Color(hex: 0xD0D5DD), lineWidth: 1)
             }
         }
     }
@@ -282,8 +284,8 @@ struct TaskUpdateSheet: View {
                 requiredLabel(title)
             } else {
                 Text(title)
-                    .font(.system(size: 16, weight: .regular))
-                    .foregroundStyle(Color(hex: 0x475467))
+                    .font(.system(size: 12, weight: .medium))
+                    .foregroundStyle(Color(hex: 0x667085))
             }
 
             HStack(spacing: 16) {
@@ -293,15 +295,15 @@ struct TaskUpdateSheet: View {
                     .frame(width: 24)
 
                 TextField(placeholder, text: text)
-                    .font(.system(size: 18, weight: .regular))
+                    .font(.system(size: 14, weight: .medium))
                     .foregroundStyle(Color(hex: 0x101828))
             }
             .padding(.horizontal, 16)
             .frame(height: 46)
-            .background(Color.white, in: RoundedRectangle(cornerRadius: 9, style: .continuous))
+            .background(Color.white, in: RoundedRectangle(cornerRadius: 12, style: .continuous))
             .overlay {
-                RoundedRectangle(cornerRadius: 9, style: .continuous)
-                    .stroke(Color(hex: 0x98A2B3), lineWidth: 1)
+                RoundedRectangle(cornerRadius: 12, style: .continuous)
+                    .stroke(Color(hex: 0xD0D5DD), lineWidth: 1)
             }
         }
     }
@@ -330,19 +332,29 @@ struct TaskUpdateSheet: View {
         .padding(.horizontal, 24)
         .padding(.top, 14)
         .padding(.bottom, 22)
+        .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .top)
         .background(Color.white)
+        .clipShape(
+            UnevenRoundedRectangle(
+                topLeadingRadius: 28,
+                bottomLeadingRadius: 0,
+                bottomTrailingRadius: 0,
+                topTrailingRadius: 28,
+                style: .continuous
+            )
+        )
     }
 
     private var photosBlock: some View {
         VStack(alignment: .leading, spacing: 10) {
             HStack {
                 Text("Photos")
-                    .font(.system(size: 16, weight: .semibold))
-                    .foregroundStyle(Color(hex: 0x101828))
+                    .font(.system(size: 12, weight: .medium))
+                    .foregroundStyle(Color(hex: 0x667085))
                 Spacer()
                 Text("\(selectedPhotoData.count) \(selectedPhotoData.count == 1 ? "Photo" : "Photos")")
-                    .font(.system(size: 14, weight: .medium))
-                    .foregroundStyle(Color(hex: 0x475467))
+                    .font(.system(size: 13, weight: .semibold))
+                    .foregroundStyle(Color(hex: 0x0B61CA))
             }
 
             ScrollView(.horizontal, showsIndicators: false) {
@@ -393,11 +405,11 @@ struct TaskUpdateSheet: View {
     private func requiredLabel(_ title: String) -> some View {
         HStack(spacing: 3) {
             Text(title)
-                .foregroundStyle(Color(hex: 0x475467))
+                .foregroundStyle(Color(hex: 0x667085))
             Text("*")
                 .foregroundStyle(Color.red)
         }
-        .font(.system(size: 16, weight: .regular))
+        .font(.system(size: 12, weight: .medium))
     }
 
     private func setProgress(_ value: Double) {

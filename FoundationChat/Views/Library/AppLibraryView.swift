@@ -22,23 +22,18 @@ struct AppLibraryView: View {
 
                 appHeaderTopFill
 
-                VStack(spacing: 0) {
-                    header
-                        .zIndex(1)
+                headerHero
 
-                    AppLibraryLoadingStrip(isLoading: isRefreshingPermissions)
+                ScrollView(showsIndicators: false) {
+                    VStack(spacing: 0) {
+                        Color.clear
+                            .frame(height: 161)
 
-                    ScrollView(showsIndicators: false) {
-                        LazyVStack(spacing: 24) {
-                            appSections
-                        }
-                        .padding(.horizontal, 16)
-                        .padding(.top, 20)
-                        .padding(.bottom, 120)
+                        scrollingPanel
                     }
-                    .refreshable {
-                        await refreshPermissions()
-                    }
+                }
+                .refreshable {
+                    await refreshLibraryPresentation()
                 }
                 .ignoresSafeArea(edges: .top)
             }
@@ -91,56 +86,75 @@ struct AppLibraryView: View {
     }
 
     @MainActor
+    private func refreshLibraryPresentation() async {
+        restartEntranceAnimation()
+        try? await Task.sleep(for: .milliseconds(600))
+    }
+
+    @MainActor
     private func refreshPermissions() async {
+        guard !isRefreshingPermissions else { return }
         isRefreshingPermissions = true
         defer { isRefreshingPermissions = false }
         await authStore.refreshIAMPermissions()
     }
 
-    private var header: some View {
-        VStack(spacing: 0) {
-            ZStack(alignment: .top) {
-                LinearGradient(
-                    colors: [Color(hex: 0x0B61CA), Color(hex: 0x02499D)],
-                    startPoint: .top,
-                    endPoint: .bottom
-                )
-                .clipShape(.rect(bottomLeadingRadius: 24, bottomTrailingRadius: 24))
+    private var headerHero: some View {
+        ZStack(alignment: .top) {
+            LinearGradient(
+                colors: [Color(hex: 0x0B61CA), Color(hex: 0x02499D)],
+                startPoint: .top,
+                endPoint: .bottom
+            )
 
-                HStack(alignment: .top) {
-                    VStack(alignment: .leading, spacing: 5) {
-                        Text("App Library")
-                            .font(AppModuleFont.screenTitle)
-                            .foregroundStyle(.white)
+            HStack(alignment: .top) {
+                VStack(alignment: .leading, spacing: 5) {
+                    Text("App Library")
+                        .font(AppModuleFont.screenTitle)
+                        .foregroundStyle(.white)
 
-                        Text("Everything grouped for quick access")
-                            .font(AppModuleFont.rowBody)
-                            .foregroundStyle(Color(hex: 0xD9D6FE))
-                            .lineLimit(2)
-                    }
-                    .frame(maxWidth: 234, alignment: .leading)
-
-                    Spacer(minLength: 8)
-
-                    Image("AppLibraryIconAppsHeader")
-                        .resizable()
-                        .scaledToFit()
-                        .frame(width: 119, height: 89)
+                    Text("Everything grouped for quick access")
+                        .font(AppModuleFont.rowBody)
+                        .foregroundStyle(Color(hex: 0xD9D6FE))
+                        .lineLimit(2)
                 }
-                .padding(.top, 71)
-                .padding(.horizontal, 24)
-            }
-            .frame(height: 161)
+                .frame(maxWidth: 234, alignment: .leading)
 
+                Spacer(minLength: 8)
+
+                Image("AppLibraryIconAppsHeader")
+                    .resizable()
+                    .scaledToFit()
+                    .frame(width: 119, height: 89)
+            }
+            .padding(.top, 71)
+            .padding(.horizontal, 24)
+        }
+        .frame(height: 161)
+        .frame(maxHeight: .infinity, alignment: .top)
+        .ignoresSafeArea(edges: .top)
+    }
+
+    private var scrollingPanel: some View {
+        VStack(spacing: 0) {
             AppLibraryFilterStrip(selectedFilter: $selectedFilter)
                 .padding(.top, 14)
                 .padding(.bottom, 14)
-                .background(Color(.systemGroupedBackground))
                 .opacity(navDidAppear ? 1 : 0)
                 .offset(y: navDidAppear ? 0 : 18)
                 .animation(.spring(response: 0.38, dampingFraction: 0.86).delay(0.06), value: navDidAppear)
+
+            AppLibraryLoadingStrip(isLoading: isRefreshingPermissions)
+
+            LazyVStack(spacing: 24) {
+                appSections
+            }
+            .padding(.horizontal, 16)
+            .padding(.top, 20)
+            .padding(.bottom, 120)
         }
         .background(Color(.systemGroupedBackground))
+        .clipShape(.rect(topLeadingRadius: 30, topTrailingRadius: 30))
     }
 }
 
@@ -148,19 +162,8 @@ private struct AppLibraryLoadingStrip: View {
     let isLoading: Bool
 
     var body: some View {
-        ZStack(alignment: .leading) {
-            Rectangle()
-                .fill(Color(.systemGroupedBackground))
-
-            if isLoading {
-                ProgressView()
-                    .progressViewStyle(.linear)
-                    .tint(Color(hex: 0x0B61CA))
-                    .transition(.opacity)
-            }
-        }
-        .frame(height: 4)
-        .animation(.easeOut(duration: 0.18), value: isLoading)
+        Color.clear
+            .frame(height: 0)
     }
 }
 
@@ -328,9 +331,7 @@ private struct AppLibrarySection: Identifiable {
             permissions.isEmpty || permissions.contains { authStore.hasPermission($0) }
         }
 
-        let isDriverMode = authStore.currentSession?.user.designation?
-            .trimmingCharacters(in: .whitespacesAndNewlines)
-            .localizedCaseInsensitiveCompare("Driver") == .orderedSame
+        let isDriverMode = authStore.currentSession?.user.isFleetDriverMode == true
 
         let hrItems: [AppLibraryItem] = [
             canAny(["attendance.view", "attendance.viewAll"])
@@ -390,7 +391,7 @@ private struct AppLibrarySection: Identifiable {
         ].compactMap(\.self)
 
         let fleetItems: [AppLibraryItem] = [
-            (isDriverMode || canAny(["marketing.siteVisits.view", "fleet.view"]))
+            isDriverMode
                 ? .init(title: "My Trips", icon: "AppLibraryIconAppsFieldVisits", destination: .fleetMyTrips)
                 : nil
         ].compactMap(\.self)
@@ -510,48 +511,51 @@ private enum AppLibraryDestination: String {
 
     @ViewBuilder
     var view: some View {
-        switch self {
-        case .attendance:
-            ConvexAttendanceListView()
-        case .attendanceReview:
-            AttendanceReviewView()
-        case .leave:
-            LeavesListView()
-        case .permissions:
-            ConvexPermissionListView()
-        case .loans:
-            LoansView()
-        case .siteVisits:
-            SiteVisitsView()
-        case .cpVisits:
-            CpVisitsView()
-        case .leads:
-            MyLeadsView()
-        case .dialer:
-            DialerView()
-        case .inventory:
-            InventoryProjectsListView()
-        case .bookings:
-            BookingsListView()
-        case .tasks:
-            TasksListView()
-        case .expenses:
-            ProjectExpensesView()
-        case .landInspection:
-            LandInspectionView()
-        case .landQueries:
-            LandQueriesView()
-        case .fleetMyTrips:
-            FleetMyTripsView()
-        case .collections:
-            CollectionsView()
-        case .loanDesk:
-            LoanDeskView()
-        case .postSalesVerification:
-            AccountsCollectionsReviewView()
-        case .settings:
-            ProfileView()
+        Group {
+            switch self {
+            case .attendance:
+                ConvexAttendanceListView()
+            case .attendanceReview:
+                AttendanceReviewView()
+            case .leave:
+                LeavesListView()
+            case .permissions:
+                ConvexPermissionListView()
+            case .loans:
+                LoansView()
+            case .siteVisits:
+                SiteVisitsView()
+            case .cpVisits:
+                CpVisitsView()
+            case .leads:
+                MyLeadsView()
+            case .dialer:
+                DialerView()
+            case .inventory:
+                InventoryProjectsListView()
+            case .bookings:
+                BookingsListView()
+            case .tasks:
+                TasksListView()
+            case .expenses:
+                ProjectExpensesView()
+            case .landInspection:
+                LandInspectionView()
+            case .landQueries:
+                LandQueriesView()
+            case .fleetMyTrips:
+                FleetMyTripsView()
+            case .collections:
+                CollectionsView()
+            case .loanDesk:
+                LoanDeskView()
+            case .postSalesVerification:
+                AccountsCollectionsReviewView()
+            case .settings:
+                ProfileView()
+            }
         }
+        .toolbar(.hidden, for: .tabBar)
     }
 }
 

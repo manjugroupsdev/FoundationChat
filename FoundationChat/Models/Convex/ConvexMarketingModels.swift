@@ -128,6 +128,8 @@ struct CpVisitDetail: Decodable, Identifiable, Sendable {
     let expectedAttendeeCount: Int?
     let foodPreferences: String?
     let vehiclePreference: String?
+    let cpType: String?
+    let projectId: String?
     let isBookingCompleted: Bool?
     let createdAt: Int64?
     let updatedAt: Int64?
@@ -140,6 +142,8 @@ struct CpVisitDetail: Decodable, Identifiable, Sendable {
     let clientPlace: CpVisitPlace?
     let fieldVisit: CpVisitFieldVisit?
     let arrivalProof: CpVisitArrivalProof?
+    let project: CpVisitProject?
+    let inchargeStaff: CpVisitStaff?
 
     enum CodingKeys: String, CodingKey {
         case id = "_id"
@@ -147,9 +151,19 @@ struct CpVisitDetail: Decodable, Identifiable, Sendable {
         case assignedAt, scheduledDate, scheduledTime, status, clientMet, clientMetAt
         case clientNoShowReason, outcome, postponeReasons, convertedSiteVisitId
         case convertedBookingId, fieldVisitId, notes, completedAt, cancelledAt
-        case expectedAttendeeCount, foodPreferences, vehiclePreference, isBookingCompleted
+        case expectedAttendeeCount, foodPreferences, vehiclePreference, cpType, projectId, isBookingCompleted
         case createdAt, updatedAt, lead, client, telecaller, assignedStaff, clientPlace
-        case proposedSiteVisit, attendees, fieldVisit, arrivalProof
+        case proposedSiteVisit, attendees, fieldVisit, arrivalProof, project, inchargeStaff
+    }
+}
+
+struct CpVisitProject: Decodable, Sendable {
+    let id: String?
+    let name: String?
+
+    enum CodingKeys: String, CodingKey {
+        case id = "_id"
+        case name
     }
 }
 
@@ -163,6 +177,17 @@ struct ProposedSiteVisit: Decodable, Sendable {
     let avpStaffId: String?
     let gmStaffId: String?
     let seniorManagerStaffId: String?
+    let status: String?
+    let travelMode: String?
+    let vehicleId: String?
+    let travelAgencyId: String?
+    let pickedUpAt: Int64?
+    let arrivedSiteAt: Int64?
+    let droppedAt: Int64?
+    let completedAt: Int64?
+    let travelDeskStartedAt: Int64?
+    let travelDeskOnSiteAt: Int64?
+    let travelDeskEndedAt: Int64?
 
     var isMeaningful: Bool {
         [

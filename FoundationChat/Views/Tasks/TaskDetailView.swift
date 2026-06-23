@@ -63,6 +63,7 @@ struct TaskDetailView: View {
         }
         .navigationBarBackButtonHidden(true)
         .toolbar(.hidden, for: .navigationBar)
+        .toolbar(.hidden, for: .tabBar)
         .task {
             if task == nil { task = initial }
             await refresh()
@@ -95,9 +96,9 @@ struct TaskDetailView: View {
                 dismiss()
             } label: {
                 Image(systemName: "chevron.left")
-                    .font(.system(size: 24, weight: .semibold))
+                    .font(.system(size: 22, weight: .semibold))
                     .foregroundStyle(Color(hex: 0x101828))
-                    .frame(width: 40, height: 40)
+                    .frame(width: 36, height: 36)
             }
             .buttonStyle(.plain)
             .accessibilityLabel("Back")
@@ -105,7 +106,7 @@ struct TaskDetailView: View {
             Spacer()
 
             Text("Task Overview")
-                .font(.system(size: 20, weight: .bold))
+                .font(.system(size: 18, weight: .bold))
                 .foregroundStyle(Color(hex: 0x101828))
 
             Spacer()
@@ -114,9 +115,9 @@ struct TaskDetailView: View {
                 showTimelineSheet = true
             } label: {
                 Image(systemName: "clock.arrow.circlepath")
-                    .font(.system(size: 27, weight: .semibold))
+                    .font(.system(size: 24, weight: .semibold))
                     .foregroundStyle(Color(hex: 0x0B61CA))
-                    .frame(width: 40, height: 40)
+                    .frame(width: 36, height: 36)
             }
             .buttonStyle(.plain)
             .accessibilityLabel("Task Timeline")
@@ -134,7 +135,7 @@ struct TaskDetailView: View {
                     .foregroundStyle(Color(hex: 0x0B61CA))
 
                 Text(task.displayTitle)
-                    .font(.system(size: 22, weight: .bold))
+                    .font(.system(size: 20, weight: .bold))
                     .foregroundStyle(Color(hex: 0x101828))
                     .lineLimit(2)
 
@@ -149,7 +150,7 @@ struct TaskDetailView: View {
             }
 
             Text(detailStatusLabel(task))
-                .font(.system(size: 14, weight: .medium))
+                .font(.system(size: 13, weight: .medium))
                 .foregroundStyle(statusTextColor(task.normalizedStatus))
 
             HStack(spacing: 16) {
@@ -209,11 +210,11 @@ struct TaskDetailView: View {
     private func descriptionBlock(_ task: ConvexTask) -> some View {
         VStack(alignment: .leading, spacing: 8) {
             Text("Task Description")
-                .font(.system(size: 17, weight: .bold))
+                .font(.system(size: 15, weight: .bold))
                 .foregroundStyle(Color(hex: 0x101828))
 
             Text(task.displayDescription ?? "No description provided.")
-                .font(.system(size: 16, weight: .regular))
+                .font(.system(size: 14, weight: .regular))
                 .lineSpacing(4)
                 .foregroundStyle(Color(hex: 0x475467))
                 .lineLimit(descriptionExpanded ? nil : 3)
@@ -238,14 +239,14 @@ struct TaskDetailView: View {
         HStack(alignment: .top) {
             VStack(alignment: .leading, spacing: 9) {
                 Text("Work Category")
-                    .font(.system(size: 17, weight: .bold))
+                    .font(.system(size: 15, weight: .bold))
                     .foregroundStyle(Color(hex: 0x101828))
                 HStack(spacing: 8) {
                     Image(systemName: "person.2")
                         .font(.system(size: 17, weight: .semibold))
                         .foregroundStyle(Color(hex: 0x0B61CA))
                     Text("\(task.workCategory?.taskNilIfBlank ?? "Project")  •  \(task.taskId?.taskNilIfBlank ?? "-")")
-                        .font(.system(size: 16, weight: .medium))
+                        .font(.system(size: 14, weight: .medium))
                         .foregroundStyle(Color(hex: 0x475467))
                 }
             }
@@ -254,10 +255,10 @@ struct TaskDetailView: View {
 
             VStack(alignment: .trailing, spacing: 9) {
                 Text("Assigned To")
-                    .font(.system(size: 17, weight: .bold))
+                    .font(.system(size: 15, weight: .bold))
                     .foregroundStyle(Color(hex: 0x101828))
                 Text(task.assignedToDisplay?.taskNilIfBlank ?? "")
-                    .font(.system(size: 16, weight: .medium))
+                    .font(.system(size: 14, weight: .medium))
                     .foregroundStyle(Color(hex: 0x475467))
             }
         }
@@ -304,7 +305,7 @@ struct TaskDetailView: View {
     private func resourceSummary(_ task: ConvexTask) -> some View {
         VStack(alignment: .leading, spacing: 12) {
             Text("Resource Summary")
-                .font(.system(size: 17, weight: .bold))
+                .font(.system(size: 15, weight: .bold))
                 .foregroundStyle(Color(hex: 0x101828))
 
             LazyVGrid(columns: [GridItem(.flexible(), spacing: 12), GridItem(.flexible(), spacing: 12)], spacing: 12) {

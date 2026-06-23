@@ -4,7 +4,7 @@ import UIKit
 
 struct CpVisitsView: View {
     @Environment(AuthStore.self) private var authStore
-    @State private var visits: [ConvexSiteVisit] = []
+    @State private var visits: [CpListVisit] = []
     @State private var isLoading = false
     @State private var hasLoaded = false
     @State private var errorMessage: String?
@@ -12,8 +12,9 @@ struct CpVisitsView: View {
     @State private var searchText = ""
     @State private var selectedFilter: CpVisitFilter = .all
     @State private var isClockedIn = false
+    @State private var selectedOutcomeVisit: CpListVisit?
 
-    private var filteredVisits: [ConvexSiteVisit] {
+    private var filteredVisits: [CpListVisit] {
         visits.filter { visit in
             selectedFilter.matches(visit)
                 && (searchText.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty || visit.matchesCpSearch(searchText))
@@ -34,7 +35,14 @@ struct CpVisitsView: View {
             } else {
                 LazyVStack(spacing: 12) {
                     ForEach(filteredVisits) { visit in
-                        if visit.isOpenableCpVisit {
+                        if visit.isPendingOutcomeCpVisit {
+                            Button {
+                                selectedOutcomeVisit = visit
+                            } label: {
+                                CpVisitCard(visit: visit, isClockedIn: isClockedIn)
+                            }
+                            .buttonStyle(.plain)
+                        } else if visit.isOpenableCpVisit {
                             NavigationLink {
                                 TripNavigationView(
                                     visitId: visit.id,
@@ -44,8 +52,10 @@ struct CpVisitsView: View {
                                     initialStatus: visit.status,
                                     tripType: visit.tripType,
                                     clientPlaceVisitId: visit.clientPlaceVisitId,
-                                    cpClientMet: visit.cpVisit?.clientMet,
-                                    cpOutcome: visit.cpVisit?.outcome,
+                                    cpClientMet: visit.clientMet,
+                                    cpOutcome: visit.outcome,
+                                    cpVisitCategory: visit.visitCategory,
+                                    cpType: visit.cpType,
                                     onTripChanged: {
                                         Task { await load() }
                                     }
@@ -100,6 +110,17 @@ struct CpVisitsView: View {
                     Task { await load() }
                 }
             }
+        }
+        .sheet(item: $selectedOutcomeVisit) { visit in
+            CompleteCpVisitSheet(
+                cpVisitId: visit.clientPlaceVisitId,
+                initialOutcome: visit.outcome,
+                onCompleted: {
+                    selectedOutcomeVisit = nil
+                    Task { await load() }
+                }
+            )
+            .environment(authStore)
         }
     }
 
@@ -226,7 +247,7 @@ struct CpVisitsView: View {
         let from = calendar.date(byAdding: .day, value: -30, to: today) ?? today
         let to = calendar.date(byAdding: .day, value: 30, to: today) ?? today
         do {
-            async let visitsRequest = HRConvexAPIService.getMySiteVisits(
+            async let visitsRequest = MarketingConvexAPIService.getMyMarketingCpVisits(
                 token: token,
                 fromDate: AppModuleFormatters.ymd.string(from: from),
                 toDate: AppModuleFormatters.ymd.string(from: to)
@@ -235,8 +256,8 @@ struct CpVisitsView: View {
             let all = try await visitsRequest
             isClockedIn = await attendanceRequest
             visits = all
-                .filter { $0.tripType == "client_place" || $0.clientPlaceVisitId != nil }
-                .sorted { ($0.scheduledDate ?? "") > ($1.scheduledDate ?? "") }
+                .compactMap(CpListVisit.init(detail:))
+                .sorted(by: CpListVisit.androidOrder)
             errorMessage = nil
         } catch {
             errorMessage = error.localizedDescription
@@ -247,14 +268,175 @@ struct CpVisitsView: View {
         await AttendanceTrackingGate.hasOpenSessionForToday(token: token)
     }
 
-    private func coordinate(for visit: ConvexSiteVisit) -> CLLocationCoordinate2D? {
+    private func coordinate(for visit: CpListVisit) -> CLLocationCoordinate2D? {
         guard let lat = visit.placeLat, let lng = visit.placeLng else { return nil }
         return CLLocationCoordinate2D(latitude: lat, longitude: lng)
     }
 }
 
+private struct CpListVisit: Identifiable {
+    let id: String
+    let fieldVisitId: String?
+    let clientPlaceVisitId: String
+    let clientPlaceId: String?
+    let scheduledDate: String?
+    let scheduledStartTime: String?
+    let scheduledEndTime: String?
+    let status: String?
+    let placeName: String?
+    let placeAddress: String?
+    let placeType: String?
+    let placeLat: Double?
+    let placeLng: Double?
+    let leadName: String?
+    let leadPhone: String?
+    let clientMet: Bool?
+    let clientMetAt: Int64?
+    let clientNoShowReason: String?
+    let outcome: String?
+    let postponeReasons: [String]
+    let convertedBookingId: String?
+    let convertedSiteVisitId: String?
+    let completedAt: Int64?
+    let visitCategory: String
+    let cpType: String?
+    let detail: CpVisitDetail
+
+    init?(detail: CpVisitDetail) {
+        guard detail.id.blankToNil != nil, detail.scheduledDate?.blankToNil != nil else { return nil }
+        self.id = detail.fieldVisitId?.blankToNil ?? detail.id
+        self.fieldVisitId = detail.fieldVisitId
+        self.clientPlaceVisitId = detail.id
+        self.clientPlaceId = detail.clientPlaceId
+        self.scheduledDate = detail.scheduledDate
+        self.scheduledStartTime = detail.scheduledTime
+        self.scheduledEndTime = nil
+        let fieldStatus = detail.fieldVisit?.status?.blankToNil
+        self.status = fieldStatus ?? detail.status
+        self.placeName = detail.client?.clientName?.blankToNil
+            ?? detail.lead?.contactName?.blankToNil
+            ?? detail.clientPlace?.name?.blankToNil
+            ?? "CP visit"
+        self.placeAddress = detail.clientPlace?.formattedAddress?.blankToNil
+            ?? detail.clientPlace?.address?.blankToNil
+            ?? [
+                detail.clientPlace?.landmark,
+                detail.clientPlace?.city,
+                detail.clientPlace?.state,
+                detail.clientPlace?.pincode
+            ]
+            .compactMap { $0?.blankToNil }
+            .joined(separator: ", ")
+            .blankToNil
+        self.placeType = detail.clientPlace?.contactPerson?.blankToNil
+        self.placeLat = detail.clientPlace?.lat
+        self.placeLng = detail.clientPlace?.lng
+        self.leadName = detail.lead?.contactName?.blankToNil ?? detail.client?.clientName?.blankToNil
+        self.leadPhone = detail.lead?.mobileNumber?.blankToNil
+            ?? detail.client?.mobileNumber?.blankToNil
+            ?? detail.clientPlace?.contactPhone?.blankToNil
+        self.clientMet = detail.clientMet
+        self.clientMetAt = detail.clientMetAt
+        self.clientNoShowReason = detail.clientNoShowReason
+        self.outcome = detail.syntheticOutcome
+        self.postponeReasons = detail.postponeReasons ?? []
+        self.convertedBookingId = detail.convertedBookingId
+        self.convertedSiteVisitId = detail.convertedSiteVisitId
+        self.completedAt = detail.completedAt
+        self.visitCategory = detail.isSvCumCp ? "sv_cum_cp" : "direct_cp"
+        self.cpType = detail.cpType
+        self.detail = detail
+    }
+
+    var tripType: String { "client_place" }
+
+    var normalizedStatus: String {
+        (status ?? "").trimmingCharacters(in: .whitespacesAndNewlines).lowercased()
+    }
+
+    var isPostponedCpVisit: Bool {
+        outcome?.lowercased() == "postponed" || !postponeReasons.isEmpty
+    }
+
+    var needsCpDetails: Bool {
+        normalizedStatus == "arrived" && outcome?.blankToNil == nil
+    }
+
+    var isOpenableCpVisit: Bool {
+        !normalizedStatus.isCompleted && !normalizedStatus.isCancelled
+    }
+
+    var isCompletedCpVisit: Bool {
+        normalizedStatus.isCompleted
+    }
+
+    var isPendingOutcomeCpVisit: Bool {
+        normalizedStatus.isCompleted && outcome?.blankToNil == nil
+    }
+
+    var typeLabel: String {
+        if let cpTypeLabel { return cpTypeLabel }
+        return visitCategory == "sv_cum_cp" ? "SV Confirmation CP" : "Direct CP"
+    }
+
+    private var cpTypeLabel: String? {
+        switch cpType?.normalizedMarker {
+        case "collection_cp": return "Collection CP"
+        case "old_client": return "Old Client CP"
+        case "gift_distribution": return "Gift Distribution"
+        case let value? where value.isEmpty == false:
+            return value.replacingOccurrences(of: "_", with: " ").capitalized
+        default:
+            return nil
+        }
+    }
+
+    var cpCompletionActionTitle: String {
+        switch cpType?.normalizedMarker {
+        case "collection_cp": return "Submit Payment Entry"
+        case "old_client": return "Add Visit Remarks"
+        case "gift_distribution": return "Confirm Gift Distribution"
+        default:
+            return visitCategory == "sv_cum_cp" ? "Complete SV details" : "Complete CP details"
+        }
+    }
+
+    func matchesCpSearch(_ query: String) -> Bool {
+        let needle = query.trimmingCharacters(in: .whitespacesAndNewlines).lowercased()
+        guard !needle.isEmpty else { return true }
+        return [
+            placeName,
+            leadName,
+            leadPhone,
+            placeAddress,
+            placeType,
+            scheduledDate,
+            status,
+            outcome,
+            typeLabel,
+            cpType
+        ]
+        .compactMap { $0?.lowercased() }
+        .contains { $0.contains(needle) }
+    }
+
+    static func androidOrder(_ lhs: CpListVisit, _ rhs: CpListVisit) -> Bool {
+        if lhs.sortGroup != rhs.sortGroup { return lhs.sortGroup < rhs.sortGroup }
+        let leftDate = lhs.scheduledDate ?? ""
+        let rightDate = rhs.scheduledDate ?? ""
+        if leftDate != rightDate { return leftDate > rightDate }
+        return (lhs.detail.createdAt ?? 0) > (rhs.detail.createdAt ?? 0)
+    }
+
+    private var sortGroup: Int {
+        if normalizedStatus.isInProgress || needsCpDetails { return 0 }
+        if normalizedStatus.isCompleted || normalizedStatus.isCancelled { return 2 }
+        return 1
+    }
+}
+
 private struct CpVisitCard: View {
-    let visit: ConvexSiteVisit
+    let visit: CpListVisit
     let isClockedIn: Bool
 
     var body: some View {
@@ -312,7 +494,7 @@ private struct CpVisitCard: View {
     private var statsGrid: some View {
         HStack(spacing: 12) {
             VStack(spacing: 16) {
-                statRow(icon: "building.2", label: "Site/Client", value: title)
+                statRow(icon: "building.2", label: "Type", value: visit.typeLabel)
                 statRow(icon: "point.topleft.down.curvedto.point.bottomright.up", label: "Distance", value: routeText)
             }
             .frame(maxWidth: .infinity)
@@ -420,6 +602,7 @@ private struct CpVisitCard: View {
 
     private var statusTitle: String {
         if normalizedStatus.isCancelled { return "Cancelled" }
+        if normalizedStatus.isCompleted && visit.outcome?.blankToNil == nil { return "Pending" }
         if normalizedStatus.isCompleted { return "Completed" }
         if visit.needsCpDetails { return "Reaching" }
         if normalizedStatus.isInProgress { return normalizedStatus == "arrived" ? "Reaching" : "Enroute" }
@@ -429,9 +612,10 @@ private struct CpVisitCard: View {
 
     private var actionTitle: String {
         if normalizedStatus.isCancelled { return "Cancelled" }
+        if normalizedStatus.isCompleted && visit.outcome?.blankToNil == nil { return "Pending" }
         if normalizedStatus.isCompleted { return "Completed" }
-        if visit.needsCpDetails { return "Complete Trip" }
-        if normalizedStatus == "arrived" { return "Complete Trip" }
+        if visit.needsCpDetails { return visit.cpCompletionActionTitle }
+        if normalizedStatus == "arrived" { return visit.cpCompletionActionTitle }
         if normalizedStatus.isInProgress { return "Enroute" }
         if visit.isPostponedCpVisit { return "Reschedule" }
         if !isClockedIn { return "Need to Clock In" }
@@ -446,6 +630,7 @@ private struct CpVisitCard: View {
     private var statusTextColor: Color {
         if normalizedStatus.isCancelled { return Color(hex: 0xB42318) }
         if normalizedStatus.isInProgress { return Color(red: 0.71, green: 0.28, blue: 0.03) }
+        if normalizedStatus.isCompleted && visit.outcome?.blankToNil == nil { return Color(hex: 0xB54708) }
         if normalizedStatus.isCompleted { return Color(red: 0.09, green: 0.61, blue: 0.18) }
         if visit.isPostponedCpVisit { return textSecondary }
         return Color(red: 0.09, green: 0.61, blue: 0.18)
@@ -454,6 +639,7 @@ private struct CpVisitCard: View {
     private var statusBackground: Color {
         if normalizedStatus.isCancelled { return Color(hex: 0xFEE4E2) }
         if normalizedStatus.isInProgress { return Color(red: 1.0, green: 0.96, blue: 0.90) }
+        if normalizedStatus.isCompleted && visit.outcome?.blankToNil == nil { return Color(hex: 0xFEF0C7) }
         if normalizedStatus.isCompleted || visit.isPostponedCpVisit { return Color(red: 0.95, green: 0.96, blue: 0.97) }
         return Color(red: 0.90, green: 0.96, blue: 0.92)
     }
@@ -461,6 +647,7 @@ private struct CpVisitCard: View {
     private var actionForeground: Color {
         if normalizedStatus.isCancelled { return Color(hex: 0x7A0F0A) }
         if normalizedStatus.isInProgress { return Color(red: 0.71, green: 0.28, blue: 0.03) }
+        if normalizedStatus.isCompleted && visit.outcome?.blankToNil == nil { return Color(hex: 0xB54708) }
         if normalizedStatus.isCompleted { return Color(hex: 0x1F7A3F) }
         return .white
     }
@@ -549,8 +736,8 @@ private enum CpVisitFilter: String, CaseIterable, Identifiable {
         }
     }
 
-    func matches(_ visit: ConvexSiteVisit) -> Bool {
-        let status = (visit.status ?? "").lowercased()
+    func matches(_ visit: CpListVisit) -> Bool {
+        let status = visit.normalizedStatus
         switch self {
         case .all:
             return true
@@ -571,7 +758,7 @@ private enum CpVisitFilter: String, CaseIterable, Identifiable {
 private struct CompletedCpVisitDetailView: View {
     @Environment(AuthStore.self) private var authStore
 
-    let summary: ConvexSiteVisit
+    let summary: CpListVisit
 
     @State private var detail: CpVisitDetail?
     @State private var isLoading = false
@@ -579,10 +766,9 @@ private struct CompletedCpVisitDetailView: View {
 
     private var detailIds: [String] {
         var ids: [String] = []
-        if let clientPlaceVisitId = summary.clientPlaceVisitId?.blankToNil {
-            ids.append(clientPlaceVisitId)
-        } else if (summary.tripType ?? "").lowercased() == "client_place" {
-            ids.append(summary.id)
+        ids.append(summary.clientPlaceVisitId)
+        if let fieldVisitId = summary.fieldVisitId?.blankToNil {
+            ids.append(fieldVisitId)
         }
         var seen = Set<String>()
         return ids.filter { seen.insert($0).inserted }
@@ -667,7 +853,7 @@ private struct CompletedCpVisitDetailView: View {
             Text(statusSubtitle)
                 .font(.system(size: 13))
                 .foregroundStyle(Color(hex: 0x667085))
-            if let reasons = (detail?.postponeReasons ?? summary.cpVisit?.postponeReasons), !reasons.isEmpty {
+            if let reasons = detail?.postponeReasons ?? (summary.postponeReasons.isEmpty ? nil : summary.postponeReasons), !reasons.isEmpty {
                 FlowChipRow(items: reasons, tint: Color(hex: 0xB54708))
             }
         }
@@ -907,7 +1093,7 @@ private struct CompletedCpVisitDetailView: View {
     }
 
     private var clientMetTitle: String {
-        switch detail?.clientMet ?? summary.cpVisit?.clientMet {
+        switch detail?.clientMet ?? summary.clientMet {
         case true: return "Client met"
         case false: return "Client not seen"
         default: return "Visit completed"
@@ -915,15 +1101,15 @@ private struct CompletedCpVisitDetailView: View {
     }
 
     private var clientMetIcon: String {
-        (detail?.clientMet ?? summary.cpVisit?.clientMet) == false ? "xmark.circle.fill" : "checkmark.seal.fill"
+        (detail?.clientMet ?? summary.clientMet) == false ? "xmark.circle.fill" : "checkmark.seal.fill"
     }
 
     private var clientMetTint: Color {
-        (detail?.clientMet ?? summary.cpVisit?.clientMet) == false ? Color(hex: 0xB42318) : Color(hex: 0x1F7A3F)
+        (detail?.clientMet ?? summary.clientMet) == false ? Color(hex: 0xB42318) : Color(hex: 0x1F7A3F)
     }
 
     private var outcomeTitle: String {
-        switch (detail?.outcome ?? summary.cpVisit?.outcome ?? "").lowercased() {
+        switch (detail?.syntheticOutcome ?? summary.outcome ?? "").lowercased() {
         case "converted_to_booking": return "Converted to Booking"
         case "converted_to_site_visit": return "Converted to Site Visit"
         case "postponed": return "Postponed"
@@ -935,7 +1121,7 @@ private struct CompletedCpVisitDetailView: View {
     }
 
     private var outcomeTint: Color {
-        switch (detail?.outcome ?? summary.cpVisit?.outcome ?? "").lowercased() {
+        switch (detail?.syntheticOutcome ?? summary.outcome ?? "").lowercased() {
         case "postponed": return Color(hex: 0xB54708)
         case "not_interested", "rejected": return Color(hex: 0xB42318)
         default: return Color(hex: 0x0369A1)
@@ -943,11 +1129,11 @@ private struct CompletedCpVisitDetailView: View {
     }
 
     private var isBookingOutcome: Bool {
-        (detail?.outcome ?? summary.cpVisit?.outcome ?? "").lowercased() == "converted_to_booking"
+        (detail?.syntheticOutcome ?? summary.outcome ?? "").lowercased() == "converted_to_booking"
     }
 
     private var statusSubtitle: String {
-        if let at = detail?.clientMetAt ?? summary.cpVisit?.clientMetAt.map(Int64.init) {
+        if let at = detail?.clientMetAt ?? summary.clientMetAt {
             return "Outcome recorded on \(formatEpoch(at))"
         }
         return "Outcome captured for this client visit"
@@ -961,11 +1147,11 @@ private struct CompletedCpVisitDetailView: View {
     }
 
     private var tripTypeTitle: String {
-        switch (summary.tripType ?? "").lowercased() {
+        switch summary.tripType.lowercased() {
         case "client_place": return "Client place"
         case "internal": return "Internal"
         case "": return "Client visit"
-        default: return (summary.tripType ?? "").replacingOccurrences(of: "_", with: " ").capitalized
+        default: return summary.tripType.replacingOccurrences(of: "_", with: " ").capitalized
         }
     }
 
@@ -1579,6 +1765,13 @@ private extension String {
         return trimmed.isEmpty ? nil : trimmed
     }
 
+    var normalizedMarker: String {
+        trimmingCharacters(in: .whitespacesAndNewlines)
+            .lowercased()
+            .replacingOccurrences(of: "-", with: "_")
+            .replacingOccurrences(of: " ", with: "_")
+    }
+
     var isInProgress: Bool {
         [
             "picked_up", "on_site", "dropped", "in-progress", "in_progress",
@@ -1592,6 +1785,27 @@ private extension String {
 
     var isCancelled: Bool {
         ["cancelled", "canceled", "no_show"].contains(self)
+    }
+}
+
+private extension CpVisitDetail {
+    var syntheticOutcome: String? {
+        if let outcome = outcome?.blankToNil { return outcome }
+        if convertedBookingId?.blankToNil != nil { return "converted_to_booking" }
+        if convertedSiteVisitId?.blankToNil != nil { return "converted_to_site_visit" }
+        return nil
+    }
+
+    var isSvCumCp: Bool {
+        if proposedSiteVisit?.isMeaningful == true { return true }
+        if lead?.followUpStatus?.normalizedMarker.contains("sv_fixed") == true { return true }
+        if (expectedAttendeeCount ?? 0) > 0 { return true }
+        if attendees?.isEmpty == false { return true }
+        if foodPreferences?.blankToNil != nil { return true }
+        if vehiclePreference?.blankToNil != nil { return true }
+        if convertedSiteVisitId?.blankToNil != nil { return true }
+        if syntheticOutcome?.normalizedMarker == "converted_to_site_visit" { return true }
+        return false
     }
 }
 

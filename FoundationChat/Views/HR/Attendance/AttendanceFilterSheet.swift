@@ -54,6 +54,7 @@ struct AttendanceFilterSheet: View {
     @Environment(\.dismiss) private var dismiss
     @Binding var filter: AttendanceFilter
     @State private var draft: AttendanceFilter
+    @State private var showDateRangePicker = false
 
     init(filter: Binding<AttendanceFilter>) {
         self._filter = filter
@@ -61,88 +62,76 @@ struct AttendanceFilterSheet: View {
     }
 
     var body: some View {
-        NavigationStack {
-            VStack(spacing: 0) {
-                header
+        VStack(spacing: 0) {
+            header
 
-                ScrollView {
-                    VStack(alignment: .leading, spacing: 18) {
-                        HStack(spacing: 8) {
-                            presetButton("This month") { applyThisMonth() }
-                            presetButton("Last month") { applyLastMonth() }
-                            presetButton("Last 7days") { applyLast7Days() }
-                        }
-                        .frame(maxWidth: .infinity, alignment: .center)
-
-                        VStack(alignment: .leading, spacing: 10) {
-                            Text("Date Range")
-                                .font(.system(size: 12, weight: .semibold))
-                                .foregroundStyle(Color(hex: 0x475467))
-                            HStack(spacing: 10) {
-                                Image(systemName: "calendar")
-                                    .foregroundStyle(Color(hex: 0x0B61CA))
-                                Text(draft.rangeLabel)
-                                    .font(.system(size: 13, weight: .medium))
-                                    .foregroundStyle(Color(hex: 0x101828))
-                                    .lineLimit(1)
-                                Spacer()
-                            }
-                            .padding(.horizontal, 12)
-                            .frame(height: 44)
-                            .background(Color(hex: 0xF8FAFC), in: RoundedRectangle(cornerRadius: 10))
-
-                            DatePicker("From", selection: $draft.fromDate, in: ...draft.toDate, displayedComponents: .date)
-                            DatePicker("To", selection: $draft.toDate, in: draft.fromDate...Date(), displayedComponents: .date)
-                        }
-
-                        VStack(alignment: .leading, spacing: 8) {
-                            Text("Status")
-                                .font(.system(size: 12, weight: .semibold))
-                                .foregroundStyle(Color(hex: 0x475467))
-                            statusToggle("All", isOn: draft.isAllStatuses) {
-                                draft.statuses.removeAll()
-                            }
-                            ForEach(AttendanceFilter.availableStatuses, id: \.self) { status in
-                                statusToggle(status.capitalized, isOn: draft.statuses.contains(status)) {
-                                    if draft.statuses.contains(status) {
-                                        draft.statuses.remove(status)
-                                    } else {
-                                        draft.statuses.insert(status)
-                                    }
-                                }
-                            }
-                        }
-                    }
-                    .padding(.horizontal, 16)
-                    .padding(.top, 18)
-                    .padding(.bottom, 18)
-                }
-
-                HStack(spacing: 12) {
-                    Button("Cancel") { dismiss() }
-                        .buttonStyle(.bordered)
-                        .controlSize(.large)
-                        .tint(Color(hex: 0x1BCA0B))
-                        .frame(maxWidth: .infinity)
-
-                    Button("Select") {
-                        if draft.fromDate > draft.toDate {
-                            let tmp = draft.fromDate
-                            draft.fromDate = draft.toDate
-                            draft.toDate = tmp
-                        }
-                        filter = draft
-                        dismiss()
-                    }
-                    .buttonStyle(.borderedProminent)
-                    .controlSize(.large)
-                    .tint(Color(hex: 0x1BCA0B))
-                    .frame(maxWidth: .infinity)
-                }
-                .padding(.horizontal, 16)
-                .padding(.vertical, 14)
+            HStack(spacing: 8) {
+                presetButton("This month") { applyThisMonth() }
+                presetButton("Last month") { applyLastMonth() }
+                presetButton("Last 7days") { applyLast7Days() }
             }
-            .background(.white)
+            .frame(maxWidth: .infinity, alignment: .center)
+            .padding(.top, 18)
+
+            Button {
+                showDateRangePicker = true
+            } label: {
+                HStack(spacing: 10) {
+                    Image(systemName: "calendar")
+                        .font(.system(size: 18, weight: .semibold))
+                        .foregroundStyle(Color(hex: 0x0B61CA))
+                    Text(draft.rangeLabel.isEmpty ? "Select date range" : draft.rangeLabel)
+                        .font(.system(size: 13, weight: .medium))
+                        .foregroundStyle(Color(hex: 0x101828))
+                        .lineLimit(1)
+                    Spacer()
+                    Image(systemName: "chevron.down")
+                        .font(.system(size: 14, weight: .semibold))
+                        .foregroundStyle(Color(hex: 0x667085))
+                }
+                .padding(.horizontal, 12)
+                .frame(height: 44)
+                .background(Color(hex: 0xF8FAFC), in: RoundedRectangle(cornerRadius: 10, style: .continuous))
+                .overlay {
+                    RoundedRectangle(cornerRadius: 10, style: .continuous)
+                        .stroke(Color(hex: 0xEAECF0), lineWidth: 1)
+                }
+            }
+            .buttonStyle(.plain)
+            .padding(.top, 16)
+
+            HStack(spacing: 12) {
+                filterOutlineButton("Cancel") { dismiss() }
+
+                filterFilledButton("Select") {
+                    if draft.fromDate > draft.toDate {
+                        let tmp = draft.fromDate
+                        draft.fromDate = draft.toDate
+                        draft.toDate = tmp
+                    }
+                    filter = draft
+                    dismiss()
+                }
+            }
+            .padding(.top, 18)
+        }
+        .padding(.horizontal, 16)
+        .padding(.top, 14)
+        .padding(.bottom, 16)
+        .background(Color.white)
+        .sheet(isPresented: $showDateRangePicker) {
+            AttendanceDateRangePickerSheet(
+                fromDate: draft.fromDate,
+                toDate: draft.toDate,
+                onCancel: { showDateRangePicker = false },
+                onSelect: { from, to in
+                    draft.fromDate = min(from, to)
+                    draft.toDate = min(max(from, to), Date())
+                    showDateRangePicker = false
+                }
+            )
+            .presentationDetents([.height(360)])
+            .presentationDragIndicator(.hidden)
         }
     }
 
@@ -152,11 +141,11 @@ struct AttendanceFilterSheet: View {
                 dismiss()
             } label: {
                 Image(systemName: "xmark")
-                    .font(.system(size: 12, weight: .bold))
+                    .font(.system(size: 15, weight: .bold))
+                    .foregroundStyle(Color(hex: 0x0B61CA))
                     .frame(width: 28, height: 28)
             }
-            .buttonStyle(.bordered)
-            .controlSize(.small)
+            .buttonStyle(.plain)
             .frame(maxWidth: .infinity, alignment: .leading)
 
             VStack(spacing: 2) {
@@ -168,32 +157,20 @@ struct AttendanceFilterSheet: View {
                     .foregroundStyle(Color(hex: 0x475467))
             }
         }
-        .padding(.horizontal, 16)
-        .padding(.top, 14)
-        .padding(.bottom, 4)
     }
 
     private func presetButton(_ title: String, action: @escaping () -> Void) -> some View {
-        Button(title, action: action)
-            .buttonStyle(.bordered)
-            .controlSize(.small)
-            .tint(Color(hex: 0x0B61CA))
-    }
-
-    private func statusToggle(_ title: String, isOn: Bool, action: @escaping () -> Void) -> some View {
         Button(action: action) {
-            HStack {
-                Text(title)
-                    .foregroundStyle(.primary)
-                Spacer()
-                if isOn {
-                    Image(systemName: "checkmark")
-                        .foregroundStyle(Color.accentColor)
+            Text(title)
+                .font(.system(size: 12, weight: .medium))
+                .foregroundStyle(Color(hex: 0x0B61CA))
+                .padding(.horizontal, 14)
+                .frame(height: 32)
+                .background(Color.white, in: Capsule())
+                .overlay {
+                    Capsule()
+                        .stroke(Color(hex: 0xD8E8FA), lineWidth: 1)
                 }
-            }
-            .padding(.horizontal, 12)
-            .frame(minHeight: 42)
-            .background(Color(hex: 0xF8FAFC), in: RoundedRectangle(cornerRadius: 10))
         }
         .buttonStyle(.plain)
     }
@@ -220,6 +197,82 @@ struct AttendanceFilterSheet: View {
         draft.fromDate = from
         draft.toDate = now
     }
+}
+
+private struct AttendanceDateRangePickerSheet: View {
+    @State private var fromDate: Date
+    @State private var toDate: Date
+    let onCancel: () -> Void
+    let onSelect: (Date, Date) -> Void
+
+    init(fromDate: Date, toDate: Date, onCancel: @escaping () -> Void, onSelect: @escaping (Date, Date) -> Void) {
+        _fromDate = State(initialValue: fromDate)
+        _toDate = State(initialValue: toDate)
+        self.onCancel = onCancel
+        self.onSelect = onSelect
+    }
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 14) {
+            Capsule()
+                .fill(Color(hex: 0xD0D5DD))
+                .frame(width: 40, height: 4)
+                .frame(maxWidth: .infinity)
+
+            Text("Date Range")
+                .font(.system(size: 18, weight: .semibold))
+                .foregroundStyle(Color(hex: 0x101828))
+            Text("Pick a date range")
+                .font(.system(size: 11))
+                .foregroundStyle(Color(hex: 0x475467))
+                .padding(.top, -10)
+
+            VStack(spacing: 12) {
+                DatePicker("From", selection: $fromDate, in: ...min(toDate, Date()), displayedComponents: .date)
+                DatePicker("To", selection: $toDate, in: fromDate...Date(), displayedComponents: .date)
+            }
+            .font(.system(size: 14, weight: .medium))
+            .padding(14)
+            .background(Color(hex: 0xF8FAFC), in: RoundedRectangle(cornerRadius: 12, style: .continuous))
+
+            filterFilledButton("Submit Date") {
+                onSelect(fromDate, toDate)
+            }
+
+            filterOutlineButton("Close Message", action: onCancel)
+        }
+        .padding(.horizontal, 20)
+        .padding(.top, 20)
+        .padding(.bottom, 20)
+        .background(Color.white)
+    }
+}
+
+private func filterFilledButton(_ title: String, action: @escaping () -> Void) -> some View {
+    Button(action: action) {
+        Text(title)
+            .font(.system(size: 14, weight: .semibold))
+            .foregroundStyle(.white)
+            .frame(maxWidth: .infinity)
+            .frame(height: 44)
+            .background(
+                LinearGradient(colors: [Color(hex: 0x1BCB0B), Color(hex: 0x3DA302)], startPoint: .leading, endPoint: .trailing),
+                in: Capsule()
+            )
+    }
+    .buttonStyle(.plain)
+}
+
+private func filterOutlineButton(_ title: String, action: @escaping () -> Void) -> some View {
+    Button(action: action) {
+        Text(title)
+            .font(.system(size: 14, weight: .semibold))
+            .foregroundStyle(Color(hex: 0x1BCA0B))
+            .frame(maxWidth: .infinity)
+            .frame(height: 44)
+            .background(Color(hex: 0xD7F7D1), in: Capsule())
+    }
+    .buttonStyle(.plain)
 }
 
 private extension AttendanceFilter {

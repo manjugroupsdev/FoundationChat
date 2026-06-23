@@ -24,20 +24,23 @@ struct TasksListView: View {
     }
 
     var body: some View {
-        ZStack(alignment: .top) {
-            Color(hex: 0xF1F3F8).ignoresSafeArea()
+        GeometryReader { proxy in
+            ZStack(alignment: .top) {
+                Color(hex: 0xF1F3F8).ignoresSafeArea()
 
-            VStack(spacing: 0) {
-                header
-                    .zIndex(1)
+                VStack(spacing: 0) {
+                    header(topInset: proxy.safeAreaInsets.top)
+                        .zIndex(1)
 
-                contentSheet
+                    contentSheet
+                        .padding(.top, -20)
+                }
             }
+            .ignoresSafeArea(edges: .top)
         }
-        .navigationTitle("My Tasks")
-        .navigationBarTitleDisplayMode(.inline)
-        .toolbarBackground(Color.white, for: .navigationBar)
-        .toolbarBackground(.visible, for: .navigationBar)
+        .navigationBarBackButtonHidden(true)
+        .toolbar(.hidden, for: .navigationBar)
+        .toolbar(.hidden, for: .tabBar)
         .task { await loadDataAsync() }
         .refreshable { await loadDataAsync() }
         .alert("Error", isPresented: errorAlertBinding, actions: {
@@ -55,16 +58,17 @@ struct TasksListView: View {
         )
     }
 
-    private var header: some View {
+    private func header(topInset: CGFloat) -> some View {
         ZStack(alignment: .topTrailing) {
             Color(hex: 0x0B61CA)
 
             Image("onboard_todays_tasks")
                 .resizable()
                 .scaledToFit()
-                .frame(width: 138, height: 112)
+                .frame(width: 120, height: 100)
                 .opacity(0.95)
-                .offset(x: 18, y: 52)
+                .padding(.top, topInset + 32)
+                .padding(.trailing, 12)
                 .opacity(didAnimateIn ? 1 : 0)
                 .scaleEffect(didAnimateIn ? 1 : 0.88)
                 .animation(.spring(response: 0.52, dampingFraction: 0.82).delay(0.16), value: didAnimateIn)
@@ -81,12 +85,12 @@ struct TasksListView: View {
             }
             .frame(maxWidth: .infinity, alignment: .leading)
             .padding(.horizontal, 20)
-            .padding(.top, 32)
+            .padding(.top, topInset + 64)
             .opacity(didAnimateIn ? 1 : 0)
             .offset(x: didAnimateIn ? 0 : -28)
             .animation(.easeOut(duration: 0.42).delay(0.08), value: didAnimateIn)
         }
-        .frame(height: 164)
+        .frame(height: 180 + topInset)
     }
 
     private var contentSheet: some View {
@@ -101,7 +105,7 @@ struct TasksListView: View {
             taskList
         }
         .frame(maxWidth: .infinity, maxHeight: .infinity)
-        .background(Color(.systemBackground), in: UnevenRoundedRectangle(topLeadingRadius: 24, topTrailingRadius: 24))
+        .background(Color.white, in: UnevenRoundedRectangle(topLeadingRadius: 28, topTrailingRadius: 28))
     }
 
     private var searchField: some View {

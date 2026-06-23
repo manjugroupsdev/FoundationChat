@@ -53,6 +53,14 @@ struct AuthUser: Codable, Sendable, Equatable {
   }
 }
 
+extension AuthUser {
+  var isFleetDriverMode: Bool {
+    designation?
+      .trimmingCharacters(in: .whitespacesAndNewlines)
+      .localizedCaseInsensitiveCompare("Driver") == .orderedSame
+  }
+}
+
 /// Local session stored in Keychain — token + user snapshot.
 struct OtpSession: Codable, Sendable, Equatable {
   let token: String

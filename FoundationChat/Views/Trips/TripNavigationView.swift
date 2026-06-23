@@ -26,6 +26,8 @@ struct TripNavigationView: View {
     let clientPlaceVisitId: String?
     let cpClientMet: Bool?
     let cpOutcome: String?
+    let cpVisitCategory: String?
+    let cpType: String?
     let requiresOpenAttendance: Bool
     let onTripChanged: (() -> Void)?
 
@@ -41,6 +43,7 @@ struct TripNavigationView: View {
     @State private var resolvedAddress: String?
     @State private var routeInfo: GeoTrackDirectionsClient.DirectionsResult?
     @State private var isRouteLoading = false
+    @State private var hasAttemptedRouteFetch = false
     @State private var lastRouteKey: String?
     @State private var routeWarning: String?
 
@@ -85,6 +88,8 @@ struct TripNavigationView: View {
         clientPlaceVisitId: String? = nil,
         cpClientMet: Bool? = nil,
         cpOutcome: String? = nil,
+        cpVisitCategory: String? = nil,
+        cpType: String? = nil,
         requiresOpenAttendance: Bool = false,
         onTripChanged: (() -> Void)? = nil
     ) {
@@ -98,6 +103,8 @@ struct TripNavigationView: View {
         self.clientPlaceVisitId = clientPlaceVisitId
         self.cpClientMet = cpClientMet
         self.cpOutcome = cpOutcome
+        self.cpVisitCategory = cpVisitCategory
+        self.cpType = cpType
         self.requiresOpenAttendance = requiresOpenAttendance
         self.onTripChanged = onTripChanged
     }
@@ -357,7 +364,7 @@ struct TripNavigationView: View {
             if routeInfo?.polyline.isEmpty == false {
                 MapPolyline(coordinates: routeInfo?.polyline ?? [])
                     .stroke(Color(hex: 0x0B56A8), style: StrokeStyle(lineWidth: 6, lineCap: .round, lineJoin: .round))
-            } else if canShowLiveRoute, let dest = effectiveDestination, let me = currentLocation {
+            } else if hasAttemptedRouteFetch, !isRouteLoading, canShowLiveRoute, let dest = effectiveDestination, let me = currentLocation {
                 MapPolyline(coordinates: [me, dest])
                     .stroke(Color(hex: 0x0B56A8).opacity(0.72), style: StrokeStyle(lineWidth: 5, lineCap: .round, lineJoin: .round, dash: [8, 8]))
             }
@@ -418,7 +425,7 @@ struct TripNavigationView: View {
                     .frame(width: 1, height: 86)
 
                 VStack(spacing: 14) {
-                    tripMetric(icon: "clock.fill", label: "Time", value: originText)
+                    tripMetric(icon: "location.fill", label: "From", value: originText)
                     tripMetric(icon: "timer", label: "ETA", value: etaText)
                 }
                 .frame(maxWidth: .infinity)
@@ -738,8 +745,10 @@ struct TripNavigationView: View {
                 resetArrivalSwipe()
                 return
             }
-            let distance = CLLocation(latitude: loc.coordinate.latitude, longitude: loc.coordinate.longitude)
+            let directDistance = CLLocation(latitude: loc.coordinate.latitude, longitude: loc.coordinate.longitude)
                 .distance(from: CLLocation(latitude: dest.latitude, longitude: dest.longitude))
+            await refreshRouteIfPossible(force: true)
+            let distance = distanceMeters ?? directDistance
             guard distance <= 500 else {
                 arrivalInProgress = false
                 errorMessage = "You are \(formatDistance(distance)) away. Move within 500 m to complete."
@@ -1052,12 +1061,14 @@ struct TripNavigationView: View {
 
         guard let dest else {
             isRouteLoading = false
+            hasAttemptedRouteFetch = false
             return
         }
 
         guard canShowLiveRoute else {
             routeInfo = nil
             isRouteLoading = false
+            hasAttemptedRouteFetch = false
             updateMapForKnownDestination()
             routeWarning = "Current GPS is far from destination. Set simulator/device location near the visit to show live route."
             return
@@ -1070,6 +1081,7 @@ struct TripNavigationView: View {
             return
         }
         lastRouteKey = routeKey
+        hasAttemptedRouteFetch = true
         isRouteLoading = true
         defer { isRouteLoading = false }
 
@@ -1099,7 +1111,7 @@ struct TripNavigationView: View {
             return .reached
         }
         if visitStarted {
-            if let meters = currentDistanceMeters, meters <= 500 {
+            if let meters = distanceMeters, meters <= 500 {
                 return .reaching
             }
             return .started
@@ -1133,9 +1145,19 @@ struct TripNavigationView: View {
         if arrivalInProgress { return "Working..." }
         if !hasActiveVisit { return "Start Trip" }
         if isCpVisit && tripProgressStage == .reached && shouldCollectCpOutcome {
-            return "Complete CP details"
+            return cpOutcomeActionTitle
         }
         return "Swipe to Complete Trip"
+    }
+
+    private var cpOutcomeActionTitle: String {
+        switch cpType?.normalizedTripCpMarker {
+        case "collection_cp": return "Submit Payment Entry"
+        case "old_client": return "Add Visit Remarks"
+        case "gift_distribution": return "Confirm Gift Distribution"
+        default:
+            return cpVisitCategory?.normalizedTripCpMarker == "sv_cum_cp" ? "Complete SV details" : "Complete CP details"
+        }
     }
 
     private var statusTextColor: Color {
@@ -1703,6 +1725,26 @@ private struct CpTripCompletedSheet: View {
         }
         .padding(.bottom, 14)
         .background(.white)
+    }
+}
+
+private extension Optional where Wrapped == String {
+    var normalizedTripCpMarker: String {
+        self?
+            .trimmingCharacters(in: .whitespacesAndNewlines)
+            .lowercased()
+            .replacingOccurrences(of: "-", with: "_")
+            .replacingOccurrences(of: " ", with: "_")
+        ?? ""
+    }
+}
+
+private extension String {
+    var normalizedTripCpMarker: String {
+        trimmingCharacters(in: .whitespacesAndNewlines)
+            .lowercased()
+            .replacingOccurrences(of: "-", with: "_")
+            .replacingOccurrences(of: " ", with: "_")
     }
 }
 

@@ -7,8 +7,8 @@ struct AttendanceReviewView: View {
     @State private var isLoading = false
     @State private var errorMessage: String?
     @State private var filter = AttendanceReviewFilter()
-    @State private var showFilter = false
     @State private var selectedRecord: ConvexAttendanceRecord?
+    @State private var approvingRecord: ConvexAttendanceRecord?
     @State private var rejectingRecord: ConvexAttendanceRecord?
     @State private var rejectReason = ""
     @State private var actionInFlightId: String?
@@ -18,72 +18,72 @@ struct AttendanceReviewView: View {
     }
 
     var body: some View {
-        ScrollView {
-            VStack(spacing: 0) {
-                reviewHeader
-                VStack(spacing: 12) {
-                    summaryHeader
-                    if let errorMessage {
-                        Label(errorMessage, systemImage: "exclamationmark.triangle.fill")
-                            .font(.footnote)
-                            .foregroundStyle(.red)
-                            .frame(maxWidth: .infinity, alignment: .leading)
-                            .padding(12)
-                            .background(Color.red.opacity(0.08), in: RoundedRectangle(cornerRadius: 12))
-                    }
+        GeometryReader { proxy in
+            ScrollView {
+                VStack(spacing: 0) {
+                    reviewHeader(topInset: proxy.safeAreaInsets.top)
+                    VStack(spacing: 12) {
+                        if let errorMessage {
+                            Label(errorMessage, systemImage: "exclamationmark.triangle.fill")
+                                .font(.footnote)
+                                .foregroundStyle(.red)
+                                .frame(maxWidth: .infinity, alignment: .leading)
+                                .padding(12)
+                                .background(Color.red.opacity(0.08), in: RoundedRectangle(cornerRadius: 12))
+                        }
 
-                    if isLoading && records.isEmpty {
-                        VStack(spacing: 8) {
-                            ForEach(0..<2, id: \.self) { _ in
-                                RoundedRectangle(cornerRadius: 16)
-                                    .fill(Color(hex: 0xF8FAFC))
-                                    .frame(height: 112)
-                                    .redacted(reason: .placeholder)
+                        if isLoading && records.isEmpty {
+                            VStack(spacing: 8) {
+                                ForEach(0..<2, id: \.self) { _ in
+                                    RoundedRectangle(cornerRadius: 16)
+                                        .fill(Color(hex: 0xF8FAFC))
+                                        .frame(height: 112)
+                                        .redacted(reason: .placeholder)
+                                }
                             }
-                        }
-                    } else if filteredRecords.isEmpty {
-                        ContentUnavailableView(
-                            "No attendance to review",
-                            systemImage: "checkmark.circle",
-                            description: Text(records.isEmpty ? "Pending punches from your team will land here." : "No approvals match the selected filters.")
-                        )
-                        .padding(.vertical, 24)
-                    } else {
-                        VStack(spacing: 10) {
-                            ForEach(filteredRecords) { record in
-                                reviewCard(for: record)
+                        } else if filteredRecords.isEmpty {
+                            ContentUnavailableView(
+                                "No attendance to review",
+                                systemImage: "checkmark.circle",
+                                description: Text(records.isEmpty ? "Pending punches from your team will land here." : "No approvals match the selected filters.")
+                            )
+                            .padding(.vertical, 24)
+                        } else {
+                            VStack(spacing: 8) {
+                                ForEach(filteredRecords) { record in
+                                    reviewCard(for: record)
+                                }
                             }
                         }
                     }
+                    .padding(.horizontal, 12)
+                    .padding(.vertical, 14)
+                    .background(Color.white, in: RoundedRectangle(cornerRadius: 20, style: .continuous))
+                    .padding(.horizontal, 12)
+                    .padding(.top, -32)
+                    .padding(.bottom, 24)
                 }
-                .padding(.horizontal, 12)
-                .padding(.vertical, 14)
-                .background(Color.white, in: RoundedRectangle(cornerRadius: 18))
-                .padding(.horizontal, 12)
-                .padding(.top, -32)
-                .padding(.bottom, 24)
             }
+            .ignoresSafeArea(edges: .top)
         }
         .background(Color(hex: 0xF4F6FB).ignoresSafeArea())
-        .navigationTitle("Attendance Review")
-        .navigationBarTitleDisplayMode(.inline)
-        .toolbar {
-            ToolbarItem(placement: .topBarTrailing) {
-                Button {
-                    showFilter = true
-                } label: {
-                    Image(systemName: filter.isActive ? "line.3.horizontal.decrease.circle.fill" : "line.3.horizontal.decrease.circle")
-                }
-                .accessibilityLabel("Filter attendance reviews")
-            }
-        }
-        .sheet(isPresented: $showFilter) {
-            AttendanceReviewFilterSheet(filter: $filter)
-                .presentationDetents([.medium, .large])
-        }
+        .navigationBarBackButtonHidden(true)
+        .toolbar(.hidden, for: .navigationBar)
+        .toolbar(.hidden, for: .tabBar)
         .sheet(item: $selectedRecord) { record in
             PunchLogSheet(record: record)
                 .presentationDetents([.medium, .large])
+        }
+        .confirmationDialog("Approve as", isPresented: Binding(
+            get: { approvingRecord != nil },
+            set: { if !$0 { approvingRecord = nil } }
+        ), titleVisibility: .visible) {
+            Button("Present") { approveSelectedAttendance(as: "present") }
+            Button("Half-day") { approveSelectedAttendance(as: "half-day") }
+            Button("Absent") { approveSelectedAttendance(as: "absent") }
+            Button("Weekoff") { approveSelectedAttendance(as: "weekoff") }
+            Button("Holiday") { approveSelectedAttendance(as: "holiday") }
+            Button("Cancel", role: .cancel) {}
         }
         .alert("Reject Attendance", isPresented: Binding(
             get: { rejectingRecord != nil },
@@ -112,25 +112,26 @@ struct AttendanceReviewView: View {
         }
     }
 
-    private var reviewHeader: some View {
+    private func reviewHeader(topInset: CGFloat) -> some View {
         ZStack(alignment: .topLeading) {
             LinearGradient(
                 colors: [Color(hex: 0x0B61CA), Color(hex: 0x0353B8)],
                 startPoint: .topLeading,
                 endPoint: .bottomTrailing
             )
-            VStack(alignment: .leading, spacing: 4) {
+            VStack(alignment: .leading, spacing: 0) {
                 Text("Attendance Approvals")
-                    .font(.system(size: 23, weight: .bold))
+                    .font(.system(size: 22, weight: .bold))
                     .foregroundStyle(.white)
                 Text("In Review")
-                    .font(.system(size: 13))
-                    .foregroundStyle(.white.opacity(0.78))
+                    .font(.system(size: 12))
+                    .foregroundStyle(.white.opacity(0.8))
+                    .padding(.top, 2)
             }
-            .padding(.horizontal, 22)
-            .padding(.top, 46)
+            .padding(.leading, 20)
+            .padding(.top, topInset + 54)
         }
-        .frame(height: 148)
+        .frame(height: 148 + topInset)
     }
 
     private var summaryHeader: some View {
@@ -157,84 +158,111 @@ struct AttendanceReviewView: View {
 
     private func reviewCard(for record: ConvexAttendanceRecord) -> some View {
         VStack(alignment: .leading, spacing: 12) {
-            HStack(alignment: .top) {
-                VStack(alignment: .leading, spacing: 4) {
-                    Text(record.staffName ?? "Unknown Staff")
-                        .font(.headline)
-                    Text(record.date ?? "--")
-                        .font(.subheadline)
-                        .foregroundStyle(.secondary)
+            HStack(spacing: 10) {
+                Text(staffInitial(for: record))
+                    .font(.system(size: 14, weight: .semibold))
+                    .foregroundStyle(Color(hex: 0x98A2B3))
+                    .frame(width: 36, height: 36)
+                    .background(Color(hex: 0xF2F4F7), in: Circle())
+
+                VStack(alignment: .leading, spacing: 2) {
+                    Text(nonBlank(record.staffName) ?? "Staff")
+                        .font(.system(size: 14, weight: .semibold))
+                        .foregroundStyle(Color(hex: 0x101828))
+                        .lineLimit(1)
+
+                    Text(staffMeta(for: record))
+                        .font(.system(size: 11))
+                        .foregroundStyle(Color(hex: 0x667085))
+                        .lineLimit(1)
                 }
+                .frame(maxWidth: .infinity, alignment: .leading)
 
                 Spacer()
 
-                VStack(alignment: .trailing, spacing: 4) {
-                    Text(record.totalHoursFormatted)
-                        .font(.subheadline.weight(.semibold))
-                    if let status = reviewStatus(for: record) {
-                        Text(status.capitalized)
-                            .font(.caption2.weight(.medium))
-                            .padding(.horizontal, 6)
-                            .padding(.vertical, 2)
-                            .background(attendanceStatusColor(status).opacity(0.15), in: Capsule())
-                            .foregroundStyle(attendanceStatusColor(status))
-                    }
-                }
+                Text(sourceLabel(for: record.source))
+                    .font(.system(size: 10, weight: .semibold))
+                    .foregroundStyle(Color(hex: 0x0369A1))
+                    .padding(.horizontal, 10)
+                    .padding(.vertical, 4)
+                    .background(Color(hex: 0xE0F2FE), in: Capsule())
             }
-
-            HStack(spacing: 12) {
-                Label(record.punchInFormatted, systemImage: "arrow.right.circle.fill")
-                    .foregroundStyle(.green)
-                Label(record.punchOutFormatted, systemImage: "arrow.left.circle.fill")
-                    .foregroundStyle(.orange)
-                if let count = record.sessionCount {
-                    Label("\(count)", systemImage: "clock.arrow.circlepath")
-                        .foregroundStyle(.secondary)
-                }
-            }
-            .font(.subheadline)
 
             Button {
                 selectedRecord = record
             } label: {
-                Label("Review Punch Log", systemImage: "list.bullet.rectangle")
-                    .font(.subheadline.weight(.medium))
-                    .frame(maxWidth: .infinity)
-            }
-            .buttonStyle(.bordered)
+                VStack(alignment: .leading, spacing: 10) {
+                    Text(formattedDate(record.date) ?? record.date ?? "-")
+                        .font(.system(size: 13, weight: .medium))
+                        .foregroundStyle(Color(hex: 0x344054))
+                        .frame(maxWidth: .infinity, alignment: .leading)
 
-            HStack(spacing: 12) {
-                Menu {
-                    Button("Present") { approveAttendance(record, as: "present") }
-                    Button("Half Day") { approveAttendance(record, as: "half-day") }
-                    Button("Absent") { approveAttendance(record, as: "absent") }
-                    Button("Weekoff") { approveAttendance(record, as: "weekoff") }
-                    Button("Holiday") { approveAttendance(record, as: "holiday") }
-                } label: {
-                    Label(actionInFlightId == record.reviewId ? "Working..." : "Approve", systemImage: "checkmark")
-                        .font(.subheadline.weight(.medium))
-                        .frame(maxWidth: .infinity)
+                    HStack(alignment: .top, spacing: 8) {
+                        approvalMetric(title: "Punch In", value: record.punchInFormatted)
+                        approvalMetric(title: "Punch Out", value: record.punchOutFormatted)
+                        approvalMetric(title: "Duration", value: durationText(for: record))
+                    }
                 }
-                .buttonStyle(.borderedProminent)
-                .tint(.green)
+                .padding(12)
+                .background(Color(hex: 0xF8FAFC), in: RoundedRectangle(cornerRadius: 12, style: .continuous))
+                .overlay(
+                    RoundedRectangle(cornerRadius: 12, style: .continuous)
+                        .stroke(Color(hex: 0xEAECF0), lineWidth: 1)
+                )
+            }
+            .buttonStyle(.plain)
+
+            HStack(spacing: 10) {
+                Button {
+                    approvingRecord = record
+                } label: {
+                    Text(actionInFlightId == record.reviewId ? "Working..." : "Approve")
+                        .font(.system(size: 12, weight: .semibold))
+                        .foregroundStyle(.white)
+                        .padding(.horizontal, 14)
+                        .padding(.vertical, 8)
+                        .background(Color(hex: 0x0B61CA), in: Capsule())
+                }
+                .buttonStyle(.plain)
                 .disabled(actionInFlightId != nil)
 
                 Button {
                     rejectingRecord = record
                     rejectReason = ""
                 } label: {
-                    Label("Reject", systemImage: "xmark")
-                        .font(.subheadline.weight(.medium))
-                        .frame(maxWidth: .infinity)
+                    Text("Reject")
+                        .font(.system(size: 12, weight: .semibold))
+                        .foregroundStyle(Color(hex: 0xDC2626))
+                        .padding(.horizontal, 14)
+                        .padding(.vertical, 8)
+                        .background(Color(hex: 0xFEE2E2), in: Capsule())
                 }
-                .buttonStyle(.borderedProminent)
-                .tint(.red)
+                .buttonStyle(.plain)
                 .disabled(actionInFlightId != nil)
             }
         }
-        .padding(14)
-        .background(Color(hex: 0xF8FAFC), in: RoundedRectangle(cornerRadius: 16))
-        .overlay(RoundedRectangle(cornerRadius: 16).stroke(Color(hex: 0xEAECF0), lineWidth: 1))
+        .padding(.horizontal, 12)
+        .padding(.vertical, 14)
+        .background(Color.white, in: RoundedRectangle(cornerRadius: 16, style: .continuous))
+        .overlay(
+            RoundedRectangle(cornerRadius: 16, style: .continuous)
+                .stroke(Color(hex: 0xEAECF0), lineWidth: 1)
+        )
+        .shadow(color: Color.black.opacity(0.03), radius: 8, y: 4)
+    }
+
+    private func approvalMetric(title: String, value: String) -> some View {
+        VStack(alignment: .leading, spacing: 2) {
+            Text(title)
+                .font(.system(size: 11))
+                .foregroundStyle(Color(hex: 0x667085))
+            Text(value)
+                .font(.system(size: 14, weight: .semibold))
+                .foregroundStyle(Color(hex: 0x101828))
+                .lineLimit(1)
+                .minimumScaleFactor(0.75)
+        }
+        .frame(maxWidth: .infinity, alignment: .leading)
     }
 
     @MainActor
@@ -281,6 +309,12 @@ struct AttendanceReviewView: View {
         }
     }
 
+    private func approveSelectedAttendance(as approvedAttendance: String) {
+        guard let approvingRecord else { return }
+        self.approvingRecord = nil
+        approveAttendance(approvingRecord, as: approvedAttendance)
+    }
+
     private func rejectAttendance(_ record: ConvexAttendanceRecord) {
         guard let token = authStore.currentSession?.token else { return }
         guard let id = record.reviewId else {
@@ -324,6 +358,58 @@ struct AttendanceReviewView: View {
         case "absent", "rejected": return .red
         default: return .secondary
         }
+    }
+
+    private func staffInitial(for record: ConvexAttendanceRecord) -> String {
+        let name = nonBlank(record.staffName) ?? "?"
+        return name.first(where: { $0.isLetter || $0.isNumber }).map { String($0).uppercased() } ?? "?"
+    }
+
+    private func staffMeta(for record: ConvexAttendanceRecord) -> String {
+        nonBlank(record.staffId) ?? "-"
+    }
+
+    private func sourceLabel(for source: String?) -> String {
+        switch source?.lowercased() {
+        case "mobile":
+            return "Mobile"
+        case "biometric":
+            return "Biometric"
+        case "manual":
+            return "Manual"
+        case "csv-import":
+            return "CSV"
+        case .some(let value) where !value.isEmpty:
+            return value.split(separator: "-").map { $0.capitalized }.joined(separator: " ")
+        default:
+            return "-"
+        }
+    }
+
+    private func durationText(for record: ConvexAttendanceRecord) -> String {
+        let minutes = record.totalMinutes ?? record.cumulativeMinutes
+        guard let minutes, minutes > 0 else { return "-" }
+        let hours = minutes / 60
+        let mins = minutes % 60
+        if hours > 0 && mins > 0 { return "\(hours)h \(mins)m" }
+        if hours > 0 { return "\(hours)h" }
+        return "\(mins)m"
+    }
+
+    private func formattedDate(_ raw: String?) -> String? {
+        guard let raw, !raw.isEmpty else { return nil }
+        let parser = DateFormatter()
+        parser.dateFormat = "yyyy-MM-dd"
+        parser.locale = Locale(identifier: "en_US_POSIX")
+        guard let date = parser.date(from: raw) else { return nil }
+        let formatter = DateFormatter()
+        formatter.dateFormat = "d MMM yyyy"
+        return formatter.string(from: date)
+    }
+
+    private func nonBlank(_ value: String?) -> String? {
+        let trimmed = value?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
+        return trimmed.isEmpty ? nil : trimmed
     }
 }
 
