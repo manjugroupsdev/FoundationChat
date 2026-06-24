@@ -13,6 +13,7 @@ struct MessageView: View {
   let onTapReplyPreview: () -> Void
   let onShowReactions: () -> Void
   let onToggleSelection: () -> Void
+  let onRetrySend: () -> Void
 
   @State private var horizontalDragOffset: CGFloat = 0
 
@@ -33,7 +34,14 @@ struct MessageView: View {
   }
 
   private var deliveryStatusText: String? {
-    guard isOutgoing, isLastOutgoingMessage, message.remoteMessageID != nil else { return nil }
+    guard isOutgoing, isLastOutgoingMessage || message.remoteMessageID == nil else { return nil }
+    if message.deliveryState == "failed" {
+      return "Not sent"
+    }
+    if message.deliveryState == "pending" || message.remoteMessageID == nil {
+      return "Pending"
+    }
+    guard message.remoteMessageID != nil else { return nil }
     return isSeen ? "Seen" : "Delivered"
   }
 
@@ -161,7 +169,11 @@ struct MessageView: View {
           }
 
           if let deliveryStatusText {
-            MessageDeliveryStatusView(text: deliveryStatusText)
+            MessageDeliveryStatusView(
+              text: deliveryStatusText,
+              isFailed: message.deliveryState == "failed",
+              onRetry: onRetrySend
+            )
               .padding(.trailing, 6)
           }
         }
@@ -311,11 +323,23 @@ private struct ReplySnippetView: View {
 
 private struct MessageDeliveryStatusView: View {
   let text: String
+  let isFailed: Bool
+  let onRetry: () -> Void
 
   var body: some View {
-    Text(text)
+    Button(action: isFailed ? onRetry : {}) {
+      HStack(spacing: 4) {
+        if isFailed {
+          Image(systemName: "arrow.clockwise")
+            .font(.system(size: 10, weight: .bold))
+        }
+        Text(text)
+      }
       .font(.system(size: 11, weight: .medium))
-      .foregroundStyle(Color.black.opacity(0.38))
+      .foregroundStyle(isFailed ? Color.red.opacity(0.82) : Color.black.opacity(0.38))
+    }
+    .buttonStyle(.plain)
+    .disabled(!isFailed)
   }
 }
 
@@ -332,7 +356,8 @@ private struct MessageDeliveryStatusView: View {
                 onReply: {},
                 onTapReplyPreview: {},
                 onShowReactions: {},
-                onToggleSelection: {})
+                onToggleSelection: {},
+                onRetrySend: {})
     MessageView(message: .init(content: "Hello world this is a short message",
                                role: .assistant,
                                timestamp: Date()),
@@ -344,6 +369,7 @@ private struct MessageDeliveryStatusView: View {
                 onReply: {},
                 onTapReplyPreview: {},
                 onShowReactions: {},
-                onToggleSelection: {})
+                onToggleSelection: {},
+                onRetrySend: {})
   }
 }

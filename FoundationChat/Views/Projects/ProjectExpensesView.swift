@@ -27,7 +27,11 @@ struct ProjectExpensesView: View {
             let topInset = proxy.safeAreaInsets.top
 
             ZStack(alignment: .top) {
+                Color(hex: 0x0B61CA)
+                    .ignoresSafeArea(edges: .top)
+
                 Color(hex: 0xF8F9FB).ignoresSafeArea()
+                    .padding(.top, topInset + 176)
 
                 VStack(spacing: 0) {
                     header(topInset: topInset)
@@ -98,29 +102,17 @@ struct ProjectExpensesView: View {
             Image("ProjectExpensesHeaderIllustration")
                 .resizable()
                 .scaledToFit()
-                .frame(width: 130, height: 100)
-                .padding(.trailing, 16)
-                .offset(y: topInset + 20)
+                .frame(width: 96, height: 72)
+                .padding(.trailing, 22)
+                .offset(y: topInset + 4)
                 .opacity(didAnimateIn ? 1 : 0)
                 .scaleEffect(didAnimateIn ? 1 : 0.88)
                 .animation(.spring(response: 0.52, dampingFraction: 0.82).delay(0.16), value: didAnimateIn)
 
             VStack(alignment: .leading, spacing: 0) {
-                Button {
-                    dismiss()
-                } label: {
-                    Image(systemName: "chevron.left")
-                        .font(.system(size: 24, weight: .semibold))
-                        .foregroundStyle(.white)
-                        .frame(width: 36, height: 36)
-                }
-                .buttonStyle(.plain)
-                .accessibilityLabel("Back")
-
                 Text("Expenses")
                     .font(.system(size: 24, weight: .bold))
                     .foregroundStyle(.white)
-                    .padding(.top, 8)
 
                 Text("Manage and track all Expenses")
                     .font(.system(size: 13, weight: .medium))
@@ -147,8 +139,8 @@ struct ProjectExpensesView: View {
                                 .font(.system(size: 14, weight: .semibold))
                                 .foregroundStyle(Color(hex: 0x101828))
                                 .lineLimit(1)
-
-                            Spacer(minLength: 4)
+                                .truncationMode(.tail)
+                                .frame(maxWidth: .infinity, alignment: .leading)
 
                             if selectedProject != nil {
                                 Circle()
@@ -161,11 +153,13 @@ struct ProjectExpensesView: View {
                                 .foregroundStyle(Color(hex: 0x667085))
                         }
                         .padding(.horizontal, 14)
-                        .frame(height: 44)
+                        .frame(maxWidth: .infinity, minHeight: 44, maxHeight: 44)
                         .background(.white, in: RoundedRectangle(cornerRadius: 10, style: .continuous))
+                        .contentShape(RoundedRectangle(cornerRadius: 10, style: .continuous))
                     }
                     .buttonStyle(.plain)
-                    .disabled(projects.isEmpty)
+                    .frame(maxWidth: .infinity)
+                    .allowsHitTesting(!projects.isEmpty)
 
                     Button {
                         showingDateFilter = true
@@ -180,6 +174,7 @@ struct ProjectExpensesView: View {
                     .accessibilityLabel("Date filter")
                 }
                 .padding(.top, 14)
+                .zIndex(2)
             }
             .padding(.horizontal, 16)
             .padding(.top, topInset + 8)

@@ -289,21 +289,36 @@ struct ConversationMediaView: View {
 
   @MainActor
   private func load() async {
+    let normalizedConversationID = conversationID?.trimmingCharacters(in: .whitespacesAndNewlines)
+    let normalizedChannelID = channelID?.trimmingCharacters(in: .whitespacesAndNewlines)
+
+    guard normalizedConversationID?.isEmpty == false || normalizedChannelID?.isEmpty == false else {
+      attachments = []
+      errorMessage = nil
+      return
+    }
+
     isLoading = true
     errorMessage = nil
     defer { isLoading = false }
 
     do {
-      attachments = try await authStore.fetchConversationAttachments(
-        conversationID: conversationID,
-        channelID: channelID
-      )
+      if let conversationID = normalizedConversationID, !conversationID.isEmpty {
+        attachments = try await authStore.fetchConversationAttachments(conversationID: conversationID)
+      } else if let channelID = normalizedChannelID, !channelID.isEmpty {
+        attachments = try await authStore.fetchConversationAttachments(channelID: channelID)
+      }
     } catch {
       if Task.isCancelled || (error as? URLError)?.code == .cancelled {
         return
       }
-      attachments = []
-      errorMessage = error.localizedDescription
+      if localAttachmentItems.isEmpty {
+        attachments = []
+        errorMessage = error.localizedDescription
+      } else {
+        attachments = []
+        errorMessage = nil
+      }
     }
   }
 

@@ -1310,39 +1310,74 @@ private struct CreateCpVisitSheet: View {
     @State private var errorMessage: String?
 
     var body: some View {
-        ScrollView {
-            VStack(alignment: .leading, spacing: 18) {
-                VStack(alignment: .leading, spacing: 4) {
-                    Text("CP Creation")
-                        .font(.system(size: 22, weight: .bold))
-                        .foregroundStyle(Color(hex: 0x101828))
-                    Text("Information about CP")
-                        .font(.system(size: 13))
-                        .foregroundStyle(Color(hex: 0x667085))
-                }
-                .padding(.top, 4)
+        ZStack(alignment: .bottom) {
+            ScrollView {
+                VStack(alignment: .leading, spacing: 0) {
+                    Capsule()
+                        .fill(Color(hex: 0xD9DDE5))
+                        .frame(width: 40, height: 4)
+                        .frame(maxWidth: .infinity)
+                        .padding(.bottom, 28)
 
-                formSection {
-                    cpTextField("Client Phone Number *", placeholder: "Enter Phone Number", text: $phone, systemImage: "phone", keyboard: .phonePad)
+                    HStack(alignment: .top, spacing: 12) {
+                        VStack(alignment: .leading, spacing: 4) {
+                            Text("CP Creation")
+                                .font(.system(size: 20, weight: .bold))
+                                .foregroundStyle(Color(hex: 0x101828))
+                            Text("Information about CP")
+                                .font(.system(size: 13))
+                                .foregroundStyle(Color(hex: 0x667085))
+                        }
+
+                        Spacer()
+
+                        Button {
+                            dismiss()
+                        } label: {
+                            Image(systemName: "xmark")
+                                .font(.system(size: 15, weight: .semibold))
+                                .foregroundStyle(Color(hex: 0x344054))
+                                .frame(width: 44, height: 44)
+                        }
+                        .buttonStyle(IOSGlassCloseButtonStyle())
+                        .accessibilityLabel("Close CP Creation")
+                    }
+                    .padding(.bottom, 18)
+
+                    cpTextField("Client Phone Number *", placeholder: "Enter Client Number", text: $phone, systemImage: "phone", keyboard: .phonePad)
                         .onChange(of: phone) { _, _ in
                             selectedLead = nil
                             leadMatches = []
                         }
+
                     cpTextField("Client Name", placeholder: "Enter Client Name", text: $clientName, systemImage: "person")
+
                     Button {
                         Task { await searchLead() }
                     } label: {
-                        if isSearchingLead {
-                            ProgressView()
-                        } else {
-                            Label("Search existing client", systemImage: "magnifyingglass")
+                        HStack(spacing: 8) {
+                            if isSearchingLead {
+                                ProgressView()
+                            } else {
+                                Image(systemName: "magnifyingglass")
+                                    .font(.system(size: 15, weight: .semibold))
+                            }
+                            Text("Search existing client")
+                                .font(.system(size: 13, weight: .semibold))
                         }
+                        .foregroundStyle(Color(hex: 0x475467))
+                        .frame(maxWidth: .infinity)
+                        .frame(height: 44)
+                        .background(Color(hex: 0xF3F4F6), in: Capsule())
                     }
-                    .buttonStyle(.bordered)
+                    .buttonStyle(.plain)
                     .disabled(isSearchingLead || AppModuleFormatters.normalizePhone(phone).count != 10)
+                    .opacity(AppModuleFormatters.normalizePhone(phone).count == 10 ? 1 : 0.55)
+                    .padding(.top, 12)
 
                     if let selectedLead {
                         selectedInfo(title: "Selected client", value: selectedLead.displayName)
+                            .padding(.top, 10)
                     }
 
                     ForEach(leadMatches) { lead in
@@ -1352,6 +1387,7 @@ private struct CreateCpVisitSheet: View {
                             VStack(alignment: .leading, spacing: 4) {
                                 Text(lead.displayName)
                                     .font(.system(size: 14, weight: .semibold))
+                                    .foregroundStyle(Color(hex: 0x101828))
                                 Text(lead.mobileNumber ?? "No mobile")
                                     .font(.system(size: 12))
                                     .foregroundStyle(Color(hex: 0x667085))
@@ -1361,82 +1397,90 @@ private struct CreateCpVisitSheet: View {
                                         .foregroundStyle(Color(hex: 0x667085))
                                 }
                             }
+                            .padding(12)
                             .frame(maxWidth: .infinity, alignment: .leading)
+                            .background(Color(hex: 0xF9FAFB), in: RoundedRectangle(cornerRadius: 12, style: .continuous))
+                            .overlay(
+                                RoundedRectangle(cornerRadius: 12, style: .continuous)
+                                    .stroke(Color(hex: 0xEAECF0), lineWidth: 1)
+                            )
                         }
-                        .buttonStyle(.bordered)
+                        .buttonStyle(.plain)
+                        .padding(.top, 10)
                     }
-                }
 
-                formSection {
                     staffPicker
                     projectPicker
-                    DatePicker("Date & Time", selection: $date, displayedComponents: [.date, .hourAndMinute])
-                        .font(.system(size: 13, weight: .medium))
-                        .foregroundStyle(Color(hex: 0x344054))
-                        .padding(.horizontal, 14)
-                        .frame(minHeight: 50)
-                        .background(Color.white, in: RoundedRectangle(cornerRadius: 12, style: .continuous))
-                        .overlay(
-                            RoundedRectangle(cornerRadius: 12, style: .continuous)
-                                .stroke(Color(hex: 0xEAECF0), lineWidth: 1)
-                        )
-                }
+                    cpDatePicker
 
-                formSection {
                     cpTextField("Door No", placeholder: "Enter Door No", text: $doorNo, systemImage: "house")
-                    cpTextField("Pincode", placeholder: "Enter Pincode", text: $pincode, systemImage: "number", keyboard: .numberPad)
+                    cpTextField("Pincode *", placeholder: "6 digits", text: $pincode, systemImage: "checkmark.circle", keyboard: .numberPad)
                     cpTextField("Village *", placeholder: "Enter Village", text: $village, systemImage: "mappin.and.ellipse")
                     cpTextField("Taluk", placeholder: "Enter Taluk", text: $taluk, systemImage: "map")
                     cpTextField("District *", placeholder: "Enter District", text: $district, systemImage: "building.2")
-                    cpTextField("City", placeholder: "Enter City", text: $city, systemImage: "building")
+                    cpTextField("City *", placeholder: "Enter City", text: $city, systemImage: "building")
                     cpTextField("Locality *", placeholder: "Enter Locality", text: $locality, systemImage: "location")
                     cpTextField("State", placeholder: "Enter State", text: $state, systemImage: "map.fill")
-                    cpTextField("Full Address", placeholder: "Enter Full Address", text: $fullAddress, systemImage: "text.alignleft", axis: .vertical)
-                }
+                    cpTextField("Full Address", placeholder: "Layout / building / locality", text: $fullAddress, systemImage: "text.alignleft", axis: .vertical)
 
-                formSection {
                     cpTextField("Google Map Link (Optional)", placeholder: "Skip if you only have the address", text: $mapsLink, systemImage: "link", keyboard: .URL)
-                    HStack(spacing: 10) {
-                        cpTextField("Latitude (Optional)", placeholder: "Enter Latitude", text: $latitude, systemImage: "location.north", keyboard: .decimalPad)
-                        cpTextField("Longitude (Optional)", placeholder: "Enter Longitude", text: $longitude, systemImage: "location.north.line", keyboard: .decimalPad)
+
+                    HStack(alignment: .top, spacing: 10) {
+                        cpTextField("Latitude (Optional)", placeholder: "Latitude", text: $latitude, systemImage: "location.north", keyboard: .decimalPad)
+                        cpTextField("Longitude (Optional)", placeholder: "Longitude", text: $longitude, systemImage: "location.north.line", keyboard: .decimalPad)
                     }
+
                     cpTextField("Notes", placeholder: "Enter Notes", text: $notes, systemImage: "note.text", axis: .vertical)
                 }
+                .padding(.horizontal, 20)
+                .padding(.top, 16)
+                .padding(.bottom, 104)
+            }
+
+            VStack(spacing: 0) {
+                Divider()
+                    .overlay(Color(hex: 0xEAECF0))
 
                 HStack(spacing: 12) {
-                    Button("Cancel") { dismiss() }
-                        .buttonStyle(.bordered)
-                        .controlSize(.large)
-                        .frame(maxWidth: .infinity)
+                    Button("Cancel") {
+                        dismiss()
+                    }
+                    .font(.system(size: 15, weight: .bold))
+                    .foregroundStyle(Color(hex: 0x475467))
+                    .frame(maxWidth: .infinity)
+                    .frame(height: 54)
+                    .background(Color.white, in: Capsule())
+                    .overlay(
+                        Capsule()
+                            .stroke(Color(hex: 0xD0D5DD), lineWidth: 1)
+                    )
 
                     Button {
                         Task { await submit() }
                     } label: {
                         if isSubmitting {
                             ProgressView()
+                                .tint(.white)
                         } else {
                             Text("Create visit")
                         }
                     }
-                    .buttonStyle(.borderedProminent)
-                    .controlSize(.large)
-                    .tint(Color(hex: 0x1BCA0B))
+                    .font(.system(size: 15, weight: .bold))
+                    .foregroundStyle(.white)
                     .frame(maxWidth: .infinity)
+                    .frame(height: 54)
+                    .background(Color(hex: 0x1BCA0B), in: Capsule())
                     .disabled(isSubmitting)
                 }
-                .padding(.top, 8)
-                .padding(.bottom, 24)
+                .buttonStyle(.plain)
+                .padding(.horizontal, 24)
+                .padding(.vertical, 14)
+                .background(Color.white)
             }
-            .padding(18)
         }
-        .background(Color(hex: 0xF1F3F8).ignoresSafeArea())
+        .background(Color.white.ignoresSafeArea())
         .navigationTitle("")
         .navigationBarTitleDisplayMode(.inline)
-        .toolbar {
-            ToolbarItem(placement: .cancellationAction) {
-                Button("Cancel") { dismiss() }
-            }
-        }
         .alert("CP Visit", isPresented: Binding(
             get: { errorMessage != nil },
             set: { if !$0 { errorMessage = nil } }
@@ -1446,18 +1490,6 @@ private struct CreateCpVisitSheet: View {
             Text(errorMessage ?? "")
         }
         .task { await loadBootstrapData() }
-    }
-
-    private func formSection<Content: View>(@ViewBuilder content: () -> Content) -> some View {
-        VStack(alignment: .leading, spacing: 14) {
-            content()
-        }
-        .padding(14)
-        .background(Color.white, in: RoundedRectangle(cornerRadius: 14, style: .continuous))
-        .overlay(
-            RoundedRectangle(cornerRadius: 14, style: .continuous)
-                .stroke(Color(hex: 0xEAECF0), lineWidth: 1)
-        )
     }
 
     private func selectedInfo(title: String, value: String) -> some View {
@@ -1503,12 +1535,13 @@ private struct CreateCpVisitSheet: View {
             .padding(.horizontal, 14)
             .padding(.vertical, axis == .vertical ? 10 : 0)
             .frame(minHeight: axis == .vertical ? 72 : 50, alignment: axis == .vertical ? .top : .center)
-            .background(Color(hex: 0xF9FAFB), in: RoundedRectangle(cornerRadius: 12, style: .continuous))
+            .background(Color.white, in: RoundedRectangle(cornerRadius: 12, style: .continuous))
             .overlay(
                 RoundedRectangle(cornerRadius: 12, style: .continuous)
-                    .stroke(Color(hex: 0xEAECF0), lineWidth: 1)
+                    .stroke(Color(hex: 0xD0D5DD), lineWidth: 1)
             )
         }
+        .padding(.top, 16)
     }
 
     private var staffPicker: some View {
@@ -1523,9 +1556,8 @@ private struct CreateCpVisitSheet: View {
                     }
                 }
             } label: {
-                pickerLabel(selectedStaff?.displayName ?? "Select Field Staff")
+                pickerLabel(selectedStaff?.displayName ?? "Select Staff")
             }
-            .buttonStyle(.bordered)
         }
     }
 
@@ -1541,9 +1573,8 @@ private struct CreateCpVisitSheet: View {
                     }
                 }
             } label: {
-                pickerLabel(selectedProject?.name ?? selectedProject?.location ?? "Select Project")
+                pickerLabel(selectedProject?.name ?? selectedProject?.location ?? "Select Projects")
             }
-            .buttonStyle(.bordered)
         }
     }
 
@@ -1561,24 +1592,58 @@ private struct CreateCpVisitSheet: View {
             }
             .padding(.horizontal, 14)
             .frame(height: 50)
-            .background(Color(hex: 0xF9FAFB), in: RoundedRectangle(cornerRadius: 12, style: .continuous))
+            .background(Color.white, in: RoundedRectangle(cornerRadius: 12, style: .continuous))
             .overlay(
                 RoundedRectangle(cornerRadius: 12, style: .continuous)
-                    .stroke(Color(hex: 0xEAECF0), lineWidth: 1)
+                    .stroke(Color(hex: 0xD0D5DD), lineWidth: 1)
             )
         }
+        .padding(.top, 16)
     }
 
     private func pickerLabel(_ text: String) -> some View {
         HStack {
             Text(text)
                 .font(.system(size: 14, weight: .medium))
+                .foregroundStyle(text.lowercased().hasPrefix("select") ? Color(hex: 0x9CA3AF) : Color(hex: 0x101828))
                 .lineLimit(1)
             Spacer()
             Image(systemName: "chevron.down")
                 .font(.system(size: 12, weight: .semibold))
+                .foregroundStyle(Color(hex: 0x667085))
         }
         .frame(maxWidth: .infinity)
+        .contentShape(Rectangle())
+    }
+
+    private var cpDatePicker: some View {
+        VStack(alignment: .leading, spacing: 6) {
+            Text("Date & Time")
+                .font(.system(size: 13, weight: .medium))
+                .foregroundStyle(Color(hex: 0x344054))
+            HStack(spacing: 10) {
+                Image(systemName: "calendar")
+                    .font(.system(size: 17, weight: .medium))
+                    .foregroundStyle(Color(hex: 0x667085))
+                    .frame(width: 20)
+                DatePicker(
+                    "",
+                    selection: $date,
+                    displayedComponents: [.date, .hourAndMinute]
+                )
+                .labelsHidden()
+                .datePickerStyle(.compact)
+                .frame(maxWidth: .infinity, alignment: .leading)
+            }
+            .padding(.horizontal, 14)
+            .frame(height: 50)
+            .background(Color.white, in: RoundedRectangle(cornerRadius: 12, style: .continuous))
+            .overlay(
+                RoundedRectangle(cornerRadius: 12, style: .continuous)
+                    .stroke(Color(hex: 0xD0D5DD), lineWidth: 1)
+            )
+        }
+        .padding(.top, 16)
     }
 
     @MainActor
@@ -1846,5 +1911,28 @@ private extension ConvexSiteVisit {
         ]
         .compactMap { $0?.lowercased() }
         .contains { $0.contains(needle) }
+    }
+}
+
+private struct IOSGlassCloseButtonStyle: ButtonStyle {
+    func makeBody(configuration: Configuration) -> some View {
+        configuration.label
+            .background(.ultraThinMaterial, in: Circle())
+            .overlay(
+                Circle()
+                    .fill(configuration.isPressed ? Color.white.opacity(0.28) : Color.white.opacity(0.08))
+            )
+            .overlay(
+                Circle()
+                    .stroke(Color.white.opacity(configuration.isPressed ? 0.9 : 0.72), lineWidth: 1)
+            )
+            .shadow(
+                color: .black.opacity(configuration.isPressed ? 0.04 : 0.10),
+                radius: configuration.isPressed ? 5 : 12,
+                x: 0,
+                y: configuration.isPressed ? 2 : 6
+            )
+            .scaleEffect(configuration.isPressed ? 0.88 : 1)
+            .animation(.snappy(duration: 0.18, extraBounce: 0.22), value: configuration.isPressed)
     }
 }

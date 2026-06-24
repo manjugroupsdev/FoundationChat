@@ -13,8 +13,8 @@ enum PushNavigationType: String {
     // Legacy compatibility
     init?(fromRaw raw: String) {
         switch raw {
-        case "direct_message", "chat-dm": self = .directMessage
-        case "channel_message", "chat-mention": self = .channelMessage
+        case "direct_message", "chat-dm", "chat-message": self = .directMessage
+        case "channel_message", "chat-mention", "channel-message", "chat-channel": self = .channelMessage
         case "leave-request": self = .leaveRequest
         case "leave-approved": self = .leaveApproved
         case "leave-rejected": self = .leaveRejected

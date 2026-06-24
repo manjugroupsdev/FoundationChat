@@ -19,6 +19,7 @@ struct HomeView: View {
     @State private var isVisitsLoading = false
     @State private var loadError: String?
     @State private var visitToOpen: GeoTrackTodayVisit?
+    @State private var backendDriverMode = false
     @State private var showPunchIn = false
     @State private var showPunchOut = false
     @State private var showClockOutConfirm = false
@@ -355,7 +356,7 @@ struct HomeView: View {
             }
             .padding(.top, 20)
 
-            if !allTripVisits.isEmpty {
+            if isDriverMode && !allTripVisits.isEmpty {
                 tripFilterRow
             }
 
@@ -426,13 +427,6 @@ struct HomeView: View {
                 }
             }
             .padding(.vertical, 2)
-        }
-    }
-
-    private var homeDashboard: some View {
-        VStack(spacing: 10) {
-            todayAttendanceCard
-            monthlyStatsCard
         }
     }
 
@@ -621,7 +615,12 @@ struct HomeView: View {
     }
 
     private var visibleVisits: [GeoTrackTodayVisit] {
-        allTripVisits.filter { selectedTripFilter.matches($0, state: tripState(for: $0)) }
+        guard isDriverMode else { return allTripVisits }
+        return allTripVisits.filter { selectedTripFilter.matches($0, state: tripState(for: $0)) }
+    }
+
+    private var isDriverMode: Bool {
+        authStore.currentSession?.user.isFleetDriverMode == true || backendDriverMode
     }
 
     private func tripState(for visit: GeoTrackTodayVisit) -> HomeTripState {
@@ -683,17 +682,33 @@ struct HomeView: View {
         let formatter = DateFormatter()
         formatter.dateFormat = "yyyy-MM-dd"
         let today = formatter.string(from: Date())
+        let sessionDriverMode = authStore.currentSession?.user.isFleetDriverMode == true
 
         async let legacyResult = loadLegacyTodayVisits(date: today)
-        async let cpResult = loadMarketingCPVisitsForHome()
+        async let cpResult = sessionDriverMode ? .success([]) : loadMarketingCPVisitsForHome()
+        async let driverResult = loadFleetDriverTripsForHome()
 
         let legacyVisitsResult = await legacyResult
         let cpVisitsResult = await cpResult
+        let driverTripsResult = await driverResult
 
         switch legacyVisitsResult {
         case .success(let legacyVisits):
             let cpVisits = (try? cpVisitsResult.get()) ?? []
-            todayVisits = mergeTodayVisits(legacyVisits: legacyVisits, cpVisits: cpVisits)
+            let driverTrips: [FleetDriverTrip]
+            switch driverTripsResult {
+            case .success(let trips):
+                backendDriverMode = true
+                driverTrips = trips
+            case .failure:
+                backendDriverMode = false
+                driverTrips = []
+            }
+            todayVisits = mergeTodayVisits(
+                legacyVisits: legacyVisits,
+                cpVisits: sessionDriverMode || backendDriverMode ? [] : cpVisits,
+                driverTrips: sessionDriverMode || backendDriverMode ? driverTrips : []
+            )
             loadError = nil
         case .failure(let error) where error is CancellationError:
             loadError = nil
@@ -725,7 +740,20 @@ struct HomeView: View {
         }
     }
 
-    private func mergeTodayVisits(legacyVisits: [GeoTrackTodayVisit], cpVisits: [GeoTrackCPVisitDetail]) -> [GeoTrackTodayVisit] {
+    private func loadFleetDriverTripsForHome() async -> Result<[FleetDriverTrip], Error> {
+        guard let token = authStore.currentSession?.token else { return .success([]) }
+        do {
+            return .success(try await FleetConvexAPIService.listDriverTrips(token: token))
+        } catch {
+            return .failure(error)
+        }
+    }
+
+    private func mergeTodayVisits(
+        legacyVisits: [GeoTrackTodayVisit],
+        cpVisits: [GeoTrackCPVisitDetail],
+        driverTrips: [FleetDriverTrip]
+    ) -> [GeoTrackTodayVisit] {
         let legacyCPIds = Set(legacyVisits.compactMap { $0.clientPlaceVisitId?.nilIfBlank })
         let cpExtras = cpVisits.compactMap { detail -> GeoTrackTodayVisit? in
             guard let id = detail.id?.nilIfBlank, !legacyCPIds.contains(id) else { return nil }
@@ -733,8 +761,12 @@ struct HomeView: View {
             guard status != "cancelled", status != "completed" else { return nil }
             return detail.toTodayVisitOrNil()
         }
+        let existingIds = Set((legacyVisits + cpExtras).map(\.id))
+        let driverExtras = driverTrips
+            .compactMap { $0.toTodayVisitOrNil() }
+            .filter { !existingIds.contains($0.id) }
         let completedStatuses = Set(["completed", "complete", "done", "closed"])
-        return (legacyVisits + cpExtras).sorted { lhs, rhs in
+        return (legacyVisits + cpExtras + driverExtras).sorted { lhs, rhs in
             let lhsCompleted = completedStatuses.contains(lhs.status.lowercased())
             let rhsCompleted = completedStatuses.contains(rhs.status.lowercased())
             if lhsCompleted != rhsCompleted { return !lhsCompleted }
@@ -1374,6 +1406,54 @@ private extension GeoTrackCPVisitDetail {
             || foodPreferences?.nilIfBlank != nil
             || vehiclePreference?.nilIfBlank != nil
         return proposedHasFields || leadFlaggedSVFixed || hasSVFixParty
+    }
+}
+
+private extension FleetDriverTrip {
+    func toTodayVisitOrNil() -> GeoTrackTodayVisit? {
+        guard let scheduled = scheduledDate?.nilIfBlank else { return nil }
+        let normalizedPhase = phase?.lowercased().replacingOccurrences(of: "-", with: "_")
+        let status: String
+        switch normalizedPhase {
+        case "completed":
+            status = "completed"
+        case "on_site":
+            status = "on_site"
+        case "in_progress", "started", "arrived":
+            status = "in-progress"
+        default:
+            status = "scheduled"
+        }
+
+        let title = project?.name?.nilIfBlank
+            ?? vehicle?.vehicleNumber?.nilIfBlank
+            ?? "Driver trip"
+
+        return GeoTrackTodayVisit(
+            id: id,
+            clientPlaceId: project?.id?.nilIfBlank ?? id,
+            scheduledDate: scheduled,
+            status: status,
+            mobileStatus: status,
+            reachingRadiusMeters: nil,
+            placeName: title,
+            placeAddress: pickupAddress?.nilIfBlank,
+            placeType: "project",
+            placeLat: nil,
+            placeLng: nil,
+            tripType: "site_visit",
+            clientPlaceVisitId: nil,
+            leadName: nil,
+            leadPhone: nil,
+            cpVisit: nil,
+            scheduledStartTime: scheduledTime?.nilIfBlank ?? pickupTime?.nilIfBlank,
+            scheduledEndTime: nil,
+            visitCategory: "site_visit",
+            travelMode: "cab",
+            vehiclePreference: vehicle?.vehicleNumber?.nilIfBlank,
+            vehicleAssigned: true,
+            creationTime: nil
+        )
     }
 }
 

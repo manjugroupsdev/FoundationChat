@@ -781,9 +781,18 @@ final class AuthStore {
     channelID: String? = nil,
     limit: Int = 100
   ) async throws -> [ConvexChatMessage] {
+    let normalizedConversationID = conversationID?.trimmingCharacters(in: .whitespacesAndNewlines)
+    let normalizedChannelID = channelID?.trimmingCharacters(in: .whitespacesAndNewlines)
+    guard normalizedConversationID?.isEmpty == false || normalizedChannelID?.isEmpty == false else {
+      return []
+    }
+
     let t = try requireToken()
     return try await ChatAPIService.listAttachments(
-      token: t, conversationId: conversationID, channelId: channelID, limit: limit
+      token: t,
+      conversationId: normalizedConversationID?.isEmpty == false ? normalizedConversationID : nil,
+      channelId: normalizedChannelID?.isEmpty == false ? normalizedChannelID : nil,
+      limit: limit
     )
   }
 
@@ -800,6 +809,11 @@ final class AuthStore {
   func leaveChannel(channelID: String) async throws {
     let t = try requireToken()
     try await ChatAPIService.leaveChannel(token: t, channelId: channelID)
+  }
+
+  func joinChannel(channelID: String) async throws {
+    let t = try requireToken()
+    try await ChatAPIService.joinChannel(token: t, channelId: channelID)
   }
 
   func toggleConversationMute(conversationID: String, muted: Bool) async throws {

@@ -65,7 +65,7 @@ struct LandInspectionView: View {
                 useDateFilter = true
                 showingDateFilter = false
             }
-            .presentationDetents([.medium])
+            .presentationDetents([.large])
             .presentationDragIndicator(.visible)
         }
         .sheet(item: $editingInspection) { inspection in
@@ -570,29 +570,52 @@ private struct LandInspectionDateFilterSheet: View {
     let onSelect: () -> Void
 
     var body: some View {
-        VStack(alignment: .leading, spacing: 18) {
-            Capsule()
-                .fill(Color(hex: 0xD1D5DB))
-                .frame(width: 52, height: 5)
-                .frame(maxWidth: .infinity)
-            Text("Date Filter")
-                .font(.system(size: 24, weight: .bold))
-                .foregroundStyle(Color(hex: 0x101828))
-            Text("Select Date Filter")
-                .font(.system(size: 15, weight: .medium))
-                .foregroundStyle(Color(hex: 0x667085))
-            DatePicker("Inspection Date", selection: $date, displayedComponents: .date)
-                .datePickerStyle(.graphical)
-            Button(action: onSelect) {
-                Text("Select")
-                    .font(.system(size: 17, weight: .bold))
-                    .foregroundStyle(.white)
-                    .frame(maxWidth: .infinity, minHeight: 54)
-                    .background(Color(hex: 0x08BE00), in: Capsule())
+        ZStack(alignment: .bottom) {
+            Color.white.ignoresSafeArea()
+
+            VStack(alignment: .leading, spacing: 0) {
+                Capsule()
+                    .fill(Color(hex: 0xD1D5DB))
+                    .frame(width: 52, height: 5)
+                    .frame(maxWidth: .infinity)
+                    .padding(.top, 10)
+                    .padding(.bottom, 18)
+
+                Text("Date Filter")
+                    .font(.system(size: 24, weight: .bold))
+                    .foregroundStyle(Color(hex: 0x101828))
+                Text("Select Date Filter")
+                    .font(.system(size: 15, weight: .medium))
+                    .foregroundStyle(Color(hex: 0x667085))
+                    .padding(.top, 5)
+                    .padding(.bottom, 10)
+
+                ScrollView(showsIndicators: false) {
+                    DatePicker("Inspection Date", selection: $date, displayedComponents: .date)
+                        .datePickerStyle(.graphical)
+                        .labelsHidden()
+                        .padding(.top, 2)
+                        .padding(.bottom, 96)
+                }
+            }
+            .padding(.horizontal, 22)
+
+            VStack(spacing: 0) {
+                Divider()
+                    .overlay(Color(hex: 0xEAECF0))
+
+                Button(action: onSelect) {
+                    Text("Select")
+                        .font(.system(size: 17, weight: .bold))
+                        .foregroundStyle(.white)
+                        .frame(maxWidth: .infinity, minHeight: 54)
+                        .background(Color(hex: 0x08BE00), in: Capsule())
+                }
+                .padding(.horizontal, 22)
+                .padding(.vertical, 14)
+                .background(Color.white)
             }
         }
-        .padding(.horizontal, 22)
-        .padding(.top, 12)
     }
 }
 
@@ -1323,7 +1346,7 @@ struct LandQueriesView: View {
                 useDateFilter = true
                 showingDateFilter = false
             }
-            .presentationDetents([.medium])
+            .presentationDetents([.large])
             .presentationDragIndicator(.visible)
         }
         .sheet(item: $selectedQuery) { query in

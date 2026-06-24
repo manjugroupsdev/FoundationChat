@@ -1,4 +1,7 @@
 import SwiftUI
+#if canImport(UIKit)
+import UIKit
+#endif
 
 struct TasksListView: View {
     @Environment(AuthStore.self) private var authStore
@@ -26,7 +29,12 @@ struct TasksListView: View {
     var body: some View {
         GeometryReader { proxy in
             ZStack(alignment: .top) {
-                Color(hex: 0xF1F3F8).ignoresSafeArea()
+                Color(hex: 0x0B61CA)
+                    .ignoresSafeArea(edges: .top)
+
+                Color(hex: 0xF1F3F8)
+                    .ignoresSafeArea()
+                    .padding(.top, proxy.safeAreaInsets.top + 180)
 
                 VStack(spacing: 0) {
                     header(topInset: proxy.safeAreaInsets.top)
@@ -97,7 +105,7 @@ struct TasksListView: View {
         VStack(spacing: 0) {
             searchField
                 .padding(.horizontal, 20)
-                .padding(.top, 20)
+                .padding(.top, 38)
 
             filterChips
                 .padding(.top, 16)
@@ -109,23 +117,8 @@ struct TasksListView: View {
     }
 
     private var searchField: some View {
-        HStack(spacing: 10) {
-            Image(systemName: "magnifyingglass")
-                .font(.system(size: 16, weight: .semibold))
-                .foregroundStyle(Color(hex: 0x98A2B3))
-
-            TextField("Search Tasks", text: $searchText)
-                .font(.system(size: 14, weight: .medium))
-                .textInputAutocapitalization(.never)
-                .submitLabel(.search)
-        }
-        .padding(.horizontal, 16)
-        .frame(height: 48)
-        .background(Color(hex: 0xF7F8FA), in: RoundedRectangle(cornerRadius: 24, style: .continuous))
-        .overlay {
-            RoundedRectangle(cornerRadius: 24, style: .continuous)
-                .stroke(Color(hex: 0xEAECF0), lineWidth: 1)
-        }
+        NativeTaskSearchBar(text: $searchText, placeholder: "Search Tasks")
+            .frame(height: 52)
         .opacity(didAnimateIn ? 1 : 0)
         .offset(y: didAnimateIn ? 0 : 16)
         .animation(.easeOut(duration: 0.34).delay(0.2), value: didAnimateIn)
@@ -247,6 +240,77 @@ struct TasksListView: View {
         }
     }
 }
+
+#if canImport(UIKit)
+private struct NativeTaskSearchBar: UIViewRepresentable {
+    @Binding var text: String
+    let placeholder: String
+
+    func makeUIView(context: Context) -> UISearchBar {
+        let searchBar = UISearchBar(frame: .zero)
+        searchBar.delegate = context.coordinator
+        searchBar.placeholder = placeholder
+        searchBar.searchBarStyle = .minimal
+        searchBar.autocapitalizationType = .none
+        searchBar.autocorrectionType = .no
+        searchBar.returnKeyType = .search
+
+        let field = searchBar.searchTextField
+        field.backgroundColor = UIColor(Color(hex: 0xF7F8FA))
+        field.layer.cornerRadius = 24
+        field.layer.masksToBounds = true
+        field.layer.borderWidth = 1
+        field.layer.borderColor = UIColor(Color(hex: 0xEAECF0)).cgColor
+        field.font = .systemFont(ofSize: 16, weight: .medium)
+        field.textColor = UIColor(Color(hex: 0x101828))
+        field.attributedPlaceholder = NSAttributedString(
+            string: placeholder,
+            attributes: [
+                .foregroundColor: UIColor(Color(hex: 0xC4C7CF)),
+                .font: UIFont.systemFont(ofSize: 16, weight: .medium)
+            ]
+        )
+        field.leftView?.tintColor = UIColor(Color(hex: 0x98A2B3))
+        return searchBar
+    }
+
+    func updateUIView(_ uiView: UISearchBar, context: Context) {
+        if uiView.text != text {
+            uiView.text = text
+        }
+    }
+
+    func makeCoordinator() -> Coordinator {
+        Coordinator(text: $text)
+    }
+
+    final class Coordinator: NSObject, UISearchBarDelegate {
+        @Binding var text: String
+
+        init(text: Binding<String>) {
+            _text = text
+        }
+
+        func searchBar(_ searchBar: UISearchBar, textDidChange searchText: String) {
+            text = searchText
+        }
+
+        func searchBarSearchButtonClicked(_ searchBar: UISearchBar) {
+            searchBar.resignFirstResponder()
+        }
+    }
+}
+#else
+private struct NativeTaskSearchBar: View {
+    @Binding var text: String
+    let placeholder: String
+
+    var body: some View {
+        TextField(placeholder, text: $text)
+            .textFieldStyle(.roundedBorder)
+    }
+}
+#endif
 
 private struct AndroidTaskCard: View {
     let task: ConvexTask

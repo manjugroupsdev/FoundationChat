@@ -25,6 +25,11 @@ struct ConvexSiteVisit: Decodable, Identifiable, Equatable, Sendable {
     let convertedBookingId: String?
     let convertedSiteVisitId: String?
     let completedAt: Int64?
+    let creationTime: Double?
+    let travelMode: String?
+    let vehiclePreference: String?
+    let vehicleAssigned: Bool?
+    let visitCategory: String?
 
     var id: String { _id }
 
@@ -32,6 +37,7 @@ struct ConvexSiteVisit: Decodable, Identifiable, Equatable, Sendable {
         case _id, clientPlaceId, scheduledDate, status, placeName, placeAddress, placeType
         case placeLat, placeLng, tripType, clientPlaceVisitId, leadName, leadPhone, cpVisit
         case outcome, convertedBookingId, convertedSiteVisitId, completedAt
+        case creationTime, travelMode, vehiclePreference, vehicleAssigned, visitCategory
         case scheduledStartTime, scheduledEndTime
         case startTime, endTime, scheduledTime, scheduledFrom, scheduledTo
     }
@@ -56,6 +62,11 @@ struct ConvexSiteVisit: Decodable, Identifiable, Equatable, Sendable {
         convertedBookingId = try container.decodeIfPresent(String.self, forKey: .convertedBookingId)
         convertedSiteVisitId = try container.decodeIfPresent(String.self, forKey: .convertedSiteVisitId)
         completedAt = try container.decodeIfPresent(Int64.self, forKey: .completedAt)
+        creationTime = try container.decodeIfPresent(Double.self, forKey: .creationTime)
+        travelMode = try container.decodeIfPresent(String.self, forKey: .travelMode)
+        vehiclePreference = try container.decodeIfPresent(String.self, forKey: .vehiclePreference)
+        vehicleAssigned = try container.decodeIfPresent(Bool.self, forKey: .vehicleAssigned)
+        visitCategory = try container.decodeIfPresent(String.self, forKey: .visitCategory)
         scheduledStartTime = try container.decodeFirstPresentString(for: [.scheduledStartTime, .startTime, .scheduledTime, .scheduledFrom])
         scheduledEndTime = try container.decodeFirstPresentString(for: [.scheduledEndTime, .endTime, .scheduledTo])
     }
@@ -80,11 +91,9 @@ struct ConvexSiteVisit: Decodable, Identifiable, Equatable, Sendable {
         let ownOutcome = outcome?.trimmingCharacters(in: .whitespacesAndNewlines)
         let cpOutcome = cpVisit?.outcome?.trimmingCharacters(in: .whitespacesAndNewlines)
         let booking = convertedBookingId?.trimmingCharacters(in: .whitespacesAndNewlines)
-        let convertedSiteVisit = convertedSiteVisitId?.trimmingCharacters(in: .whitespacesAndNewlines)
         return ownOutcome?.isEmpty == false
             || cpOutcome?.isEmpty == false
             || booking?.isEmpty == false
-            || convertedSiteVisit?.isEmpty == false
             || completedAt != nil
     }
 }
@@ -234,12 +243,13 @@ struct CpVisitClient: Decodable, Sendable {
 
 struct CpVisitStaff: Decodable, Sendable {
     let id: String?
+    let name: String?
     let staffName: String?
     let staffCode: String?
 
     enum CodingKeys: String, CodingKey {
         case id = "_id"
-        case staffName, staffCode
+        case name, staffName, staffCode
     }
 }
 

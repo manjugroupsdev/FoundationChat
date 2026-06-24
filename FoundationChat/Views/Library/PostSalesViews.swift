@@ -178,7 +178,7 @@ struct AccountsCollectionsReviewView: View {
         .background(Color(.systemGroupedBackground))
         .navigationTitle("Post Sales Verification")
         .navigationBarTitleDisplayMode(.inline)
-        .searchable(text: $searchText, placement: .navigationBarDrawer(displayMode: .always), prompt: "Search pending collections")
+        .searchable(text: $searchText, placement: .navigationBarDrawer(displayMode: .always), prompt: "Search Sales Verification")
         .refreshable { await load() }
         .task { if !hasLoaded { await load() } }
         .alert("Accounts", isPresented: Binding(get: { errorMessage != nil }, set: { if !$0 { errorMessage = nil } })) {
@@ -187,7 +187,11 @@ struct AccountsCollectionsReviewView: View {
             Text(errorMessage ?? "")
         }
         .sheet(item: $selectedForReject) { collection in
-            RejectCollectionSheet(remarks: $rejectRemarks) {
+            RejectCollectionSheet(
+                title: "Rejection Remarks",
+                subtitle: "Specify details about why this is rejected",
+                remarks: $rejectRemarks
+            ) {
                 await reject(collection)
             }
             .presentationDetents([.medium])
@@ -216,35 +220,19 @@ struct AccountsCollectionsReviewView: View {
             } else {
                 LazyVStack(spacing: 12) {
                     ForEach(visibleCollections) { collection in
-                        VStack(spacing: 12) {
-                            CollectionRowCard(collection: collection) {
+                        CollectionRowCard(
+                            collection: collection,
+                            onProof: {
                                 await openProof(collection)
-                            }
-                            HStack(spacing: 10) {
-                                Button {
-                                    Task { await approve(collection) }
-                                } label: {
-                                    Label("Approve", systemImage: "checkmark.circle.fill")
-                                        .frame(maxWidth: .infinity)
-                                }
-                                .buttonStyle(.borderedProminent)
-                                .tint(Color(hex: 0x16A34A))
-
-                                Button {
-                                    rejectRemarks = ""
-                                    selectedForReject = collection
-                                } label: {
-                                    Label("Reject", systemImage: "xmark.circle.fill")
-                                        .frame(maxWidth: .infinity)
-                                }
-                                .buttonStyle(.bordered)
-                                .tint(Color(hex: 0xB42318))
-                            }
-                            .padding(.horizontal, 16)
-                            .padding(.bottom, 14)
-                        }
-                        .background(Color.white, in: RoundedRectangle(cornerRadius: 16, style: .continuous))
-                        .shadow(color: .black.opacity(0.04), radius: 10, x: 0, y: 4)
+                            },
+                            onReject: collection.isPendingVerification ? {
+                                rejectRemarks = ""
+                                selectedForReject = collection
+                            } : nil,
+                            onAccept: collection.isPendingVerification ? {
+                                Task<Void, Never> { await approve(collection) }
+                            } : nil
+                        )
                     }
                 }
                 .padding(.horizontal, 16)
@@ -274,6 +262,10 @@ struct AccountsCollectionsReviewView: View {
     @MainActor
     private func approve(_ collection: CustomerCollectionRow) async {
         guard let token = authStore.currentSession?.token else { return }
+        guard collection.isPendingVerification else {
+            errorMessage = "Only pending collections can be approved."
+            return
+        }
         do {
             _ = try await PostSalesConvexAPIService.approveCollection(token: token, collectionId: collection.id)
             await load()
@@ -285,8 +277,17 @@ struct AccountsCollectionsReviewView: View {
     @MainActor
     private func reject(_ collection: CustomerCollectionRow) async {
         guard let token = authStore.currentSession?.token else { return }
+        guard collection.isPendingVerification else {
+            errorMessage = "Only pending collections can be rejected."
+            return
+        }
+        let trimmedRemarks = rejectRemarks.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !trimmedRemarks.isEmpty else {
+            errorMessage = "Remarks are required to reject."
+            return
+        }
         do {
-            _ = try await PostSalesConvexAPIService.rejectCollection(token: token, collectionId: collection.id, remarks: rejectRemarks)
+            _ = try await PostSalesConvexAPIService.rejectCollection(token: token, collectionId: collection.id, remarks: trimmedRemarks)
             selectedForReject = nil
             await load()
         } catch {
@@ -691,7 +692,7 @@ private struct CollectionSummary {
     let amount: Double
 
     init(rows: [CustomerCollectionRow]) {
-        count = rows.count
+        count = rows.count { $0.isPendingVerification }
         amount = rows.reduce(0) { $0 + ($1.amount ?? 0) }
     }
 }
@@ -748,8 +749,12 @@ private struct CollectionControls: View {
             .pickerStyle(.segmented)
 
             HStack(spacing: 10) {
-                summaryTile("Rows", "\(summary.count)", systemImage: "list.bullet.rectangle")
-                summaryTile("Total", AppModuleFormatters.rupees(summary.amount), systemImage: "indianrupeesign.circle")
+                summaryTile(
+                    "Pending Verification",
+                    summary.count == 1 ? "1" : "\(summary.count)",
+                    systemImage: "checkmark.seal"
+                )
+                summaryTile("Total Amount", AppModuleFormatters.rupees(summary.amount), systemImage: "indianrupeesign.circle")
             }
         }
     }
@@ -778,62 +783,138 @@ private struct CollectionControls: View {
 
 private struct CollectionRowCard: View {
     let collection: CustomerCollectionRow
-    var onProof: (() async -> Void)?
-    var onRectify: (() -> Void)?
+    var onProof: (() async -> Void)? = nil
+    var onRectify: (() -> Void)? = nil
+    var onReject: (() -> Void)? = nil
+    var onAccept: (() -> Void)? = nil
 
     var body: some View {
         VStack(alignment: .leading, spacing: 12) {
-            HStack(alignment: .top, spacing: 12) {
-                Image(systemName: "creditcard.fill")
-                    .font(.system(size: 20, weight: .semibold))
-                    .foregroundStyle(statusColor)
-                    .frame(width: 42, height: 42)
-                    .background(statusColor.opacity(0.12), in: Circle())
-                VStack(alignment: .leading, spacing: 4) {
-                    Text(collection.displayTitle)
-                        .font(AppModuleFont.rowTitle)
-                        .foregroundStyle(Color(hex: 0x101828))
-                    Text([collection.bookingRefNo, collection.projectName, collection.plotNo].compactMap { $0?.nonBlank }.joined(separator: " · "))
-                        .font(AppModuleFont.rowMeta)
-                        .foregroundStyle(Color(hex: 0x667085))
+            VStack(alignment: .leading, spacing: 4) {
+                HStack(alignment: .center) {
+                    Text(AppModuleFormatters.rupees(collection.amount ?? 0))
+                        .font(.system(size: 20, weight: .bold))
+                        .foregroundStyle(Color(hex: 0x0B2B5C))
+                        .lineLimit(1)
+                        .minimumScaleFactor(0.8)
+                    Spacer(minLength: 12)
+                    statusBadge
                 }
-                Spacer()
-                AppModuleBadge(text: collection.displayStatus, tint: statusColor)
+
+                Text(collection.androidBookingLabel)
+                    .font(.system(size: 14, weight: .semibold))
+                    .foregroundStyle(Color(hex: 0x344054))
+                    .lineLimit(2)
             }
 
-            HStack(spacing: 10) {
-                metric("Amount", AppModuleFormatters.rupees(collection.amount ?? 0))
-                metric("Mode", collection.paymentMode?.uppercased() ?? "-")
+            DashedDivider()
+                .stroke(Color(hex: 0xEAECF0), style: StrokeStyle(lineWidth: 1, dash: [6, 4]))
+                .frame(height: 1)
+
+            HStack(alignment: .center, spacing: 16) {
+                VStack(alignment: .leading, spacing: 4) {
+                    collectionInfoRow(
+                        title: "Payment Mode",
+                        value: collection.humanPaymentMode,
+                        systemImage: "creditcard"
+                    )
+                    collectionInfoRow(
+                        title: "Ref ID",
+                        value: collection.transactionReference?.nonBlank ?? "-",
+                        systemImage: "number"
+                    )
+                }
+                .frame(maxWidth: .infinity, alignment: .leading)
+
+                if let storageId = collection.proofStorageId?.nonBlank {
+                    CollectionProofThumbnail(storageId: storageId) {
+                        if let onProof {
+                            await onProof()
+                        }
+                    }
+                }
             }
-            if let ref = collection.transactionReference?.nonBlank {
-                Label(ref, systemImage: "number")
-                    .font(AppModuleFont.rowMeta)
+
+            if let date = collection.androidCollectionDate {
+                Label(date, systemImage: "calendar")
+                    .font(.system(size: 11, weight: .regular))
                     .foregroundStyle(Color(hex: 0x667085))
             }
-            HStack(spacing: 10) {
-                if collection.proofStorageId?.nonBlank != nil, let onProof {
+
+            if collection.isRejected, let remarks = collection.verificationNotes?.nonBlank {
+                VStack(alignment: .leading, spacing: 4) {
+                    Text("Accountant's Remarks:")
+                        .font(.system(size: 12, weight: .bold))
+                        .foregroundStyle(Color(hex: 0xB42318))
+                    Text(remarks)
+                        .font(.system(size: 12, weight: .medium))
+                        .foregroundStyle(Color(hex: 0x667085))
+                }
+                .padding(12)
+                .frame(maxWidth: .infinity, alignment: .leading)
+                .background(Color(hex: 0xFFF1F0), in: RoundedRectangle(cornerRadius: 10, style: .continuous))
+            }
+
+            if let onReject, let onAccept {
+                HStack(spacing: 12) {
                     Button {
-                        Task { await onProof() }
+                        onReject()
                     } label: {
-                        Label("Proof", systemImage: "doc.viewfinder")
+                        Label("Reject", systemImage: "xmark")
+                            .font(.system(size: 14, weight: .semibold))
+                            .frame(maxWidth: .infinity)
+                            .frame(height: 44)
                     }
                     .buttonStyle(.bordered)
-                    .tint(Color(hex: 0x0B61CA))
-                }
-                if let onRectify {
+                    .tint(Color(hex: 0xF04438))
+
                     Button {
-                        onRectify()
+                        onAccept()
                     } label: {
-                        Label("Rectify", systemImage: "arrow.triangle.2.circlepath")
+                        Label("Accept", systemImage: "checkmark")
+                            .font(.system(size: 14, weight: .semibold))
+                            .frame(maxWidth: .infinity)
+                            .frame(height: 44)
                     }
                     .buttonStyle(.borderedProminent)
-                    .tint(Color(hex: 0xB54708))
+                    .tint(Color(hex: 0x16A34A))
                 }
+                .padding(.top, 4)
+            } else if let onRectify {
+                Button {
+                    onRectify()
+                } label: {
+                    Label("Re-submit", systemImage: "checkmark")
+                        .font(.system(size: 14, weight: .semibold))
+                        .frame(maxWidth: .infinity)
+                        .frame(height: 44)
+                }
+                .buttonStyle(.borderedProminent)
+                .tint(Color(hex: 0x16A34A))
+                .padding(.top, 4)
             }
         }
         .padding(16)
         .background(Color.white, in: RoundedRectangle(cornerRadius: 16, style: .continuous))
+        .overlay(
+            RoundedRectangle(cornerRadius: 16, style: .continuous)
+                .stroke(Color(hex: 0xEAECF0), lineWidth: 1)
+        )
         .shadow(color: .black.opacity(0.04), radius: 10, x: 0, y: 4)
+    }
+
+    private var statusBadge: some View {
+        HStack(spacing: 6) {
+            Circle()
+                .fill(statusColor)
+                .frame(width: 6, height: 6)
+            Text(collection.androidStatusLabel)
+                .font(.system(size: 11, weight: .semibold))
+                .foregroundStyle(statusColor)
+        }
+        .padding(.horizontal, 10)
+        .padding(.vertical, 4)
+        .background(statusColor.opacity(0.12), in: Capsule())
     }
 
     private var statusColor: Color {
@@ -844,18 +925,101 @@ private struct CollectionRowCard: View {
         }
     }
 
-    private func metric(_ title: String, _ value: String) -> some View {
-        VStack(alignment: .leading, spacing: 3) {
-            Text(title)
-                .font(AppModuleFont.rowMeta)
-                .foregroundStyle(Color(hex: 0x667085))
-            Text(value)
-                .font(AppModuleFont.rowMetaSemibold)
-                .foregroundStyle(Color(hex: 0x101828))
+    private func collectionInfoRow(title: String, value: String, systemImage: String) -> some View {
+        HStack(spacing: 8) {
+            Image(systemName: systemImage)
+                .font(.system(size: 14, weight: .medium))
+                .foregroundStyle(Color(hex: 0x0B61CA))
+                .frame(width: 28, height: 28)
+                .background(Color(hex: 0xF1F5F9), in: Circle())
+            VStack(alignment: .leading, spacing: 2) {
+                Text(title)
+                    .font(.system(size: 11, weight: .regular))
+                    .foregroundStyle(Color(hex: 0x667085))
+                Text(value)
+                    .font(.system(size: 12, weight: .semibold))
+                    .foregroundStyle(Color(hex: 0x101828))
+                    .lineLimit(1)
+                    .minimumScaleFactor(0.8)
+            }
         }
-        .frame(maxWidth: .infinity, alignment: .leading)
-        .padding(10)
-        .background(Color(hex: 0xF8FAFC), in: RoundedRectangle(cornerRadius: 10))
+        .padding(.vertical, 4)
+    }
+}
+
+private struct DashedDivider: Shape {
+    func path(in rect: CGRect) -> Path {
+        var path = Path()
+        path.move(to: CGPoint(x: rect.minX, y: rect.midY))
+        path.addLine(to: CGPoint(x: rect.maxX, y: rect.midY))
+        return path
+    }
+}
+
+private struct CollectionProofThumbnail: View {
+    @Environment(AuthStore.self) private var authStore
+    let storageId: String
+    let onTap: () async -> Void
+    @State private var thumbnailURL: URL?
+    @State private var didFail = false
+
+    var body: some View {
+        Button {
+            Task { await onTap() }
+        } label: {
+            ZStack {
+                RoundedRectangle(cornerRadius: 8, style: .continuous)
+                    .fill(Color(hex: 0xF8FAFC))
+                if let thumbnailURL {
+                    AsyncImage(url: thumbnailURL) { phase in
+                        switch phase {
+                        case .empty:
+                            ProgressView()
+                        case .success(let image):
+                            image
+                                .resizable()
+                                .scaledToFill()
+                        case .failure:
+                            proofFallback
+                        @unknown default:
+                            proofFallback
+                        }
+                    }
+                } else if didFail {
+                    proofFallback
+                } else {
+                    ProgressView()
+                }
+            }
+            .frame(width: 72, height: 72)
+            .clipShape(RoundedRectangle(cornerRadius: 8, style: .continuous))
+            .overlay(
+                RoundedRectangle(cornerRadius: 8, style: .continuous)
+                    .stroke(Color(hex: 0xE4E7EC), lineWidth: 1)
+            )
+        }
+        .buttonStyle(.plain)
+        .task(id: storageId) {
+            await loadThumbnail()
+        }
+    }
+
+    private var proofFallback: some View {
+        Image(systemName: "doc.viewfinder")
+            .font(.system(size: 24, weight: .medium))
+            .foregroundStyle(Color(hex: 0x98A2B3))
+    }
+
+    @MainActor
+    private func loadThumbnail() async {
+        guard thumbnailURL == nil,
+              let token = authStore.currentSession?.token
+        else { return }
+        do {
+            thumbnailURL = try await PostSalesStorageService.getFileURL(token: token, storageId: storageId)
+        } catch {
+            didFail = true
+        }
     }
 }
 
@@ -1156,6 +1320,7 @@ private struct CollectionSubmitSheet: View {
 
 private struct RejectCollectionSheet: View {
     var title = "Reject Collection"
+    var subtitle: String?
     @Binding var remarks: String
     let onSubmit: () async -> Void
     @Environment(\.dismiss) private var dismiss
@@ -1164,6 +1329,13 @@ private struct RejectCollectionSheet: View {
     var body: some View {
         NavigationStack {
             Form {
+                if let subtitle {
+                    Section {
+                        Text(subtitle)
+                            .font(.system(size: 13, weight: .medium))
+                            .foregroundStyle(Color(hex: 0x667085))
+                    }
+                }
                 Section {
                     TextField("Remarks", text: $remarks, axis: .vertical)
                         .lineLimit(4, reservesSpace: true)
@@ -1431,7 +1603,100 @@ private extension CustomerCollectionRow {
         (verificationStatus ?? "").localizedCaseInsensitiveContains("reject")
     }
 
+    var isPendingVerification: Bool {
+        let normalized = (verificationStatus ?? "pending_accounts").normalizedStatusToken
+        return ["pending", "pending_accounts", "clarification_requested"].contains(normalized)
+    }
+
     var normalizedPaymentCategory: String {
         (customerPaymentCategory ?? "").replacingOccurrences(of: "_", with: " ").lowercased()
+    }
+
+    var androidBookingLabel: String {
+        let site = projectName?.nonBlank
+        let plot = plotNo?.nonBlank
+        let client = customerName?.nonBlank
+        if let site, let plot { return "\(site) - Plot \(plot)" }
+        if let site { return site }
+        if let client, let plot { return "\(client) - Plot \(plot)" }
+        if let client { return client }
+        if let bookingRefNo = bookingRefNo?.nonBlank { return bookingRefNo }
+        if let bookingId = bookingId?.nonBlank { return "Booking \(String(bookingId.suffix(6)))" }
+        return collectionRefNo?.nonBlank ?? "Collection"
+    }
+
+    var androidStatusLabel: String {
+        switch (verificationStatus ?? "").normalizedStatusToken {
+        case "approved", "verified":
+            return "Approved"
+        case "rejected":
+            return "Rejected"
+        default:
+            return "Pending"
+        }
+    }
+
+    var humanPaymentMode: String {
+        switch (paymentMode ?? "").normalizedStatusToken {
+        case "cash": return "Cash"
+        case "upi": return "UPI"
+        case "neft": return "NEFT"
+        case "rtgs": return "RTGS"
+        case "cheque": return "Cheque"
+        case "dd": return "DD"
+        case "bank": return "Bank Transfer"
+        default:
+            guard let paymentMode = paymentMode?.nonBlank else { return "-" }
+            return paymentMode.prefix(1).uppercased() + String(paymentMode.dropFirst())
+        }
+    }
+
+    var androidCollectionDate: String? {
+        let raw = createdAt?.nonBlank ?? collectionDate?.nonBlank
+        guard let raw else { return nil }
+        let parsed = Self.isoMillisFormatter.date(from: raw)
+            ?? Self.isoNoMillisFormatter.date(from: raw)
+            ?? Self.dateOnlyFormatter.date(from: raw)
+        guard let parsed else { return raw }
+        return Self.displayDateFormatter.string(from: parsed)
+    }
+
+    private static let displayDateFormatter: DateFormatter = {
+        let formatter = DateFormatter()
+        formatter.locale = Locale(identifier: "en_US_POSIX")
+        formatter.dateFormat = "MMM dd, yyyy • hh:mm a"
+        return formatter
+    }()
+
+    private static let isoMillisFormatter: DateFormatter = {
+        let formatter = DateFormatter()
+        formatter.locale = Locale(identifier: "en_US_POSIX")
+        formatter.timeZone = TimeZone(secondsFromGMT: 0)
+        formatter.dateFormat = "yyyy-MM-dd'T'HH:mm:ss.SSS'Z'"
+        return formatter
+    }()
+
+    private static let isoNoMillisFormatter: DateFormatter = {
+        let formatter = DateFormatter()
+        formatter.locale = Locale(identifier: "en_US_POSIX")
+        formatter.timeZone = TimeZone(secondsFromGMT: 0)
+        formatter.dateFormat = "yyyy-MM-dd'T'HH:mm:ss'Z'"
+        return formatter
+    }()
+
+    private static let dateOnlyFormatter: DateFormatter = {
+        let formatter = DateFormatter()
+        formatter.locale = Locale(identifier: "en_US_POSIX")
+        formatter.dateFormat = "yyyy-MM-dd"
+        return formatter
+    }()
+}
+
+private extension String {
+    var normalizedStatusToken: String {
+        trimmingCharacters(in: .whitespacesAndNewlines)
+            .lowercased()
+            .replacingOccurrences(of: "-", with: "_")
+            .replacingOccurrences(of: " ", with: "_")
     }
 }

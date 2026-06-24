@@ -219,6 +219,8 @@ struct ChannelChatView: View {
   @State private var errorMessage: String?
   @State private var isInviteSheetPresented = false
   @State private var isSendingMessage = false
+  @State private var isJoiningChannel = false
+  @State private var hasJoinedPublicChannel = false
   @State private var isEmojiPanelVisible = false
   @State private var pendingVoicePreviewURL: URL?
   @State private var pendingVoicePreviewDuration: TimeInterval?
@@ -228,6 +230,7 @@ struct ChannelChatView: View {
   @State private var isCameraPresented = false
   @State private var capturedCameraImage: UIImage?
   @State private var isFileImporterPresented = false
+  @State private var isLocationSheetPresented = false
   @State private var voiceRecorder: AVAudioRecorder?
   @State private var voiceRecordingURL: URL?
   @State private var isVoiceRecording = false
@@ -241,6 +244,12 @@ struct ChannelChatView: View {
   @State private var pollingTask: Task<Void, Never>?
   @State private var lastPollTimestamp: Double = 0
   @FocusState private var isInputFocused: Bool
+
+  private var needsJoin: Bool {
+    channel.type?.lowercased() == "public"
+      && (channel.role?.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty ?? true)
+      && !hasJoinedPublicChannel
+  }
 
   var body: some View {
     let currentUserStackUserId = authStore.viewer?.subject
@@ -291,48 +300,52 @@ struct ChannelChatView: View {
     }
     .safeAreaInset(edge: .bottom, spacing: 0) {
       VStack(spacing: 0) {
-        if let mentionQuery = activeMentionQuery {
-          MentionSuggestionsView(users: mentionSuggestions(for: mentionQuery), onSelect: insertMention)
-        }
-
-        ConversationDetailInputView(
-          newMessage: $newMessage,
-          isGenerating: $isSendingMessage,
-          pendingVoicePreviewURL: $pendingVoicePreviewURL,
-          isInputFocused: $isInputFocused,
-          isVoiceRecording: isVoiceRecording,
-          voiceRecordingElapsed: voiceRecordingElapsed,
-          isEmojiPanelVisible: $isEmojiPanelVisible,
-          onAddAttachment: {
-            guard !isSendingMessage else { return }
-            isInputFocused = false
-            isEmojiPanelVisible = false
-            isAttachmentOptionsPresented = true
-          },
-          onVoiceTap: {
-            Task {
-              await startVoiceRecording()
-            }
-          },
-          onVoiceRelease: {
-            Task {
-              await finishVoiceRecordingForPreview()
-            }
-          },
-          onCancelVoiceRecording: {
-            cancelVoiceRecording()
-          },
-          onSendVoicePreview: {
-            await sendVoicePreview()
-          },
-          onDiscardVoicePreview: {
-            discardVoicePreview()
-          },
-          pendingVoicePreviewDuration: pendingVoicePreviewDuration,
-          onSend: {
-            await sendMessage()
+        if needsJoin {
+          joinChannelBar
+        } else {
+          if let mentionQuery = activeMentionQuery {
+            MentionSuggestionsView(users: mentionSuggestions(for: mentionQuery), onSelect: insertMention)
           }
-        )
+
+          ConversationDetailInputView(
+            newMessage: $newMessage,
+            isGenerating: $isSendingMessage,
+            pendingVoicePreviewURL: $pendingVoicePreviewURL,
+            isInputFocused: $isInputFocused,
+            isVoiceRecording: isVoiceRecording,
+            voiceRecordingElapsed: voiceRecordingElapsed,
+            isEmojiPanelVisible: $isEmojiPanelVisible,
+            onAddAttachment: {
+              guard !isSendingMessage else { return }
+              isInputFocused = false
+              isEmojiPanelVisible = false
+              isAttachmentOptionsPresented = true
+            },
+            onVoiceTap: {
+              Task {
+                await startVoiceRecording()
+              }
+            },
+            onVoiceRelease: {
+              Task {
+                await finishVoiceRecordingForPreview()
+              }
+            },
+            onCancelVoiceRecording: {
+              cancelVoiceRecording()
+            },
+            onSendVoicePreview: {
+              await sendVoicePreview()
+            },
+            onDiscardVoicePreview: {
+              discardVoicePreview()
+            },
+            pendingVoicePreviewDuration: pendingVoicePreviewDuration,
+            onSend: {
+              await sendMessage()
+            }
+          )
+        }
       }
     }
     .overlay(alignment: .top) {
@@ -367,6 +380,13 @@ struct ChannelChatView: View {
             isCameraPresented = true
           }
         },
+        onLocation: {
+          isAttachmentOptionsPresented = false
+          Task { @MainActor in
+            try? await Task.sleep(for: .milliseconds(220))
+            isLocationSheetPresented = true
+          }
+        },
         onFiles: {
           isAttachmentOptionsPresented = false
           Task { @MainActor in
@@ -375,7 +395,22 @@ struct ChannelChatView: View {
           }
         }
       )
-      .presentationDetents([.height(250)])
+      .presentationDetents([.height(320)])
+      .presentationDragIndicator(.visible)
+    }
+    .sheet(isPresented: $isLocationSheetPresented) {
+      ShareLocationSheet(
+        onCancel: {
+          isLocationSheetPresented = false
+        },
+        onShare: { payload in
+          isLocationSheetPresented = false
+          Task {
+            await sendLocation(payload)
+          }
+        }
+      )
+      .presentationDetents([.height(360)])
       .presentationDragIndicator(.visible)
     }
     .sheet(isPresented: $isCameraPresented) {
@@ -423,6 +458,52 @@ struct ChannelChatView: View {
       discardVoicePreview()
     }
     .toolbar(.hidden, for: .tabBar)
+  }
+
+  private var joinChannelBar: some View {
+    VStack(spacing: 10) {
+      Text("Join #\(channel.name) to send messages")
+        .font(.system(size: 14, weight: .medium))
+        .foregroundStyle(.secondary)
+
+      Button {
+        Task { await joinChannel() }
+      } label: {
+        HStack(spacing: 8) {
+          if isJoiningChannel {
+            ProgressView()
+              .tint(.white)
+          }
+          Text(isJoiningChannel ? "Joining..." : "Join Channel")
+            .font(.system(size: 17, weight: .semibold))
+        }
+        .foregroundStyle(.white)
+        .frame(maxWidth: .infinity)
+        .frame(height: 52)
+        .background(Color(red: 0.05, green: 0.38, blue: 0.79), in: Capsule())
+      }
+      .buttonStyle(.plain)
+      .disabled(isJoiningChannel)
+    }
+    .padding(.horizontal, 18)
+    .padding(.top, 12)
+    .padding(.bottom, 10)
+    .background(.ultraThinMaterial)
+  }
+
+  @MainActor
+  private func joinChannel() async {
+    isJoiningChannel = true
+    errorMessage = nil
+    defer { isJoiningChannel = false }
+
+    do {
+      try await authStore.joinChannel(channelID: channel.id)
+      hasJoinedPublicChannel = true
+      startMessagesSubscription()
+    } catch {
+      errorMessage = "Could not join channel: \(error.localizedDescription)"
+    }
   }
 
   @MainActor
@@ -497,6 +578,23 @@ struct ChannelChatView: View {
       newMessage = ""
     } catch {
       errorMessage = error.localizedDescription
+    }
+  }
+
+  @MainActor
+  private func sendLocation(_ payload: ChatLocationPayload) async {
+    isSendingMessage = true
+    errorMessage = nil
+    defer { isSendingMessage = false }
+
+    do {
+      let sentMessage = try await authStore.sendChannelMessage(
+        channelID: channel.id,
+        content: payload.encodedBody
+      )
+      appendOrReplace(sentMessage)
+    } catch {
+      errorMessage = "Failed to share location: \(error.localizedDescription)"
     }
   }
 
@@ -863,6 +961,7 @@ struct ChannelChatView: View {
 private struct ChannelAttachmentOptionsSheet: View {
   let onPhotos: () -> Void
   let onCamera: () -> Void
+  let onLocation: () -> Void
   let onFiles: () -> Void
 
   var body: some View {
@@ -879,6 +978,13 @@ private struct ChannelAttachmentOptionsSheet: View {
         tint: Color(red: 0.02, green: 0.70, blue: 0.48),
         title: "Camera",
         action: onCamera
+      )
+
+      ChannelAttachmentOptionRow(
+        icon: "location.fill",
+        tint: Color(red: 0.06, green: 0.50, blue: 0.95),
+        title: "Location",
+        action: onLocation
       )
 
       ChannelAttachmentOptionRow(
@@ -972,14 +1078,24 @@ private struct ChannelMessageRow: View {
       }
 
       if !message.content.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
-        Text(message.content)
-          .padding(.horizontal, 12)
-          .padding(.vertical, 8)
-          .foregroundStyle(isMine ? .white : .primary)
-          .background(
-            isMine ? Color.blue : Color(.systemGray5),
-            in: RoundedRectangle(cornerRadius: 12, style: .continuous)
-          )
+        if let payload = ChatLocationPayload(messageBody: message.content) {
+          ChatLocationCard(payload: payload, isOutgoing: isMine)
+            .padding(.horizontal, 12)
+            .padding(.vertical, 8)
+            .background(
+              isMine ? Color.blue : Color(.systemGray5),
+              in: RoundedRectangle(cornerRadius: 12, style: .continuous)
+            )
+        } else {
+          Text(message.content)
+            .padding(.horizontal, 12)
+            .padding(.vertical, 8)
+            .foregroundStyle(isMine ? .white : .primary)
+            .background(
+              isMine ? Color.blue : Color(.systemGray5),
+              in: RoundedRectangle(cornerRadius: 12, style: .continuous)
+            )
+        }
       }
 
       if message.attachmentType != nil || message.attachmentFileName != nil {

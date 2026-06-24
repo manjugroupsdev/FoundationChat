@@ -462,30 +462,41 @@ private struct BookingDetailView: View {
     @State private var rejectReason = ""
 
     var body: some View {
-        ScrollView {
+        Group {
             if isLoading && booking == nil {
                 ProgressView("Loading booking...")
                     .frame(maxWidth: .infinity)
-                    .padding(.top, 60)
+                    .frame(maxHeight: .infinity)
             } else if let booking {
-                VStack(alignment: .leading, spacing: 16) {
-                    Capsule()
-                        .fill(Color(hex: 0xD0D5DD))
-                        .frame(width: 52, height: 5)
-                        .frame(maxWidth: .infinity)
-                        .padding(.top, 4)
+                VStack(spacing: 0) {
+                    VStack(alignment: .leading, spacing: 16) {
+                        Capsule()
+                            .fill(Color(hex: 0xD0D5DD))
+                            .frame(width: 52, height: 5)
+                            .frame(maxWidth: .infinity)
+                            .padding(.top, 4)
 
-                    bookingDrawerHeader(booking)
-                    bookingDrawerTabs
-                    bookingDrawerBody(booking)
+                        bookingDrawerHeader(booking)
+                        bookingDrawerTabs
+                    }
+                    .padding(.horizontal, 16)
+                    .padding(.bottom, 14)
+                    .background(Color.white)
+
+                    ScrollView {
+                        bookingDrawerBody(booking)
+                            .padding(.horizontal, 16)
+                            .padding(.top, 14)
+                            .padding(.bottom, isEditing ? 104 : 28)
+                    }
+                    .refreshable { await load() }
+
+                    fixedSaveFooter
                 }
-                .padding(.horizontal, 16)
-                .padding(.bottom, 28)
             }
         }
         .background(Color.white.ignoresSafeArea())
         .task { await load() }
-        .refreshable { await load() }
         .alert("Reject Booking", isPresented: $showReject) {
             TextField("Reason", text: $rejectReason)
             Button("Cancel", role: .cancel) { rejectReason = "" }
@@ -637,7 +648,6 @@ private struct BookingDetailView: View {
             drawerField("State", text: $editDraft.state, value: booking.state)
             drawerField("District", text: $editDraft.district, value: booking.district)
             drawerField("Location", text: $editDraft.location, value: booking.location)
-            saveChangesButton
         }
     }
 
@@ -652,7 +662,6 @@ private struct BookingDetailView: View {
             drawerField("Booking Cost", text: $editDraft.bookingCost, value: booking.bookingCost.map(AppModuleFormatters.rupees), keyboard: .decimalPad)
             drawerField("Guideline Value", text: $editDraft.guidelineValue, value: booking.guidelineValue.map(AppModuleFormatters.rupees), keyboard: .decimalPad)
             drawerField("Advance Amount", text: $editDraft.advanceAmount, value: booking.advanceAmount.map(AppModuleFormatters.rupees), keyboard: .decimalPad)
-            saveChangesButton
         }
     }
 
@@ -673,7 +682,6 @@ private struct BookingDetailView: View {
             drawerField("Office Phone", text: $editDraft.officePhone, value: booking.officePhone, keyboard: .phonePad)
             drawerField("Office Address", text: $editDraft.officeAddress, value: booking.officeAddress, axis: .vertical)
             drawerField("Notes", text: $editDraft.notes, value: booking.notes, axis: .vertical)
-            saveChangesButton
         }
     }
 
@@ -714,28 +722,35 @@ private struct BookingDetailView: View {
     }
 
     @ViewBuilder
-    private var saveChangesButton: some View {
+    private var fixedSaveFooter: some View {
         if isEditing {
-            HStack {
-                Spacer()
+            VStack(spacing: 0) {
+                Divider()
+                    .overlay(Color(hex: 0xEAECF0))
+
                 Button {
                     Task { await saveDrawerChanges() }
                 } label: {
                     if isSaving {
                         ProgressView()
-                            .frame(width: 150)
+                            .tint(.white)
+                            .frame(maxWidth: .infinity)
+                            .frame(height: 54)
                     } else {
                         Text("Save Changes")
                             .font(.system(size: 16, weight: .semibold))
-                            .frame(width: 150)
+                            .foregroundStyle(.white)
+                            .frame(maxWidth: .infinity)
+                            .frame(height: 54)
                     }
                 }
-                .buttonStyle(.borderedProminent)
-                .controlSize(.large)
-                .tint(Color(hex: 0x0B61CA))
+                .buttonStyle(.plain)
+                .background(Color(hex: 0x0B61CA), in: Capsule())
                 .disabled(isSaving)
+                .padding(.horizontal, 24)
+                .padding(.vertical, 14)
             }
-            .padding(.top, 12)
+            .background(Color.white.ignoresSafeArea(edges: .bottom))
         }
     }
 

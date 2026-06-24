@@ -11,10 +11,14 @@ struct MessageContentView: View {
         .font(.system(size: 14.5, weight: .regular))
         .italic()
     } else if !message.content.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
-      Text(message.content)
-        .foregroundStyle(isOutgoing ? .white : Color.black.opacity(0.92))
-        .font(.system(size: 15.8, weight: .regular))
-        .lineSpacing(2)
+      if let payload = ChatLocationPayload(messageBody: message.content) {
+        ChatLocationCard(payload: payload, isOutgoing: isOutgoing)
+      } else {
+        Text(message.content)
+          .foregroundStyle(isOutgoing ? .white : Color.black.opacity(0.92))
+          .font(.system(size: 15.8, weight: .regular))
+          .lineSpacing(2)
+      }
     }
   }
 }

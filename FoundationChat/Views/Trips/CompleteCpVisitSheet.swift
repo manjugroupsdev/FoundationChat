@@ -71,102 +71,83 @@ struct CompleteCpVisitSheet: View {
 
     var body: some View {
         NavigationStack {
-            ScrollView {
-                VStack(alignment: .leading, spacing: 14) {
-                    Capsule()
-                        .fill(Color(hex: 0xE4E7EC))
-                        .frame(width: 40, height: 4)
-                        .frame(maxWidth: .infinity)
-                        .padding(.bottom, 2)
+            VStack(spacing: 0) {
+                ScrollView {
+                    VStack(alignment: .leading, spacing: 14) {
+                        Capsule()
+                            .fill(Color(hex: 0xE4E7EC))
+                            .frame(width: 40, height: 4)
+                            .frame(maxWidth: .infinity)
+                            .padding(.bottom, 2)
 
-                    HStack(alignment: .center, spacing: 12) {
-                        VStack(alignment: .leading, spacing: 2) {
-                            Text("Outcome Information")
-                                .font(.system(size: 16, weight: .semibold))
-                                .foregroundStyle(Color(hex: 0x101828))
-                            Text("Information about Client Details")
-                                .font(.system(size: 11))
-                                .foregroundStyle(Color(hex: 0x94A3B8))
-                        }
-
-                        Spacer()
-
-                        Button {
-                            dismissKeyboard()
-                        } label: {
-                            Text("Done")
-                                .font(.system(size: 12, weight: .semibold))
-                                .foregroundStyle(Color(hex: 0x2563EB))
-                                .padding(.horizontal, 14)
-                                .frame(height: 32)
-                                .background(Color(hex: 0xEFF6FF), in: Capsule())
-                        }
-                        .buttonStyle(.plain)
-
-                        Button {
-                            resetOutcomeToBookingFindClient()
-                        } label: {
-                            Text("Edit")
-                                .font(.system(size: 12, weight: .semibold))
-                                .foregroundStyle(Color(hex: 0x2DAE12))
-                                .padding(.horizontal, 14)
-                                .frame(height: 32)
-                                .background(Color(hex: 0xEAF8E8), in: Capsule())
-                        }
-                        .buttonStyle(.plain)
-                    }
-
-                    outcomeChips
-                        .padding(.top, 2)
-
-                    if selectedOutcome == .booking {
-                        bookingSection
-                    }
-
-                    if selectedOutcome == .siteVisit {
-                        siteVisitSection
-                    }
-
-                    if selectedOutcome == .postponed {
-                        postponeSection
-                    }
-
-                    if selectedOutcome == .notInterested {
-                        notInterestedSection
-                    }
-
-                    if let errorMessage {
-                        Text(errorMessage)
-                            .font(.system(size: 12, weight: .medium))
-                            .foregroundStyle(.red)
-                    }
-
-                    if isLockedSvMode {
-                        lockedSvFooter
-                            .padding(.top, 6)
-                    } else {
-                        Button {
-                            Task { await submit() }
-                        } label: {
-                            if isSaving {
-                                ProgressView()
-                                    .frame(maxWidth: .infinity)
-                            } else {
-                                Text(ctaTitle)
-                                    .font(.system(size: 14, weight: .semibold))
-                                    .frame(maxWidth: .infinity)
+                        HStack(alignment: .center, spacing: 12) {
+                            VStack(alignment: .leading, spacing: 2) {
+                                Text("Outcome Information")
+                                    .font(.system(size: 16, weight: .semibold))
+                                    .foregroundStyle(Color(hex: 0x101828))
+                                Text("Information about Client Details")
+                                    .font(.system(size: 11))
+                                    .foregroundStyle(Color(hex: 0x94A3B8))
                             }
+
+                            Spacer()
+
+                            Button {
+                                dismissKeyboard()
+                            } label: {
+                                Text("Done")
+                                    .font(.system(size: 12, weight: .semibold))
+                                    .foregroundStyle(Color(hex: 0x2563EB))
+                                    .padding(.horizontal, 14)
+                                    .frame(height: 32)
+                                    .background(Color(hex: 0xEFF6FF), in: Capsule())
+                            }
+                            .buttonStyle(.plain)
+
+                            Button {
+                                resetOutcomeToBookingFindClient()
+                            } label: {
+                                Text("Edit")
+                                    .font(.system(size: 12, weight: .semibold))
+                                    .foregroundStyle(Color(hex: 0x2DAE12))
+                                    .padding(.horizontal, 14)
+                                    .frame(height: 32)
+                                    .background(Color(hex: 0xEAF8E8), in: Capsule())
+                            }
+                            .buttonStyle(.plain)
                         }
-                        .buttonStyle(.borderedProminent)
-                        .controlSize(.large)
-                        .tint(Color(hex: 0x2DAE12))
-                        .padding(.top, 6)
-                        .disabled(isSaving)
+
+                        outcomeChips
+                            .padding(.top, 2)
+
+                        if selectedOutcome == .booking {
+                            bookingSection
+                        }
+
+                        if selectedOutcome == .siteVisit {
+                            siteVisitSection
+                        }
+
+                        if selectedOutcome == .postponed {
+                            postponeSection
+                        }
+
+                        if selectedOutcome == .notInterested {
+                            notInterestedSection
+                        }
+
+                        if let errorMessage {
+                            Text(errorMessage)
+                                .font(.system(size: 12, weight: .medium))
+                                .foregroundStyle(.red)
+                        }
                     }
+                    .padding(.horizontal, 20)
+                    .padding(.top, 18)
+                    .padding(.bottom, 24)
                 }
-                .padding(.horizontal, 20)
-                .padding(.top, 18)
-                .padding(.bottom, 24)
+
+                fixedSubmitFooter
             }
             .background(Color(.systemBackground))
             .scrollDismissesKeyboard(.interactively)
@@ -198,6 +179,42 @@ struct CompleteCpVisitSheet: View {
                 .presentationDragIndicator(.visible)
             }
         }
+    }
+
+    @ViewBuilder
+    private var fixedSubmitFooter: some View {
+        VStack(spacing: 0) {
+            Divider()
+                .overlay(Color(hex: 0xEAECF0))
+
+            if isLockedSvMode {
+                lockedSvFooter
+            } else {
+                Button {
+                    Task { await submit() }
+                } label: {
+                    if isSaving {
+                        ProgressView()
+                            .tint(.white)
+                            .frame(maxWidth: .infinity)
+                            .frame(height: 52)
+                    } else {
+                        Text(ctaTitle)
+                            .font(.system(size: 14, weight: .semibold))
+                            .foregroundStyle(.white)
+                            .frame(maxWidth: .infinity)
+                            .frame(height: 52)
+                    }
+                }
+                .buttonStyle(.plain)
+                .background(Color(hex: 0x2DAE12), in: Capsule())
+                .disabled(isSaving)
+            }
+        }
+        .padding(.horizontal, 20)
+        .padding(.top, 12)
+        .padding(.bottom, 12)
+        .background(Color(.systemBackground).ignoresSafeArea(edges: .bottom))
     }
 
     private var outcomeChips: some View {

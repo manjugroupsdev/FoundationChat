@@ -39,32 +39,34 @@ struct BookingCreateView: View {
     }
 
     var body: some View {
-        ScrollView {
-            VStack(alignment: .leading, spacing: 12) {
-                header
-                tabStrip
+        VStack(spacing: 0) {
+            ScrollView {
+                VStack(alignment: .leading, spacing: 12) {
+                    header
+                    tabStrip
 
-                if !canCreateBooking {
-                    Label("You don't have permission to create bookings.", systemImage: "lock.fill")
-                        .font(.system(size: 13, weight: .medium))
-                        .foregroundStyle(.orange)
-                        .padding(12)
-                        .background(Color.orange.opacity(0.12), in: RoundedRectangle(cornerRadius: 12))
+                    if !canCreateBooking {
+                        Label("You don't have permission to create bookings.", systemImage: "lock.fill")
+                            .font(.system(size: 13, weight: .medium))
+                            .foregroundStyle(.orange)
+                            .padding(12)
+                            .background(Color.orange.opacity(0.12), in: RoundedRectangle(cornerRadius: 12))
+                    }
+
+                    tabBody
+
+                    if let draftMessage {
+                        Label(draftMessage, systemImage: "doc.text.clock")
+                            .font(.caption)
+                            .foregroundStyle(Color(hex: 0x667085))
+                    }
                 }
-
-                tabBody
-
-                if let draftMessage {
-                    Label(draftMessage, systemImage: "doc.text.clock")
-                        .font(.caption)
-                        .foregroundStyle(Color(hex: 0x667085))
-                }
-
-                footerAction
+                .padding(.horizontal, 16)
+                .padding(.top, 12)
+                .padding(.bottom, 28)
             }
-            .padding(.horizontal, 16)
-            .padding(.top, 12)
-            .padding(.bottom, 24)
+
+            fixedFooterAction
         }
         .background(Color.white.ignoresSafeArea())
         .navigationBarTitleDisplayMode(.inline)
@@ -93,6 +95,18 @@ struct BookingCreateView: View {
         } message: {
             Text(errorMessage ?? successMessage ?? "")
         }
+    }
+
+    private var fixedFooterAction: some View {
+        VStack(spacing: 0) {
+            Divider()
+                .overlay(Color(hex: 0xEAECF0))
+            footerAction
+                .padding(.horizontal, 16)
+                .padding(.top, 12)
+                .padding(.bottom, 12)
+        }
+        .background(Color.white.ignoresSafeArea(edges: .bottom))
     }
 
     private var header: some View {

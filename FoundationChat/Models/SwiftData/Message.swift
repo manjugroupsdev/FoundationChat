@@ -23,6 +23,11 @@ final class Message {
   var replySenderName: String?
   var reactionSummary: String?
   var isDeleted: Bool = false
+  var deliveryState: String?
+  var deliveryError: String?
+  var pendingConversationID: String?
+  var pendingParentMessageID: String?
+  var pendingMentionedStaffIds: String?
 
   init(
     content: String, role: Role, timestamp: Date,
@@ -40,7 +45,12 @@ final class Message {
     replyPreviewText: String? = nil,
     replySenderName: String? = nil,
     reactionSummary: String? = nil,
-    isDeleted: Bool = false
+    isDeleted: Bool = false,
+    deliveryState: String? = nil,
+    deliveryError: String? = nil,
+    pendingConversationID: String? = nil,
+    pendingParentMessageID: String? = nil,
+    pendingMentionedStaffIds: String? = nil
   ) {
     self.remoteMessageID = remoteMessageID
     self.senderStackUserId = senderStackUserId
@@ -60,5 +70,10 @@ final class Message {
     self.replySenderName = replySenderName
     self.reactionSummary = reactionSummary
     self.isDeleted = isDeleted
+    self.deliveryState = deliveryState
+    self.deliveryError = deliveryError
+    self.pendingConversationID = pendingConversationID
+    self.pendingParentMessageID = pendingParentMessageID
+    self.pendingMentionedStaffIds = pendingMentionedStaffIds
   }
 }

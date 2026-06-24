@@ -1,6 +1,7 @@
 import Combine
 import AVFoundation
 import AVKit
+import CoreLocation
 import PhotosUI
 import SwiftData
 import SwiftUI
@@ -41,6 +42,7 @@ struct ConversationDetailView: View {
   @State private var pendingImageAttachment: PendingImageAttachment?
   @State private var messagesToForward: [Message] = []
   @State private var reactionTarget: Message?
+  @State private var messageInfoTarget: Message?
   @State private var selectedMessageIDs: Set<PersistentIdentifier> = []
   @State private var highlightedRemoteMessageID: String?
   @State private var voiceRecorder: AVAudioRecorder?
@@ -52,6 +54,7 @@ struct ConversationDetailView: View {
   @State private var voiceRecordingTimerTask: Task<Void, Never>?
   @State private var voiceTypingTask: Task<Void, Never>?
   @State private var isEmojiPanelVisible = false
+  @State private var isLocationSheetPresented = false
   @State private var mentionUsers: [DirectoryUser] = []
   @State private var mentionSearchTask: Task<Void, Never>?
   @FocusState var isInputFocused: Bool
@@ -175,6 +178,11 @@ struct ConversationDetailView: View {
                 },
                 onToggleSelection: {
                   toggleMessageSelection(message)
+                },
+                onRetrySend: {
+                  Task {
+                    await retryPendingMessage(message)
+                  }
                 }
               )
               .id(message.id)
@@ -215,6 +223,10 @@ struct ConversationDetailView: View {
             UIPasteboard.general.string = reactionTarget.content
             selectedMessageIDs.removeAll()
           },
+          onInfo: {
+            messageInfoTarget = reactionTarget
+            selectedMessageIDs.removeAll()
+          },
           onReact: { emoji in
             Task {
               await toggleReaction(emoji, for: reactionTarget)
@@ -236,6 +248,7 @@ struct ConversationDetailView: View {
       startMessagesSubscription()
       startConversationStatusSubscription()
       startPolling()
+      flushPendingOutbox()
       startTypingPolling()
       startPresencePolling()
       withAnimation {
@@ -270,6 +283,7 @@ struct ConversationDetailView: View {
       startMessagesSubscription()
       startConversationStatusSubscription()
       startPolling()
+      flushPendingOutbox()
       startTypingPolling()
       startPresencePolling()
     }
@@ -387,6 +401,13 @@ struct ConversationDetailView: View {
             isCameraPresented = true
           }
         },
+        onLocation: {
+          isAttachmentOptionsPresented = false
+          Task { @MainActor in
+            try? await Task.sleep(for: .milliseconds(220))
+            isLocationSheetPresented = true
+          }
+        },
         onFiles: {
           isAttachmentOptionsPresented = false
           Task { @MainActor in
@@ -398,9 +419,33 @@ struct ConversationDetailView: View {
           isAttachmentOptionsPresented = false
         }
       )
-      .presentationDetents([.height(270)])
+      .presentationDetents([.height(340)])
       .presentationDragIndicator(.visible)
       .presentationBackground(.clear)
+    }
+    .sheet(isPresented: $isLocationSheetPresented) {
+      ShareLocationSheet(
+        onCancel: {
+          isLocationSheetPresented = false
+        },
+        onShare: { payload in
+          isLocationSheetPresented = false
+          Task {
+            await sendLocation(payload)
+          }
+        }
+      )
+      .presentationDetents([.height(360)])
+      .presentationDragIndicator(.visible)
+    }
+    .sheet(item: $messageInfoTarget) { message in
+      MessageInfoSheet(
+        message: message,
+        senderName: messageInfoSenderName(for: message),
+        isMine: isOutgoingMessage(message)
+      )
+      .presentationDetents([.height(390)])
+      .presentationDragIndicator(.visible)
     }
     .sheet(isPresented: $isCameraPresented) {
       ChatCameraPicker(image: $capturedCameraImage)
@@ -593,6 +638,13 @@ struct ConversationDetailView: View {
         .disabled(selectedMessages.isEmpty || selectedMessages.allSatisfy(\.isDeleted))
 
         Button {
+          showInfoForSelectedMessage()
+        } label: {
+          Label("Info", systemImage: "info.circle")
+        }
+        .disabled(selectedMessages.count != 1)
+
+        Button {
           showReactionsForSelectedMessage()
         } label: {
           Label("React", systemImage: "face.smiling")
@@ -758,6 +810,13 @@ struct ConversationDetailView: View {
     withAnimation(.spring(response: 0.28, dampingFraction: 0.86)) {
       reactionTarget = message
     }
+  }
+
+  private func showInfoForSelectedMessage() {
+    guard selectedMessages.count == 1, let message = selectedMessages.first else { return }
+    selectedMessageIDs.removeAll()
+    reactionTarget = nil
+    messageInfoTarget = message
   }
 
   @MainActor
@@ -1062,6 +1121,7 @@ private struct MessageTimestampDivider: View {
 private struct AttachmentOptionsSheet: View {
   let onPhotos: () -> Void
   let onCamera: () -> Void
+  let onLocation: () -> Void
   let onFiles: () -> Void
   let onDismiss: () -> Void
 
@@ -1079,6 +1139,13 @@ private struct AttachmentOptionsSheet: View {
         tint: Color(red: 0.02, green: 0.70, blue: 0.48),
         title: "Camera",
         action: onCamera
+      )
+
+      AttachmentOptionRow(
+        icon: "location.fill",
+        tint: Color(red: 0.06, green: 0.50, blue: 0.95),
+        title: "Location",
+        action: onLocation
       )
 
       AttachmentOptionRow(
@@ -1840,6 +1907,7 @@ private struct MessageReactionOverlay: View {
   let onForward: () -> Void
   let onSelect: () -> Void
   let onCopy: () -> Void
+  let onInfo: () -> Void
   let onReact: (String) -> Void
   let onDelete: () -> Void
 
@@ -1875,6 +1943,10 @@ private struct MessageReactionOverlay: View {
           },
           onCopy: {
             onCopy()
+            onDismiss()
+          },
+          onInfo: {
+            onInfo()
             onDismiss()
           },
           onReact: { emoji in
@@ -1918,6 +1990,7 @@ private struct ReactionActionMenu: View {
   let onForward: () -> Void
   let onSelect: () -> Void
   let onCopy: () -> Void
+  let onInfo: () -> Void
   let onReact: (String) -> Void
   let onDelete: () -> Void
   let onDismiss: () -> Void
@@ -1944,6 +2017,7 @@ private struct ReactionActionMenu: View {
       ReactionActionRow(icon: "arrowshape.turn.up.left", title: "Reply", tint: .white, action: onReply)
       ReactionActionRow(icon: "arrowshape.turn.up.right", title: "Forward", tint: .white, action: onForward)
       ReactionActionRow(icon: "checkmark.circle", title: "Select", tint: .white, action: onSelect)
+      ReactionActionRow(icon: "info.circle", title: "Info", tint: .white, action: onInfo)
       ReactionActionRow(icon: "doc.on.doc", title: "Copy", tint: .white, action: onCopy)
         .disabled(message.content.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty)
         .opacity(message.content.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty ? 0.45 : 1)
@@ -2019,6 +2093,83 @@ private struct ReactionPreviewBubble: View {
       .shadow(color: .black.opacity(0.2), radius: 18, y: 8)
       .frame(maxWidth: .infinity, alignment: isOutgoing ? .trailing : .leading)
       .padding(.horizontal, 28)
+  }
+}
+
+private struct MessageInfoSheet: View {
+  let message: Message
+  let senderName: String
+  let isMine: Bool
+  @Environment(\.dismiss) private var dismiss
+
+  var body: some View {
+    NavigationStack {
+      List {
+        Section {
+          VStack(alignment: .leading, spacing: 8) {
+            Text(previewText)
+              .font(.system(size: 16, weight: .semibold))
+              .lineLimit(4)
+            if let error = message.deliveryError, message.deliveryState == "failed" {
+              Text(error)
+                .font(.system(size: 13, weight: .medium))
+                .foregroundStyle(.red)
+            }
+          }
+          .padding(.vertical, 4)
+        }
+
+        Section("Details") {
+          infoRow("Sender", isMine ? "You" : senderName)
+          infoRow("Sent", message.timestamp.formatted(date: .abbreviated, time: .shortened))
+          infoRow("Status", statusText)
+          infoRow("Replies", message.replyToRemoteMessageID == nil ? "No reply" : "Reply message")
+          infoRow("Attachments", attachmentCountText)
+        }
+      }
+      .navigationTitle("Message Info")
+      .navigationBarTitleDisplayMode(.inline)
+      .toolbar {
+        ToolbarItem(placement: .confirmationAction) {
+          Button("Done") { dismiss() }
+        }
+      }
+    }
+  }
+
+  private var previewText: String {
+    if message.isDeleted { return "This message was deleted" }
+    if ChatLocationPayload(messageBody: message.content) != nil { return "Location" }
+    let content = message.content.trimmingCharacters(in: .whitespacesAndNewlines)
+    if !content.isEmpty { return content }
+    if let title = message.attachementTitle, !title.isEmpty { return title }
+    if let fileName = message.attachementFileName, !fileName.isEmpty { return fileName }
+    return "Message"
+  }
+
+  private var statusText: String {
+    if message.isDeleted { return "Deleted" }
+    if message.deliveryState == "failed" { return "Not sent" }
+    if message.deliveryState == "pending" || message.remoteMessageID == nil { return "Pending" }
+    return "Delivered"
+  }
+
+  private var attachmentCountText: String {
+    let hasAttachment = message.attachementType != nil
+      || message.attachementMimeType != nil
+      || message.attachementURL != nil
+      || message.attachementFileName != nil
+    return hasAttachment ? "1" : "0"
+  }
+
+  private func infoRow(_ title: String, _ value: String) -> some View {
+    HStack {
+      Text(title)
+        .foregroundStyle(.secondary)
+      Spacer()
+      Text(value)
+        .multilineTextAlignment(.trailing)
+    }
   }
 }
 
@@ -2687,7 +2838,11 @@ extension ConversationDetailView {
       senderStackUserId: authStore.viewer?.subject,
       replyToRemoteMessageID: parentMessageId,
       replyPreviewText: parentPreview,
-      replySenderName: parentSenderName
+      replySenderName: parentSenderName,
+      deliveryState: "pending",
+      pendingConversationID: conversation.remoteConversationID,
+      pendingParentMessageID: parentMessageId,
+      pendingMentionedStaffIds: mentionedStaffIds(in: userInput).joined(separator: ",")
     )
     conversation.messages.append(localUserMessage)
     try? modelContext.save()
@@ -2707,14 +2862,8 @@ extension ConversationDetailView {
         )
         sync(savedMessage: savedMessage, into: localUserMessage)
       } catch {
-        conversation.messages.removeAll(where: { $0 === localUserMessage })
-        conversation.messages.append(
-          Message(
-            content: "Failed to send message: \(error.localizedDescription)",
-            role: .system,
-            timestamp: Date()
-          )
-        )
+        localUserMessage.deliveryState = "failed"
+        localUserMessage.deliveryError = error.localizedDescription
         try? modelContext.save()
         return
       }
@@ -2724,6 +2873,100 @@ extension ConversationDetailView {
       scrollPosition.scrollTo(edge: .bottom)
     }
     try? modelContext.save()
+  }
+
+  @MainActor
+  private func sendLocation(_ payload: ChatLocationPayload) async {
+    let body = payload.encodedBody
+    let localMessage = Message(
+      content: body,
+      role: .user,
+      timestamp: Date(),
+      senderStackUserId: authStore.viewer?.subject,
+      deliveryState: "pending",
+      pendingConversationID: conversation.remoteConversationID
+    )
+    conversation.messages.append(localMessage)
+    try? modelContext.save()
+
+    guard let remoteConversationID = conversation.remoteConversationID else {
+      localMessage.deliveryState = "failed"
+      localMessage.deliveryError = "Conversation is not ready."
+      try? modelContext.save()
+      return
+    }
+
+    do {
+      let savedMessage = try await authStore.sendMessage(
+        conversationID: remoteConversationID,
+        role: .user,
+        content: body
+      )
+      sync(savedMessage: savedMessage, into: localMessage)
+    } catch {
+      localMessage.deliveryState = "failed"
+      localMessage.deliveryError = error.localizedDescription
+    }
+
+    withAnimation {
+      scrollPosition.scrollTo(edge: .bottom)
+    }
+    try? modelContext.save()
+  }
+
+  @MainActor
+  private func flushPendingOutbox() {
+    let pendingMessages = conversation.sortedMessages.filter { message in
+      message.role == .user
+        && message.remoteMessageID == nil
+        && (message.deliveryState == "pending" || message.deliveryState == "failed")
+        && message.attachementType == nil
+        && message.attachementMimeType == nil
+        && message.attachementURL == nil
+    }
+    guard !pendingMessages.isEmpty else { return }
+
+    Task { @MainActor in
+      for message in pendingMessages {
+        await retryPendingMessage(message)
+      }
+    }
+  }
+
+  @MainActor
+  private func retryPendingMessage(_ message: Message) async {
+    guard message.remoteMessageID == nil, message.role == .user else { return }
+    guard let remoteConversationID = message.pendingConversationID ?? conversation.remoteConversationID else {
+      message.deliveryState = "failed"
+      message.deliveryError = "Conversation is not ready."
+      try? modelContext.save()
+      return
+    }
+
+    message.deliveryState = "pending"
+    message.deliveryError = nil
+    try? modelContext.save()
+
+    do {
+      let savedMessage = try await authStore.sendMessage(
+        conversationID: remoteConversationID,
+        role: .user,
+        content: message.content,
+        parentMessageId: message.pendingParentMessageID ?? message.replyToRemoteMessageID,
+        mentionedStaffIds: pendingMentionIds(from: message.pendingMentionedStaffIds)
+      )
+      sync(savedMessage: savedMessage, into: message)
+    } catch {
+      message.deliveryState = "failed"
+      message.deliveryError = error.localizedDescription
+    }
+    try? modelContext.save()
+  }
+
+  private func pendingMentionIds(from csv: String?) -> [String]? {
+    guard let csv else { return nil }
+    let ids = csv.split(separator: ",").map(String.init).filter { !$0.isEmpty }
+    return ids.isEmpty ? nil : ids
   }
 
   private func applyRemoteMessages(_ remoteMessages: [ConvexChatMessage]) {
@@ -2846,6 +3089,11 @@ extension ConversationDetailView {
     localMessage.role = remoteMessage.role.appRole
     localMessage.timestamp = remoteMessage.timestamp
     localMessage.isDeleted = isDeleted
+    localMessage.deliveryState = nil
+    localMessage.deliveryError = nil
+    localMessage.pendingConversationID = nil
+    localMessage.pendingParentMessageID = nil
+    localMessage.pendingMentionedStaffIds = nil
 
     if isDeleted {
       clearDeletedMessagePayload(localMessage)
@@ -3101,6 +3349,10 @@ extension ConversationDetailView {
       return "You"
     }
     return conversationTitle
+  }
+
+  private func messageInfoSenderName(for message: Message) -> String {
+    replySenderName(for: message)
   }
 
   private func replyPreviewText(for message: Message) -> String {
