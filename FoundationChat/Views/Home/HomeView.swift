@@ -843,10 +843,7 @@ struct HomeView: View {
         if let start, let end { return "\(start) - \(end)" }
         if let start { return start }
         if let end { return end }
-        if let time = formatTimeValue(visit.scheduledDate) {
-            return time
-        }
-        return formatVisitDate(visit.scheduledDate)
+        return "-"
     }
 
     private func formatVisitDate(_ raw: String) -> String {
@@ -870,7 +867,7 @@ struct HomeView: View {
 
     private func formatTimeValue(_ raw: String) -> String? {
         let trimmed = raw.trimmingCharacters(in: .whitespacesAndNewlines)
-        guard !trimmed.isEmpty else { return nil }
+        guard !trimmed.isEmpty, !looksLikeDateOnly(trimmed) else { return nil }
 
         let iso = ISO8601DateFormatter()
         iso.formatOptions = [.withInternetDateTime, .withFractionalSeconds]
@@ -884,7 +881,24 @@ struct HomeView: View {
             return visitTimeFormatter.string(from: date)
         }
 
+        let patterns = ["HH:mm:ss", "HH:mm", "h:mm a", "hh:mm a"]
+        for pattern in patterns {
+            let formatter = DateFormatter()
+            formatter.locale = Locale(identifier: "en_US_POSIX")
+            formatter.dateFormat = pattern
+            if let date = formatter.date(from: trimmed) {
+                return visitTimeFormatter.string(from: date)
+            }
+        }
+
         return nil
+    }
+
+    private func looksLikeDateOnly(_ raw: String) -> Bool {
+        let trimmed = raw.trimmingCharacters(in: .whitespacesAndNewlines)
+        if trimmed.contains(":") { return false }
+        if trimmed.range(of: #"^\d{4}-\d{1,2}-\d{1,2}$"#, options: .regularExpression) != nil { return true }
+        return trimmed.range(of: #"^\d{1,2}/\d{1,2}/\d{2,4}$"#, options: .regularExpression) != nil
     }
 
     private var visitDateFormatter: DateFormatter {

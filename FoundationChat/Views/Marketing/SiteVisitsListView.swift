@@ -195,7 +195,7 @@ struct SiteVisitsListView: View {
         case .clientStarted:
             return "No Visits In Progress"
         case .pickedUp:
-            return "No Completed Visits"
+            return "No Picked Up Visits"
         }
     }
 
@@ -592,7 +592,7 @@ private enum SiteVisitListFilter: String, CaseIterable, Identifiable {
         case .clientStarted:
             return visit.siteVisitStatus.isInProgress
         case .pickedUp:
-            return visit.siteVisitStatus == .completed
+            return visit.siteVisitStatus == .pickedUp
         }
     }
 }
@@ -629,7 +629,7 @@ private extension ConvexSiteVisit {
         case .start:
             return ("Scheduled", Color(hex: 0xB54708), Color(hex: 0xFFFAEB))
         case .clientStarted:
-            return ("Enroute", Color(hex: 0xB54708), Color(hex: 0xFFFAEB))
+            return ("Client Started", Color(hex: 0xB54708), Color(hex: 0xFFFAEB))
         case .pickedUp:
             return ("Picked up", Color(hex: 0xB54708), Color(hex: 0xFFFAEB))
         case .onSite:
@@ -745,6 +745,9 @@ private enum SiteVisitDateFormatter {
 
     static func displayTime(_ raw: String) -> String {
         let trimmed = raw.trimmingCharacters(in: .whitespacesAndNewlines)
+        if parseDate(trimmed) != nil || trimmed.range(of: #"^\d{1,2}/\d{1,2}/\d{2,4}$"#, options: .regularExpression) != nil {
+            return ""
+        }
         let inputFormats = ["HH:mm:ss", "HH:mm", "h:mm a", "hh:mm a"]
         for format in inputFormats {
             let parser = DateFormatter()

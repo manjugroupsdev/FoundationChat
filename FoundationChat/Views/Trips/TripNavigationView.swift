@@ -62,6 +62,7 @@ struct TripNavigationView: View {
     @State private var showOtpSheet = false
     @State private var showSiteVisitOutcomeSheet = false
     @State private var showCpCompletionSheet = false
+    @State private var activeSpecialCpCompletion: CpSpecialCompletionKind?
     @State private var showCpClientSeenSheet = false
     @State private var showCpTripCompletedSheet = false
     @State private var cpNoPathPhotoCapture = false
@@ -219,6 +220,25 @@ struct TripNavigationView: View {
                 CompleteCpVisitSheet(
                     cpVisitId: cpVisitId,
                     initialOutcome: cpOutcome,
+                    onCompleted: {
+                        Task { await completeVisitAfterCpOutcome() }
+                    }
+                )
+                .environment(authStore)
+            }
+        }
+        .sheet(item: $activeSpecialCpCompletion, onDismiss: {
+            if !visitCompletedSuccessfully {
+                arrivalInProgress = false
+                arrivalStatusText = nil
+                resetArrivalSwipe()
+            }
+        }) { kind in
+            if let cpVisitId = clientPlaceVisitId {
+                SpecialCpCompletionSheet(
+                    kind: kind,
+                    cpVisitId: cpVisitId,
+                    arrivalProofStorageId: pendingStorageId,
                     onCompleted: {
                         Task { await completeVisitAfterCpOutcome() }
                     }
@@ -701,6 +721,7 @@ struct TripNavigationView: View {
                     lat: loc?.coordinate.latitude,
                     lng: loc?.coordinate.longitude
                 )
+                await syncMarketingSiteVisitStarted(token: token, siteVisitId: effectiveVisitId)
             }
 
             driverStartKm = startProof.km
@@ -713,6 +734,31 @@ struct TripNavigationView: View {
             startError = error.localizedDescription
             errorMessage = "Failed to start trip: \(error.localizedDescription)"
             isLoadingStart = false
+        }
+    }
+
+    private func syncMarketingSiteVisitStarted(token: String, siteVisitId: String) async {
+        guard shouldSyncMarketingSiteVisitLifecycle else { return }
+        do {
+            if isOwnVehicleSiteVisit {
+                try await MarketingConvexAPIService.markSiteVisitClientStarted(token: token, id: siteVisitId)
+            } else {
+                try await MarketingConvexAPIService.markSiteVisitPickedUp(token: token, id: siteVisitId)
+            }
+        } catch {
+            // Keep the existing trip flow working if marketing status was
+            // already advanced by another client or backend sync.
+        }
+    }
+
+    private func syncMarketingSiteVisitArrived(siteVisitId: String) async {
+        guard shouldSyncMarketingSiteVisitLifecycle else { return }
+        do {
+            let token = try requireToken()
+            try await MarketingConvexAPIService.markSiteVisitArrivedSite(token: token, id: siteVisitId)
+        } catch {
+            // Outcome capture should still open if the backend already moved
+            // this Site Visit to on-site through another path.
         }
     }
 
@@ -858,9 +904,9 @@ struct TripNavigationView: View {
                 token: token,
                 request: SetCpVisitOutcomeRequest(
                     id: cpVisitId,
-                    outcome: "other",
+                    outcome: specialCpCompletionKind?.terminalOutcome ?? "other",
                     postponeReasons: nil,
-                    notes: "Client not seen"
+                    notes: specialCpCompletionKind?.clientNotSeenNotes ?? "Client not seen"
                 )
             )
             cpNoPathPhotoCapture = false
@@ -880,11 +926,16 @@ struct TripNavigationView: View {
         guard let id = resolvedVisitId else { return }
         if shouldCollectCpOutcome {
             arrivalStatusText = nil
+            if let specialCpCompletionKind {
+                activeSpecialCpCompletion = specialCpCompletionKind
+                return
+            }
             showCpCompletionSheet = true
             return
         }
         if !isCpVisit {
             arrivalStatusText = nil
+            await syncMarketingSiteVisitArrived(siteVisitId: id)
             showSiteVisitOutcomeSheet = true
             return
         }
@@ -1030,9 +1081,25 @@ struct TripNavigationView: View {
         return true
     }
 
+    private var specialCpCompletionKind: CpSpecialCompletionKind? {
+        CpSpecialCompletionKind(cpType: cpType)
+    }
+
     private var isCpVisit: Bool {
         guard clientPlaceVisitId?.isEmpty == false else { return false }
         return true
+    }
+
+    private var shouldSyncMarketingSiteVisitLifecycle: Bool {
+        visitIdArg?.isEmpty == false && !isCpVisit
+    }
+
+    private var isOwnVehicleSiteVisit: Bool {
+        let marker = tripType.normalizedTripCpMarker
+        return marker == "own_vehicle"
+            || marker == "own"
+            || marker == "self"
+            || marker == "self_vehicle"
     }
 
     private func formatDistance(_ meters: Double) -> String {
@@ -1728,6 +1795,406 @@ private struct CpTripCompletedSheet: View {
     }
 }
 
+private enum CpSpecialCompletionKind: String, Identifiable {
+    case collection
+    case oldClient
+    case giftDistribution
+
+    init?(cpType: String?) {
+        switch cpType.normalizedTripCpMarker {
+        case "collection_cp": self = .collection
+        case "old_client": self = .oldClient
+        case "gift_distribution": self = .giftDistribution
+        default: return nil
+        }
+    }
+
+    var id: String { rawValue }
+
+    var title: String {
+        switch self {
+        case .collection: return "Payment Entry"
+        case .oldClient: return "Old Client Visit"
+        case .giftDistribution: return "Gift Distribution"
+        }
+    }
+
+    var subtitle: String {
+        switch self {
+        case .collection: return "Submit payment collected from the client."
+        case .oldClient: return "Add remarks from the old-client visit."
+        case .giftDistribution: return "Confirm the gift handover."
+        }
+    }
+
+    var primaryTitle: String {
+        switch self {
+        case .collection: return "Submit Payment"
+        case .oldClient: return "Save Remarks"
+        case .giftDistribution: return "Confirm Gift"
+        }
+    }
+
+    var terminalOutcome: String {
+        switch self {
+        case .collection: return "collection_done"
+        case .oldClient: return "old_client_visited"
+        case .giftDistribution: return "gift_distributed"
+        }
+    }
+
+    var clientNotSeenNotes: String {
+        switch self {
+        case .collection: return "Collection visit — client not present"
+        case .oldClient: return "Old client visit — client not present"
+        case .giftDistribution: return "Gift distribution — client not present"
+        }
+    }
+}
+
+private struct SpecialCpCompletionSheet: View {
+    @Environment(AuthStore.self) private var authStore
+    @Environment(\.dismiss) private var dismiss
+
+    let kind: CpSpecialCompletionKind
+    let cpVisitId: String
+    let arrivalProofStorageId: String?
+    let onCompleted: () -> Void
+
+    @State private var cpVisit: CpVisitDetail?
+    @State private var cases: [PostSaleCaseSummary] = []
+    @State private var selectedCaseId = ""
+    @State private var amount = ""
+    @State private var paymentMode = "cash"
+    @State private var reference = ""
+    @State private var bankName = ""
+    @State private var remarks = ""
+    @State private var isLoading = false
+    @State private var isSaving = false
+    @State private var errorMessage: String?
+
+    var body: some View {
+        VStack(spacing: 0) {
+            Capsule()
+                .fill(Color(hex: 0xD9DDE5))
+                .frame(width: 42, height: 4)
+                .padding(.top, 10)
+                .padding(.bottom, 18)
+
+            header
+
+            ScrollView {
+                VStack(alignment: .leading, spacing: 14) {
+                    if isLoading {
+                        ProgressView("Loading details...")
+                            .frame(maxWidth: .infinity, minHeight: 120)
+                    } else if kind == .collection {
+                        collectionFields
+                    } else {
+                        remarksFields
+                    }
+
+                    if let errorMessage {
+                        Text(errorMessage)
+                            .font(.system(size: 12, weight: .medium))
+                            .foregroundStyle(.red)
+                            .frame(maxWidth: .infinity, alignment: .leading)
+                    }
+                }
+                .padding(.horizontal, 20)
+                .padding(.bottom, 96)
+            }
+
+            footer
+        }
+        .background(Color.white.ignoresSafeArea())
+        .task { await load() }
+    }
+
+    private var header: some View {
+        HStack(alignment: .top, spacing: 12) {
+            VStack(alignment: .leading, spacing: 5) {
+                Text(kind.title)
+                    .font(.system(size: 22, weight: .bold))
+                    .foregroundStyle(Color(hex: 0x101828))
+                Text(kind.subtitle)
+                    .font(.system(size: 13, weight: .medium))
+                    .foregroundStyle(Color(hex: 0x667085))
+            }
+            Spacer()
+            Button {
+                dismiss()
+            } label: {
+                Image(systemName: "xmark")
+                    .font(.system(size: 15, weight: .semibold))
+                    .foregroundStyle(Color(hex: 0x344054))
+                    .frame(width: 44, height: 44)
+            }
+            .buttonStyle(TripGlassCircleButtonStyle())
+            .accessibilityLabel("Close")
+        }
+        .padding(.horizontal, 20)
+        .padding(.bottom, 18)
+    }
+
+    private var collectionFields: some View {
+        VStack(alignment: .leading, spacing: 14) {
+            if cases.isEmpty {
+                Text("No confirmed booking found for this client's mobile.")
+                    .font(.system(size: 13, weight: .semibold))
+                    .foregroundStyle(Color(hex: 0xB42318))
+                    .padding(14)
+                    .frame(maxWidth: .infinity, alignment: .leading)
+                    .background(Color(hex: 0xFEF3F2), in: RoundedRectangle(cornerRadius: 14, style: .continuous))
+            } else {
+                VStack(alignment: .leading, spacing: 6) {
+                    Text("Booking")
+                        .font(.system(size: 13, weight: .semibold))
+                        .foregroundStyle(Color(hex: 0x344054))
+                    Menu {
+                        ForEach(cases) { item in
+                            Button(item.title) {
+                                selectedCaseId = item.id
+                            }
+                        }
+                    } label: {
+                        pickerRow(selectedCase?.title ?? "Select Booking", subtitle: selectedCase?.subtitle)
+                    }
+                }
+            }
+
+            sheetTextField("Amount *", text: $amount, placeholder: "Enter amount", keyboard: .decimalPad)
+
+            VStack(alignment: .leading, spacing: 6) {
+                Text("Payment Mode")
+                    .font(.system(size: 13, weight: .semibold))
+                    .foregroundStyle(Color(hex: 0x344054))
+                Picker("Payment Mode", selection: $paymentMode) {
+                    ForEach(["cash", "upi", "neft", "rtgs", "cheque", "dd", "bank"], id: \.self) { mode in
+                        Text(mode.uppercased()).tag(mode)
+                    }
+                }
+                .pickerStyle(.segmented)
+            }
+
+            sheetTextField("Transaction Reference", text: $reference, placeholder: "UPI / cheque / transfer reference")
+            sheetTextField("Bank Name", text: $bankName, placeholder: "Bank name")
+            sheetTextField("Notes", text: $remarks, placeholder: "Payment notes", axis: .vertical)
+        }
+    }
+
+    private var remarksFields: some View {
+        VStack(alignment: .leading, spacing: 14) {
+            Text(kind == .giftDistribution ? "Gift handover will be marked completed for this CP visit." : "Remarks are saved against this CP visit.")
+                .font(.system(size: 13, weight: .medium))
+                .foregroundStyle(Color(hex: 0x475467))
+                .padding(14)
+                .frame(maxWidth: .infinity, alignment: .leading)
+                .background(Color(hex: 0xF2F4F7), in: RoundedRectangle(cornerRadius: 14, style: .continuous))
+            sheetTextField(kind == .giftDistribution ? "Notes" : "Remarks *", text: $remarks, placeholder: kind == .giftDistribution ? "Optional handover notes" : "Enter visit remarks", axis: .vertical)
+        }
+    }
+
+    private var footer: some View {
+        VStack(spacing: 0) {
+            Divider()
+                .overlay(Color(hex: 0xEAECF0))
+            Button {
+                Task { await submit() }
+            } label: {
+                if isSaving {
+                    ProgressView()
+                        .tint(.white)
+                } else {
+                    Text(kind.primaryTitle)
+                }
+            }
+            .font(.system(size: 16, weight: .bold))
+            .foregroundStyle(.white)
+            .frame(maxWidth: .infinity)
+            .frame(height: 54)
+            .background(Color(hex: 0x1BCA0B), in: Capsule())
+            .disabled(isSaving || isLoading || (kind == .collection && (selectedCaseId.isEmpty || Double(amount) == nil)))
+            .padding(.horizontal, 24)
+            .padding(.vertical, 14)
+            .background(Color.white)
+        }
+    }
+
+    private var selectedCase: PostSaleCaseSummary? {
+        cases.first { $0.id == selectedCaseId }
+    }
+
+    private func pickerRow(_ title: String, subtitle: String?) -> some View {
+        HStack(spacing: 10) {
+            VStack(alignment: .leading, spacing: 2) {
+                Text(title)
+                    .font(.system(size: 14, weight: .semibold))
+                    .foregroundStyle(Color(hex: 0x101828))
+                    .lineLimit(1)
+                if let subtitle, !subtitle.isEmpty {
+                    Text(subtitle)
+                        .font(.system(size: 11, weight: .medium))
+                        .foregroundStyle(Color(hex: 0x667085))
+                        .lineLimit(1)
+                }
+            }
+            Spacer()
+            Image(systemName: "chevron.down")
+                .font(.system(size: 13, weight: .bold))
+                .foregroundStyle(Color(hex: 0x667085))
+        }
+        .padding(.horizontal, 14)
+        .frame(height: 54)
+        .background(Color.white, in: RoundedRectangle(cornerRadius: 14, style: .continuous))
+        .overlay(
+            RoundedRectangle(cornerRadius: 14, style: .continuous)
+                .stroke(Color(hex: 0xD0D5DD), lineWidth: 1)
+        )
+    }
+
+    private func sheetTextField(
+        _ title: String,
+        text: Binding<String>,
+        placeholder: String,
+        keyboard: UIKeyboardType = .default,
+        axis: Axis = .horizontal
+    ) -> some View {
+        VStack(alignment: .leading, spacing: 6) {
+            Text(title)
+                .font(.system(size: 13, weight: .semibold))
+                .foregroundStyle(Color(hex: 0x344054))
+            TextField(placeholder, text: text, axis: axis)
+                .font(.system(size: 15, weight: .medium))
+                .keyboardType(keyboard)
+                .lineLimit(axis == .vertical ? 3...5 : 1...1)
+                .padding(.horizontal, 14)
+                .padding(.vertical, axis == .vertical ? 12 : 0)
+                .frame(minHeight: axis == .vertical ? 92 : 54, alignment: axis == .vertical ? .top : .center)
+                .background(Color.white, in: RoundedRectangle(cornerRadius: 14, style: .continuous))
+                .overlay(
+                    RoundedRectangle(cornerRadius: 14, style: .continuous)
+                        .stroke(Color(hex: 0xD0D5DD), lineWidth: 1)
+                )
+        }
+    }
+
+    @MainActor
+    private func load() async {
+        guard !isLoading else { return }
+        guard let token = authStore.currentSession?.token else { return }
+        isLoading = true
+        defer { isLoading = false }
+        do {
+            let detail = try await MarketingConvexAPIService.getCpVisitDetail(token: token, id: cpVisitId)
+            cpVisit = detail
+            guard kind == .collection else { return }
+            let phone = [
+                detail.client?.mobileNumber,
+                detail.lead?.mobileNumber,
+                detail.clientPlace?.contactPhone
+            ]
+            .compactMap { $0 }
+            .map(AppModuleFormatters.normalizePhone)
+            .first { $0.count == 10 }
+            guard let phone else {
+                errorMessage = "Client mobile is missing for payment collection."
+                return
+            }
+            cases = try await PostSalesConvexAPIService.getCasesByMobile(token: token, mobile: phone)
+            if let first = cases.first {
+                selectedCaseId = first.id
+            }
+        } catch {
+            errorMessage = error.localizedDescription
+        }
+    }
+
+    @MainActor
+    private func submit() async {
+        guard let token = authStore.currentSession?.token else { return }
+        if kind == .oldClient, remarks.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
+            errorMessage = "Please enter visit remarks."
+            return
+        }
+        isSaving = true
+        defer { isSaving = false }
+        do {
+            try await MarketingConvexAPIService.markClientMet(
+                token: token,
+                request: MarkClientMetRequest(id: cpVisitId, clientMet: true)
+            )
+            var notes = remarks.trimmingCharacters(in: .whitespacesAndNewlines)
+            if kind == .collection {
+                guard let amountValue = Double(amount), !selectedCaseId.isEmpty else {
+                    errorMessage = "Select booking and enter a valid amount."
+                    return
+                }
+                let refNo = try await PostSalesConvexAPIService.submitCollection(
+                    token: token,
+                    request: SubmitCollectionRequest(
+                        caseId: selectedCaseId,
+                        amount: amountValue,
+                        paymentMode: paymentMode,
+                        transactionReference: reference.trimmingCharacters(in: .whitespacesAndNewlines).nilIfEmpty,
+                        bankName: bankName.trimmingCharacters(in: .whitespacesAndNewlines).nilIfEmpty,
+                        proofStorageId: arrivalProofStorageId,
+                        proofFileName: arrivalProofStorageId == nil ? nil : "cp-arrival-proof.jpg",
+                        notes: notes.nilIfEmpty
+                    )
+                )
+                notes = [
+                    "Collection submitted: \(AppModuleFormatters.rupees(amountValue))",
+                    refNo.isEmpty ? nil : "Receipt: \(refNo)",
+                    reference.trimmingCharacters(in: .whitespacesAndNewlines).nilIfEmpty,
+                    notes.nilIfEmpty
+                ]
+                .compactMap { $0 }
+                .joined(separator: "\n")
+            } else if kind == .giftDistribution, notes.isEmpty {
+                notes = "Gift distributed to client"
+            }
+
+            try await MarketingConvexAPIService.setCpVisitOutcome(
+                token: token,
+                request: SetCpVisitOutcomeRequest(
+                    id: cpVisitId,
+                    outcome: kind.terminalOutcome,
+                    postponeReasons: nil,
+                    notes: notes.nilIfEmpty
+                )
+            )
+            onCompleted()
+            dismiss()
+        } catch {
+            errorMessage = error.localizedDescription
+        }
+    }
+}
+
+private struct TripGlassCircleButtonStyle: ButtonStyle {
+    func makeBody(configuration: Configuration) -> some View {
+        configuration.label
+            .background(.ultraThinMaterial, in: Circle())
+            .overlay(
+                Circle()
+                    .fill(configuration.isPressed ? Color.white.opacity(0.28) : Color.white.opacity(0.08))
+            )
+            .overlay(
+                Circle()
+                    .stroke(Color.white.opacity(configuration.isPressed ? 0.9 : 0.72), lineWidth: 1)
+            )
+            .shadow(
+                color: .black.opacity(configuration.isPressed ? 0.04 : 0.10),
+                radius: configuration.isPressed ? 5 : 12,
+                x: 0,
+                y: configuration.isPressed ? 2 : 6
+            )
+            .scaleEffect(configuration.isPressed ? 0.88 : 1)
+            .animation(.snappy(duration: 0.18, extraBounce: 0.22), value: configuration.isPressed)
+    }
+}
+
 private extension Optional where Wrapped == String {
     var normalizedTripCpMarker: String {
         self?
@@ -1745,6 +2212,10 @@ private extension String {
             .lowercased()
             .replacingOccurrences(of: "-", with: "_")
             .replacingOccurrences(of: " ", with: "_")
+    }
+
+    var nilIfEmpty: String? {
+        isEmpty ? nil : self
     }
 }
 

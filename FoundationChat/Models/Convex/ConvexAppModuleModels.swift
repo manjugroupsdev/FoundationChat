@@ -863,6 +863,7 @@ struct CreateCpVisitRequest: Encodable, Sendable {
     let assignedStaffId: String
     let scheduledDate: String
     let scheduledTime: String?
+    let cpType: String?
     let visitAddress: String
     let visitLat: Double?
     let visitLng: Double?

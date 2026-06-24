@@ -577,18 +577,19 @@ private struct CpVisitCard: View {
     private var timeText: String {
         let start = visit.scheduledStartTime?.trimmingCharacters(in: .whitespacesAndNewlines)
         let end = visit.scheduledEndTime?.trimmingCharacters(in: .whitespacesAndNewlines)
-        if let startDate = start.flatMap(Self.parseVisitDate) {
-            let date = Self.visitDateFormatter.string(from: startDate)
-            let time = Self.visitTimeFormatter.string(from: startDate)
-            return "\(date) \(time)"
+        if let startTime = start.flatMap(Self.displayVisitTime) {
+            if let endTime = end.flatMap(Self.displayVisitTime), endTime != startTime {
+                return "\(startTime) - \(endTime)"
+            }
+            return startTime
         }
-        if let scheduledDate = visit.scheduledDate.flatMap(Self.parseVisitDate) {
-            return Self.visitDateFormatter.string(from: scheduledDate)
-        }
-        if let start, !start.isEmpty, let end, !end.isEmpty {
+        if let start, !start.isEmpty, let end, !end.isEmpty, !Self.looksLikeDateOnly(start) {
             return "\(start) - \(end)"
         }
-        return start?.blankToNil ?? visit.scheduledDate ?? "-"
+        if let start, !start.isEmpty, !Self.looksLikeDateOnly(start) {
+            return start
+        }
+        return "-"
     }
 
     private var etaText: String {
@@ -700,6 +701,42 @@ private struct CpVisitCard: View {
             }
         }
         return nil
+    }
+
+    private static func displayVisitTime(_ raw: String) -> String? {
+        let trimmed = raw.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !trimmed.isEmpty, !looksLikeDateOnly(trimmed) else { return nil }
+        let normalized = trimmed
+            .replacingOccurrences(of: "Z", with: "")
+            .components(separatedBy: ".")
+            .first ?? trimmed
+        let patterns = [
+            "yyyy-MM-dd'T'HH:mm:ss",
+            "yyyy-MM-dd'T'HH:mm",
+            "yyyy-MM-dd HH:mm:ss",
+            "yyyy-MM-dd HH:mm",
+            "HH:mm:ss",
+            "HH:mm",
+            "h:mm a",
+            "hh:mm a"
+        ]
+        for pattern in patterns {
+            let formatter = DateFormatter()
+            formatter.locale = Locale(identifier: "en_US_POSIX")
+            formatter.dateFormat = pattern
+            if let date = formatter.date(from: normalized) {
+                return visitTimeFormatter.string(from: date)
+            }
+        }
+        return nil
+    }
+
+    private static func looksLikeDateOnly(_ raw: String) -> Bool {
+        let trimmed = raw.trimmingCharacters(in: .whitespacesAndNewlines)
+        if trimmed.contains(":") { return false }
+        if parseVisitDate(trimmed) != nil { return true }
+        let slashDate = #"^\d{1,2}/\d{1,2}/\d{2,4}$"#
+        return trimmed.range(of: slashDate, options: .regularExpression) != nil
     }
 
     private static let visitDateFormatter: DateFormatter = {
@@ -1297,6 +1334,10 @@ private struct CreateCpVisitSheet: View {
     @State private var latitude = ""
     @State private var longitude = ""
     @State private var notes = ""
+    @State private var selectedCpType: CpVisitCreateType = .direct
+    @State private var bookingGatePhone: String?
+    @State private var bookingGateCount = 0
+    @State private var isCheckingBookingGate = false
     @State private var projects: [MarketingProject] = []
     @State private var selectedProject: MarketingProject?
     @State private var staff: [ConvexStaffListItem] = []
@@ -1348,6 +1389,8 @@ private struct CreateCpVisitSheet: View {
                         .onChange(of: phone) { _, _ in
                             selectedLead = nil
                             leadMatches = []
+                            bookingGatePhone = nil
+                            bookingGateCount = 0
                         }
 
                     cpTextField("Client Name", placeholder: "Enter Client Name", text: $clientName, systemImage: "person")
@@ -1411,6 +1454,7 @@ private struct CreateCpVisitSheet: View {
 
                     staffPicker
                     projectPicker
+                    cpTypePicker
                     cpDatePicker
 
                     cpTextField("Door No", placeholder: "Enter Door No", text: $doorNo, systemImage: "house")
@@ -1578,6 +1622,44 @@ private struct CreateCpVisitSheet: View {
         }
     }
 
+    private var cpTypePicker: some View {
+        pickerShell(title: "CP Type *", icon: "tag") {
+            Menu {
+                ForEach(CpVisitCreateType.allCases) { type in
+                    Button {
+                        Task { await selectCpType(type) }
+                    } label: {
+                        Label(type.title, systemImage: selectedCpType == type ? "checkmark" : "circle")
+                    }
+                }
+            } label: {
+                HStack {
+                    VStack(alignment: .leading, spacing: 2) {
+                        Text(selectedCpType.title)
+                            .font(.system(size: 14, weight: .medium))
+                            .foregroundStyle(Color(hex: 0x101828))
+                            .lineLimit(1)
+                        Text(selectedCpType.subtitle)
+                            .font(.system(size: 10, weight: .medium))
+                            .foregroundStyle(Color(hex: 0x667085))
+                            .lineLimit(1)
+                    }
+                    Spacer()
+                    if isCheckingBookingGate {
+                        ProgressView()
+                            .controlSize(.small)
+                    } else {
+                        Image(systemName: "chevron.down")
+                            .font(.system(size: 12, weight: .semibold))
+                            .foregroundStyle(Color(hex: 0x667085))
+                    }
+                }
+                .frame(maxWidth: .infinity)
+                .contentShape(Rectangle())
+            }
+        }
+    }
+
     private func pickerShell<Content: View>(title: String, icon: String, @ViewBuilder content: () -> Content) -> some View {
         VStack(alignment: .leading, spacing: 6) {
             Text(title)
@@ -1723,6 +1805,34 @@ private struct CreateCpVisitSheet: View {
     }
 
     @MainActor
+    private func selectCpType(_ type: CpVisitCreateType) async {
+        if !type.requiresConfirmedBooking {
+            selectedCpType = type
+            return
+        }
+        let normalizedPhone = AppModuleFormatters.normalizePhone(phone)
+        guard normalizedPhone.count == 10 else {
+            errorMessage = "Enter the client's 10-digit mobile first, then pick \(type.title)."
+            return
+        }
+        guard let token = authStore.currentSession?.token else { return }
+        isCheckingBookingGate = true
+        defer { isCheckingBookingGate = false }
+        do {
+            let cases = try await PostSalesConvexAPIService.getCasesByMobile(token: token, mobile: normalizedPhone)
+            bookingGatePhone = normalizedPhone
+            bookingGateCount = cases.count
+            guard !cases.isEmpty else {
+                errorMessage = "\(type.title) blocked. This client has no confirmed booking."
+                return
+            }
+            selectedCpType = type
+        } catch {
+            errorMessage = error.localizedDescription
+        }
+    }
+
+    @MainActor
     private func submit() async {
         let normalizedPhone = AppModuleFormatters.normalizePhone(phone)
         guard normalizedPhone.count == 10 else { errorMessage = "Enter 10 digit phone"; return }
@@ -1741,6 +1851,13 @@ private struct CreateCpVisitSheet: View {
             return
         }
         guard let token = authStore.currentSession?.token else { return }
+        if selectedCpType.requiresConfirmedBooking {
+            let cachedPhone = bookingGatePhone ?? ""
+            if cachedPhone != normalizedPhone || bookingGateCount == 0 {
+                errorMessage = "\(selectedCpType.title) needs a confirmed booking for this mobile. Re-pick the CP type to verify."
+                return
+            }
+        }
 
         let request = CreateCpVisitRequest(
             leadId: selectedLead?.id,
@@ -1750,6 +1867,7 @@ private struct CreateCpVisitSheet: View {
             assignedStaffId: staffId,
             scheduledDate: AppModuleFormatters.ymd.string(from: date),
             scheduledTime: Self.timeFormatter.string(from: date),
+            cpType: selectedCpType.payloadValue,
             visitAddress: trimmedAddress,
             visitLat: coordinateValue(latitude),
             visitLng: coordinateValue(longitude),
@@ -1934,5 +2052,49 @@ private struct IOSGlassCloseButtonStyle: ButtonStyle {
             )
             .scaleEffect(configuration.isPressed ? 0.88 : 1)
             .animation(.snappy(duration: 0.18, extraBounce: 0.22), value: configuration.isPressed)
+    }
+}
+
+private enum CpVisitCreateType: String, CaseIterable, Identifiable {
+    case direct = "direct_cp"
+    case svCumCp = "sv_cum_cp"
+    case followUp = "follow_up"
+    case bookingCp = "booking_cp"
+    case collectionCp = "collection_cp"
+    case oldClient = "old_client"
+    case giftDistribution = "gift_distribution"
+
+    var id: String { rawValue }
+
+    var payloadValue: String? {
+        self == .direct ? nil : rawValue
+    }
+
+    var requiresConfirmedBooking: Bool {
+        self == .collectionCp || self == .bookingCp
+    }
+
+    var title: String {
+        switch self {
+        case .direct: return "Direct CP"
+        case .svCumCp: return "SV cum CP"
+        case .followUp: return "Follow-up"
+        case .bookingCp: return "Booking CP"
+        case .collectionCp: return "Collection CP"
+        case .oldClient: return "Old Client"
+        case .giftDistribution: return "Gift Distribution"
+        }
+    }
+
+    var subtitle: String {
+        switch self {
+        case .direct: return "Regular client-place visit"
+        case .svCumCp: return "Confirm a site visit"
+        case .followUp: return "Continue a postponed client"
+        case .bookingCp: return "Paperwork for active booking"
+        case .collectionCp: return "Collect payment at client place"
+        case .oldClient: return "Re-engage previous client"
+        case .giftDistribution: return "Drop loyalty gift"
+        }
     }
 }

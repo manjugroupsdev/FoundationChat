@@ -390,6 +390,28 @@ enum MarketingConvexAPIService {
         guard wrapper.success else { throw MarketingAPIError.server(wrapper.error ?? "Failed to set site visit outcome") }
     }
 
+    static func markSiteVisitPickedUp(token: String, id: String) async throws {
+        try await runSiteVisitLifecycle(path: "/api/marketing/siteVisits/markPickedUp", token: token, id: id)
+    }
+
+    static func markSiteVisitClientStarted(token: String, id: String) async throws {
+        try await runSiteVisitLifecycle(path: "/api/marketing/siteVisits/markClientStarted", token: token, id: id)
+    }
+
+    static func markSiteVisitArrivedSite(token: String, id: String) async throws {
+        try await runSiteVisitLifecycle(path: "/api/marketing/siteVisits/markArrivedSite", token: token, id: id)
+    }
+
+    static func markSiteVisitDropped(token: String, id: String) async throws {
+        try await runSiteVisitLifecycle(path: "/api/marketing/siteVisits/markDropped", token: token, id: id)
+    }
+
+    private static func runSiteVisitLifecycle(path: String, token: String, id: String) async throws {
+        let data = try await post(path: path, token: token, body: IdRequest(id: id))
+        let wrapper = try decode(BaseMutationResponse.self, from: data)
+        guard wrapper.success else { throw MarketingAPIError.server(wrapper.error ?? "Failed to update site visit status") }
+    }
+
     static func convertCpVisitToSiteVisit(
         token: String,
         request: ConvertCpVisitToSiteVisitRequest
