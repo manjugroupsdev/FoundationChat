@@ -266,7 +266,7 @@
 				ASSETCATALOG_COMPILER_GLOBAL_ACCENT_COLOR_NAME = AccentColor;
 				CODE_SIGN_ENTITLEMENTS = FoundationChat/FoundationChat.entitlements;
 				CODE_SIGN_STYLE = Automatic;
-				CURRENT_PROJECT_VERSION = 19;
+				CURRENT_PROJECT_VERSION = 22;
 				DEVELOPMENT_TEAM = WLMZ5G3G5G;
 				ENABLE_APP_SANDBOX = YES;
 				ENABLE_HARDENED_RUNTIME = YES;
@@ -284,7 +284,7 @@
 				ENABLE_USER_SELECTED_FILES = readonly;
 				"EXCLUDED_ARCHS[sdk=iphonesimulator*]" = x86_64;
 				GENERATE_INFOPLIST_FILE = YES;
-				INFOPLIST_KEY_CFBundleDisplayName = "M-Chat";
+				INFOPLIST_KEY_CFBundleDisplayName = "M-Connect";
 				INFOPLIST_KEY_CONVEX_URL = "https://industrious-bullfrog-820.convex.cloud";
 				INFOPLIST_KEY_LSApplicationCategoryType = "public.app-category.productivity";
 				INFOPLIST_KEY_NEXT_PUBLIC_STACK_API_URL = "https://api.manjuauth.aivida.in";
@@ -335,7 +335,7 @@
 				ASSETCATALOG_COMPILER_GLOBAL_ACCENT_COLOR_NAME = AccentColor;
 				CODE_SIGN_ENTITLEMENTS = FoundationChat/FoundationChat.entitlements;
 				CODE_SIGN_STYLE = Automatic;
-				CURRENT_PROJECT_VERSION = 19;
+				CURRENT_PROJECT_VERSION = 22;
 				DEVELOPMENT_TEAM = WLMZ5G3G5G;
 				ENABLE_APP_SANDBOX = YES;
 				ENABLE_HARDENED_RUNTIME = YES;
@@ -353,7 +353,7 @@
 				ENABLE_USER_SELECTED_FILES = readonly;
 				"EXCLUDED_ARCHS[sdk=iphonesimulator*]" = x86_64;
 				GENERATE_INFOPLIST_FILE = YES;
-				INFOPLIST_KEY_CFBundleDisplayName = "M-Chat";
+				INFOPLIST_KEY_CFBundleDisplayName = "M-Connect";
 				INFOPLIST_KEY_CONVEX_URL = "https://industrious-bullfrog-820.convex.cloud";
 				INFOPLIST_KEY_LSApplicationCategoryType = "public.app-category.productivity";
 				INFOPLIST_KEY_NEXT_PUBLIC_STACK_API_URL = "https://api.manjuauth.aivida.in";

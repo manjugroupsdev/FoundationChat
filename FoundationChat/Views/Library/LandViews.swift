@@ -354,14 +354,10 @@ private extension LandInspection {
     }
 
     var inspectionPlace: String {
-        [locality?.landNilIfBlank ?? city?.landNilIfBlank ?? village?.landNilIfBlank,
-         district?.landNilIfBlank ?? taluk?.landNilIfBlank]
-            .compactMap { $0 }
-            .joined(separator: ", ")
-            .landNilIfBlank
-        ?? fullAddress?.landNilIfBlank
-        ?? location?.landNilIfBlank
-        ?? "—"
+        let area: String? = locality?.landNilIfBlank ?? city?.landNilIfBlank ?? village?.landNilIfBlank
+        let dist: String? = district?.landNilIfBlank ?? taluk?.landNilIfBlank
+        let joined = [area, dist].compactMap { $0 }.joined(separator: ", ")
+        return joined.landNilIfBlank ?? fullAddress?.landNilIfBlank ?? location?.landNilIfBlank ?? "—"
     }
 
     var inspectionAreaLabel: String {
