@@ -285,6 +285,7 @@ final class AuthStore {
   }
 
   func logout() async {
+    await GeoTrackBootstrapCoordinator.shared.stopForSessionEnd()
     // Unregister push token before logging out
     if let t = token, let deviceToken = lastKnownAPNSToken {
       try? await ChatAPIService.unregisterPushToken(token: t, deviceToken: deviceToken)
@@ -304,6 +305,7 @@ final class AuthStore {
   }
 
   func expireSession(message: String = "Session expired. Please sign in again.") {
+    Task { await GeoTrackBootstrapCoordinator.shared.stopForSessionEnd() }
     try? tokenStore.clear()
     currentSession = nil
     viewer = nil

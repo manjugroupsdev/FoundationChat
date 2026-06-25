@@ -88,6 +88,18 @@ final class GeoTrackBootstrapCoordinator {
         shouldPresentPermissionHelp = false
     }
 
+    func stopForSessionEnd() async {
+        shouldPresentConsent = false
+        shouldPresentPermissionHelp = false
+        lastError = nil
+        lastBootstrap = nil
+        userDefaults.set(false, forKey: DefaultsKey.shouldTrackNow)
+        userDefaults.set(false, forKey: DefaultsKey.trackingEnabled)
+        userDefaults.removeObject(forKey: DefaultsKey.activeSessionId)
+        await tracker?.stopAndFinalize(notifyServer: false)
+        tracker = nil
+    }
+
     private func apply(bootstrap: TrackingBootstrapData?, attendanceActive: Bool) async throws {
         lastBootstrap = bootstrap
         userDefaults.set(bootstrap?.activeSession?.id, forKey: DefaultsKey.activeSessionId)
