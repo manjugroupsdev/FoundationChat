@@ -85,24 +85,35 @@ final class AuthStore {
   // MARK: - Private
 
   private let tokenStore = KeychainTokenStore()
+  private let userDefaults: UserDefaults
   private var didAttemptRestore = false
   private var isRefreshingIAMPermissions = false
 
   private var token: String? { currentSession?.token }
 
-  init() {
+  init(userDefaults: UserDefaults = .standard) {
+    self.userDefaults = userDefaults
+
     #if DEBUG
     if let stub = Self.qaStubSessionIfRequested() {
+      markInstallSeen()
       applySession(stub)
       status = .signedIn
       return
     }
     #endif
 
-    if let stored = try? tokenStore.load() {
+    if shouldClearKeychainForFreshInstall() {
+      try? tokenStore.clear()
+      try? tokenStore.clearInstallIdentifier()
+      markInstallSeen()
+      status = .signedOut
+    } else if let stored = try? tokenStore.load() {
+      markInstallSeen()
       applySession(stored)
       status = .signedIn
     } else {
+      markInstallSeen()
       status = .signedOut
     }
   }
@@ -121,6 +132,7 @@ final class AuthStore {
 
     #if DEBUG
     if let stub = Self.qaStubSessionIfRequested() {
+      markInstallSeen()
       applySession(stub)
       status = .signedIn
       return
@@ -128,6 +140,14 @@ final class AuthStore {
     #endif
 
     do {
+      if currentSession == nil, shouldClearKeychainForFreshInstall() {
+        try? tokenStore.clear()
+        try? tokenStore.clearInstallIdentifier()
+        markInstallSeen()
+        status = .signedOut
+        return
+      }
+
       let stored: OtpSession?
       if let currentSession {
         stored = currentSession
@@ -135,9 +155,11 @@ final class AuthStore {
         stored = try tokenStore.load()
       }
       guard let stored else {
+        markInstallSeen()
         status = .signedOut
         return
       }
+      markInstallSeen()
       if currentSession == nil {
         applySession(stored)
         status = .signedIn
@@ -151,6 +173,7 @@ final class AuthStore {
       await finalizeAuthenticatedSession(refreshed)
     } catch {
       try? tokenStore.clear()
+      markInstallSeen()
       currentSession = nil
       viewer = nil
       status = .signedOut
@@ -1165,7 +1188,33 @@ final class AuthStore {
 
   // MARK: - Helpers
 
+  private static let installMarkerKey = "auth.installMarker.v1"
+  private static let installIdentifierKey = "auth.installIdentifier.v1"
+
+  private func shouldClearKeychainForFreshInstall() -> Bool {
+    let currentInstallIdentifier = installIdentifier()
+    guard let keychainInstallIdentifier = try? tokenStore.loadInstallIdentifier() else {
+      return false
+    }
+    return keychainInstallIdentifier != currentInstallIdentifier
+  }
+
+  private func markInstallSeen() {
+    userDefaults.set(true, forKey: Self.installMarkerKey)
+    try? tokenStore.saveInstallIdentifier(installIdentifier())
+  }
+
+  private func installIdentifier() -> String {
+    if let existing = userDefaults.string(forKey: Self.installIdentifierKey), !existing.isEmpty {
+      return existing
+    }
+    let created = UUID().uuidString
+    userDefaults.set(created, forKey: Self.installIdentifierKey)
+    return created
+  }
+
   private func finalizeAuthenticatedSession(_ session: OtpSession) async {
+    markInstallSeen()
     applySession(session)
     do {
       try tokenStore.save(session)

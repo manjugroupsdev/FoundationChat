@@ -4,6 +4,7 @@ import Security
 struct KeychainTokenStore {
   private let service = "com.manjugroups.foundationchat.otp-session-v2"
   private let account = "default"
+  private let installAccount = "install-id"
   private let encoder = JSONEncoder()
   private let decoder = JSONDecoder()
 
@@ -55,11 +56,64 @@ struct KeychainTokenStore {
     }
   }
 
+  func saveInstallIdentifier(_ installIdentifier: String) throws {
+    let data = Data(installIdentifier.utf8)
+    let query = installIdentifierQuery()
+    SecItemDelete(query as CFDictionary)
+    let attributes = query.merging(
+      [kSecValueData as String: data],
+      uniquingKeysWith: { _, new in new }
+    )
+    let status = SecItemAdd(attributes as CFDictionary, nil)
+    guard status == errSecSuccess else {
+      throw KeychainStoreError.unexpectedStatus(status)
+    }
+  }
+
+  func loadInstallIdentifier() throws -> String? {
+    let query = installIdentifierQuery().merging(
+      [
+        kSecReturnData as String: true,
+        kSecMatchLimit as String: kSecMatchLimitOne
+      ],
+      uniquingKeysWith: { _, new in new }
+    )
+
+    var item: CFTypeRef?
+    let status = SecItemCopyMatching(query as CFDictionary, &item)
+    switch status {
+    case errSecSuccess:
+      guard let data = item as? Data, let value = String(data: data, encoding: .utf8) else {
+        throw KeychainStoreError.invalidData
+      }
+      return value
+    case errSecItemNotFound:
+      return nil
+    default:
+      throw KeychainStoreError.unexpectedStatus(status)
+    }
+  }
+
+  func clearInstallIdentifier() throws {
+    let status = SecItemDelete(installIdentifierQuery() as CFDictionary)
+    guard status == errSecSuccess || status == errSecItemNotFound else {
+      throw KeychainStoreError.unexpectedStatus(status)
+    }
+  }
+
   private func baseQuery() -> [String: Any] {
     [
       kSecClass as String: kSecClassGenericPassword,
       kSecAttrService as String: service,
       kSecAttrAccount as String: account
+    ]
+  }
+
+  private func installIdentifierQuery() -> [String: Any] {
+    [
+      kSecClass as String: kSecClassGenericPassword,
+      kSecAttrService as String: service,
+      kSecAttrAccount as String: installAccount
     ]
   }
 }
