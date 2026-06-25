@@ -88,9 +88,20 @@ private struct VisitRow: View {
     let visit: GeoTrackTodayVisit
     let onNavigate: () -> Void
 
+    private var normalizedStatus: String {
+        visit.status
+            .trimmingCharacters(in: .whitespacesAndNewlines)
+            .lowercased()
+            .replacingOccurrences(of: "-", with: "_")
+    }
+
     private var canNavigate: Bool {
-        let s = visit.status.uppercased()
-        return s == "SCHEDULED" || s == "IN_PROGRESS"
+        switch normalizedStatus {
+        case "scheduled", "in_progress", "started", "ongoing", "active", "arrived", "arrival_verified":
+            return true
+        default:
+            return false
+        }
     }
 
     var body: some View {
@@ -119,13 +130,13 @@ private struct VisitRow: View {
             if canNavigate {
                 Button(action: onNavigate) {
                     Label(
-                        visit.status.uppercased() == "IN_PROGRESS" ? "Resume Trip" : "Start Trip",
+                        normalizedStatus == "scheduled" ? "Start Trip" : "Resume Trip",
                         systemImage: "location.north.circle.fill"
                     )
                     .frame(maxWidth: .infinity)
                 }
                 .buttonStyle(.borderedProminent)
-                .tint(visit.status.uppercased() == "IN_PROGRESS" ? .blue : .green)
+                .tint(normalizedStatus == "scheduled" ? .green : .blue)
                 .font(.caption.weight(.semibold))
             }
         }
@@ -138,23 +149,31 @@ private struct VisitRow: View {
 private struct StatusBadge: View {
     let status: String
 
+    private var normalizedStatus: String {
+        status
+            .trimmingCharacters(in: .whitespacesAndNewlines)
+            .lowercased()
+            .replacingOccurrences(of: "-", with: "_")
+    }
+
     var color: Color {
-        switch status.uppercased() {
-        case "SCHEDULED":  return .orange
-        case "IN_PROGRESS": return .blue
-        case "COMPLETED":  return .green
-        case "CANCELLED":  return .red
-        default:           return .secondary
+        switch normalizedStatus {
+        case "scheduled": return .orange
+        case "in_progress", "started", "ongoing", "active", "arrived", "arrival_verified": return .blue
+        case "completed", "complete", "done": return .green
+        case "cancelled", "canceled": return .red
+        default: return .secondary
         }
     }
 
     var label: String {
-        switch status.uppercased() {
-        case "SCHEDULED":   return "Scheduled"
-        case "IN_PROGRESS": return "In Progress"
-        case "COMPLETED":   return "Completed"
-        case "CANCELLED":   return "Cancelled"
-        default:            return status
+        switch normalizedStatus {
+        case "scheduled": return "Scheduled"
+        case "in_progress", "started", "ongoing", "active": return "In Progress"
+        case "arrived", "arrival_verified": return "Arrived"
+        case "completed", "complete", "done": return "Completed"
+        case "cancelled", "canceled": return "Cancelled"
+        default: return status
         }
     }
 

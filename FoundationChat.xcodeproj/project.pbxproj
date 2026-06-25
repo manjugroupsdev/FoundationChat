@@ -291,8 +291,8 @@
 				INFOPLIST_KEY_NEXT_PUBLIC_STACK_PROJECT_ID = "d680fa85-f908-4cf7-9541-0401ab1340b2";
 				INFOPLIST_KEY_NEXT_PUBLIC_STACK_PUBLISHABLE_CLIENT_KEY = pck_18m9221t81ptja3yf1jek80wr5j9310w697he77ghnyp8;
 				INFOPLIST_KEY_NSCameraUsageDescription = "M-Chat needs camera access to take attendance selfie photos.";
-				INFOPLIST_KEY_NSLocationAlwaysAndWhenInUseUsageDescription = "M-Chat uses your location to share your position with your team.";
-				INFOPLIST_KEY_NSLocationWhenInUseUsageDescription = "M-Chat uses your location to share your position with your team.";
+				INFOPLIST_KEY_NSLocationAlwaysAndWhenInUseUsageDescription = "M-Chat uses your location for GeoTrack attendance and visit tracking while a tracking session is active.";
+				INFOPLIST_KEY_NSLocationWhenInUseUsageDescription = "M-Chat uses your location for attendance punch-in, visits, and GeoTrack tracking when required.";
 				INFOPLIST_KEY_NSMicrophoneUsageDescription = "M-Chat needs microphone access to record and send voice messages.";
 				INFOPLIST_KEY_NSMotionUsageDescription = "M-Chat uses motion data to improve location tracking accuracy and detect activity during trips.";
 				"INFOPLIST_KEY_UIApplicationSceneManifest_Generation[sdk=iphoneos*]" = YES;
@@ -360,8 +360,8 @@
 				INFOPLIST_KEY_NEXT_PUBLIC_STACK_PROJECT_ID = "d680fa85-f908-4cf7-9541-0401ab1340b2";
 				INFOPLIST_KEY_NEXT_PUBLIC_STACK_PUBLISHABLE_CLIENT_KEY = pck_18m9221t81ptja3yf1jek80wr5j9310w697he77ghnyp8;
 				INFOPLIST_KEY_NSCameraUsageDescription = "M-Chat needs camera access to take attendance selfie photos.";
-				INFOPLIST_KEY_NSLocationAlwaysAndWhenInUseUsageDescription = "M-Chat uses your location to share your position with your team.";
-				INFOPLIST_KEY_NSLocationWhenInUseUsageDescription = "M-Chat uses your location to share your position with your team.";
+				INFOPLIST_KEY_NSLocationAlwaysAndWhenInUseUsageDescription = "M-Chat uses your location for GeoTrack attendance and visit tracking while a tracking session is active.";
+				INFOPLIST_KEY_NSLocationWhenInUseUsageDescription = "M-Chat uses your location for attendance punch-in, visits, and GeoTrack tracking when required.";
 				INFOPLIST_KEY_NSMicrophoneUsageDescription = "M-Chat needs microphone access to record and send voice messages.";
 				INFOPLIST_KEY_NSMotionUsageDescription = "M-Chat uses motion data to improve location tracking accuracy and detect activity during trips.";
 				"INFOPLIST_KEY_UIApplicationSceneManifest_Generation[sdk=iphoneos*]" = YES;

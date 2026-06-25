@@ -72,6 +72,11 @@ struct AuthRootView: View {
             let message = notification.object as? String ?? "Session expired. Please sign in again."
             authStore.expireSession(message: message)
         }
+        .onReceive(NotificationCenter.default.publisher(for: .didReceiveGeoTrackSyncPush)) { notification in
+            guard authStore.status == .signedIn, !authStore.passwordChangeRequired else { return }
+            let reason = notification.object as? String ?? "push"
+            Task { await geoTrackBootstrap.sync(reason: "geotrack-sync-\(reason)", force: true) }
+        }
         .onChange(of: authStore.status) { _, newStatus in
             if newStatus == .signedIn, !authStore.passwordChangeRequired {
                 authStore.requestNotificationPermissions()

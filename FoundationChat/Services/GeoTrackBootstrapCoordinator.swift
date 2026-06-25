@@ -100,7 +100,7 @@ final class GeoTrackBootstrapCoordinator {
         let shouldTrack = attendanceActive && bootstrap?.shouldTrack == true
         userDefaults.set(shouldTrack, forKey: DefaultsKey.shouldTrackNow)
 
-        if attendanceActive, bootstrap?.shouldPromptConsent == true {
+        if bootstrap?.shouldPromptConsent == true {
             shouldPresentConsent = true
             await tracker?.stopAndFinalize()
             return

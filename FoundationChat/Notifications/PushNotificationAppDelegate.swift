@@ -9,6 +9,9 @@ extension Notification.Name {
   static let didReceivePushNavigationRoute = Notification.Name(
     "didReceivePushNavigationRoute"
   )
+  static let didReceiveGeoTrackSyncPush = Notification.Name(
+    "didReceiveGeoTrackSyncPush"
+  )
 }
 
 final class PushNotificationAppDelegate: NSObject, UIApplicationDelegate, UNUserNotificationCenterDelegate {
@@ -22,6 +25,7 @@ final class PushNotificationAppDelegate: NSObject, UIApplicationDelegate, UNUser
     print("\(logPrefix) app launched, UNUserNotificationCenter delegate set")
 
     if let remoteNotification = launchOptions?[.remoteNotification] as? [AnyHashable: Any] {
+      handleGeoTrackSyncIfNeeded(from: remoteNotification, source: "launchOptions")
       handleNotificationRoute(from: remoteNotification, source: "launchOptions")
     }
     return true
@@ -51,6 +55,7 @@ final class PushNotificationAppDelegate: NSObject, UIApplicationDelegate, UNUser
     willPresent notification: UNNotification
   ) async -> UNNotificationPresentationOptions {
     print("\(logPrefix) foreground push received")
+    handleGeoTrackSyncIfNeeded(from: notification.request.content.userInfo, source: "foreground")
     return [.banner, .sound, .badge]
   }
 
@@ -58,7 +63,34 @@ final class PushNotificationAppDelegate: NSObject, UIApplicationDelegate, UNUser
     _ center: UNUserNotificationCenter,
     didReceive response: UNNotificationResponse
   ) async {
+    handleGeoTrackSyncIfNeeded(from: response.notification.request.content.userInfo, source: "tap")
     handleNotificationRoute(from: response.notification.request.content.userInfo, source: "tap")
+  }
+
+  func application(
+    _ application: UIApplication,
+    didReceiveRemoteNotification userInfo: [AnyHashable: Any],
+    fetchCompletionHandler completionHandler: @escaping (UIBackgroundFetchResult) -> Void
+  ) {
+    if handleGeoTrackSyncIfNeeded(from: userInfo, source: "background") {
+      completionHandler(.newData)
+    } else {
+      completionHandler(.noData)
+    }
+  }
+
+  @discardableResult
+  private func handleGeoTrackSyncIfNeeded(from userInfo: [AnyHashable: Any], source: String) -> Bool {
+    guard let rawType = pushString(userInfo["type"]),
+          rawType == "geotrack_sync" else {
+      return false
+    }
+    print("\(logPrefix) geotrack sync push source=\(source)")
+    NotificationCenter.default.post(
+      name: .didReceiveGeoTrackSyncPush,
+      object: pushString(userInfo["reason"]) ?? source
+    )
+    return true
   }
 
   private func handleNotificationRoute(from userInfo: [AnyHashable: Any], source: String) {
@@ -69,5 +101,11 @@ final class PushNotificationAppDelegate: NSObject, UIApplicationDelegate, UNUser
     Task { @MainActor in
       PushNavigationCoordinator.shared.enqueue(route)
     }
+  }
+
+  private func pushString(_ value: Any?) -> String? {
+    if let string = value as? String { return string }
+    if let number = value as? NSNumber { return number.stringValue }
+    return nil
   }
 }
