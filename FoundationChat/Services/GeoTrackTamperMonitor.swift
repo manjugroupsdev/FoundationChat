@@ -60,7 +60,7 @@ final class GeoTrackTamperMonitor {
     // MARK: - Init
 
     /// Production init — wires directly to GeoTrackAPIService for reporting.
-    init(geoAPI: GeoTrackAPIService = .shared) {
+    init(geoAPI: GeoTrackAPIService? = nil) {
         self.isMockLocationProvider = { location in
             location.sourceInformation?.isSimulatedBySoftware ?? false
         }
@@ -69,7 +69,7 @@ final class GeoTrackTamperMonitor {
         self.nowProvider = { Date() }
         self.userDefaults = .standard
         // Capture geoAPI so we don't hold self before init completes
-        let capturedAPI = geoAPI
+        let capturedAPI = geoAPI ?? GeoTrackAPIService.shared
         self.reportHandler = { eventType, metadata in
             do {
                 try await capturedAPI.reportTamper(eventType: eventType, metadata: metadata)

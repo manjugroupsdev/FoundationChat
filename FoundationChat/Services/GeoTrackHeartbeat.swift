@@ -56,7 +56,7 @@ final class GeoTrackHeartbeat {
 
     /// Creates a heartbeat service wired to the given API service and tamper monitor.
     init(
-        geoAPI: GeoTrackAPIService = .shared,
+        geoAPI: GeoTrackAPIService? = nil,
         tamperMonitor: GeoTrackTamperMonitor,
         interval: TimeInterval = defaultInterval
     ) {
@@ -73,7 +73,7 @@ final class GeoTrackHeartbeat {
             return "\(v)-ios"
         }
 
-        let capturedAPI = geoAPI
+        let capturedAPI = geoAPI ?? GeoTrackAPIService.shared
         self.sendHeartbeat = { batteryPct, appVersion in
             try await capturedAPI.heartbeat(batteryPct: batteryPct, appVersion: appVersion)
         }

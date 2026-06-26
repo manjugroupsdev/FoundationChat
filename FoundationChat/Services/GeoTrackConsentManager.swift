@@ -42,10 +42,10 @@ final class GeoTrackConsentManager {
     // MARK: - Init
 
     init(
-        geoAPI: GeoTrackAPIService = .shared,
+        geoAPI: GeoTrackAPIService? = nil,
         userDefaults: UserDefaults = .standard
     ) {
-        self.geoAPI = geoAPI
+        self.geoAPI = geoAPI ?? GeoTrackAPIService.shared
         self.userDefaults = userDefaults
         self.hasConsented = userDefaults.bool(forKey: Self.consentGivenKey)
         self.hasDeclined  = userDefaults.bool(forKey: Self.consentDeclinedKey)

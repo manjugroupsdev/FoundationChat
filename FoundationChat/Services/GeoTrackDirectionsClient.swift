@@ -21,8 +21,8 @@ struct GeoTrackDirectionsClient {
 
     let geoAPI: GeoTrackAPIService
 
-    init(geoAPI: GeoTrackAPIService = .shared) {
-        self.geoAPI = geoAPI
+    init(geoAPI: GeoTrackAPIService? = nil) {
+        self.geoAPI = geoAPI ?? GeoTrackAPIService.shared
     }
 
     func geocodeAddress(_ address: String) async -> GeocodeResult? {

@@ -57,11 +57,11 @@ final class GeoTrackAPIService {
     }()
 
     init(
-        baseURL: String = AppConfig.baseURL,
+        baseURL: String? = nil,
         tokenProvider: (() -> String?)? = nil,
         urlSession: (any GeoTrackHTTPSession) = URLSession.shared
     ) {
-        self.baseURL = baseURL
+        self.baseURL = baseURL ?? AppConfig.baseURL
         self.tokenProvider = tokenProvider
         self.urlSession = urlSession
     }

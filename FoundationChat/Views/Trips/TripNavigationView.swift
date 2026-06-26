@@ -1019,8 +1019,8 @@ struct TripNavigationView: View {
 
     private func openInAppleMaps() {
         guard let dest = effectiveDestination else { return }
-        let location = CLLocation(latitude: dest.latitude, longitude: dest.longitude)
-        let item = MKMapItem(location: location, address: nil)
+        let placemark = MKPlacemark(coordinate: dest)
+        let item = MKMapItem(placemark: placemark)
         item.name = placeName
         item.openInMaps(launchOptions: [
             MKLaunchOptionsDirectionsModeKey: MKLaunchOptionsDirectionsModeDriving
