@@ -281,7 +281,7 @@ struct TripNavigationView: View {
                 Task { await ensureVisitStarted(startProof: proof) }
             }
             .presentationDetents([.large])
-            .presentationDragIndicator(.visible)
+            .presentationDragIndicator(.hidden)
         }
         .sheet(isPresented: $showDriverEndTripSheet, onDismiss: {
             if pendingCompletionVisitId != nil && !visitCompletedSuccessfully && !isDriverEndSubmitting {
@@ -301,7 +301,7 @@ struct TripNavigationView: View {
                 }
             }
             .presentationDetents([.large])
-            .presentationDragIndicator(.visible)
+            .presentationDragIndicator(.hidden)
         }
         .task {
             locationManager.requestLocation()

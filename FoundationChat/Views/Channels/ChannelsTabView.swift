@@ -396,7 +396,7 @@ struct ChannelChatView: View {
         }
       )
       .presentationDetents([.height(320)])
-      .presentationDragIndicator(.visible)
+      .presentationDragIndicator(.hidden)
     }
     .sheet(isPresented: $isLocationSheetPresented) {
       ShareLocationSheet(
@@ -411,7 +411,7 @@ struct ChannelChatView: View {
         }
       )
       .presentationDetents([.height(360)])
-      .presentationDragIndicator(.visible)
+      .presentationDragIndicator(.hidden)
     }
     .sheet(isPresented: $isCameraPresented) {
       ChannelCameraPicker(image: $capturedCameraImage)

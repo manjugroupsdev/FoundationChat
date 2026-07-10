@@ -31,13 +31,13 @@ struct ApplyPermissionView: View {
                         .padding(.bottom, 14)
 
                     Text("Fill Permission Summary")
-                        .font(.system(size: 24, weight: .bold))
+                        .font(.system(size: 18, weight: .bold))
                         .foregroundStyle(Color(hex: 0x101828))
 
                     Text("Information about Permission details")
-                        .font(.system(size: 15, weight: .medium))
+                        .font(.system(size: 12, weight: .medium))
                         .foregroundStyle(Color(hex: 0x667085))
-                        .padding(.top, 3)
+                        .padding(.top, 2)
 
                     pickerField(
                         title: "Permission Date",
@@ -74,7 +74,7 @@ struct ApplyPermissionView: View {
                 }
                 .padding(.horizontal, 20)
                 .padding(.top, 16)
-                .padding(.bottom, 92)
+                .padding(.bottom, 96)
             }
 
             Button {
@@ -97,8 +97,8 @@ struct ApplyPermissionView: View {
             .buttonStyle(.plain)
             .disabled(!submitEnabled || isSubmitting)
             .padding(.horizontal, 20)
-            .padding(.bottom, 24)
-            .background(Color.white.opacity(0.96))
+            .padding(.bottom, 20)
+            .background(Color.white.opacity(0.98).ignoresSafeArea(edges: .bottom))
 
             pickerOverlay
         }
@@ -165,7 +165,7 @@ struct ApplyPermissionView: View {
                 .font(.system(size: 15, weight: .medium))
                 .foregroundStyle(Color(hex: 0x344054))
 
-            TextField("Enter Leave Description", text: $reason, axis: .vertical)
+            TextField("Enter Permission Description", text: $reason, axis: .vertical)
                 .font(.system(size: 14))
                 .lineLimit(4...6)
                 .padding(.horizontal, 14)
@@ -276,6 +276,15 @@ struct ApplyPermissionView: View {
             .padding(.bottom, 18)
         }
         .frame(maxWidth: .infinity)
+        .simultaneousGesture(
+            DragGesture(minimumDistance: 24)
+                .onEnded { value in
+                    let mostlyVertical = abs(value.translation.height) > abs(value.translation.width)
+                    if mostlyVertical && value.translation.height > 64 {
+                        closePickerOverlay()
+                    }
+                }
+        )
         .background {
             UnevenRoundedRectangle(
                 cornerRadii: .init(topLeading: 28, bottomLeading: 0, bottomTrailing: 0, topTrailing: 28),

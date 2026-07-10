@@ -97,6 +97,7 @@ struct MainTabView: View {
                 }
                 .tag(AppTab.apps)
         }
+        .tabBarMinimizeOnScrollIfAvailable()
         .onAppear {
             Self.configureTabBarColors()
         }
@@ -129,6 +130,17 @@ struct MainTabView: View {
         case .permissionRequest, .permissionApproved, .permissionRejected:
             selectedTab = .hr
             openHRRouteFromPush = route.workflowTargetMode?.lowercased() == "approval" ? .permissionApprovals : .permissions
+        }
+    }
+}
+
+private extension View {
+    @ViewBuilder
+    func tabBarMinimizeOnScrollIfAvailable() -> some View {
+        if #available(iOS 26.0, *) {
+            self.tabBarMinimizeBehavior(.onScrollDown)
+        } else {
+            self
         }
     }
 }

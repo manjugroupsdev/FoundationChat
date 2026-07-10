@@ -20,12 +20,16 @@ struct LeavesListView: View {
     }
 
     var body: some View {
-        ZStack {
+        ZStack(alignment: .top) {
             Color(hex: 0xF1F3F8).ignoresSafeArea()
+            leaveHeader
+                .ignoresSafeArea(edges: .top)
 
             ScrollView {
                 VStack(spacing: 0) {
-                    leaveHeader
+                    Color.clear
+                        .frame(height: 174)
+
                     VStack(spacing: 0) {
                         leaveBalanceCard
                         leaveFilterRow
@@ -35,24 +39,33 @@ struct LeavesListView: View {
                             .padding(.horizontal, 16)
                             .padding(.top, 14)
                     }
-                    .padding(.top, -58)
+                    .background(Color(hex: 0xF1F3F8))
+                    .clipShape(
+                        UnevenRoundedRectangle(
+                            cornerRadii: .init(topLeading: 30, bottomLeading: 0, bottomTrailing: 0, topTrailing: 30),
+                            style: .continuous
+                        )
+                    )
                     .padding(.bottom, 112)
                 }
             }
             .refreshable { loadData() }
             .ignoresSafeArea(edges: .top)
+
+            if let cancelingLeave {
+                cancelLeaveDialog(for: cancelingLeave)
+                    .zIndex(20)
+            }
         }
-        .navigationBarBackButtonHidden(true)
-        .toolbar(.hidden, for: .navigationBar)
         .safeAreaInset(edge: .bottom) {
             Button {
                 showApplySheet = true
             } label: {
-                Text("Submit Leave")
+                Text("Apply Leave")
                     .font(.system(size: 17, weight: .bold))
                     .foregroundStyle(.white)
                     .frame(maxWidth: .infinity)
-                    .frame(height: 48)
+                    .frame(height: 52)
                     .background(
                         LinearGradient(
                             colors: [Color(hex: 0x1BCB0B), Color(hex: 0x3DA302)],
@@ -63,16 +76,29 @@ struct LeavesListView: View {
                     )
             }
             .buttonStyle(.plain)
+            .blur(radius: cancelingLeave == nil ? 0 : 2)
+            .disabled(cancelingLeave != nil)
             .padding(.horizontal, 16)
             .padding(.top, 8)
-            .padding(.bottom, 8)
-            .background(Color(hex: 0xF1F3F8).opacity(0.96))
+            .padding(.bottom, 14)
+            .frame(maxWidth: .infinity)
+            .background {
+                ZStack {
+                    Color(hex: 0xF1F3F8).opacity(0.96)
+                    if cancelingLeave != nil {
+                        Rectangle()
+                            .fill(.ultraThinMaterial)
+                            .overlay(Color.black.opacity(0.34))
+                            .ignoresSafeArea(edges: .bottom)
+                    }
+                }
+            }
         }
         .sheet(isPresented: $showApplySheet) {
             ApplyLeaveView {
                 loadData()
             }
-            .presentationDetents([.height(390), .large])
+            .presentationDetents([.height(620), .large])
             .presentationDragIndicator(.hidden)
         }
         .alert("Error", isPresented: .constant(errorMessage != nil), actions: {
@@ -94,22 +120,8 @@ struct LeavesListView: View {
         } message: {
             Text("Enter a reason for rejection")
         }
-        .alert("Cancel Leave", isPresented: .init(
-            get: { cancelingLeave != nil },
-            set: { if !$0 { cancelingLeave = nil } }
-        )) {
-            Button("Cancel Leave", role: .destructive) {
-                if let leave = cancelingLeave {
-                    cancelLeave(leave)
-                }
-                cancelingLeave = nil
-            }
-            Button("Keep Leave", role: .cancel) {
-                cancelingLeave = nil
-            }
-        } message: {
-            Text("Are you sure you want to cancel this approved leave?")
-        }
+        .navigationBarBackButtonHidden(true)
+        .toolbar(.hidden, for: .navigationBar)
         .task { loadData() }
     }
 
@@ -124,20 +136,22 @@ struct LeavesListView: View {
             HStack(alignment: .top) {
                 VStack(alignment: .leading, spacing: 4) {
                     Text("Leave Summary")
-                        .font(.system(size: 26, weight: .bold))
+                        .font(.system(size: 22, weight: .bold))
                         .foregroundStyle(.white)
                         .lineLimit(1)
                         .minimumScaleFactor(0.86)
-                    Text("Submit Leave")
-                        .font(.system(size: 17, weight: .regular))
+                    Text("Apply Leave")
+                        .font(.system(size: 14, weight: .regular))
                         .foregroundStyle(.white.opacity(0.78))
                 }
+                .padding(.top, 12)
                 Spacer()
                 leaveBannerArtwork
-                    .frame(width: 118, height: 88)
-                    .padding(.top, 4)
+                    .frame(width: 166, height: 112)
+                    .offset(x: 4, y: -2)
             }
-            .padding(.horizontal, 28)
+            .padding(.leading, 28)
+            .padding(.trailing, 14)
             .padding(.top, 58)
         }
         .frame(height: 232)
@@ -145,23 +159,58 @@ struct LeavesListView: View {
 
     private var leaveBannerArtwork: some View {
         ZStack {
+            Image(systemName: "airplane")
+                .font(.system(size: 18, weight: .bold))
+                .foregroundStyle(Color(hex: 0x7FB3FF))
+                .rotationEffect(.degrees(-16))
+                .offset(x: 48, y: -42)
+
+            Image(systemName: "cloud.fill")
+                .font(.system(size: 17, weight: .bold))
+                .foregroundStyle(Color(hex: 0x9FCBFF))
+                .offset(x: -62, y: -24)
+
+            Image(systemName: "cloud.fill")
+                .font(.system(size: 14, weight: .bold))
+                .foregroundStyle(Color(hex: 0x9FCBFF))
+                .offset(x: 69, y: -14)
+
+            Path { path in
+                path.move(to: CGPoint(x: 31, y: 72))
+                path.addCurve(to: CGPoint(x: 84, y: 29), control1: CGPoint(x: 38, y: 28), control2: CGPoint(x: 59, y: 30))
+                path.addCurve(to: CGPoint(x: 124, y: 18), control1: CGPoint(x: 96, y: 29), control2: CGPoint(x: 107, y: 22))
+            }
+            .stroke(Color(hex: 0x8EBEFF).opacity(0.85), style: StrokeStyle(lineWidth: 2, lineCap: .round, dash: [6, 7]))
+            .frame(width: 150, height: 102)
+            .offset(x: 2, y: 3)
+
             RoundedRectangle(cornerRadius: 8, style: .continuous)
-                .fill(Color(hex: 0x1B63C7).opacity(0.95))
-                .frame(width: 26, height: 42)
+                .fill(Color(hex: 0x1357B2).opacity(0.95))
+                .frame(width: 30, height: 54)
                 .overlay(alignment: .top) {
                     RoundedRectangle(cornerRadius: 3, style: .continuous)
                         .stroke(Color(hex: 0xD6E7FF), lineWidth: 3)
-                        .frame(width: 14, height: 9)
+                        .frame(width: 16, height: 10)
                         .offset(y: -4)
                 }
-                .offset(x: -43, y: 21)
+                .overlay {
+                    VStack(spacing: 4) {
+                        ForEach(0..<3, id: \.self) { _ in
+                            RoundedRectangle(cornerRadius: 2)
+                                .fill(Color(hex: 0x5A94DE))
+                                .frame(width: 18, height: 4)
+                        }
+                    }
+                    .offset(y: 6)
+                }
+                .offset(x: -42, y: 24)
 
             RoundedRectangle(cornerRadius: 8, style: .continuous)
                 .fill(Color.white.opacity(0.92))
-                .frame(width: 58, height: 68)
+                .frame(width: 64, height: 76)
                 .overlay(alignment: .top) {
                     Text("LEAVE")
-                        .font(.system(size: 7, weight: .black))
+                        .font(.system(size: 8, weight: .black))
                         .foregroundStyle(Color(hex: 0x0B61CA))
                         .offset(y: 8)
                 }
@@ -174,24 +223,35 @@ struct LeavesListView: View {
                                     .foregroundStyle(Color(hex: 0x0B61CA))
                                 RoundedRectangle(cornerRadius: 2, style: .continuous)
                                     .fill(Color(hex: 0xA7C8F7))
-                                    .frame(width: 27, height: 4)
+                                    .frame(width: 31, height: 4)
                             }
                         }
                     }
                     .padding(.top, 15)
                 }
                 .rotationEffect(.degrees(-7))
-                .offset(x: 7, y: 4)
+                .offset(x: 3, y: -1)
 
             Circle()
                 .fill(Color(hex: 0xD9E7FF))
-                .frame(width: 34, height: 34)
+                .frame(width: 38, height: 38)
                 .overlay {
                     Image(systemName: "checkmark.seal.fill")
-                        .font(.system(size: 18, weight: .bold))
+                        .font(.system(size: 21, weight: .bold))
                         .foregroundStyle(Color(hex: 0x0B61CA))
                 }
-                .offset(x: 31, y: 26)
+                .offset(x: 33, y: 30)
+
+            VStack(spacing: 0) {
+                Image(systemName: "leaf.fill")
+                    .font(.system(size: 22, weight: .bold))
+                    .foregroundStyle(Color(hex: 0x83A8E8))
+                RoundedRectangle(cornerRadius: 3, style: .continuous)
+                    .fill(Color(hex: 0x6A8FD5))
+                    .frame(width: 14, height: 36)
+            }
+            .rotationEffect(.degrees(20))
+            .offset(x: 68, y: 28)
         }
     }
 
@@ -208,44 +268,46 @@ struct LeavesListView: View {
                         .fixedSize(horizontal: false, vertical: true)
                 }
                 Spacer()
-                if canReviewLeaves {
-                    Menu {
-                        ForEach(LeaveScope.allCases) { scope in
-                            Button {
-                                withAnimation(.snappy(duration: 0.2)) {
-                                    activeScope = scope
-                                    historyFilter = .review
-                                }
-                            } label: {
-                                if scope == .team, pendingLeaves.count > 0 {
-                                    Text("\(scope.title) (\(pendingLeaves.count))")
-                                } else {
-                                    Text(scope.title)
-                                }
+                Menu {
+                    ForEach(availableScopes) { scope in
+                        Button {
+                            withAnimation(.snappy(duration: 0.2)) {
+                                activeScope = scope
+                                historyFilter = .review
+                            }
+                        } label: {
+                            if scope == .team, pendingLeaves.count > 0 {
+                                Text("\(scope.title) (\(pendingLeaves.count))")
+                            } else {
+                                Text(scope.title)
                             }
                         }
-                    } label: {
-                        HStack(spacing: 6) {
-                            Text(activeScope.title)
-                                .lineLimit(1)
-                                .minimumScaleFactor(0.8)
-                            if pendingLeaves.count > 0 {
-                                Circle()
-                                    .fill(Color(hex: 0xEF4444))
-                                    .frame(width: 7, height: 7)
-                            }
-                            Image(systemName: "chevron.down")
-                                .font(.system(size: 11, weight: .bold))
-                        }
-                            .font(.system(size: 16, weight: .medium))
-                            .foregroundStyle(Color(hex: 0x061D3D))
-                            .frame(width: 136, height: 37)
-                            .background(Color(hex: 0xE5E7EB), in: Capsule())
                     }
+                } label: {
+                    HStack(spacing: 8) {
+                        Text(activeScope.title)
+                            .lineLimit(1)
+                            .minimumScaleFactor(0.8)
+                        Image(systemName: "chevron.down")
+                            .font(.system(size: 11, weight: .bold))
+                    }
+                    .font(.system(size: 15, weight: .medium))
+                    .foregroundStyle(Color(hex: 0x061D3D))
+                    .frame(width: 122, height: 48)
+                    .background(Color.white, in: RoundedRectangle(cornerRadius: 12, style: .continuous))
+                    .overlay {
+                        RoundedRectangle(cornerRadius: 12, style: .continuous)
+                            .stroke(Color(hex: 0xE5E7EB), lineWidth: 2)
+                    }
+                    .shadow(color: Color.black.opacity(0.02), radius: 4, y: 1)
                 }
+                .disabled(!canReviewLeaves)
             }
 
-            leaveMetric("Leave Used", value: Int(totalLeaveUsed), dot: Color(hex: 0x0B61CA))
+            HStack(spacing: 12) {
+                leaveMetric("Available", value: Int(totalLeaveAvailable), dot: Color(hex: 0x22C55E))
+                leaveMetric("Leave Used", value: Int(totalLeaveUsed), dot: Color(hex: 0x0B61CA))
+            }
         }
         .padding(.horizontal, 20)
         .padding(.top, 22)
@@ -271,10 +333,9 @@ struct LeavesListView: View {
                     }
                 }
             } else if scopedLeaves.isEmpty || filteredLeaves.isEmpty {
-                ContentUnavailableView(emptyTitle, systemImage: "calendar.badge.minus", description: Text(emptyDescription))
+                leaveEmptyState
                     .frame(maxWidth: .infinity)
-                    .padding(.vertical, 32)
-                    .background(Color.white, in: RoundedRectangle(cornerRadius: 14, style: .continuous))
+                    .padding(.top, 44)
             } else {
                 VStack(spacing: 12) {
                     ForEach(filteredLeaves) { leave in
@@ -320,6 +381,78 @@ struct LeavesListView: View {
         .background(Color(hex: 0xE9EDF5), in: Capsule())
     }
 
+    private func cancelLeaveDialog(for leave: ConvexLeave) -> some View {
+        ZStack {
+            Rectangle()
+                .fill(.ultraThinMaterial)
+                .overlay(Color.black.opacity(0.34))
+                .ignoresSafeArea()
+
+            VStack(spacing: 0) {
+                Circle()
+                    .fill(Color(hex: 0xEF4444))
+                    .frame(width: 56, height: 56)
+                    .overlay {
+                        Image(systemName: "trash")
+                            .font(.system(size: 22, weight: .bold))
+                            .foregroundStyle(.white)
+                    }
+
+                Text("Are you sure?")
+                    .font(.system(size: 20, weight: .bold))
+                    .foregroundStyle(Color(hex: 0x1D2939))
+                    .padding(.top, 20)
+
+                Text("This leave request will be cancelled and removed from your visible leave history.")
+                    .font(.system(size: 14, weight: .regular))
+                    .foregroundStyle(Color(hex: 0x475467))
+                    .multilineTextAlignment(.center)
+                    .lineSpacing(3)
+                    .padding(.top, 12)
+
+                HStack(spacing: 12) {
+                    Button {
+                        cancelingLeave = nil
+                    } label: {
+                        Text("No, Go Back")
+                            .font(.system(size: 14, weight: .semibold))
+                            .foregroundStyle(Color(hex: 0x344054))
+                            .frame(maxWidth: .infinity)
+                            .frame(height: 48)
+                            .background(Color.white, in: RoundedRectangle(cornerRadius: 12, style: .continuous))
+                            .overlay {
+                                RoundedRectangle(cornerRadius: 12, style: .continuous)
+                                    .stroke(Color(hex: 0xD0D5DD), lineWidth: 1)
+                            }
+                    }
+                    .buttonStyle(.plain)
+                    .disabled(actionInFlightId != nil)
+
+                    Button {
+                        cancelLeave(leave)
+                    } label: {
+                        Text(actionInFlightId == leave._id ? "Cancelling..." : "Confirm")
+                            .font(.system(size: 14, weight: .semibold))
+                            .foregroundStyle(.white)
+                            .frame(maxWidth: .infinity)
+                            .frame(height: 48)
+                            .background(Color(hex: 0xEF4444), in: RoundedRectangle(cornerRadius: 12, style: .continuous))
+                    }
+                    .buttonStyle(.plain)
+                    .disabled(actionInFlightId != nil)
+                }
+                .padding(.top, 24)
+            }
+            .padding(24)
+            .background(Color.white, in: RoundedRectangle(cornerRadius: 20, style: .continuous))
+            .padding(.horizontal, 24)
+        }
+    }
+
+    private var availableScopes: [LeaveScope] {
+        canReviewLeaves ? LeaveScope.allCases : [.my]
+    }
+
     private var totalLeaveAvailable: Double {
         let casualRemaining = balance?.casualRemaining ?? 0
         let sickRemaining = balance?.sickRemaining ?? 0
@@ -358,7 +491,7 @@ struct LeavesListView: View {
     }
 
     private var emptyDescription: String {
-        isApprovalScope ? "There are no pending leave requests in review right now." : "Ready to catch some fresh air? Click \"Submit Leave\" and take that well-deserved break!"
+        isApprovalScope ? "There are no pending leave requests in review right now." : "Ready to catch some fresh air? Click \"Apply Leave\" and take that well-deserved break!"
     }
 
     private func leaveMetric(_ title: String, value: Int, dot: Color) -> some View {
@@ -374,9 +507,80 @@ struct LeavesListView: View {
                 .foregroundStyle(Color(hex: 0x101828))
         }
         .frame(maxWidth: .infinity, alignment: .leading)
-        .padding(.horizontal, 14)
-        .padding(.vertical, 14)
+        .frame(height: 104)
+        .padding(.horizontal, 16)
         .background(Color(hex: 0xF8F9FC), in: RoundedRectangle(cornerRadius: 10, style: .continuous))
+    }
+
+    private var leaveEmptyState: some View {
+        VStack(spacing: 14) {
+            leaveEmptyArtwork
+                .frame(width: 142, height: 142)
+
+            Text(emptyTitle)
+                .font(.system(size: 22, weight: .bold))
+                .foregroundStyle(Color(hex: 0x101828))
+
+            Text(emptyDescription)
+                .font(.system(size: 15, weight: .regular))
+                .multilineTextAlignment(.center)
+                .foregroundStyle(Color(hex: 0x98A2B3))
+                .lineSpacing(2)
+                .padding(.horizontal, 24)
+        }
+    }
+
+    private var leaveEmptyArtwork: some View {
+        ZStack {
+            ForEach(0..<9, id: \.self) { index in
+                Circle()
+                    .fill(index.isMultiple(of: 2) ? Color(hex: 0xDCE8FF) : Color.white)
+                    .frame(width: index.isMultiple(of: 2) ? 7 : 5, height: index.isMultiple(of: 2) ? 7 : 5)
+                    .offset(x: CGFloat([-56, -38, -16, 22, 48, 58, -50, 36, 4][index]), y: CGFloat([-42, 36, -60, -48, 28, -8, 2, -65, 54][index]))
+            }
+
+            Image(systemName: "paperplane.fill")
+                .font(.system(size: 18, weight: .bold))
+                .foregroundStyle(Color(hex: 0xAEC8FF))
+                .rotationEffect(.degrees(22))
+                .offset(x: 52, y: -34)
+
+            RoundedRectangle(cornerRadius: 16, style: .continuous)
+                .fill(
+                    LinearGradient(
+                        colors: [Color(hex: 0xCFDCFF), Color(hex: 0xAFC3FA)],
+                        startPoint: .top,
+                        endPoint: .bottom
+                    )
+                )
+                .frame(width: 72, height: 92)
+                .overlay(alignment: .top) {
+                    RoundedRectangle(cornerRadius: 7, style: .continuous)
+                        .stroke(Color(hex: 0xBCD0FF), lineWidth: 7)
+                        .frame(width: 34, height: 22)
+                        .offset(y: -12)
+                }
+                .overlay {
+                    HStack(spacing: 6) {
+                        ForEach(0..<3, id: \.self) { _ in
+                            RoundedRectangle(cornerRadius: 5, style: .continuous)
+                                .fill(Color(hex: 0x9FB4EC).opacity(0.85))
+                                .frame(width: 8, height: 64)
+                        }
+                    }
+                    .offset(y: 6)
+                }
+                .shadow(color: Color(hex: 0x9FB4EC).opacity(0.35), radius: 16, y: 10)
+
+            Circle()
+                .fill(Color(hex: 0x8FA7E8))
+                .frame(width: 12, height: 12)
+                .offset(x: -22, y: 52)
+            Circle()
+                .fill(Color(hex: 0x8FA7E8))
+                .frame(width: 12, height: 12)
+                .offset(x: 22, y: 52)
+        }
     }
 
     private func balanceTypeChip(_ title: String, remaining: Double, total: Double) -> some View {
@@ -421,8 +625,8 @@ struct LeavesListView: View {
                     }
                     .buttonStyle(.plain)
                 } else if !approvalMode && historyFilter != .rejected {
-                    Button(role: .destructive) {
-                        cancelLeave(leave)
+                    Button {
+                        cancelingLeave = leave
                     } label: {
                         Image(systemName: "trash")
                             .font(.system(size: 15, weight: .semibold))
@@ -772,9 +976,12 @@ struct LeavesListView: View {
 
     private func cancelLeave(_ leave: ConvexLeave) {
         guard let token = authStore.currentSession?.token else { return }
+        actionInFlightId = leave._id
         Task {
+            defer { actionInFlightId = nil }
             do {
                 try await HRConvexAPIService.cancelLeave(token: token, id: leave._id)
+                cancelingLeave = nil
                 loadData()
             } catch {
                 if Self.isCancellation(error) { return }
@@ -866,6 +1073,10 @@ private enum LeaveHistoryFilter: CaseIterable, Identifiable {
     }
 
     func contains(status: String) -> Bool {
+        let normalized = status.trimmingCharacters(in: .whitespacesAndNewlines).lowercased()
+        if normalized == "cancelled" || normalized == "canceled" {
+            return false
+        }
         switch bucket(for: status) {
         case .review:
             return self == .review
@@ -880,7 +1091,7 @@ private enum LeaveHistoryFilter: CaseIterable, Identifiable {
         switch status.trimmingCharacters(in: .whitespacesAndNewlines).lowercased() {
         case "approved":
             return .approved
-        case "rejected", "cancelled", "canceled":
+        case "rejected":
             return .rejected
         default:
             return .review

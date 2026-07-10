@@ -82,6 +82,11 @@ enum MarketingConvexAPIService {
         let id: String
     }
 
+    private struct RejectLoanRequest: Encodable {
+        let id: String
+        let reason: String
+    }
+
     private struct RejectBookingRequest: Encodable {
         let reason: String
     }
@@ -137,6 +142,15 @@ enum MarketingConvexAPIService {
             + AppLoanMapper.mapLoanList(wrapper.active ?? [], status: .active)
         let previous = AppLoanMapper.mapLoanList(wrapper.previous ?? [], status: .repaid)
         return LoansPage(active: active, previous: previous)
+    }
+
+    static func getPendingLoanApprovals(token: String) async throws -> [AppLoan] {
+        let data = try await get(path: "/api/hr/loans/pending-approvals", token: token)
+        let wrapper = try decode(MyLoansResponse.self, from: data)
+        guard wrapper.success else { throw MarketingAPIError.server(wrapper.error ?? "Failed to load pending approvals") }
+        return AppLoanMapper.mapLoanList(wrapper.pending ?? [], status: .pending)
+            + AppLoanMapper.mapLoanList(wrapper.active ?? [], status: .pending)
+            + AppLoanMapper.mapLoanList(wrapper.previous ?? [], status: .repaid)
     }
 
     static func getLoanDetail(token: String, id: String, mappedStatus: AppLoanStatus) async throws -> AppLoan {
@@ -219,6 +233,24 @@ enum MarketingConvexAPIService {
         let wrapper = try decode(LoanMutationResponse.self, from: data)
         guard wrapper.success else { throw MarketingAPIError.server(wrapper.error ?? "Failed to submit salary advance") }
         return wrapper.id ?? wrapper.loanId ?? ""
+    }
+
+    static func cancelLoan(token: String, id: String) async throws {
+        let data = try await post(path: "/api/hr/loans/cancel", token: token, body: IdRequest(id: id))
+        let wrapper = try decode(BaseMutationResponse.self, from: data)
+        guard wrapper.success else { throw MarketingAPIError.server(wrapper.error ?? "Failed to cancel loan") }
+    }
+
+    static func approveLoan(token: String, id: String) async throws {
+        let data = try await post(path: "/api/hr/loans/approve", token: token, body: IdRequest(id: id))
+        let wrapper = try decode(BaseMutationResponse.self, from: data)
+        guard wrapper.success else { throw MarketingAPIError.server(wrapper.error ?? "Failed to approve loan") }
+    }
+
+    static func rejectLoan(token: String, id: String, reason: String = "Rejected by approver") async throws {
+        let data = try await post(path: "/api/hr/loans/reject", token: token, body: RejectLoanRequest(id: id, reason: reason))
+        let wrapper = try decode(BaseMutationResponse.self, from: data)
+        guard wrapper.success else { throw MarketingAPIError.server(wrapper.error ?? "Failed to reject loan") }
     }
 
     // MARK: - Projects / Inventory

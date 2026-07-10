@@ -76,14 +76,14 @@ struct SiteVisitsListView: View {
                 Task { await load() }
             }
             .presentationDetents([.medium])
-            .presentationDragIndicator(.visible)
+            .presentationDragIndicator(.hidden)
         }
         .sheet(item: $selectedVisit) { visit in
             SiteVisitOverviewSheet(visit: visit) {
                 Task { await load() }
             }
             .presentationDetents([.fraction(0.78), .large])
-            .presentationDragIndicator(.visible)
+            .presentationDragIndicator(.hidden)
         }
     }
 
@@ -846,7 +846,7 @@ private struct SiteVisitOverviewSheet: View {
                 dismiss()
             }
             .presentationDetents([.large])
-            .presentationDragIndicator(.visible)
+            .presentationDragIndicator(.hidden)
         }
     }
 

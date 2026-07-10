@@ -176,7 +176,7 @@ struct CompleteCpVisitSheet: View {
                     }
                 )
                 .presentationDetents([.medium, .large])
-                .presentationDragIndicator(.visible)
+                .presentationDragIndicator(.hidden)
             }
         }
     }

@@ -66,7 +66,8 @@ enum HRConvexAPIService {
     static func applyLeave(
         token: String, leaveType: String, fromDate: String, toDate: String,
         reason: String, duration: String? = nil,
-        reportingToId: String? = nil, reportingToName: String? = nil
+        reportingToId: String? = nil, reportingToName: String? = nil,
+        isHalfDay: Bool? = nil, halfDaySession: String? = nil, halfDayType: String? = nil
     ) async throws -> String {
         var body: [String: Any] = [
             "leaveType": leaveType, "fromDate": fromDate,
@@ -75,6 +76,9 @@ enum HRConvexAPIService {
         if let duration { body["duration"] = duration }
         if let reportingToId { body["reportingToId"] = reportingToId }
         if let reportingToName { body["reportingToName"] = reportingToName }
+        if let isHalfDay { body["isHalfDay"] = isHalfDay }
+        if let halfDaySession { body["halfDaySession"] = halfDaySession }
+        if let halfDayType { body["halfDayType"] = halfDayType }
         let data = try await post(path: "/api/hr/leaves/apply", token: token, jsonBody: body)
         let wrapper = try decode(LeaveActionResponse.self, from: data)
         guard wrapper.success else { throw HRConvexAPIError.server(wrapper.error ?? "Failed to apply leave") }
@@ -181,6 +185,32 @@ enum HRConvexAPIService {
         let data = try await post(path: "/api/hr/permissions/cancel", token: token, jsonBody: body)
         let wrapper = try decode(GenericSuccessResponse.self, from: data)
         guard wrapper.success else { throw HRConvexAPIError.server(wrapper.error ?? "Failed to cancel") }
+    }
+
+    // MARK: - Fines & Deductions
+
+    private struct FinesListResponse: Decodable {
+        let success: Bool
+        let fines: [ConvexFineDeduction]?
+        let error: String?
+    }
+
+    static func listFines(token: String, status: String? = nil) async throws -> [ConvexFineDeduction] {
+        var path = "/api/hr/fines/list"
+        if let status = status?.addingPercentEncoding(withAllowedCharacters: .urlQueryAllowed) {
+            path += "?status=\(status)"
+        }
+        let data = try await get(path: path, token: token)
+        let wrapper = try decode(FinesListResponse.self, from: data)
+        guard wrapper.success else { throw HRConvexAPIError.server(wrapper.error ?? "Failed to load fines") }
+        return wrapper.fines ?? []
+    }
+
+    static func listMyFines(token: String) async throws -> [ConvexFineDeduction] {
+        let data = try await get(path: "/api/hr/fines/my", token: token)
+        let wrapper = try decode(FinesListResponse.self, from: data)
+        guard wrapper.success else { throw HRConvexAPIError.server(wrapper.error ?? "Failed to load fines") }
+        return wrapper.fines ?? []
     }
 
     // MARK: - Attendance
@@ -303,21 +333,45 @@ enum HRConvexAPIService {
         guard wrapper.success else { throw HRConvexAPIError.server(wrapper.error ?? "Punch out failed") }
     }
 
-    static func getPendingAttendanceApprovals(token: String) async throws -> [ConvexAttendanceRecord] {
-        let data = try await get(path: "/api/hr/attendance/pending-approvals", token: token)
+    static func getPendingAttendanceApprovals(token: String, all: Bool = false) async throws -> [ConvexAttendanceRecord] {
+        let path = all ? "/api/hr/attendance/pending-approvals?all=true" : "/api/hr/attendance/pending-approvals"
+        let data = try await get(path: path, token: token)
         let wrapper = try decode(AttendanceListResponse.self, from: data)
         return wrapper.records ?? []
     }
 
-    static func approveAttendance(token: String, id: String, approvedAttendance: String) async throws {
-        let body: [String: Any] = ["id": id, "approvedAttendance": approvedAttendance]
+    static func getTeamAttendance(token: String, fromDate: String, toDate: String) async throws -> [ConvexAttendanceRecord] {
+        let path = "/api/hr/attendance/team-attendance?fromDate=\(fromDate)&toDate=\(toDate)"
+        let data = try await get(path: path, token: token)
+        let wrapper = try decode(AttendanceListResponse.self, from: data)
+        return wrapper.records ?? []
+    }
+
+    static func getAllAttendance(token: String, fromDate: String, toDate: String) async throws -> [ConvexAttendanceRecord] {
+        let path = "/api/hr/attendance/all?fromDate=\(fromDate)&toDate=\(toDate)"
+        let data = try await get(path: path, token: token)
+        let wrapper = try decode(AttendanceListResponse.self, from: data)
+        return wrapper.records ?? []
+    }
+
+    static func getHrReview(token: String, fromDate: String, toDate: String) async throws -> [ConvexAttendanceRecord] {
+        let path = "/api/hr/attendance/hr-review?fromDate=\(fromDate)&toDate=\(toDate)"
+        let data = try await get(path: path, token: token)
+        let wrapper = try decode(AttendanceListResponse.self, from: data)
+        return wrapper.records ?? []
+    }
+
+    static func approveAttendance(token: String, id: String, approvedAttendance: String, isRequest: Bool? = nil) async throws {
+        var body: [String: Any] = ["id": id, "approvedAttendance": approvedAttendance]
+        if let isRequest { body["isRequest"] = isRequest }
         let data = try await post(path: "/api/hr/attendance/approve", token: token, jsonBody: body)
         let wrapper = try decode(GenericSuccessResponse.self, from: data)
         guard wrapper.success else { throw HRConvexAPIError.server(wrapper.error ?? "Failed to approve") }
     }
 
-    static func rejectAttendance(token: String, id: String, reason: String) async throws {
-        let body: [String: Any] = ["id": id, "reason": reason]
+    static func rejectAttendance(token: String, id: String, reason: String, isRequest: Bool? = nil) async throws {
+        var body: [String: Any] = ["id": id, "reason": reason]
+        if let isRequest { body["isRequest"] = isRequest }
         let data = try await post(path: "/api/hr/attendance/reject", token: token, jsonBody: body)
         let wrapper = try decode(GenericSuccessResponse.self, from: data)
         guard wrapper.success else { throw HRConvexAPIError.server(wrapper.error ?? "Failed to reject") }

@@ -27,7 +27,7 @@ struct AppLibraryView: View {
                 ScrollView(showsIndicators: false) {
                     VStack(spacing: 0) {
                         Color.clear
-                            .frame(height: 161)
+                            .frame(height: 145)
 
                         scrollingPanel
                     }
@@ -38,6 +38,7 @@ struct AppLibraryView: View {
                 .ignoresSafeArea(edges: .top)
             }
             .toolbar(.hidden, for: .navigationBar)
+            .toolbarColorScheme(.dark, for: .navigationBar)
             .task {
                 await refreshPermissions()
             }
@@ -51,6 +52,7 @@ struct AppLibraryView: View {
                 }
             }
         }
+        .background(AppLibraryStatusBarStyle(style: .lightContent))
     }
 
     private var appSections: some View {
@@ -68,7 +70,7 @@ struct AppLibraryView: View {
 
     private var appHeaderTopFill: some View {
         Color(hex: 0x0B61CA)
-            .frame(height: 150)
+            .frame(height: 172)
             .frame(maxWidth: .infinity, alignment: .top)
             .ignoresSafeArea(edges: .top)
     }
@@ -110,27 +112,29 @@ struct AppLibraryView: View {
             HStack(alignment: .top) {
                 VStack(alignment: .leading, spacing: 5) {
                     Text("App Library")
-                        .font(AppModuleFont.screenTitle)
+                        .font(.system(size: 27, weight: .semibold))
                         .foregroundStyle(.white)
 
                     Text("Everything grouped for quick access")
-                        .font(AppModuleFont.rowBody)
+                        .font(.system(size: 14, weight: .regular))
                         .foregroundStyle(Color(hex: 0xD9D6FE))
                         .lineLimit(2)
                 }
-                .frame(maxWidth: 234, alignment: .leading)
+                .frame(maxWidth: 268, alignment: .leading)
+                .offset(y: -22)
 
                 Spacer(minLength: 8)
 
                 Image("AppLibraryIconAppsHeader")
                     .resizable()
                     .scaledToFit()
-                    .frame(width: 119, height: 89)
+                    .frame(width: 112, height: 88)
+                    .padding(.top, -36)
             }
-            .padding(.top, 71)
-            .padding(.horizontal, 24)
+            .padding(.top, 80)
+            .padding(.horizontal, 28)
         }
-        .frame(height: 161)
+        .frame(height: 168)
         .frame(maxHeight: .infinity, alignment: .top)
         .ignoresSafeArea(edges: .top)
     }
@@ -138,8 +142,6 @@ struct AppLibraryView: View {
     private var scrollingPanel: some View {
         VStack(spacing: 0) {
             AppLibraryFilterStrip(selectedFilter: $selectedFilter)
-                .padding(.top, 14)
-                .padding(.bottom, 14)
                 .opacity(navDidAppear ? 1 : 0)
                 .offset(y: navDidAppear ? 0 : 18)
                 .animation(.spring(response: 0.38, dampingFraction: 0.86).delay(0.06), value: navDidAppear)
@@ -154,7 +156,7 @@ struct AppLibraryView: View {
             .padding(.bottom, 120)
         }
         .background(Color(.systemGroupedBackground))
-        .clipShape(.rect(topLeadingRadius: 30, topTrailingRadius: 30))
+        .clipShape(.rect(topLeadingRadius: 36, topTrailingRadius: 36))
     }
 }
 
@@ -173,10 +175,14 @@ private struct AppLibraryTableSection: View {
     var body: some View {
         VStack(alignment: .leading, spacing: 16) {
             HStack(spacing: 12) {
-                Image(section.icon)
-                    .resizable()
-                    .scaledToFit()
-                    .frame(width: 40, height: 40)
+                LibraryIconView(
+                    icon: section.icon,
+                    systemIcon: section.systemIcon,
+                    foreground: section.iconTint,
+                    background: section.iconBackground,
+                    size: 40,
+                    symbolSize: 20
+                )
 
                 VStack(alignment: .leading, spacing: 2) {
                     Text(section.title)
@@ -223,10 +229,7 @@ private struct NativeAppLibraryRow: View {
 
     var body: some View {
         HStack(spacing: 12) {
-            Image(item.icon)
-                .resizable()
-                .scaledToFit()
-                .frame(width: 32, height: 32)
+            rowIcon
 
             Text(item.title)
                 .font(.system(size: 14, weight: .medium))
@@ -254,23 +257,66 @@ private struct NativeAppLibraryRow: View {
         .padding(.vertical, 12)
         .contentShape(Rectangle())
     }
+
+    @ViewBuilder
+    private var rowIcon: some View {
+        LibraryIconView(
+            icon: item.icon,
+            systemIcon: item.systemIcon,
+            foreground: item.iconTint ?? Color(hex: 0x0B61CA),
+            background: item.iconBackground ?? Color(hex: 0xEAF4FF),
+            size: 32,
+            symbolSize: 17
+        )
+    }
+}
+
+private struct LibraryIconView: View {
+    let icon: String
+    let systemIcon: String?
+    let foreground: Color
+    let background: Color?
+    let size: CGFloat
+    let symbolSize: CGFloat
+
+    var body: some View {
+        if let symbol = systemIcon ?? sfSymbol {
+            Image(systemName: symbol)
+                .font(.system(size: symbolSize, weight: .semibold))
+                .symbolRenderingMode(.hierarchical)
+                .foregroundStyle(foreground)
+                .frame(width: size, height: size)
+                .background((background ?? foreground.opacity(0.12)), in: Circle())
+        } else {
+            Image(icon)
+                .resizable()
+                .scaledToFit()
+                .frame(width: size, height: size)
+        }
+    }
+
+    private var sfSymbol: String? {
+        icon.hasPrefix("sf:") ? String(icon.dropFirst(3)) : nil
+    }
 }
 
 private enum AppLibraryFilter: String, CaseIterable, Identifiable {
-    case all, hr, marketing, project, land, fleet, sales, accounts, settings
+    case all, taskManager, hr, marketing, project, land, fleet, sales, accounts, frontDesk, settings
 
     var id: String { rawValue }
 
     var title: String {
         switch self {
         case .all: return "All Apps"
+        case .taskManager: return "Tasks"
         case .hr: return "HR"
         case .marketing: return "Marketing"
         case .project: return "Project"
         case .land: return "Land"
         case .fleet: return "Fleet"
-        case .sales: return "Sales"
+        case .sales: return "Post Sales"
         case .accounts: return "Accounts"
+        case .frontDesk: return "Front Desk"
         case .settings: return "Settings"
         }
     }
@@ -278,6 +324,7 @@ private enum AppLibraryFilter: String, CaseIterable, Identifiable {
     var icon: String {
         switch self {
         case .all: return "AppLibraryIconAppsPillAll"
+        case .taskManager: return "AppLibraryIconAppsTasks"
         case .hr: return "AppLibraryIconAppsPillHr"
         case .marketing: return "AppLibraryIconAppsPillMarketing"
         case .project: return "AppLibraryIconAppsPillProject"
@@ -285,6 +332,7 @@ private enum AppLibraryFilter: String, CaseIterable, Identifiable {
         case .fleet: return "AppLibraryIconAppsPillAll"
         case .sales: return "AppLibraryIconAppsPillMarketing"
         case .accounts: return "AppLibraryIconAppsPillSettings"
+        case .frontDesk: return "AppLibraryIconAppsPillSettings"
         case .settings: return "AppLibraryIconAppsPillSettings"
         }
     }
@@ -292,6 +340,7 @@ private enum AppLibraryFilter: String, CaseIterable, Identifiable {
     var systemIcon: String {
         switch self {
         case .all: return "square.grid.2x2"
+        case .taskManager: return "checklist"
         case .hr: return "person"
         case .marketing: return "megaphone"
         case .project: return "folder"
@@ -299,6 +348,7 @@ private enum AppLibraryFilter: String, CaseIterable, Identifiable {
         case .fleet: return "car"
         case .sales: return "creditcard"
         case .accounts: return "checkmark.seal"
+        case .frontDesk: return "qrcode.viewfinder"
         case .settings: return "gearshape"
         }
     }
@@ -306,6 +356,7 @@ private enum AppLibraryFilter: String, CaseIterable, Identifiable {
     var selectedSystemIcon: String {
         switch self {
         case .all: return "square.grid.2x2.fill"
+        case .taskManager: return "checklist.checked"
         case .hr: return "person.fill"
         case .marketing: return "megaphone.fill"
         case .project: return "folder.fill"
@@ -313,6 +364,7 @@ private enum AppLibraryFilter: String, CaseIterable, Identifiable {
         case .fleet: return "car.fill"
         case .sales: return "creditcard.fill"
         case .accounts: return "checkmark.seal.fill"
+        case .frontDesk: return "qrcode.viewfinder"
         case .settings: return "gearshape.fill"
         }
     }
@@ -324,6 +376,9 @@ private struct AppLibrarySection: Identifiable {
     let title: String
     let subtitle: String
     let icon: String
+    var systemIcon: String? = nil
+    var iconTint: Color = Color(hex: 0x0B61CA)
+    var iconBackground: Color? = nil
     let items: [AppLibraryItem]
 
     static func makeSections(authStore: AuthStore) -> [AppLibrarySection] {
@@ -331,11 +386,19 @@ private struct AppLibrarySection: Identifiable {
             permissions.isEmpty || permissions.contains { authStore.hasPermission($0) }
         }
 
-        let isDriverMode = authStore.currentSession?.user.isFleetDriverMode == true
-
         let hrItems: [AppLibraryItem] = [
             canAny(["attendance.view", "attendance.viewAll"])
                 ? .init(title: "Attendance", icon: "AppLibraryIconAppsAttendance", destination: .attendance)
+                : nil,
+            canAny(["fines.viewOwn", "fines.view"])
+                ? .init(
+                    title: "Fines & Deductions",
+                    icon: "sf:scalemass",
+                    destination: .fines,
+                    systemIcon: "scalemass",
+                    iconTint: Color(hex: 0x0B61CA),
+                    iconBackground: Color(hex: 0xEAF4FF)
+                )
                 : nil,
             canAny(["leaves.view", "leaves.viewAll", "leaves.approve"])
                 ? .init(title: "Leave", icon: "AppLibraryIconAppsLeave", destination: .leave)
@@ -345,9 +408,19 @@ private struct AppLibrarySection: Identifiable {
                 : nil,
             canAny(["loans.view", "loans.manage", "loans.approve"])
                 ? .init(title: "Loans", icon: "AppLibraryIconAppsLoans", destination: .loans)
-                : nil,
-            canAny(["attendance.approve"])
-                ? .init(title: "Attendance Approvals", icon: "AppLibraryIconAppsAttendance", destination: .attendanceReview)
+                : nil
+        ].compactMap(\.self)
+
+        let taskManagerItems: [AppLibraryItem] = [
+            canAny(["tasks.view", "tasks.viewAll", "tasks.create"])
+                ? .init(
+                    title: "Task Manager",
+                    icon: "AppLibraryIconAppsTasks",
+                    destination: .tasks,
+                    systemIcon: "checklist",
+                    iconTint: Color(hex: 0x0891B2),
+                    iconBackground: Color(hex: 0xE0F7FA)
+                )
                 : nil
         ].compactMap(\.self)
 
@@ -376,40 +449,123 @@ private struct AppLibrarySection: Identifiable {
             canAny(["tasks.view", "tasks.viewAll", "tasks.create"])
                 ? .init(title: "Tasks", icon: "AppLibraryIconAppsTasks", destination: .tasks)
                 : nil,
+            canAny(["tasks.view", "tasks.viewAll", "tasks.create"])
+                ? .init(
+                    title: "Issues",
+                    icon: "sf:questionmark.bubble",
+                    destination: .issues,
+                    systemIcon: "questionmark.bubble",
+                    iconTint: Color(hex: 0x16A34A),
+                    iconBackground: Color(hex: 0xDCFCE7)
+                )
+                : nil,
             canAny(["projects.expenses.view", "projects.expenses.create", "projects.expenses.approve"])
-                ? .init(title: "Expenses", icon: "AppLibraryIconAppsLoans", destination: .expenses)
+                ? .init(
+                    title: "Expenses",
+                    icon: "AppLibraryIconAppsLoans",
+                    destination: .expenses,
+                    systemIcon: "indianrupeesign.circle",
+                    iconTint: Color(hex: 0x16A34A),
+                    iconBackground: Color(hex: 0xDCFCE7)
+                )
                 : nil
         ].compactMap(\.self)
 
         let landItems: [AppLibraryItem] = [
             canAny(["land.inspect", "land.inspection.view", "land.inspection.edit", "land.view"])
-                ? .init(title: "Inspection", icon: "AppLibraryIconAppsFieldVisits", destination: .landInspection)
+                ? .init(
+                    title: "Inspection",
+                    icon: "AppLibraryIconAppsFieldVisits",
+                    destination: .landInspection,
+                    systemIcon: "doc.text.magnifyingglass",
+                    iconTint: Color(hex: 0xE401B3),
+                    iconBackground: Color(hex: 0xFFE8FC)
+                )
                 : nil,
             canAny(["land.view", "land.inspect", "land.inspection.view"])
-                ? .init(title: "Queries", icon: "AppLibraryIconAppsLeads", destination: .landQueries)
+                ? .init(
+                    title: "Queries",
+                    icon: "AppLibraryIconAppsLeads",
+                    destination: .landQueries,
+                    systemIcon: "questionmark.bubble",
+                    iconTint: Color(hex: 0xE401B3),
+                    iconBackground: Color(hex: 0xFFE8FC)
+                )
                 : nil
         ].compactMap(\.self)
 
         let fleetItems: [AppLibraryItem] = [
-            isDriverMode
-                ? .init(title: "My Trips", icon: "AppLibraryIconAppsFieldVisits", destination: .fleetMyTrips)
+            (authStore.currentSession?.user.isFleetDriverMode == true || canAny(["marketing.siteVisits.view", "fleet.view"]))
+                ? .init(
+                    title: "My Trips",
+                    icon: "sf:car.fill",
+                    destination: .fleetMyTrips,
+                    systemIcon: "car.fill",
+                    iconTint: Color(hex: 0x00838F),
+                    iconBackground: Color(hex: 0xE0F7FA)
+                )
                 : nil
         ].compactMap(\.self)
 
         let salesItems: [AppLibraryItem] = [
-            .init(title: "Collections", icon: "AppLibraryIconAppsLoans", destination: .collections),
-            .init(title: "Loan Desk", icon: "AppLibraryIconAppsLoans", destination: .loanDesk)
+            .init(
+                title: "Collections",
+                icon: "AppLibraryIconAppsLoans",
+                destination: .collections,
+                systemIcon: "creditcard",
+                iconTint: Color(hex: 0xD01784),
+                iconBackground: Color(hex: 0xFCE7F3)
+            ),
+            .init(
+                title: "Loan Desk",
+                icon: "AppLibraryIconAppsLoans",
+                destination: .loanDesk,
+                systemIcon: "indianrupeesign.circle",
+                iconTint: Color(hex: 0xD01784),
+                iconBackground: Color(hex: 0xFCE7F3)
+            )
         ]
 
         let accountsItems: [AppLibraryItem] = [
-            .init(title: "Post Sales Verification", icon: "AppLibraryIconAppsSettingsCard", destination: .postSalesVerification)
+            .init(
+                title: "Post Sales Verification",
+                icon: "AppLibraryIconAppsSettingsCard",
+                destination: .postSalesVerification,
+                systemIcon: "checkmark.seal",
+                iconTint: Color(hex: 0x1F2937),
+                iconBackground: Color(hex: 0xE2E8F0)
+            )
         ]
 
+        let frontDeskItems: [AppLibraryItem] = [
+            canAny(["frontdesk.view", "frontdesk.checkin", "frontdesk.invite"])
+                ? .init(
+                    title: "QR Scanner",
+                    icon: "sf:qrcode.viewfinder",
+                    destination: .qrScanner,
+                    systemIcon: "qrcode.viewfinder",
+                    iconTint: Color(hex: 0x6D28D9),
+                    iconBackground: Color(hex: 0xEDE9FE)
+                )
+                : nil
+        ].compactMap(\.self)
+
         let settingsItems: [AppLibraryItem] = [
-            AppLibraryItem(title: "Profile", icon: "AppLibraryIconAppsSettingsCard", destination: .settings)
+            AppLibraryItem(title: "Settings", icon: "AppLibraryIconAppsSettingsCard", destination: .settings)
         ]
 
         return [
+            .init(
+                id: "taskManager",
+                filter: .taskManager,
+                title: "Task Manager",
+                subtitle: "Tasks • Followups",
+                icon: "AppLibraryIconAppsCatPm",
+                systemIcon: "checklist",
+                iconTint: Color(hex: 0x0891B2),
+                iconBackground: Color(hex: 0xE0F7FA),
+                items: taskManagerItems
+            ),
             .init(
                 id: "hr",
                 filter: .hr,
@@ -429,48 +585,74 @@ private struct AppLibrarySection: Identifiable {
             .init(
                 id: "project",
                 filter: .project,
-                title: "Project",
-                subtitle: "Projects • Tasks • Expenses",
+                title: "Project Management",
+                subtitle: "Tasks • Issues • Expenses",
                 icon: "AppLibraryIconAppsCatPm",
+                systemIcon: "folder.badge.gearshape",
+                iconTint: Color(hex: 0x16A34A),
+                iconBackground: Color(hex: 0xDCFCE7),
                 items: projectItems
             ),
             .init(
                 id: "land",
                 filter: .land,
-                title: "Land",
+                title: "Land Procurement",
                 subtitle: "Inspection • Queries",
                 icon: "AppLibraryIconAppsCatMarketing",
+                systemIcon: "map",
+                iconTint: Color(hex: 0xE401B3),
+                iconBackground: Color(hex: 0xFFE8FC),
                 items: landItems
             ),
             .init(
                 id: "fleet",
                 filter: .fleet,
-                title: "Fleet",
-                subtitle: "Trips • Drivers",
+                title: "Fleet Management",
+                subtitle: "Fleets • My Trips",
                 icon: "AppLibraryIconAppsCatPm",
+                systemIcon: "car.fill",
+                iconTint: Color(hex: 0x00838F),
+                iconBackground: Color(hex: 0xE0F7FA),
                 items: fleetItems
             ),
             .init(
                 id: "sales",
                 filter: .sales,
-                title: "Sales",
-                subtitle: "Collections • Loan Desk",
+                title: "Post Sales",
+                subtitle: "Post Sales • Collections",
                 icon: "AppLibraryIconAppsCatMarketing",
+                systemIcon: "megaphone",
+                iconTint: Color(hex: 0xD01784),
+                iconBackground: Color(hex: 0xFCE7F3),
                 items: salesItems
             ),
             .init(
                 id: "accounts",
                 filter: .accounts,
                 title: "Accounts",
-                subtitle: "Verification • Cases",
+                subtitle: "Verification • Approvals",
                 icon: "AppLibraryIconAppsCatConfig",
+                systemIcon: "checkmark.seal.fill",
+                iconTint: Color(hex: 0x1F2937),
+                iconBackground: Color(hex: 0xE2E8F0),
                 items: accountsItems
+            ),
+            .init(
+                id: "frontDesk",
+                filter: .frontDesk,
+                title: "Front Desk",
+                subtitle: "Visitor Entry • Scanning",
+                icon: "AppLibraryIconAppsCatConfig",
+                systemIcon: "person.crop.rectangle",
+                iconTint: Color(hex: 0x7C3AED),
+                iconBackground: Color(hex: 0xF3E8FF),
+                items: frontDeskItems
             ),
             .init(
                 id: "configuration",
                 filter: .settings,
-                title: "Settings",
-                subtitle: "Personal Settings",
+                title: "Configuration",
+                subtitle: "Settings",
                 icon: "AppLibraryIconAppsCatConfig",
                 items: settingsItems
             )
@@ -482,6 +664,9 @@ private struct AppLibraryItem: Identifiable {
     let title: String
     let icon: String
     let destination: AppLibraryDestination
+    var systemIcon: String? = nil
+    var iconTint: Color? = nil
+    var iconBackground: Color? = nil
     var isComingSoon = false
 
     var id: String { destination.rawValue }
@@ -489,7 +674,7 @@ private struct AppLibraryItem: Identifiable {
 
 private enum AppLibraryDestination: String {
     case attendance
-    case attendanceReview
+    case fines
     case leave
     case permissions
     case loans
@@ -500,6 +685,7 @@ private enum AppLibraryDestination: String {
     case inventory
     case bookings
     case tasks
+    case issues
     case expenses
     case landInspection
     case landQueries
@@ -507,6 +693,7 @@ private enum AppLibraryDestination: String {
     case collections
     case loanDesk
     case postSalesVerification
+    case qrScanner
     case settings
 
     @ViewBuilder
@@ -515,8 +702,8 @@ private enum AppLibraryDestination: String {
             switch self {
             case .attendance:
                 ConvexAttendanceListView()
-            case .attendanceReview:
-                AttendanceReviewView()
+            case .fines:
+                FinesDeductionsView()
             case .leave:
                 LeavesListView()
             case .permissions:
@@ -537,6 +724,8 @@ private enum AppLibraryDestination: String {
                 BookingsListView()
             case .tasks:
                 TasksListView()
+            case .issues:
+                IssuesView()
             case .expenses:
                 ProjectExpensesView()
             case .landInspection:
@@ -551,6 +740,8 @@ private enum AppLibraryDestination: String {
                 LoanDeskView()
             case .postSalesVerification:
                 AccountsCollectionsReviewView()
+            case .qrScanner:
+                FrontDeskQRScannerView()
             case .settings:
                 ProfileView()
             }
@@ -574,7 +765,7 @@ private struct AppLibraryFilterStrip: View {
                             }
                         } label: {
                             AppLibraryFilterTab(filter: filter, isSelected: selectedFilter == filter)
-                                .frame(width: 82, height: 64)
+                                .frame(width: 78, height: 76)
                                 .contentShape(Rectangle())
                         }
                         .buttonStyle(AppLibraryTabButtonStyle())
@@ -586,18 +777,9 @@ private struct AppLibraryFilterStrip: View {
                 .padding(.horizontal, 6)
             }
         }
-        .frame(height: 70)
-        .background {
-            RoundedRectangle(cornerRadius: 34, style: .continuous)
-                .fill(.regularMaterial)
-                .overlay {
-                    RoundedRectangle(cornerRadius: 34, style: .continuous)
-                        .fill(Color(.systemBackground).opacity(0.74))
-                }
-        }
-        .clipShape(RoundedRectangle(cornerRadius: 29, style: .continuous))
-        .shadow(color: .black.opacity(0.08), radius: 12, x: 0, y: 3)
-        .padding(.horizontal, 6)
+        .frame(height: 84)
+        .frame(maxWidth: .infinity)
+        .background(Color.white)
         .sensoryFeedback(.selection, trigger: selectedFilter)
     }
 }
@@ -607,20 +789,25 @@ private struct AppLibraryFilterTab: View {
     let isSelected: Bool
 
     var body: some View {
-        VStack(spacing: 3) {
+        VStack(spacing: 0) {
             Image(systemName: isSelected ? filter.selectedSystemIcon : filter.systemIcon)
-                .font(.system(size: 21, weight: .semibold))
+                .font(.system(size: 16, weight: .semibold))
                 .symbolRenderingMode(.hierarchical)
                 .foregroundStyle(isSelected ? .white : Color(hex: 0x6A6D78))
-                .frame(height: 25)
-                .frame(width: 38, height: 38)
-                .background(isSelected ? Color(hex: 0x0B61CA) : Color.clear, in: Circle())
+                .frame(width: 36, height: 36)
+                .background(isSelected ? Color(hex: 0x0B61CA) : Color(hex: 0xF4F6F8), in: Circle())
 
             Text(filter.title)
-                .font(isSelected ? AppModuleFont.rowMetaSemibold : AppModuleFont.tabLabel)
-                .foregroundStyle(isSelected ? Color(hex: 0x0B61CA) : Color(hex: 0x1D1D1F))
+                .font(.system(size: 10, weight: .medium))
+                .foregroundStyle(isSelected ? Color(hex: 0x0B61CA) : Color(hex: 0x667085))
                 .lineLimit(1)
-                .minimumScaleFactor(0.68)
+                .minimumScaleFactor(0.72)
+                .padding(.top, 1)
+
+            Capsule()
+                .fill(isSelected ? Color(hex: 0x0B61CA) : Color.clear)
+                .frame(width: 24, height: 2)
+                .padding(.top, 3)
         }
         .animation(.easeOut(duration: 0.16), value: isSelected)
     }
@@ -632,6 +819,40 @@ private struct AppLibraryTabButtonStyle: ButtonStyle {
             .scaleEffect(configuration.isPressed ? 0.94 : 1)
             .opacity(configuration.isPressed ? 0.82 : 1)
             .animation(.easeOut(duration: 0.12), value: configuration.isPressed)
+    }
+}
+
+private struct AppLibraryStatusBarStyle: UIViewControllerRepresentable {
+    let style: UIStatusBarStyle
+
+    func makeUIViewController(context: Context) -> Controller {
+        Controller(style: style)
+    }
+
+    func updateUIViewController(_ controller: Controller, context: Context) {
+        controller.style = style
+    }
+
+    final class Controller: UIViewController {
+        var style: UIStatusBarStyle {
+            didSet {
+                setNeedsStatusBarAppearanceUpdate()
+            }
+        }
+
+        init(style: UIStatusBarStyle) {
+            self.style = style
+            super.init(nibName: nil, bundle: nil)
+        }
+
+        @available(*, unavailable)
+        required init?(coder: NSCoder) {
+            nil
+        }
+
+        override var preferredStatusBarStyle: UIStatusBarStyle {
+            style
+        }
     }
 }
 

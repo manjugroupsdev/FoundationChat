@@ -75,13 +75,13 @@ struct TaskDetailView: View {
                     await onChange()
                 }
                 .presentationDetents([.large])
-                .presentationDragIndicator(.visible)
+                .presentationDragIndicator(.hidden)
             }
         }
         .sheet(isPresented: $showTimelineSheet) {
             TaskTimelineSheet(taskId: taskId)
                 .presentationDetents([.large])
-                .presentationDragIndicator(.visible)
+                .presentationDragIndicator(.hidden)
         }
         .alert("Error", isPresented: errorAlertBinding) {
             Button("OK", role: .cancel) { errorMessage = nil }

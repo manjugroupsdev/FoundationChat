@@ -48,20 +48,16 @@ private final class GlobalEdgePopPanHandler: NSObject, UIGestureRecognizerDelega
         case .began:
             didPop = false
             UIApplication.shared.fc_dismissKeyboard()
-        case .ended:
             guard !didPop,
                   let window,
                   let navigationController = window.fc_topNavigationController(),
                   navigationController.viewControllers.count > 1,
                   navigationController.transitionCoordinator == nil
             else { return }
-
-            let translation = gestureRecognizer.translation(in: window)
-            let velocity = gestureRecognizer.velocity(in: window)
-            guard translation.x > 42 || velocity.x > 360 else { return }
-
             didPop = true
             navigationController.popViewController(animated: true)
+        case .ended:
+            didPop = false
         case .cancelled, .failed:
             didPop = false
         default:

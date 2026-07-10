@@ -66,21 +66,21 @@ struct LandInspectionView: View {
                 showingDateFilter = false
             }
             .presentationDetents([.large])
-            .presentationDragIndicator(.visible)
+            .presentationDragIndicator(.hidden)
         }
         .sheet(item: $editingInspection) { inspection in
             LandInspectionSheet(inspection: inspection) {
                 await load()
             }
             .presentationDetents([.large])
-            .presentationDragIndicator(.visible)
+            .presentationDragIndicator(.hidden)
         }
         .sheet(item: $reschedulingInspection) { inspection in
             LandInspectionRescheduleSheet(inspection: inspection) {
                 await load()
             }
             .presentationDetents([.medium])
-            .presentationDragIndicator(.visible)
+            .presentationDragIndicator(.hidden)
         }
         .alert("Land Inspection", isPresented: Binding(
             get: { (errorMessage != nil && hasLoaded && inspections.isEmpty) || actionMessage != nil },
@@ -724,114 +724,132 @@ private struct LandInspectionSheet: View {
     }
 
     var body: some View {
-        NavigationStack {
-            ScrollView {
-                VStack(alignment: .leading, spacing: 18) {
-                    Capsule()
-                        .fill(Color.secondary.opacity(0.25))
-                        .frame(width: 52, height: 5)
-                        .frame(maxWidth: .infinity)
-                        .padding(.top, 6)
+        ScrollView {
+            VStack(alignment: .leading, spacing: 10) {
+                Capsule()
+                    .fill(Color.secondary.opacity(0.25))
+                    .frame(width: 44, height: 4)
+                    .frame(maxWidth: .infinity)
+                    .padding(.top, 7)
 
-                    header
-                    if isViewOnly {
-                        viewOnlyBanner
-                    }
-                    tabStrip
-
-                    switch selectedTab {
-                    case .basic: basicSection
-                    case .area: areaSection
-                    case .market: marketSection
-                    case .conclusions: conclusionSection
-                    case .competitors: competitorsSection
-                    }
-
-                    if let errorMessage {
-                        HStack(spacing: 10) {
-                            Image(systemName: "exclamationmark.triangle.fill")
-                            Text(errorMessage)
-                        }
-                        .font(AppModuleFont.rowMetaSemibold)
-                        .foregroundStyle(.red)
-                        .padding(14)
-                        .frame(maxWidth: .infinity, alignment: .leading)
-                        .background(Color.red.opacity(0.08), in: RoundedRectangle(cornerRadius: 14))
-                    }
+                header
+                if isViewOnly {
+                    viewOnlyBanner
                 }
-                .padding(.horizontal, 20)
-                .padding(.bottom, 28)
-            }
-            .background(Color(.systemGroupedBackground))
-            .toolbar {
-                ToolbarItem(placement: .cancellationAction) {
-                    Button(isViewOnly ? "Done" : "Cancel") { dismiss() }
+                tabStrip
+
+                switch selectedTab {
+                case .basic: basicSection
+                case .area: areaSection
+                case .market: marketSection
+                case .conclusions: conclusionSection
+                case .competitors: competitorsSection
                 }
+
+                if let errorMessage {
+                    HStack(spacing: 10) {
+                        Image(systemName: "exclamationmark.triangle.fill")
+                        Text(errorMessage)
+                    }
+                    .font(AppModuleFont.rowMetaSemibold)
+                    .foregroundStyle(.red)
+                    .padding(14)
+                    .frame(maxWidth: .infinity, alignment: .leading)
+                    .background(Color.red.opacity(0.08), in: RoundedRectangle(cornerRadius: 14))
+                }
+
                 if !isViewOnly {
-                    ToolbarItem(placement: .confirmationAction) {
+                    HStack(spacing: 10) {
+                        Button("Cancel") { dismiss() }
+                            .font(.system(size: 15, weight: .semibold))
+                            .foregroundStyle(Color(hex: 0x111827))
+                            .frame(maxWidth: .infinity)
+                            .frame(height: 48)
+                            .background(Color.white, in: RoundedRectangle(cornerRadius: 14))
+                            .overlay(
+                                RoundedRectangle(cornerRadius: 14)
+                                    .stroke(Color.black.opacity(0.10), lineWidth: 1)
+                            )
+
                         Button(isSaving ? "Saving..." : "Save") { save() }
-                            .buttonStyle(.borderedProminent)
+                            .font(.system(size: 15, weight: .semibold))
+                            .foregroundStyle(.white)
+                            .frame(maxWidth: .infinity)
+                            .frame(height: 48)
+                            .background(Color(hex: 0x0B61CA), in: RoundedRectangle(cornerRadius: 14))
                             .disabled(isSaving)
                     }
+                    .padding(.top, 2)
                 }
             }
+            .padding(.horizontal, 16)
+            .padding(.bottom, 22)
         }
+        .background(Color(.systemGroupedBackground))
     }
 
     private var header: some View {
         VStack(alignment: .leading, spacing: 4) {
             Text("Site Inspection")
-                .font(.system(size: 28, weight: .bold))
+                .font(.system(size: 16, weight: .bold))
                 .foregroundStyle(Color(hex: 0x111827))
             Text("Information about Land Procurement")
-                .font(.system(size: 17, weight: .regular))
+                .font(.system(size: 12, weight: .regular))
                 .foregroundStyle(.secondary)
         }
-        .padding(.top, 4)
     }
 
     private var viewOnlyBanner: some View {
         Text("Approved by VP - View only")
-            .font(.system(size: 16, weight: .semibold))
+            .font(.system(size: 13, weight: .semibold))
             .foregroundStyle(Color(hex: 0x0B61CA))
             .frame(maxWidth: .infinity)
-            .padding(.vertical, 14)
-            .background(Color(hex: 0xDDEBFF), in: RoundedRectangle(cornerRadius: 18))
+            .padding(.vertical, 8)
+            .background(Color(hex: 0xDDEBFF), in: RoundedRectangle(cornerRadius: 10))
     }
 
     private var tabStrip: some View {
-        ScrollView(.horizontal, showsIndicators: false) {
-            HStack(spacing: 22) {
-                ForEach(SiteInspectionTab.allCases) { tab in
-                    Button {
-                        selectedTab = tab
-                    } label: {
-                        VStack(spacing: 6) {
-                            ZStack {
-                                Circle()
-                                    .fill(selectedTab == tab ? Color(hex: 0x0B61CA) : Color.clear)
-                                    .frame(width: 48, height: 48)
-                                Image(systemName: tab.icon)
-                                    .font(.system(size: 24, weight: .semibold))
-                                    .foregroundStyle(selectedTab == tab ? .white : .secondary)
-                            }
-                            Text(tab.title)
-                                .font(.system(size: 13, weight: selectedTab == tab ? .semibold : .regular))
-                                .foregroundStyle(selectedTab == tab ? Color(hex: 0x0B61CA) : .secondary)
-                            Rectangle()
-                                .fill(selectedTab == tab ? Color(hex: 0x0B61CA) : Color.clear)
-                                .frame(width: 42, height: 3)
+        HStack(spacing: 0) {
+            ForEach(Array(SiteInspectionTab.allCases.enumerated()), id: \.element.id) { index, tab in
+                Button {
+                    selectedTab = tab
+                } label: {
+                    VStack(spacing: 3) {
+                        ZStack {
+                            Circle()
+                                .fill(selectedTab == tab ? Color(hex: 0x0B61CA) : Color(hex: 0xF4F6FA))
+                                .frame(width: 30, height: 30)
+                            Image(systemName: tab.icon)
+                                .font(.system(size: 14, weight: .semibold))
+                                .foregroundStyle(selectedTab == tab ? .white : Color(hex: 0x7A7D86))
                         }
+                        Text(tab.title)
+                            .font(.system(size: 9, weight: selectedTab == tab ? .semibold : .regular))
+                            .foregroundStyle(selectedTab == tab ? Color(hex: 0x0B61CA) : Color(hex: 0x667085))
+                            .lineLimit(1)
+                            .minimumScaleFactor(0.75)
+                        Rectangle()
+                            .fill(selectedTab == tab ? Color(hex: 0x0B61CA) : Color.clear)
+                            .frame(width: 26, height: 2)
                     }
-                    .buttonStyle(.plain)
+                    .frame(maxWidth: .infinity)
+                    .frame(height: 58)
+                }
+                .buttonStyle(.plain)
+
+                if index < SiteInspectionTab.allCases.count - 1 {
+                    Rectangle()
+                        .fill(Color(hex: 0xE8ECF3))
+                        .frame(width: 1, height: 34)
                 }
             }
-            .padding(.vertical, 2)
         }
+        .frame(maxWidth: .infinity)
+        .padding(.top, 2)
     }
 
     private var basicSection: some View {
-        VStack(alignment: .leading, spacing: 16) {
+        VStack(alignment: .leading, spacing: 10) {
             sectionTitle("Basic Details", subtitle: "Fill all the details about the site")
             fieldCard("Land Owner Name", text: $ownerName, placeholder: "Enter Details", icon: "person.text.rectangle", required: true)
             fieldCard("Survey No", text: $surveyNo, placeholder: "Enter Details", icon: "doc.text")
@@ -857,7 +875,7 @@ private struct LandInspectionSheet: View {
     }
 
     private var areaSection: some View {
-        VStack(alignment: .leading, spacing: 16) {
+        VStack(alignment: .leading, spacing: 10) {
             sectionTitle("Area", subtitle: "Nearby amenities and distance")
             areaEditor(title: "Schools", entries: $schools)
             areaEditor(title: "Colleges", entries: $colleges)
@@ -868,7 +886,7 @@ private struct LandInspectionSheet: View {
     }
 
     private var marketSection: some View {
-        VStack(alignment: .leading, spacing: 16) {
+        VStack(alignment: .leading, spacing: 10) {
             sectionTitle("Market", subtitle: "Demand, target clients and price inputs")
             menuCard("Present Demand", selection: $presentDemand, options: demandOptions.map { $0.lowercased() }, icon: "chart.line.uptrend.xyaxis")
             menuCard("Future Demand", selection: $futureDemand, options: demandOptions.map { $0.lowercased() }, icon: "chart.bar")
@@ -883,14 +901,14 @@ private struct LandInspectionSheet: View {
     }
 
     private var conclusionSection: some View {
-        VStack(alignment: .leading, spacing: 16) {
+        VStack(alignment: .leading, spacing: 10) {
             sectionTitle("Conclusion", subtitle: "Recommendation/conclusion")
             fieldCard("Recommendation / Conclusion", text: $conclusion, placeholder: "Enter recommendation", icon: "target", required: true, axis: .vertical, minHeight: 132)
         }
     }
 
     private var competitorsSection: some View {
-        VStack(alignment: .leading, spacing: 16) {
+        VStack(alignment: .leading, spacing: 10) {
             sectionTitle("Competitors", subtitle: "Competitor project entries")
             if competitors.isEmpty {
                 Text("No competitor entries yet.")
@@ -920,13 +938,14 @@ private struct LandInspectionSheet: View {
     private func areaEditor(title: String, entries: Binding<[LandAreaEntry]>) -> some View {
         VStack(alignment: .leading, spacing: 12) {
             Text(title)
-                .font(.system(size: 18, weight: .bold))
+                .font(.system(size: 16, weight: .bold))
             if entries.wrappedValue.isEmpty {
                 Text("No \(title.lowercased()) added.")
                     .foregroundStyle(.secondary)
                     .frame(maxWidth: .infinity, alignment: .leading)
-                    .padding(14)
-                    .background(Color.white, in: RoundedRectangle(cornerRadius: 14))
+                    .font(.system(size: 14))
+                    .padding(12)
+                    .background(Color.white, in: RoundedRectangle(cornerRadius: 12))
             }
             ForEach(entries) { $entry in
                 HStack(spacing: 10) {
@@ -950,10 +969,10 @@ private struct LandInspectionSheet: View {
     private func sectionTitle(_ title: String, subtitle: String) -> some View {
         VStack(alignment: .leading, spacing: 4) {
             Text(title)
-                .font(.system(size: 24, weight: .bold))
+                .font(.system(size: 20, weight: .bold))
                 .foregroundStyle(Color(hex: 0x111827))
             Text(subtitle)
-                .font(.system(size: 16))
+                .font(.system(size: 13))
                 .foregroundStyle(.secondary)
         }
     }
@@ -965,44 +984,44 @@ private struct LandInspectionSheet: View {
         icon: String,
         required: Bool = false,
         axis: Axis = .horizontal,
-        minHeight: CGFloat = 76,
+        minHeight: CGFloat = 52,
         compact: Bool = false
     ) -> some View {
-        VStack(alignment: .leading, spacing: 8) {
+        VStack(alignment: .leading, spacing: 6) {
             HStack(spacing: 2) {
                 Text(label)
                 if required {
                     Text("*").foregroundStyle(.red)
                 }
             }
-            .font(.system(size: compact ? 12 : 15, weight: .semibold))
+            .font(.system(size: compact ? 11 : 13, weight: .semibold))
             .foregroundStyle(Color(hex: 0x374151))
 
-            HStack(alignment: axis == .vertical ? .top : .center, spacing: 14) {
+            HStack(alignment: axis == .vertical ? .top : .center, spacing: 10) {
                 Image(systemName: icon)
-                    .font(.system(size: compact ? 18 : 22, weight: .semibold))
+                    .font(.system(size: compact ? 16 : 18, weight: .semibold))
                     .foregroundStyle(Color(hex: 0x0B61CA))
                     .frame(width: 24)
                 if isViewOnly {
                     Text(text.wrappedValue.landNilIfBlank ?? placeholder)
-                        .font(.system(size: compact ? 15 : 20, weight: text.wrappedValue.landNilIfBlank == nil ? .regular : .semibold))
+                        .font(.system(size: compact ? 13 : 15, weight: text.wrappedValue.landNilIfBlank == nil ? .regular : .semibold))
                         .foregroundStyle(text.wrappedValue.landNilIfBlank == nil ? .secondary.opacity(0.65) : Color(hex: 0x111827))
                         .lineLimit(axis == .vertical ? nil : 2)
                         .frame(maxWidth: .infinity, alignment: .leading)
                 } else {
                     TextField(placeholder, text: text, axis: axis)
-                        .font(.system(size: compact ? 15 : 20, weight: .regular))
+                        .font(.system(size: compact ? 13 : 15, weight: .regular))
                         .foregroundStyle(Color(hex: 0x111827))
                         .textInputAutocapitalization(.sentences)
                         .lineLimit(axis == .vertical ? 6 : 1)
                 }
             }
-            .padding(.horizontal, 14)
-            .padding(.vertical, 12)
+            .padding(.horizontal, 12)
+            .padding(.vertical, 8)
             .frame(minHeight: minHeight, alignment: .center)
-            .background(Color.white, in: RoundedRectangle(cornerRadius: 14))
+            .background(Color.white, in: RoundedRectangle(cornerRadius: 12))
             .overlay(
-                RoundedRectangle(cornerRadius: 14)
+                RoundedRectangle(cornerRadius: 12)
                     .stroke(Color.black.opacity(0.08), lineWidth: 1)
             )
         }
@@ -1010,18 +1029,18 @@ private struct LandInspectionSheet: View {
     }
 
     private func menuCard(_ label: String, selection: Binding<String>, options: [String], icon: String) -> some View {
-        VStack(alignment: .leading, spacing: 8) {
+        VStack(alignment: .leading, spacing: 6) {
             Text(label)
-                .font(.system(size: 15, weight: .semibold))
+                .font(.system(size: 13, weight: .semibold))
                 .foregroundStyle(Color(hex: 0x374151))
-            HStack(spacing: 14) {
+            HStack(spacing: 10) {
                 Image(systemName: icon)
-                    .font(.system(size: 20, weight: .semibold))
+                    .font(.system(size: 17, weight: .semibold))
                     .foregroundStyle(Color(hex: 0x0B61CA))
                     .frame(width: 24)
                 if isViewOnly {
                     Text(selection.wrappedValue.landNilIfBlank?.capitalized ?? "-")
-                        .font(.system(size: 18, weight: .semibold))
+                        .font(.system(size: 15, weight: .semibold))
                         .foregroundStyle(Color(hex: 0x111827))
                     Spacer()
                 } else {
@@ -1035,12 +1054,12 @@ private struct LandInspectionSheet: View {
                     .frame(maxWidth: .infinity, alignment: .leading)
                 }
             }
-            .padding(.horizontal, 14)
-            .padding(.vertical, 12)
-            .frame(minHeight: 76)
-            .background(Color.white, in: RoundedRectangle(cornerRadius: 14))
+            .padding(.horizontal, 12)
+            .padding(.vertical, 8)
+            .frame(minHeight: 52)
+            .background(Color.white, in: RoundedRectangle(cornerRadius: 12))
             .overlay(
-                RoundedRectangle(cornerRadius: 14)
+                RoundedRectangle(cornerRadius: 12)
                     .stroke(Color.black.opacity(0.08), lineWidth: 1)
             )
         }
@@ -1048,9 +1067,9 @@ private struct LandInspectionSheet: View {
     }
 
     private func optionCard(title: String, options: [String], selection: Binding<Set<String>>) -> some View {
-        VStack(alignment: .leading, spacing: 12) {
+        VStack(alignment: .leading, spacing: 10) {
             Text(title)
-                .font(.system(size: 18, weight: .bold))
+                .font(.system(size: 16, weight: .bold))
                 .foregroundStyle(Color(hex: 0x111827))
             VStack(spacing: 0) {
                 ForEach(options, id: \.self) { option in
@@ -1068,16 +1087,17 @@ private struct LandInspectionSheet: View {
                         }
                     ))
                     .disabled(isViewOnly)
-                    .padding(.vertical, 10)
+                    .font(.system(size: 14))
+                    .padding(.vertical, 8)
                     if option != options.last {
                         Divider()
                     }
                 }
             }
-            .padding(.horizontal, 14)
-            .background(Color.white, in: RoundedRectangle(cornerRadius: 14))
+            .padding(.horizontal, 13)
+            .background(Color.white, in: RoundedRectangle(cornerRadius: 13))
             .overlay(
-                RoundedRectangle(cornerRadius: 14)
+                RoundedRectangle(cornerRadius: 13)
                     .stroke(Color.black.opacity(0.08), lineWidth: 1)
             )
         }
@@ -1343,7 +1363,7 @@ struct LandQueriesView: View {
                 showingDateFilter = false
             }
             .presentationDetents([.large])
-            .presentationDragIndicator(.visible)
+            .presentationDragIndicator(.hidden)
         }
         .sheet(item: $selectedQuery) { query in
             LandQueryDetailSheet(query: query) {
@@ -1351,7 +1371,7 @@ struct LandQueriesView: View {
                 selectedQuery = nil
             }
             .presentationDetents([.medium, .large])
-            .presentationDragIndicator(.visible)
+            .presentationDragIndicator(.hidden)
         }
     }
 

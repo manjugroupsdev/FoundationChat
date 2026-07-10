@@ -33,7 +33,7 @@ struct HRDashboardView: View {
     @AppStorage("attendance.onDuty.tripId") private var onDutyTripId = ""
 
     private let timer = Timer.publish(every: 1, on: .main, in: .common).autoconnect()
-    private let attendancePanelTopOffset: CGFloat = 161
+    private let attendancePanelTopOffset: CGFloat = 132
 
     init(openRoute: HRDashboardRoute? = nil, onOpenRouteHandled: @escaping () -> Void = {}) {
         self.openRoute = openRoute
@@ -168,7 +168,7 @@ struct HRDashboardView: View {
 
     private var headerBackground: some View {
         attendanceHeaderGradient
-        .frame(height: 250)
+        .frame(height: 220)
     }
 
     private var attendanceHeaderGradient: LinearGradient {
@@ -203,7 +203,7 @@ struct HRDashboardView: View {
         }
         .padding(.horizontal, 28)
         .padding(.top, 71)
-        .frame(height: 233, alignment: .top)
+        .frame(height: 205, alignment: .top)
         .animation(.snappy(duration: 0.25), value: isOpen)
         .animation(.snappy(duration: 0.25), value: hasPunchedIn)
     }

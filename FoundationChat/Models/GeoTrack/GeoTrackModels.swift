@@ -313,6 +313,60 @@ struct GeoTrackTimelineResponse: Decodable, Sendable {
     let data: [GeoTrackTimelinePoint]?
 }
 
+struct GeoTrackSessionRouteResponse: Decodable, Sendable {
+    let success: Bool
+    let error: String?
+    let data: GeoTrackSessionRouteData?
+}
+
+struct GeoTrackSessionRouteData: Decodable, Sendable {
+    let timeline: [GeoTrackTimelinePoint]
+    let trips: [GeoTrackSessionTrip]
+    let stops: [GeoTrackSessionStop]
+    let routeStart: Double?
+    let routeEnd: Double?
+    let distanceMeters: Double?
+}
+
+struct GeoTrackSessionTrip: Decodable, Sendable {
+    let id: String?
+    let staffId: String?
+    let startedAt: Double?
+    let endedAt: Double?
+    let startLat: Double?
+    let startLng: Double?
+    let endLat: Double?
+    let endLng: Double?
+    let distanceMeters: Double?
+    let durationSeconds: Double?
+    let pointCount: Int?
+    let onDutyCategory: String?
+    let fieldVisitId: String?
+    let vehicleType: String?
+    let snappedPath: [GeoTrackLatLngPoint]?
+    let stops: [GeoTrackSessionStop]?
+
+    enum CodingKeys: String, CodingKey {
+        case id = "_id"
+        case staffId, startedAt, endedAt, startLat, startLng, endLat, endLng
+        case distanceMeters, durationSeconds, pointCount, onDutyCategory, fieldVisitId, vehicleType, snappedPath, stops
+    }
+}
+
+struct GeoTrackSessionStop: Decodable, Sendable {
+    let lat: Double
+    let lng: Double
+    let arrivedAt: Double
+    let departedAt: Double?
+    let durationMinutes: Int?
+    let address: String?
+}
+
+struct GeoTrackLatLngPoint: Decodable, Sendable {
+    let lat: Double
+    let lng: Double
+}
+
 // MARK: - Live Status
 
 struct GeoTrackLiveStatusEntry: Decodable, Sendable {
@@ -660,6 +714,23 @@ struct GeoTrackStartVisitRequest: Encodable, Sendable {
 
 struct MmsFleetDriverSiteVisitRequest: Encodable, Sendable {
     let siteVisitId: String
+}
+
+struct MmsFleetDriverTripsResponse: Decodable, Sendable {
+    let success: Bool
+    let trips: [FleetDriverTrip]
+    let error: String?
+
+    init(from decoder: Decoder) throws {
+        let container = try decoder.container(keyedBy: CodingKeys.self)
+        success = (try? container.decode(Bool.self, forKey: .success)) ?? false
+        trips = (try? container.decode([FleetDriverTrip].self, forKey: .trips)) ?? []
+        error = try? container.decodeIfPresent(String.self, forKey: .error)
+    }
+
+    private enum CodingKeys: String, CodingKey {
+        case success, trips, error
+    }
 }
 
 struct MmsFleetDriverStartRequest: Encodable, Sendable {

@@ -92,6 +92,58 @@ struct ConvexPermissionUsage: Decodable, Equatable, Sendable {
     let remainingHours: Double?
 }
 
+// MARK: - Fines & Deductions
+
+struct ConvexFineDeduction: Decodable, Identifiable, Equatable, Sendable {
+    let _id: String
+    let staffName: String?
+    let employeeId: String?
+    let department: String?
+    let typeName: String?
+    let amount: Double?
+    let month: Int?
+    let year: Int?
+    let monthName: String?
+    let status: String?
+    let notes: String?
+    let photoUrl: String?
+    let staffPhotoUrl: String?
+    let createdAt: String?
+
+    var id: String { _id }
+
+    var displayName: String {
+        staffName?.nonBlank ?? employeeId?.nonBlank ?? "Staff"
+    }
+
+    var displayDepartment: String {
+        department?.nonBlank?.capitalized ?? "-"
+    }
+
+    var displayType: String {
+        typeName?.nonBlank ?? "Fine"
+    }
+
+    var displayStatus: String {
+        (status?.nonBlank ?? "active").capitalized
+    }
+
+    var displayDate: String {
+        let parts = [monthName?.nonBlank, year.map(String.init)]
+            .compactMap { $0 }
+        if !parts.isEmpty { return parts.joined(separator: " ") }
+        return createdAt?.nonBlank ?? ""
+    }
+
+    var initials: String {
+        let pieces = displayName
+            .split(separator: " ")
+            .compactMap(\.first)
+        let text = String(pieces.prefix(2)).uppercased()
+        return text.isEmpty ? "S" : text
+    }
+}
+
 // MARK: - Attendance
 
 struct ConvexAttendanceSession: Decodable, Equatable, Sendable {
@@ -123,6 +175,8 @@ struct ConvexAttendanceRecord: Decodable, Identifiable, Equatable, Sendable {
     let date: String?
     let firstPunchIn: String?
     let lastPunchOut: String?
+    let punchInTime: String?
+    let punchOutTime: String?
     let hasOpenSession: Bool?
     let sessionCount: Int?
     let sessions: [ConvexAttendanceSession]?
@@ -131,6 +185,13 @@ struct ConvexAttendanceRecord: Decodable, Identifiable, Equatable, Sendable {
     let attendanceValue: Double?
     let staffId: String?
     let staffName: String?
+    let designation: String?
+    let employeeId: String?
+    let staffPhotoUrl: String?
+    let requestType: String?
+    let requestedPunchIn: String?
+    let requestedPunchOut: String?
+    let requestReason: String?
     let source: String?
     let status: String?
     let approvedAttendance: String?
@@ -142,7 +203,25 @@ struct ConvexAttendanceRecord: Decodable, Identifiable, Equatable, Sendable {
     let lateFineDeduction: Double?
     let otherFines: [ConvexAttendanceFine]?
 
-    var id: String { _id ?? attendanceId ?? UUID().uuidString }
+    var id: String {
+        if let _id = _id?.trimmingCharacters(in: .whitespacesAndNewlines), !_id.isEmpty {
+            return _id
+        }
+        if let attendanceId = attendanceId?.trimmingCharacters(in: .whitespacesAndNewlines), !attendanceId.isEmpty {
+            return attendanceId
+        }
+        let staffDateKey = [staffId, date]
+            .compactMap { $0?.trimmingCharacters(in: .whitespacesAndNewlines) }
+            .filter { !$0.isEmpty }
+            .joined(separator: "-")
+        if !staffDateKey.isEmpty {
+            return staffDateKey
+        }
+        if let date = date?.trimmingCharacters(in: .whitespacesAndNewlines), !date.isEmpty {
+            return date
+        }
+        return "attendance-unknown"
+    }
 
     var totalHoursFormatted: String {
         let mins = totalMinutes ?? cumulativeMinutes ?? 0
@@ -189,6 +268,8 @@ struct ConvexAttendanceRecord: Decodable, Identifiable, Equatable, Sendable {
             date: date,
             firstPunchIn: nil,
             lastPunchOut: nil,
+            punchInTime: nil,
+            punchOutTime: nil,
             hasOpenSession: nil,
             sessionCount: nil,
             sessions: [],
@@ -197,6 +278,13 @@ struct ConvexAttendanceRecord: Decodable, Identifiable, Equatable, Sendable {
             attendanceValue: nil,
             staffId: nil,
             staffName: nil,
+            designation: nil,
+            employeeId: nil,
+            staffPhotoUrl: nil,
+            requestType: nil,
+            requestedPunchIn: nil,
+            requestedPunchOut: nil,
+            requestReason: nil,
             source: nil,
             status: nil,
             approvedAttendance: nil,

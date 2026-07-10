@@ -420,7 +420,7 @@ struct ConversationDetailView: View {
         }
       )
       .presentationDetents([.height(340)])
-      .presentationDragIndicator(.visible)
+      .presentationDragIndicator(.hidden)
       .presentationBackground(.clear)
     }
     .sheet(isPresented: $isLocationSheetPresented) {
@@ -436,7 +436,7 @@ struct ConversationDetailView: View {
         }
       )
       .presentationDetents([.height(360)])
-      .presentationDragIndicator(.visible)
+      .presentationDragIndicator(.hidden)
     }
     .sheet(item: $messageInfoTarget) { message in
       MessageInfoSheet(
@@ -445,7 +445,7 @@ struct ConversationDetailView: View {
         isMine: isOutgoingMessage(message)
       )
       .presentationDetents([.height(390)])
-      .presentationDragIndicator(.visible)
+      .presentationDragIndicator(.hidden)
     }
     .sheet(isPresented: $isCameraPresented) {
       ChatCameraPicker(image: $capturedCameraImage)

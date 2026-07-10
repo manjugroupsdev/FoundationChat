@@ -3,7 +3,7 @@ import SwiftUI
 struct BookingsListView: View {
     @Environment(AuthStore.self) private var authStore
     @State private var bookings: [AppBooking] = []
-    @State private var selectedStatus: BookingStatusFilter = .all
+    @State private var selectedStatus: BookingStatusFilter = .draft
     @State private var searchText = ""
     @State private var isLoading = false
     @State private var hasLoaded = false
@@ -18,8 +18,6 @@ struct BookingsListView: View {
     private var filteredBookings: [AppBooking] {
         let query = searchText.trimmingCharacters(in: .whitespacesAndNewlines).lowercased()
         return bookings.filter { booking in
-            let statusMatch = selectedStatus.matches(booking.displayStatus)
-            guard statusMatch else { return false }
             guard !query.isEmpty else { return true }
             return [
                 booking.bookingRefNo,
@@ -79,9 +77,12 @@ struct BookingsListView: View {
                 Task { await load() }
             }
             .presentationDetents([.medium, .large])
-            .presentationDragIndicator(.visible)
+            .presentationDragIndicator(.hidden)
         }
         .task { if !hasLoaded { await load() } }
+        .onChange(of: selectedStatus) { _, _ in
+            Task { await load() }
+        }
     }
 
     @ViewBuilder
@@ -103,8 +104,8 @@ struct BookingsListView: View {
             )
         } else if filteredBookings.isEmpty {
             BookingEmptyState(
-                title: "No Bookings",
-                message: "Bookings will appear here.",
+                title: "No Booking Yet",
+                message: "Stay organized by creating bookings. They will appear here for review, confirmation, and tracking.",
                 systemImage: "doc.text.magnifyingglass"
             )
         } else {
@@ -154,6 +155,7 @@ struct BookingsListView: View {
             HStack(spacing: 8) {
                 ForEach(BookingStatusFilter.allCases) { status in
                     Button {
+                        guard selectedStatus != status else { return }
                         selectedStatus = status
                     } label: {
                         Text(status.title)
@@ -186,7 +188,10 @@ struct BookingsListView: View {
         isLoading = true
         defer { isLoading = false; hasLoaded = true }
         do {
-            bookings = try await MarketingConvexAPIService.listBookings(token: token)
+            bookings = try await MarketingConvexAPIService.listBookings(
+                token: token,
+                status: selectedStatus.apiValue
+            )
                 .sorted { ($0.bookingDate ?? "") > ($1.bookingDate ?? "") }
             errorMessage = nil
         } catch {
@@ -1093,7 +1098,7 @@ private struct BookingRow: View {
                     .font(.system(size: 13, weight: .medium))
                     .foregroundStyle(Color(hex: 0x667085))
 
-                Text(booking.bookingDate?.nilIfBlank ?? "-")
+                Text(formattedDate)
                     .font(.system(size: 13, weight: .medium))
                     .foregroundStyle(Color(hex: 0x344054))
                     .lineLimit(1)
@@ -1119,16 +1124,28 @@ private struct BookingRow: View {
     private var bookingMeta: String {
         let ref = booking.bookingRefNo?.nilIfBlank
         let project = booking.projectName?.nilIfBlank
-        let plot = booking.plotNo?.nilIfBlank
+        let plot = booking.plotNo?.nilIfBlank.map { "Plot \($0)" }
         let text = [ref, project, plot].compactMap { $0 }.joined(separator: " · ")
-        return text.isEmpty ? "Reference not available" : text
+        return text.isEmpty ? (booking.mobileNumber?.nilIfBlank ?? "Reference not available") : text
     }
 
     private var amountText: String {
-        if let cost = booking.bookingCost {
+        if let cost = booking.bookingCost, cost > 0 {
             return AppModuleFormatters.rupees(cost)
         }
-        return AppModuleFormatters.rupees(0)
+        return "-"
+    }
+
+    private var formattedDate: String {
+        guard let raw = booking.bookingDate?.nilIfBlank else { return "-" }
+        let input = DateFormatter()
+        input.locale = Locale(identifier: "en_US_POSIX")
+        input.dateFormat = "yyyy-MM-dd"
+        guard let date = input.date(from: raw) else { return raw }
+        let output = DateFormatter()
+        output.locale = Locale(identifier: "en_US_POSIX")
+        output.dateFormat = "dd MMM yyyy"
+        return output.string(from: date)
     }
 }
 
@@ -1181,6 +1198,21 @@ private enum BookingStatusFilter: String, CaseIterable, Identifiable {
 
     var id: String { rawValue }
     var title: String { rawValue == "all" ? "All" : rawValue.capitalized }
+
+    var apiValue: String? {
+        switch self {
+        case .all:
+            return nil
+        case .draft:
+            return "draft"
+        case .pending:
+            return "pending_confirmation"
+        case .confirmed:
+            return "confirmed"
+        case .cancelled:
+            return "cancelled"
+        }
+    }
 
     func matches(_ status: String) -> Bool {
         let normalized = status.lowercased()

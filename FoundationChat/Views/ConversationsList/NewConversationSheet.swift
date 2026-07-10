@@ -118,7 +118,7 @@ struct NewConversationSheet: View {
       }
     }
     .presentationDetents([.large])
-    .presentationDragIndicator(.visible)
+    .presentationDragIndicator(.hidden)
   }
 
   private var groupModeHeader: some View {

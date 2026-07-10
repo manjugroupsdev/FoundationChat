@@ -250,6 +250,25 @@ final class GeoTrackAPIService {
         return result.data ?? []
     }
 
+    /// GET /api/geotrack/session-route?staffId=...&dayStart=...&dayEnd=...
+    func sessionRoute(
+        staffId: String? = nil,
+        dayStart: Int64,
+        dayEnd: Int64,
+        minStopMinutes: Int? = nil
+    ) async throws -> GeoTrackSessionRouteData? {
+        var items: [URLQueryItem] = [
+            URLQueryItem(name: "dayStart", value: "\(dayStart)"),
+            URLQueryItem(name: "dayEnd", value: "\(dayEnd)"),
+        ]
+        if let staffId { items.append(URLQueryItem(name: "staffId", value: staffId)) }
+        if let minStopMinutes { items.append(URLQueryItem(name: "minStopMinutes", value: "\(minStopMinutes)")) }
+        let request = try makeGETRequest(path: "/api/geotrack/session-route", queryItems: items)
+        let result: GeoTrackSessionRouteResponse = try await perform(request)
+        if let err = result.error { throw GeoTrackAPIError.serverError(err) }
+        return result.data
+    }
+
     /// GET /api/geotrack/live-status
     func liveStatus() async throws -> [GeoTrackLiveStatusEntry] {
         let request = try makeGETRequest(path: "/api/geotrack/live-status")
@@ -302,6 +321,16 @@ final class GeoTrackAPIService {
         let result: GeoTrackStatsResponse = try await perform(request)
         if let err = result.error { throw GeoTrackAPIError.serverError(err) }
         return result.data
+    }
+
+    /// GET /api/mms-fleet/driver/trips
+    func mmsFleetDriverTrips() async throws -> [FleetDriverTrip] {
+        let request = try makeGETRequest(path: "/api/mms-fleet/driver/trips")
+        let result: MmsFleetDriverTripsResponse = try await perform(request)
+        if !result.success {
+            throw GeoTrackAPIError.serverError(result.error ?? "Failed to load driver trips")
+        }
+        return result.trips
     }
 
     // MARK: - Assigned Places & Today Visits

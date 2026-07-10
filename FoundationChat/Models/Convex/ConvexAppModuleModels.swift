@@ -23,6 +23,22 @@ struct ConvexLoanData: Decodable, Identifiable, Equatable, Sendable {
     let purpose: String?
     let notes: String?
     let approvalStatus: String?
+    let requestType: String?
+    let currentStage: String?
+    let nominee1Status: String?
+    let nominee2Status: String?
+    let nominee1Name: String?
+    let nominee2Name: String?
+    let assignedGmName: String?
+    let assignedAvpName: String?
+    let gmName: String?
+    let avpName: String?
+    let hrApprovalName: String?
+    let accountantName: String?
+    let resolvedGmName: String?
+    let resolvedAvpName: String?
+    let resolvedHrName: String?
+    let resolvedAccountantName: String?
     let repayments: [ConvexLoanRepaymentData]?
 
     enum CodingKeys: String, CodingKey {
@@ -30,7 +46,10 @@ struct ConvexLoanData: Decodable, Identifiable, Equatable, Sendable {
         case loanId, staffId, staffName, employeeId, principalAmount, loanAmount
         case annualInterestRate, interestType, disbursedDate, repaymentStartMonth
         case repaymentEndMonth, monthlyDeduction, totalRepaid, remainingBalance
-        case status, purpose, notes, approvalStatus, repayments
+        case status, purpose, notes, approvalStatus, requestType, currentStage
+        case nominee1Status, nominee2Status, nominee1Name, nominee2Name
+        case assignedGmName, assignedAvpName, gmName, avpName, hrApprovalName, accountantName
+        case resolvedGmName, resolvedAvpName, resolvedHrName, resolvedAccountantName, repayments
     }
 }
 
@@ -90,6 +109,26 @@ struct AppLoan: Identifiable, Equatable, Sendable {
     let principal: Int
     let disbursedDate: Date?
     let repayments: [AppRepayment]
+    let rawStatus: String?
+    let requestType: String?
+    let currentStage: String?
+    let approvalStatus: String?
+    let requesterName: String?
+    let requesterEmployeeId: String?
+    let nominee1Status: String?
+    let nominee2Status: String?
+    let nominee1Name: String?
+    let nominee2Name: String?
+    let gmName: String?
+    let avpName: String?
+    let hrName: String?
+    let accountantName: String?
+
+    var isSalaryAdvance: Bool {
+        let request = requestType?.lowercased().trimmingCharacters(in: .whitespacesAndNewlines)
+        let titleText = title.lowercased()
+        return request == "salary_advance" || request == "advance" || titleText.contains("advance")
+    }
 }
 
 enum AppLoanMapper {
@@ -164,7 +203,21 @@ enum AppLoanMapper {
             nextEmiDueDate: nextEmiDate,
             principal: Int(remote.loanAmount ?? remote.principalAmount ?? 0),
             disbursedDate: parseDay(remote.disbursedDate),
-            repayments: repayments
+            repayments: repayments,
+            rawStatus: remote.status?.nilIfBlank ?? remote.approvalStatus?.nilIfBlank,
+            requestType: remote.requestType?.nilIfBlank ?? remote.interestType?.nilIfBlank,
+            currentStage: remote.currentStage,
+            approvalStatus: remote.approvalStatus,
+            requesterName: remote.staffName?.nilIfBlank,
+            requesterEmployeeId: remote.employeeId?.nilIfBlank,
+            nominee1Status: remote.nominee1Status,
+            nominee2Status: remote.nominee2Status,
+            nominee1Name: remote.nominee1Name,
+            nominee2Name: remote.nominee2Name,
+            gmName: remote.gmName?.nilIfBlank ?? remote.assignedGmName?.nilIfBlank ?? remote.resolvedGmName?.nilIfBlank,
+            avpName: remote.avpName?.nilIfBlank ?? remote.assignedAvpName?.nilIfBlank ?? remote.resolvedAvpName?.nilIfBlank,
+            hrName: remote.hrApprovalName?.nilIfBlank ?? remote.resolvedHrName?.nilIfBlank,
+            accountantName: remote.accountantName?.nilIfBlank ?? remote.resolvedAccountantName?.nilIfBlank
         )
     }
 

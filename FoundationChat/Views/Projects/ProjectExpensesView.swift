@@ -31,7 +31,7 @@ struct ProjectExpensesView: View {
                     .ignoresSafeArea(edges: .top)
 
                 Color(hex: 0xF8F9FB).ignoresSafeArea()
-                    .padding(.top, topInset + 176)
+                    .padding(.top, topInset + 158)
 
                 VStack(spacing: 0) {
                     header(topInset: topInset)
@@ -50,6 +50,14 @@ struct ProjectExpensesView: View {
                         addExpenseButton
                     }
                     .background(Color(hex: 0xF8F9FB))
+                    .clipShape(
+                        UnevenRoundedRectangle(
+                            topLeadingRadius: 26,
+                            topTrailingRadius: 26,
+                            style: .continuous
+                        )
+                    )
+                    .offset(y: -20)
                 }
             }
         }
@@ -182,14 +190,7 @@ struct ProjectExpensesView: View {
             .offset(x: didAnimateIn ? 0 : -26)
             .animation(.easeOut(duration: 0.42).delay(0.08), value: didAnimateIn)
         }
-        .frame(height: topInset + 176)
-        .clipShape(
-            UnevenRoundedRectangle(
-                bottomLeadingRadius: 24,
-                bottomTrailingRadius: 24,
-                style: .continuous
-            )
-        )
+        .frame(height: topInset + 178)
     }
 
     private var totalsCard: some View {
@@ -225,7 +226,7 @@ struct ProjectExpensesView: View {
         }
         .padding(16)
         .background(Color.white, in: RoundedRectangle(cornerRadius: 16, style: .continuous))
-        .shadow(color: .black.opacity(0.08), radius: 4, x: 0, y: 2)
+        .shadow(color: .black.opacity(0.05), radius: 4, x: 0, y: 2)
         .opacity(didAnimateIn ? 1 : 0)
         .offset(y: didAnimateIn ? 0 : 40)
         .animation(.easeOut(duration: 0.4).delay(0.1), value: didAnimateIn)
@@ -292,7 +293,7 @@ struct ProjectExpensesView: View {
                     }
                 }
                 .padding(.top, 8)
-                .padding(.bottom, 8)
+                .padding(.bottom, 14)
             }
             .refreshable { await refreshExpenses() }
         }
@@ -314,7 +315,9 @@ struct ProjectExpensesView: View {
                 .background(Color(hex: 0x1BCA0B), in: Capsule())
         }
         .buttonStyle(.plain)
-        .padding(16)
+        .padding(.horizontal, 16)
+        .padding(.top, 10)
+        .padding(.bottom, 14)
     }
 
     private var dateRangeText: String {

@@ -1,14 +1,82 @@
 import SwiftUI
 
+private struct LeaveCategoryOption: Identifiable, Equatable, Sendable {
+    let id: String
+    let label: String
+    let backendCode: String
+    let balanceTracked: Bool
+    let requiresReasonPrefix: Bool
+
+    var submitCode: String {
+        backendCode == "half_day" ? "casual" : backendCode
+    }
+
+    static let defaultOptions = options(from: ["casual", "sick", "earned", "unpaid", "compensatory", "half_day"])
+    static let fallbackOptions = options(from: ["casual", "sick", "earned", "half_day"])
+
+    static func options(from backendTypes: [String]) -> [LeaveCategoryOption] {
+        let normalizedTypes = backendTypes
+            .map { $0.trimmingCharacters(in: .whitespacesAndNewlines).lowercased() }
+            .filter { !$0.isEmpty }
+        var seenIds = Set<String>()
+        var result: [LeaveCategoryOption] = []
+
+        for type in normalizedTypes {
+            let option = LeaveCategoryOption(
+                id: type,
+                label: prettyLabel(for: type),
+                backendCode: type,
+                balanceTracked: balanceTracked(for: type),
+                requiresReasonPrefix: type == "half_day"
+            )
+            if seenIds.insert(type).inserted {
+                result.append(option)
+            }
+        }
+
+        return result.isEmpty ? defaultOptions : result
+    }
+
+    private static func balanceTracked(for value: String) -> Bool {
+        switch value {
+        case "unpaid":
+            return false
+        default:
+            return true
+        }
+    }
+
+    private static func prettyLabel(for value: String) -> String {
+        switch value {
+        case "casual": return "Casual Leave"
+        case "sick": return "Sick Leave"
+        case "earned": return "Earned Leave"
+        case "unpaid": return "Unpaid Leave"
+        case "compensatory": return "Compensatory Off"
+        case "half_day": return "Half Day"
+        default:
+            let base = value
+                .replacingOccurrences(of: "_", with: " ")
+                .split(separator: " ")
+                .map { part in
+                    part.prefix(1).uppercased() + part.dropFirst().lowercased()
+                }
+                .joined(separator: " ")
+            return base.localizedCaseInsensitiveContains("leave") ? base : "\(base) Leave"
+        }
+    }
+}
+
 struct ApplyLeaveView: View {
     @Environment(AuthStore.self) private var authStore
     @Environment(\.dismiss) private var dismiss
 
-    @State private var leaveTypes = ["casual", "sick", "earned"]
-    @State private var selectedLeaveType = "casual"
+    @State private var leaveTypes = LeaveCategoryOption.defaultOptions
+    @State private var selectedLeaveCategory = LeaveCategoryOption.defaultOptions[0]
     @State private var fromDate: Date?
     @State private var toDate: Date?
     @State private var reason = ""
+    @State private var selectedHalfDaySession = "Morning"
     @State private var isSubmitting = false
     @State private var errorMessage: String?
     @State private var showCategorySheet = false
@@ -23,7 +91,7 @@ struct ApplyLeaveView: View {
     }
 
     private var selectedLeaveTypeLabel: String {
-        prettyType(selectedLeaveType)
+        selectedLeaveCategory.label
     }
 
     private var durationLabel: String {
@@ -61,6 +129,11 @@ struct ApplyLeaveView: View {
                         .padding(.top, 16)
                     applyField(icon: "calendar", value: durationLabel, action: { showDurationSheet = true })
 
+                    if selectedLeaveCategory.backendCode == "half_day" {
+                        halfDaySessionPicker
+                            .padding(.top, 14)
+                    }
+
                     fieldLabel("Leave Description")
                         .padding(.top, 16)
                     TextField("Enter Leave Description", text: $reason, axis: .vertical)
@@ -83,31 +156,10 @@ struct ApplyLeaveView: View {
                             .foregroundStyle(Color(hex: 0xB42318))
                             .padding(.top, 10)
                     }
-
-                    Button {
-                        promptSubmitConfirmation()
-                    } label: {
-                        ZStack {
-                            if isSubmitting {
-                                ProgressView()
-                                    .tint(.white)
-                            } else {
-                                Text("Submit Now")
-                                    .font(.system(size: 13, weight: .semibold))
-                                    .foregroundStyle(.white)
-                            }
-                        }
-                        .frame(maxWidth: .infinity)
-                        .frame(height: 46)
-                        .background(submitBackground, in: Capsule())
-                    }
-                    .buttonStyle(.plain)
-                    .disabled(!canSubmit)
-                    .padding(.top, 24)
                 }
                 .padding(.horizontal, 20)
                 .padding(.top, 16)
-                .padding(.bottom, 24)
+                .padding(.bottom, 18)
             }
             .scrollDismissesKeyboard(.interactively)
             .simultaneousGesture(
@@ -117,6 +169,12 @@ struct ApplyLeaveView: View {
                     }
                 }
             )
+
+            submitButton
+                .padding(.horizontal, 20)
+                .padding(.top, 10)
+                .padding(.bottom, 12)
+                .background(Color.white)
         }
         .background(Color.white)
         .task { await loadLeaveTypes() }
@@ -126,10 +184,13 @@ struct ApplyLeaveView: View {
         .sheet(isPresented: $showCategorySheet) {
             LeaveCategorySheet(
                 leaveTypes: leaveTypes,
-                selectedType: selectedLeaveType,
+                selectedType: selectedLeaveCategory,
                 onClose: { showCategorySheet = false },
-                onSubmit: { type in
-                    selectedLeaveType = type
+                onSubmit: { category in
+                    selectedLeaveCategory = category
+                    if category.backendCode == "half_day", let fromDate {
+                        toDate = fromDate
+                    }
                     showCategorySheet = false
                 }
             )
@@ -143,7 +204,7 @@ struct ApplyLeaveView: View {
                 onClose: { showDurationSheet = false },
                 onSubmit: { pickedFrom, pickedTo in
                     fromDate = min(pickedFrom, pickedTo)
-                    toDate = max(pickedFrom, pickedTo)
+                    toDate = selectedLeaveCategory.backendCode == "half_day" ? min(pickedFrom, pickedTo) : max(pickedFrom, pickedTo)
                     showDurationSheet = false
                 }
             )
@@ -165,6 +226,60 @@ struct ApplyLeaveView: View {
         canSubmit
             ? AnyShapeStyle(LinearGradient(colors: [Color(hex: 0x1BCB0B), Color(hex: 0x3DA302)], startPoint: .leading, endPoint: .trailing))
             : AnyShapeStyle(Color(hex: 0xD0D5DD))
+    }
+
+    private var submitButton: some View {
+        Button {
+            promptSubmitConfirmation()
+        } label: {
+            ZStack {
+                if isSubmitting {
+                    ProgressView()
+                        .tint(.white)
+                } else {
+                    Text("Submit Now")
+                        .font(.system(size: 15, weight: .semibold))
+                        .foregroundStyle(.white)
+                }
+            }
+            .frame(maxWidth: .infinity)
+            .frame(height: 50)
+            .background(submitBackground, in: Capsule())
+        }
+        .buttonStyle(.plain)
+        .disabled(!canSubmit)
+    }
+
+    private var halfDaySessionPicker: some View {
+        VStack(alignment: .leading, spacing: 8) {
+            fieldLabel("Half Day Session")
+                .padding(.bottom, 0)
+            HStack(spacing: 10) {
+                halfDaySessionButton("Morning")
+                halfDaySessionButton("Afternoon")
+            }
+        }
+    }
+
+    private func halfDaySessionButton(_ title: String) -> some View {
+        Button {
+            selectedHalfDaySession = title
+        } label: {
+            Text(title)
+                .font(.system(size: 13, weight: .semibold))
+                .foregroundStyle(selectedHalfDaySession == title ? Color(hex: 0x1D4ED8) : Color(hex: 0x344054))
+                .frame(maxWidth: .infinity)
+                .frame(height: 42)
+                .background(
+                    selectedHalfDaySession == title ? Color(hex: 0xEAF2FF) : Color(hex: 0xF8FAFC),
+                    in: RoundedRectangle(cornerRadius: 10, style: .continuous)
+                )
+                .overlay {
+                    RoundedRectangle(cornerRadius: 10, style: .continuous)
+                        .stroke(selectedHalfDaySession == title ? Color(hex: 0x7DB2FF) : Color(hex: 0xEAECF0), lineWidth: 1)
+                }
+        }
+        .buttonStyle(.plain)
     }
 
     private var categorySheetHeight: CGFloat {
@@ -232,10 +347,13 @@ struct ApplyLeaveView: View {
             do {
                 _ = try await HRConvexAPIService.applyLeave(
                     token: token,
-                    leaveType: selectedLeaveType,
+                    leaveType: selectedLeaveCategory.submitCode,
                     fromDate: Self.apiDateFormatter.string(from: min(fromDate, toDate)),
                     toDate: Self.apiDateFormatter.string(from: max(fromDate, toDate)),
-                    reason: reason.trimmingCharacters(in: .whitespacesAndNewlines)
+                    reason: submitReason,
+                    isHalfDay: selectedLeaveCategory.backendCode == "half_day" ? true : nil,
+                    halfDaySession: selectedLeaveCategory.backendCode == "half_day" ? selectedHalfDaySession.lowercased() : nil,
+                    halfDayType: selectedLeaveCategory.backendCode == "half_day" ? selectedHalfDaySession.lowercased() : nil
                 )
                 onApplied?()
                 dismiss()
@@ -253,19 +371,19 @@ struct ApplyLeaveView: View {
         guard let token = authStore.currentSession?.token else { return }
         do {
             let policy = try await HRConvexAPIService.getLeavePolicy(token: token)
-            var types: [String] = []
-            if (policy?.casualPerYear ?? 1) > 0 { types.append("casual") }
-            if (policy?.sickPerYear ?? 1) > 0 { types.append("sick") }
-            if (policy?.earnedPerYear ?? 1) > 0 { types.append("earned") }
-            for type in policy?.types ?? [] where !["casual", "sick", "earned"].contains(type) && !types.contains(type) {
-                types.append(type)
+            var types = policy?.types?
+                .map { $0.trimmingCharacters(in: .whitespacesAndNewlines) }
+                .filter { !$0.isEmpty } ?? []
+            if !types.contains("half_day") {
+                types.append("half_day")
             }
             if !types.isEmpty {
-                leaveTypes = types
-                selectedLeaveType = types.first ?? selectedLeaveType
+                leaveTypes = LeaveCategoryOption.options(from: types)
+                selectedLeaveCategory = leaveTypes.first ?? selectedLeaveCategory
             }
         } catch {
-            // Android keeps defaults when policy fails; mirror that.
+            leaveTypes = LeaveCategoryOption.fallbackOptions
+            selectedLeaveCategory = leaveTypes.first ?? selectedLeaveCategory
         }
     }
 
@@ -274,15 +392,10 @@ struct ApplyLeaveView: View {
         UIApplication.shared.sendAction(#selector(UIResponder.resignFirstResponder), to: nil, from: nil, for: nil)
     }
 
-    private func prettyType(_ value: String) -> String {
-        let base = value
-            .replacingOccurrences(of: "_", with: " ")
-            .split(separator: " ")
-            .map { part in
-                part.prefix(1).uppercased() + part.dropFirst().lowercased()
-            }
-            .joined(separator: " ")
-        return base.localizedCaseInsensitiveContains("leave") ? base : "\(base) Leave"
+    private var submitReason: String {
+        let trimmed = reason.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard selectedLeaveCategory.backendCode == "half_day" else { return trimmed }
+        return "[\(selectedHalfDaySession)] \(trimmed)".trimmingCharacters(in: .whitespacesAndNewlines)
     }
 
     private static let apiDateFormatter: DateFormatter = {
@@ -301,14 +414,14 @@ struct ApplyLeaveView: View {
 }
 
 private struct LeaveCategorySheet: View {
-    let leaveTypes: [String]
-    let selectedType: String
+    let leaveTypes: [LeaveCategoryOption]
+    let selectedType: LeaveCategoryOption
     let onClose: () -> Void
-    let onSubmit: (String) -> Void
+    let onSubmit: (LeaveCategoryOption) -> Void
 
-    @State private var draftType: String
+    @State private var draftType: LeaveCategoryOption
 
-    init(leaveTypes: [String], selectedType: String, onClose: @escaping () -> Void, onSubmit: @escaping (String) -> Void) {
+    init(leaveTypes: [LeaveCategoryOption], selectedType: LeaveCategoryOption, onClose: @escaping () -> Void, onSubmit: @escaping (LeaveCategoryOption) -> Void) {
         self.leaveTypes = leaveTypes
         self.selectedType = selectedType
         self.onClose = onClose
@@ -329,14 +442,16 @@ private struct LeaveCategorySheet: View {
                 .padding(.top, 2)
 
             VStack(spacing: 8) {
-                ForEach(leaveTypes, id: \.self) { type in
+                ForEach(leaveTypes) { type in
                     Button {
                         draftType = type
                     } label: {
                         HStack {
-                            Text(prettyType(type))
+                            Text(type.label)
                                 .font(.system(size: 14, weight: .medium))
                                 .foregroundStyle(Color(hex: 0x101828))
+                                .lineLimit(2)
+                                .minimumScaleFactor(0.82)
                             Spacer()
                             Image(systemName: draftType == type ? "largecircle.fill.circle" : "circle")
                                 .font(.system(size: 18, weight: .semibold))
@@ -373,15 +488,6 @@ private struct LeaveCategorySheet: View {
             .frame(width: 40, height: 4)
             .frame(maxWidth: .infinity)
             .padding(.bottom, 14)
-    }
-
-    private func prettyType(_ value: String) -> String {
-        let base = value
-            .replacingOccurrences(of: "_", with: " ")
-            .split(separator: " ")
-            .map { $0.prefix(1).uppercased() + $0.dropFirst().lowercased() }
-            .joined(separator: " ")
-        return base.localizedCaseInsensitiveContains("leave") ? base : "\(base) Leave"
     }
 }
 
@@ -578,7 +684,7 @@ private struct SubmitLeaveConfirmSheet: View {
             }
             .padding(.top, 20)
 
-            Text("Submit Leave")
+            Text("Apply Leave")
                 .font(.system(size: 18, weight: .bold))
                 .foregroundStyle(Color(hex: 0x101828))
                 .padding(.top, 10)

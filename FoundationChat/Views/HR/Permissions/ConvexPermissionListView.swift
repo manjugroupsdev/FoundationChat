@@ -41,30 +41,43 @@ struct ConvexPermissionListView: View {
     }
 
     var body: some View {
-        ZStack {
+        ZStack(alignment: .top) {
             Color(hex: 0xF1F3F8).ignoresSafeArea()
+            permissionHeader
+                .ignoresSafeArea(edges: .top)
 
             ScrollView(showsIndicators: false) {
                 VStack(spacing: 0) {
-                    permissionHeader
+                    Color.clear
+                        .frame(height: 174)
+
                     VStack(spacing: 0) {
                         balanceCard
                         filterRow
                             .padding(.horizontal, 16)
-                            .padding(.top, 12)
+                            .padding(.top, 14)
                         permissionsSection
                             .padding(.horizontal, 16)
-                            .padding(.top, 10)
+                            .padding(.top, 14)
                     }
-                    .padding(.top, -58)
+                    .background(Color(hex: 0xF1F3F8))
+                    .clipShape(
+                        UnevenRoundedRectangle(
+                            cornerRadii: .init(topLeading: 30, bottomLeading: 0, bottomTrailing: 0, topTrailing: 30),
+                            style: .continuous
+                        )
+                    )
                     .padding(.bottom, 112)
                 }
             }
             .refreshable { loadData() }
             .ignoresSafeArea(edges: .top)
+
+            if let cancelingPermission {
+                cancelPermissionDialog(for: cancelingPermission)
+                    .zIndex(20)
+            }
         }
-        .navigationBarBackButtonHidden(true)
-        .toolbar(.hidden, for: .navigationBar)
         .safeAreaInset(edge: .bottom) {
             Button {
                 showApplySheet = true
@@ -84,18 +97,29 @@ struct ConvexPermissionListView: View {
                     )
             }
             .buttonStyle(.plain)
+            .blur(radius: cancelingPermission == nil ? 0 : 2)
+            .disabled(cancelingPermission != nil)
             .padding(.horizontal, 16)
             .padding(.top, 8)
-            .padding(.bottom, 8)
-            .background(Color(hex: 0xF1F3F8).opacity(0.96))
-        }
-        .sheet(isPresented: $showApplySheet) {
-            NavigationStack {
-                ApplyPermissionView {
-                    loadData()
+            .padding(.bottom, 14)
+            .frame(maxWidth: .infinity)
+            .background {
+                ZStack {
+                    Color(hex: 0xF1F3F8).opacity(0.96)
+                    if cancelingPermission != nil {
+                        Rectangle()
+                            .fill(.ultraThinMaterial)
+                            .overlay(Color.black.opacity(0.34))
+                            .ignoresSafeArea(edges: .bottom)
+                    }
                 }
             }
-            .presentationDetents([.height(430), .large])
+        }
+        .sheet(isPresented: $showApplySheet) {
+            ApplyPermissionView {
+                loadData()
+            }
+            .presentationDetents([.height(590), .large])
             .presentationDragIndicator(.hidden)
         }
         .alert("Error", isPresented: .constant(errorMessage != nil), actions: {
@@ -117,22 +141,8 @@ struct ConvexPermissionListView: View {
         } message: {
             Text("Enter a reason for rejection")
         }
-        .alert("Cancel Permission", isPresented: .init(
-            get: { cancelingPermission != nil },
-            set: { if !$0 { cancelingPermission = nil } }
-        )) {
-            Button("Cancel Request", role: .destructive) {
-                if let cancelingPermission {
-                    cancelPermission(cancelingPermission)
-                }
-                cancelingPermission = nil
-            }
-            Button("Keep Request", role: .cancel) {
-                cancelingPermission = nil
-            }
-        } message: {
-            Text("Are you sure you want to cancel this permission request?")
-        }
+        .navigationBarBackButtonHidden(true)
+        .toolbar(.hidden, for: .navigationBar)
         .task { loadData() }
     }
 
@@ -144,73 +154,29 @@ struct ConvexPermissionListView: View {
                 endPoint: .bottomTrailing
             )
 
-            HStack(alignment: .top) {
+            HStack(alignment: .center) {
                 VStack(alignment: .leading, spacing: 4) {
                     Text("Permission Summary")
-                        .font(.system(size: 26, weight: .bold))
+                        .font(.system(size: 20, weight: .bold))
                         .foregroundStyle(.white)
                         .lineLimit(1)
                         .minimumScaleFactor(0.78)
                     Text("Submit Permission")
-                        .font(.system(size: 17, weight: .regular))
+                        .font(.system(size: 13, weight: .regular))
                         .foregroundStyle(.white.opacity(0.78))
                 }
                 Spacer()
-                permissionBannerArtwork
-                    .frame(width: 122, height: 90)
-                    .padding(.top, 2)
+                Image("PermissionHeaderArt")
+                    .resizable()
+                    .scaledToFit()
+                    .frame(width: 140, height: 104)
+                    .offset(x: 2, y: -2)
             }
-            .padding(.horizontal, 28)
+            .padding(.leading, 28)
+            .padding(.trailing, 14)
             .padding(.top, 58)
         }
         .frame(height: 232)
-    }
-
-    private var permissionBannerArtwork: some View {
-        ZStack {
-            RoundedRectangle(cornerRadius: 11, style: .continuous)
-                .fill(Color.white.opacity(0.94))
-                .frame(width: 58, height: 68)
-                .rotationEffect(.degrees(-7))
-                .overlay(alignment: .top) {
-                    Text("PASS")
-                        .font(.system(size: 7, weight: .black))
-                        .foregroundStyle(Color(hex: 0x0B61CA))
-                        .offset(y: 8)
-                }
-                .overlay {
-                    VStack(alignment: .leading, spacing: 6) {
-                        ForEach(0..<3, id: \.self) { _ in
-                            RoundedRectangle(cornerRadius: 2, style: .continuous)
-                                .fill(Color(hex: 0x9FC2F6))
-                                .frame(width: 34, height: 5)
-                        }
-                    }
-                    .padding(.top, 18)
-                }
-                .offset(x: 12, y: -1)
-
-            RoundedRectangle(cornerRadius: 8, style: .continuous)
-                .fill(Color(hex: 0x1B63C7).opacity(0.9))
-                .frame(width: 25, height: 44)
-                .overlay(alignment: .top) {
-                    RoundedRectangle(cornerRadius: 3, style: .continuous)
-                        .stroke(Color(hex: 0xD6E7FF), lineWidth: 3)
-                        .frame(width: 14, height: 9)
-                        .offset(y: -4)
-                }
-                .offset(x: -34, y: 20)
-
-            Circle()
-                .fill(Color(hex: 0xD6E7FF))
-                .frame(width: 44, height: 44)
-                .overlay {
-                    Image(systemName: "checkmark.seal.fill")
-                        .font(.system(size: 25, weight: .bold))
-                        .foregroundStyle(Color(hex: 0x0B61CA))
-                }
-                .offset(x: 40, y: 25)
-        }
     }
 
     private var balanceCard: some View {
@@ -251,8 +217,13 @@ struct ConvexPermissionListView: View {
                     Text(PermissionScope.my.title)
                         .font(.system(size: 15, weight: .medium))
                         .foregroundStyle(Color(hex: 0x061D3D))
-                        .frame(width: 136, height: 37)
-                        .background(Color(hex: 0xE5E7EB), in: Capsule())
+                        .frame(width: 156, height: 48)
+                        .background(Color.white, in: RoundedRectangle(cornerRadius: 12, style: .continuous))
+                        .overlay {
+                            RoundedRectangle(cornerRadius: 12, style: .continuous)
+                                .stroke(Color(hex: 0xE5E7EB), lineWidth: 2)
+                        }
+                        .shadow(color: Color.black.opacity(0.02), radius: 4, y: 1)
                 }
             }
 
@@ -274,30 +245,22 @@ struct ConvexPermissionListView: View {
     }
 
     private var scopeChip: some View {
-        HStack(spacing: 5) {
+        HStack(spacing: 8) {
             Text(activeScope.title)
                 .font(.system(size: 15, weight: .medium))
                 .lineLimit(1)
-                .minimumScaleFactor(0.58)
-                .frame(maxWidth: .infinity, alignment: .leading)
-            if pendingPermissions.count > 0 {
-                Text(pendingPermissions.count > 99 ? "99+" : "\(pendingPermissions.count)")
-                    .font(.system(size: 9, weight: .bold))
-                    .foregroundStyle(.white)
-                    .lineLimit(1)
-                    .minimumScaleFactor(0.8)
-                    .frame(width: pendingPermissions.count > 99 ? 23 : 18, height: 18)
-                    .background(Color(hex: 0xEF4444), in: Capsule())
-            }
+                .minimumScaleFactor(0.72)
             Image(systemName: "chevron.down")
                 .font(.system(size: 11, weight: .bold))
-                .frame(width: 12)
         }
         .foregroundStyle(Color(hex: 0x061D3D))
-        .padding(.horizontal, 12)
-        .frame(width: 156, height: 37)
-        .background(Color(hex: 0xE5E7EB), in: Capsule())
-        .clipShape(Capsule())
+        .frame(width: 156, height: 48)
+        .background(Color.white, in: RoundedRectangle(cornerRadius: 12, style: .continuous))
+        .overlay {
+            RoundedRectangle(cornerRadius: 12, style: .continuous)
+                .stroke(Color(hex: 0xE5E7EB), lineWidth: 2)
+        }
+        .shadow(color: Color.black.opacity(0.02), radius: 4, y: 1)
     }
 
     private func permissionMetric(_ title: String, value: String, dot: Color) -> some View {
@@ -357,6 +320,74 @@ struct ConvexPermissionListView: View {
         .background(Color(hex: 0xE9EEF6), in: Capsule())
     }
 
+    private func cancelPermissionDialog(for permission: ConvexPermission) -> some View {
+        ZStack {
+            Rectangle()
+                .fill(.ultraThinMaterial)
+                .overlay(Color.black.opacity(0.34))
+                .ignoresSafeArea()
+
+            VStack(spacing: 0) {
+                Circle()
+                    .fill(Color(hex: 0xEF4444))
+                    .frame(width: 56, height: 56)
+                    .overlay {
+                        Image(systemName: "trash")
+                            .font(.system(size: 22, weight: .bold))
+                            .foregroundStyle(.white)
+                    }
+
+                Text("Are you sure?")
+                    .font(.system(size: 20, weight: .bold))
+                    .foregroundStyle(Color(hex: 0x1D2939))
+                    .padding(.top, 20)
+
+                Text("This permission request will be cancelled and removed from your visible permission history.")
+                    .font(.system(size: 14, weight: .regular))
+                    .foregroundStyle(Color(hex: 0x475467))
+                    .multilineTextAlignment(.center)
+                    .lineSpacing(3)
+                    .padding(.top, 12)
+
+                HStack(spacing: 12) {
+                    Button {
+                        cancelingPermission = nil
+                    } label: {
+                        Text("No, Go Back")
+                            .font(.system(size: 14, weight: .semibold))
+                            .foregroundStyle(Color(hex: 0x344054))
+                            .frame(maxWidth: .infinity)
+                            .frame(height: 48)
+                            .background(Color.white, in: RoundedRectangle(cornerRadius: 12, style: .continuous))
+                            .overlay {
+                                RoundedRectangle(cornerRadius: 12, style: .continuous)
+                                    .stroke(Color(hex: 0xD0D5DD), lineWidth: 1)
+                            }
+                    }
+                    .buttonStyle(.plain)
+                    .disabled(actionInFlightId != nil)
+
+                    Button {
+                        cancelPermission(permission)
+                    } label: {
+                        Text(actionInFlightId == permission._id ? "Cancelling..." : "Confirm")
+                            .font(.system(size: 14, weight: .semibold))
+                            .foregroundStyle(.white)
+                            .frame(maxWidth: .infinity)
+                            .frame(height: 48)
+                            .background(Color(hex: 0xEF4444), in: RoundedRectangle(cornerRadius: 12, style: .continuous))
+                    }
+                    .buttonStyle(.plain)
+                    .disabled(actionInFlightId != nil)
+                }
+                .padding(.top, 24)
+            }
+            .padding(24)
+            .background(Color.white, in: RoundedRectangle(cornerRadius: 20, style: .continuous))
+            .padding(.horizontal, 24)
+        }
+    }
+
     private var permissionsSection: some View {
         LazyVStack(spacing: 8) {
             if isLoading && permissions.isEmpty && pendingPermissions.isEmpty {
@@ -389,14 +420,16 @@ struct ConvexPermissionListView: View {
 
     private var emptyState: some View {
         VStack(spacing: 12) {
-            Image(systemName: "calendar.badge.minus")
-                .font(.system(size: 54, weight: .medium))
-                .foregroundStyle(Color(hex: 0x8C8C8C))
-            Text(emptyTitle)
-                .font(.system(size: 23, weight: .bold))
+            Image("PermissionEmptyState")
+                .resizable()
+                .scaledToFit()
+                .frame(width: 182, height: 142)
+                .opacity(0.78)
+            Text("No Permission Submitted!")
+                .font(.system(size: 22, weight: .bold))
                 .foregroundStyle(Color(hex: 0x101828))
                 .multilineTextAlignment(.center)
-            Text(emptyDescription)
+            Text("Ready to catch some fresh air? Click “Submit Permission” and take that well-deserved break!")
                 .font(.system(size: 15))
                 .foregroundStyle(Color(hex: 0x667085))
                 .multilineTextAlignment(.center)
@@ -641,9 +674,12 @@ struct ConvexPermissionListView: View {
 
     private func cancelPermission(_ permission: ConvexPermission) {
         guard let token = authStore.currentSession?.token else { return }
+        actionInFlightId = permission._id
         Task {
+            defer { actionInFlightId = nil }
             do {
                 try await HRConvexAPIService.cancelPermission(token: token, id: permission._id)
+                cancelingPermission = nil
                 loadData()
             } catch {
                 errorMessage = error.localizedDescription

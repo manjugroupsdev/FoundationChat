@@ -139,7 +139,7 @@ struct ProfileView: View {
         }
       }
       .presentationDetents([.height(270)])
-      .presentationDragIndicator(.visible)
+      .presentationDragIndicator(.hidden)
     }
   }
 

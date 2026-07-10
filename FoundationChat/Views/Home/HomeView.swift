@@ -27,6 +27,9 @@ struct HomeView: View {
     @State private var appeared = false
     @State private var headerEntryStarted = false
     @State private var headerFloating = false
+    @State private var showQRPanel = false
+    @State private var showQRScanner = false
+    @State private var showScrollToTop = false
 
     private let geoAPI = GeoTrackAPIService.shared
     private let timer = Timer.publish(every: 60, on: .main, in: .common).autoconnect()
@@ -50,15 +53,68 @@ struct HomeView: View {
                     blueHeader
                         .zIndex(1)
 
-                    ScrollView {
-                        contentArea
-                            .padding(.bottom, 28)
+                    ScrollViewReader { scrollProxy in
+                        ScrollView {
+                            Color.clear
+                                .frame(height: 0)
+                                .id(HomeScrollTarget.top)
+
+                            GeometryReader { geometry in
+                                Color.clear
+                                    .preference(
+                                        key: HomeScrollOffsetPreferenceKey.self,
+                                        value: geometry.frame(in: .named(HomeScrollTarget.space)).minY
+                                    )
+                            }
+                            .frame(height: 0)
+
+                            contentArea
+                                .padding(.bottom, 28)
+                        }
+                        .coordinateSpace(name: HomeScrollTarget.space)
+                        .scrollIndicators(.hidden)
+                        .refreshable { await reload() }
+                        .onPreferenceChange(HomeScrollOffsetPreferenceKey.self) { offset in
+                            let shouldShow = offset < -520
+                            guard shouldShow != showScrollToTop else { return }
+                            withAnimation(.spring(response: 0.28, dampingFraction: 0.82)) {
+                                showScrollToTop = shouldShow
+                            }
+                        }
+                        .overlay(alignment: .bottomTrailing) {
+                            if showScrollToTop {
+                                Button {
+                                    withAnimation(.snappy(duration: 0.35)) {
+                                        scrollProxy.scrollTo(HomeScrollTarget.top, anchor: .top)
+                                    }
+                                } label: {
+                                    Image(systemName: "chevron.up")
+                                        .font(.system(size: 17, weight: .bold))
+                                        .foregroundStyle(.white)
+                                        .frame(width: 46, height: 46)
+                                        .background(.blue.gradient, in: Circle())
+                                        .shadow(color: Color(hex: 0x0B61CA).opacity(0.28), radius: 14, x: 0, y: 8)
+                                }
+                                .buttonStyle(.plain)
+                                .accessibilityLabel("Scroll to top")
+                                .padding(.trailing, 18)
+                                .padding(.bottom, 18)
+                                .transition(.scale(scale: 0.82).combined(with: .opacity))
+                            }
+                        }
+                        .offset(y: headerEntryStarted ? 0 : -150)
+                        .animation(.easeOut(duration: 0.72), value: headerEntryStarted)
                     }
-                    .offset(y: headerEntryStarted ? 0 : -150)
-                    .animation(.easeOut(duration: 0.72), value: headerEntryStarted)
-                    .scrollIndicators(.hidden)
-                    .refreshable { await reload() }
                     .zIndex(2)
+                }
+
+                edgeQRHandle
+                    .zIndex(12)
+
+                if showQRPanel {
+                    edgeQRPanel
+                        .zIndex(18)
+                        .transition(.opacity.combined(with: .move(edge: .trailing)))
                 }
             }
             .navigationTitle("")
@@ -104,6 +160,11 @@ struct HomeView: View {
                 .presentationDetents([.height(430)])
                 .presentationBackground(Color.clear)
                 .presentationDragIndicator(.hidden)
+            }
+            .fullScreenCover(isPresented: $showQRScanner) {
+                NavigationStack {
+                    FrontDeskQRScannerView()
+                }
             }
             .task {
                 await reload()
@@ -326,6 +387,88 @@ struct HomeView: View {
         }
         DispatchQueue.main.asyncAfter(deadline: .now() + 0.84) {
             headerFloating = true
+        }
+    }
+
+    private var edgeQRHandle: some View {
+        HStack {
+            Spacer()
+
+            Button {
+                withAnimation(.spring(response: 0.32, dampingFraction: 0.88)) {
+                    showQRPanel = true
+                }
+            } label: {
+                Image(systemName: "chevron.left")
+                    .font(.system(size: 14, weight: .bold))
+                    .foregroundStyle(.white)
+                    .frame(width: 24, height: 80)
+                    .background(
+                        UnevenRoundedRectangle(
+                            topLeadingRadius: 14,
+                            bottomLeadingRadius: 14,
+                            bottomTrailingRadius: 0,
+                            topTrailingRadius: 0,
+                            style: .continuous
+                        )
+                        .fill(Color(hex: 0x0B61CA).opacity(0.96))
+                        .shadow(color: .black.opacity(0.18), radius: 10, x: -4, y: 4)
+                    )
+            }
+            .buttonStyle(.plain)
+            .gesture(
+                DragGesture(minimumDistance: 8)
+                    .onEnded { value in
+                        guard value.translation.width < -18 else { return }
+                        withAnimation(.spring(response: 0.32, dampingFraction: 0.88)) {
+                            showQRPanel = true
+                        }
+                    }
+            )
+        }
+        .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .trailing)
+        .padding(.top, 92)
+    }
+
+    private var edgeQRPanel: some View {
+        ZStack {
+            Color(hex: 0x0F172A)
+                .opacity(0.90)
+                .ignoresSafeArea()
+                .onTapGesture {
+                    withAnimation(.spring(response: 0.32, dampingFraction: 0.9)) {
+                        showQRPanel = false
+                    }
+                }
+
+            Button {
+                withAnimation(.spring(response: 0.32, dampingFraction: 0.9)) {
+                    showQRPanel = false
+                }
+                showQRScanner = true
+            } label: {
+                VStack(spacing: 14) {
+                    Image(systemName: "qrcode.viewfinder")
+                        .font(.system(size: 64, weight: .semibold))
+                        .foregroundStyle(.white)
+
+                    Text("Scan QR Code")
+                        .font(.system(size: 18, weight: .semibold))
+                        .foregroundStyle(.white)
+
+                    Text("Tap to open Front Desk Scanner")
+                        .font(.system(size: 13, weight: .medium))
+                        .foregroundStyle(Color(hex: 0x94A3B8))
+                }
+                .padding(.horizontal, 40)
+                .padding(.vertical, 32)
+                .background(.white.opacity(0.14), in: RoundedRectangle(cornerRadius: 28, style: .continuous))
+                .overlay(
+                    RoundedRectangle(cornerRadius: 28, style: .continuous)
+                        .stroke(.white.opacity(0.18), lineWidth: 1)
+                )
+            }
+            .buttonStyle(.plain)
         }
     }
 
@@ -1495,6 +1638,19 @@ private extension String {
 extension GeoTrackTodayVisit: Hashable {
     public func hash(into hasher: inout Hasher) { hasher.combine(id) }
     public static func == (lhs: GeoTrackTodayVisit, rhs: GeoTrackTodayVisit) -> Bool { lhs.id == rhs.id }
+}
+
+private enum HomeScrollTarget {
+    static let top = "home-top"
+    static let space = "home-scroll-space"
+}
+
+private struct HomeScrollOffsetPreferenceKey: PreferenceKey {
+    static var defaultValue: CGFloat = 0
+
+    static func reduce(value: inout CGFloat, nextValue: () -> CGFloat) {
+        value = nextValue()
+    }
 }
 
 #Preview {

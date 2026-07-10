@@ -58,19 +58,19 @@ struct CollectionsView: View {
                 await load()
             }
             .presentationDetents([.large])
-            .presentationDragIndicator(.visible)
+            .presentationDragIndicator(.hidden)
         }
         .sheet(item: $rectifyingCollection) { collection in
             CollectionSubmitSheet(rectifyingCollection: collection) {
                 await load()
             }
             .presentationDetents([.large])
-            .presentationDragIndicator(.visible)
+            .presentationDragIndicator(.hidden)
         }
         .sheet(item: Binding(get: { previewURL.map(URLPreviewItem.init(url:)) }, set: { if $0 == nil { previewURL = nil } })) { item in
             StoragePreviewSheet(url: item.url)
                 .presentationDetents([.medium, .large])
-                .presentationDragIndicator(.visible)
+                .presentationDragIndicator(.hidden)
         }
         .alert("Collections", isPresented: Binding(get: { errorMessage != nil }, set: { if !$0 { errorMessage = nil } })) {
             Button("OK", role: .cancel) { errorMessage = nil }
@@ -195,12 +195,12 @@ struct AccountsCollectionsReviewView: View {
                 await reject(collection)
             }
             .presentationDetents([.medium])
-            .presentationDragIndicator(.visible)
+            .presentationDragIndicator(.hidden)
         }
         .sheet(item: Binding(get: { previewURL.map(URLPreviewItem.init(url:)) }, set: { if $0 == nil { previewURL = nil } })) { item in
             StoragePreviewSheet(url: item.url)
                 .presentationDetents([.medium, .large])
-                .presentationDragIndicator(.visible)
+                .presentationDragIndicator(.hidden)
         }
     }
 
@@ -414,21 +414,21 @@ struct LoanDeskView: View {
                 await assign(loanCase)
             }
             .presentationDetents([.medium])
-            .presentationDragIndicator(.visible)
+            .presentationDragIndicator(.hidden)
         }
         .sheet(item: $rejectingCase) { loanCase in
             RejectCollectionSheet(title: "Reject Loan", remarks: $rejectRemarks) {
                 await reject(loanCase)
             }
             .presentationDetents([.medium])
-            .presentationDragIndicator(.visible)
+            .presentationDragIndicator(.hidden)
         }
         .sheet(isPresented: $showingSubmitSheet) {
             SubmitLoanCaseSheet {
                 await load()
             }
             .presentationDetents([.large])
-            .presentationDragIndicator(.visible)
+            .presentationDragIndicator(.hidden)
         }
     }
 

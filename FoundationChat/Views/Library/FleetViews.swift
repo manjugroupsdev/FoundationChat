@@ -3,13 +3,13 @@ import SwiftUI
 
 struct FleetMyTripsView: View {
     @Environment(AuthStore.self) private var authStore
-    @Environment(\.dismiss) private var dismiss
     @State private var visits: [GeoTrackTodayVisit] = []
     @State private var selectedFilter: FleetTripFilter = .all
     @State private var isLoading = false
     @State private var hasLoaded = false
     @State private var errorMessage: String?
     @State private var futureTripMessage: String?
+    @State private var emptyStateMessage: String?
     @State private var searchText = ""
     @State private var visitToNavigate: GeoTrackTodayVisit?
     @State private var locationProvider = FleetTripLocationProvider()
@@ -42,23 +42,31 @@ struct FleetMyTripsView: View {
     }
 
     var body: some View {
-        GeometryReader { proxy in
-            VStack(spacing: 0) {
-                topHeader(topInset: proxy.safeAreaInsets.top)
-                searchBar
-                    .padding(.horizontal, 16)
-                    .padding(.top, 12)
-                    .padding(.bottom, 12)
-                tripTabs
-                    .padding(.horizontal, 16)
-                    .padding(.bottom, 12)
-                content
-            }
+        VStack(spacing: 0) {
+            searchBar
+                .padding(.horizontal, 16)
+                .padding(.top, 10)
+                .padding(.bottom, 12)
+            tripTabs
+                .padding(.horizontal, 16)
+                .padding(.bottom, 12)
+            content
             .frame(maxWidth: .infinity, maxHeight: .infinity)
-            .background(Color(hex: 0xF8F9FC).ignoresSafeArea())
         }
-        .navigationBarBackButtonHidden(true)
-        .toolbar(.hidden, for: .navigationBar)
+        .frame(maxWidth: .infinity, maxHeight: .infinity)
+        .background(Color(hex: 0xF8F9FC).ignoresSafeArea())
+        .navigationTitle("My Trips")
+        .navigationBarTitleDisplayMode(.inline)
+        .toolbar {
+            ToolbarItem(placement: .topBarTrailing) {
+                Button {
+                    futureTripMessage = "Calendar filter coming soon"
+                } label: {
+                    Image(systemName: "calendar")
+                }
+                .accessibilityLabel("Calendar filter")
+            }
+        }
         .toolbar(.hidden, for: .tabBar)
         .task { if !hasLoaded { await load() } }
         .onAppear { locationProvider.start() }
@@ -90,50 +98,6 @@ struct FleetMyTripsView: View {
         } message: {
             Text(futureTripMessage ?? "")
         }
-    }
-
-    private func topHeader(topInset: CGFloat) -> some View {
-        VStack(spacing: 0) {
-            ZStack {
-                Text("My Trips")
-                    .font(.system(size: 18, weight: .semibold))
-                    .foregroundStyle(Color(hex: 0x111827))
-
-                HStack {
-                    Button {
-                        dismiss()
-                    } label: {
-                        Image(systemName: "chevron.left")
-                            .font(.system(size: 22, weight: .semibold))
-                            .foregroundStyle(Color(hex: 0x0B63C6))
-                            .frame(width: 40, height: 40)
-                            .background(Color(hex: 0xF8F9FC), in: Circle())
-                    }
-                    .buttonStyle(.plain)
-
-                    Spacer()
-
-                    Button {
-                        futureTripMessage = "Calendar filter coming soon"
-                    } label: {
-                        Image(systemName: "calendar")
-                            .font(.system(size: 19, weight: .semibold))
-                            .foregroundStyle(Color(hex: 0x0B63C6))
-                            .frame(width: 40, height: 40)
-                            .background(Color(hex: 0xF8F9FC), in: Circle())
-                    }
-                    .buttonStyle(.plain)
-                }
-                .padding(.horizontal, 16)
-            }
-            .frame(height: 56)
-            .padding(.top, topInset)
-
-            Rectangle()
-                .fill(Color(hex: 0xE5E7EB))
-                .frame(height: 1)
-        }
-        .background(Color.white.ignoresSafeArea(edges: .top))
     }
 
     private var searchBar: some View {
@@ -222,36 +186,42 @@ struct FleetMyTripsView: View {
     }
 
     private var emptyDescription: String {
-        let designation = authStore.currentSession?.user.designation?.nonBlank
-        if visits.isEmpty, authStore.currentSession?.user.isFleetDriverMode != true {
-            return "Signed in with designation: \(designation ?? "(empty)"). If this account should be a driver, set the staff designation to Driver."
-        }
-        return "There are no trips matching your search or filter."
+        emptyStateMessage ?? "There are no trips matching your search or filter."
     }
 
     @MainActor
     private func load() async {
         guard let token = authStore.currentSession?.token else {
-            errorMessage = "Not signed in."
-            hasLoaded = true
-            return
-        }
-        guard authStore.currentSession?.user.isFleetDriverMode == true else {
             visits = []
+            emptyStateMessage = "Not signed in."
             hasLoaded = true
             return
         }
         isLoading = true
+        emptyStateMessage = nil
         defer {
             isLoading = false
             hasLoaded = true
         }
         do {
             GeoTrackAPIService.shared.tokenProvider = { token }
-            visits = try await FleetConvexAPIService.listDriverTrips(token: token)
+            let driverTrips = try await FleetConvexAPIService.listDriverTrips(token: token)
+            visits = driverTrips
                 .compactMap { $0.toTodayVisitOrNil() }
+                .sorted { lhs, rhs in
+                    if lhs.fleetIsCompleted != rhs.fleetIsCompleted {
+                        return !lhs.fleetIsCompleted
+                    }
+                    return lhs.scheduledDate > rhs.scheduledDate
+                }
+            if driverTrips.isEmpty {
+                emptyStateMessage = "No fleet trips found for your phone. Make sure the dispatcher assigned the vehicle to this driver's phone number."
+            } else if visits.isEmpty {
+                emptyStateMessage = "Fleet trips were found, but they are missing scheduled dates."
+            }
         } catch {
-            errorMessage = error.localizedDescription
+            visits = []
+            emptyStateMessage = "Driver trips couldn't load: \(error.localizedDescription)"
         }
     }
 

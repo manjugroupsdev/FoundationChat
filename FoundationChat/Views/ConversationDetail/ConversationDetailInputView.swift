@@ -157,12 +157,16 @@ struct ConversationDetailInputView: View {
   }
 
   private func openEmojiKeyboard() {
+    let wasTyping = isInputFocused.wrappedValue
     isInputFocused.wrappedValue = false
     isEmojiPanelVisible = false
-    UIApplication.shared.sendAction(#selector(UIResponder.resignFirstResponder), to: nil, from: nil, for: nil)
 
-    DispatchQueue.main.async {
-      isEmojiPanelVisible = true
+    DispatchQueue.main.asyncAfter(deadline: .now() + (wasTyping ? 0.08 : 0)) {
+      var transaction = Transaction()
+      transaction.disablesAnimations = true
+      withTransaction(transaction) {
+        isEmojiPanelVisible = true
+      }
     }
   }
 
@@ -218,11 +222,12 @@ private struct EmojiKeyboardInput: UIViewRepresentable {
     }
 
     if isFirstResponder, !textField.isFirstResponder {
-      UIApplication.shared.sendAction(#selector(UIResponder.resignFirstResponder), to: nil, from: nil, for: nil)
       DispatchQueue.main.async {
         guard isFirstResponder, !textField.isFirstResponder else { return }
-        textField.becomeFirstResponder()
-        textField.reloadInputViews()
+        UIView.performWithoutAnimation {
+          textField.becomeFirstResponder()
+          textField.reloadInputViews()
+        }
       }
     } else if !isFirstResponder, textField.isFirstResponder {
       textField.resignFirstResponder()
