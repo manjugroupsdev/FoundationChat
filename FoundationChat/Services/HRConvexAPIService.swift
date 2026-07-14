@@ -680,14 +680,25 @@ enum HRConvexAPIService {
         var request = URLRequest(url: url)
         request.httpMethod = "POST"
         request.setValue(contentType, forHTTPHeaderField: "Content-Type")
+        request.setValue(String(fileData.count), forHTTPHeaderField: "Content-Length")
         request.timeoutInterval = 180
+        request.httpBody = fileData
         let configuration = URLSessionConfiguration.ephemeral
         configuration.timeoutIntervalForRequest = 180
         configuration.timeoutIntervalForResource = 300
         let session = URLSession(configuration: configuration)
-        let (data, response) = try await session.upload(for: request, from: fileData)
-        guard let http = response as? HTTPURLResponse, (200..<300).contains(http.statusCode) else {
+        let (data, response) = try await session.data(for: request)
+        guard let http = response as? HTTPURLResponse else {
             throw HRConvexAPIError.server("File upload failed")
+        }
+        guard (200..<300).contains(http.statusCode) else {
+            let responseText = String(data: data, encoding: .utf8)?
+                .trimmingCharacters(in: .whitespacesAndNewlines)
+                .prefix(180)
+            if let responseText, !responseText.isEmpty {
+                throw HRConvexAPIError.server("File upload failed (\(http.statusCode)): \(responseText)")
+            }
+            throw HRConvexAPIError.server("File upload failed (\(http.statusCode))")
         }
         let wrapper = try JSONDecoder().decode(UploadFileResponse.self, from: data)
         return wrapper.storageId

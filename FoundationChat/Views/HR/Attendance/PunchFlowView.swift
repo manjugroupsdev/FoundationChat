@@ -1,6 +1,7 @@
 import CoreLocation
 import MapKit
 import SwiftUI
+import UIKit
 
 struct PunchFlowView: View {
     @Environment(AuthStore.self) private var authStore
@@ -302,7 +303,7 @@ struct PunchFlowView: View {
                 }
 
                 statusText = "Uploading photo..."
-                guard let jpegData = image.jpegData(compressionQuality: 0.7) else {
+                guard let jpegData = image.attendanceUploadJPEGData(maxEdge: 1280, quality: 0.68) else {
                     throw HRConvexAPIError.server("Failed to encode selfie")
                 }
                 let photoStorageId = try await HRConvexAPIService.uploadPhoto(
@@ -506,6 +507,32 @@ private struct PunchSuccessSheet: View {
         }
         .padding(.bottom, 14)
         .background(.white)
+    }
+}
+
+private extension UIImage {
+    func attendanceUploadJPEGData(maxEdge: CGFloat, quality: CGFloat) -> Data? {
+        let largestEdge = max(size.width, size.height)
+        guard largestEdge > 0 else {
+            return jpegData(compressionQuality: quality)
+        }
+
+        let scaleFactor = min(1, maxEdge / largestEdge)
+        guard scaleFactor < 1 else {
+            return jpegData(compressionQuality: quality)
+        }
+
+        let targetSize = CGSize(width: size.width * scaleFactor, height: size.height * scaleFactor)
+        let format = UIGraphicsImageRendererFormat()
+        format.scale = 1
+        format.opaque = true
+        let renderer = UIGraphicsImageRenderer(size: targetSize, format: format)
+        let resized = renderer.image { _ in
+            UIColor.white.setFill()
+            UIBezierPath(rect: CGRect(origin: .zero, size: targetSize)).fill()
+            draw(in: CGRect(origin: .zero, size: targetSize))
+        }
+        return resized.jpegData(compressionQuality: quality)
     }
 }
 
