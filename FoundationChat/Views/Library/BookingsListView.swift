@@ -69,6 +69,8 @@ struct BookingsListView: View {
             NavigationStack {
                 BookingCreateView()
             }
+            .presentationDetents([.large])
+            .presentationDragIndicator(.hidden)
         }
         .sheet(item: $selectedBooking, onDismiss: {
             Task { await load() }
@@ -474,12 +476,12 @@ private struct BookingDetailView: View {
                     .frame(maxHeight: .infinity)
             } else if let booking {
                 VStack(spacing: 0) {
-                    VStack(alignment: .leading, spacing: 16) {
+                    VStack(alignment: .leading, spacing: 12) {
                         Capsule()
                             .fill(Color(hex: 0xD0D5DD))
-                            .frame(width: 52, height: 5)
+                            .frame(width: 38, height: 4)
                             .frame(maxWidth: .infinity)
-                            .padding(.top, 4)
+                            .padding(.top, 8)
 
                         bookingDrawerHeader(booking)
                         bookingDrawerTabs
@@ -525,7 +527,7 @@ private struct BookingDetailView: View {
         HStack(alignment: .center, spacing: 12) {
             VStack(alignment: .leading, spacing: 3) {
                 Text(booking.bookingRefNo?.nilIfBlank ?? "Booking")
-                    .font(.system(size: 22, weight: .bold))
+                    .font(.system(size: 17, weight: .bold))
                     .foregroundStyle(Color(hex: 0x101828))
                     .lineLimit(1)
                     .minimumScaleFactor(0.75)
@@ -535,7 +537,7 @@ private struct BookingDetailView: View {
                     booking.projectName?.nilIfBlank ?? booking.projectId?.nilIfBlank,
                     booking.displayStatus.nilIfBlank
                 ].compactMap { $0 }.joined(separator: " - "))
-                .font(.system(size: 14, weight: .medium))
+                .font(.system(size: 11, weight: .medium))
                 .foregroundStyle(Color(hex: 0x667085))
                 .lineLimit(1)
             }
@@ -548,17 +550,18 @@ private struct BookingDetailView: View {
                 }
                 isEditing.toggle()
             }
-            .font(.system(size: 14, weight: .semibold))
+            .font(.system(size: 12, weight: .semibold))
             .buttonStyle(.plain)
             .foregroundStyle(Color(hex: 0x0B61CA))
 
             Button("Close") {
                 dismiss()
             }
-            .font(.system(size: 14, weight: .semibold))
-            .buttonStyle(.bordered)
-            .controlSize(.large)
-            .tint(Color(hex: 0x667085))
+            .font(.system(size: 12, weight: .semibold))
+            .foregroundStyle(Color(hex: 0x1D2939))
+            .padding(.horizontal, 16)
+            .frame(height: 36)
+            .background(Color(hex: 0xF1F5F9), in: RoundedRectangle(cornerRadius: 10, style: .continuous))
         }
     }
 
@@ -570,11 +573,15 @@ private struct BookingDetailView: View {
                         selectedTab = tab
                     } label: {
                         Text(tab.title)
-                            .font(.system(size: 14, weight: .semibold))
+                            .font(.system(size: 11, weight: .semibold))
                             .foregroundStyle(selectedTab == tab ? .white : Color(hex: 0x475467))
-                            .padding(.horizontal, 16)
-                            .frame(height: 44)
-                            .background(selectedTab == tab ? Color(hex: 0x0B61CA) : Color(hex: 0xF2F4F7))
+                            .padding(.horizontal, 12)
+                            .frame(height: 30)
+                            .background(selectedTab == tab ? Color(hex: 0x20B40B) : Color.white, in: Capsule())
+                            .overlay(
+                                Capsule()
+                                    .stroke(Color(hex: 0xEAECF0), lineWidth: selectedTab == tab ? 0 : 1)
+                            )
                     }
                     .buttonStyle(.plain)
                 }

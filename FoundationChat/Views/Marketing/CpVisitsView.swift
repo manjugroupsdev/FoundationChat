@@ -1349,6 +1349,8 @@ private struct CreateCpVisitSheet: View {
     @State private var isSearchingLead = false
     @State private var isSubmitting = false
     @State private var errorMessage: String?
+    @State private var showStaffPicker = false
+    @State private var showProjectPicker = false
 
     var body: some View {
         ZStack(alignment: .bottom) {
@@ -1533,6 +1535,44 @@ private struct CreateCpVisitSheet: View {
         } message: {
             Text(errorMessage ?? "")
         }
+        .sheet(isPresented: $showStaffPicker) {
+            NativeSearchableSelectionSheet(
+                title: "Select Staff",
+                prompt: "Search staff",
+                items: staff,
+                selectedId: selectedStaff?.id,
+                searchText: { item in
+                    [item.displayName, item.designation, item.phone].compactMap(\.self).joined(separator: " ")
+                },
+                rowContent: { item, isSelected in
+                    staffSelectionRow(item, isSelected: isSelected)
+                },
+                onSelect: { item in
+                    selectedStaff = item
+                    showStaffPicker = false
+                }
+            )
+            .presentationDetents([.medium, .large])
+        }
+        .sheet(isPresented: $showProjectPicker) {
+            NativeSearchableSelectionSheet(
+                title: "Select Project",
+                prompt: "Search projects",
+                items: projects,
+                selectedId: selectedProject?.id,
+                searchText: { project in
+                    [project.name, project.location].compactMap(\.self).joined(separator: " ")
+                },
+                rowContent: { project, isSelected in
+                    projectSelectionRow(project, isSelected: isSelected)
+                },
+                onSelect: { project in
+                    selectedProject = project
+                    showProjectPicker = false
+                }
+            )
+            .presentationDetents([.medium, .large])
+        }
         .task { await loadBootstrapData() }
     }
 
@@ -1590,36 +1630,68 @@ private struct CreateCpVisitSheet: View {
 
     private var staffPicker: some View {
         pickerShell(title: "Field Staff *", icon: "person.badge.key") {
-            Menu {
-                if isLoadingStaff {
-                    Text("Loading staff")
-                }
-                ForEach(staff) { member in
-                    Button(member.displayName) {
-                        selectedStaff = member
-                    }
-                }
+            Button {
+                showStaffPicker = true
             } label: {
                 pickerLabel(selectedStaff?.displayName ?? "Select Staff")
             }
+            .buttonStyle(.plain)
+            .disabled(isLoadingStaff || staff.isEmpty)
         }
     }
 
     private var projectPicker: some View {
         pickerShell(title: "Project *", icon: "building.2") {
-            Menu {
-                if isLoadingProjects {
-                    Text("Loading projects")
-                }
-                ForEach(projects) { project in
-                    Button(project.name ?? project.location ?? "Unnamed project") {
-                        selectedProject = project
-                    }
-                }
+            Button {
+                showProjectPicker = true
             } label: {
                 pickerLabel(selectedProject?.name ?? selectedProject?.location ?? "Select Projects")
             }
+            .buttonStyle(.plain)
+            .disabled(isLoadingProjects || projects.isEmpty)
         }
+    }
+
+    private func staffSelectionRow(_ item: ConvexStaffListItem, isSelected: Bool) -> some View {
+        HStack(spacing: 12) {
+            VStack(alignment: .leading, spacing: 4) {
+                Text(item.displayName)
+                    .font(.system(size: 15, weight: .semibold))
+                    .foregroundStyle(Color(hex: 0x101828))
+                if let designation = item.designation, !designation.isEmpty {
+                    Text(designation)
+                        .font(.system(size: 12, weight: .medium))
+                        .foregroundStyle(Color(hex: 0x667085))
+                }
+            }
+            Spacer()
+            if isSelected {
+                Image(systemName: "checkmark.circle.fill")
+                    .foregroundStyle(Color(hex: 0x0B61CA))
+            }
+        }
+        .padding(.vertical, 4)
+    }
+
+    private func projectSelectionRow(_ project: MarketingProject, isSelected: Bool) -> some View {
+        HStack(spacing: 12) {
+            VStack(alignment: .leading, spacing: 4) {
+                Text(project.name ?? project.location ?? "Unnamed project")
+                    .font(.system(size: 15, weight: .semibold))
+                    .foregroundStyle(Color(hex: 0x101828))
+                if let location = project.location, !location.isEmpty {
+                    Text(location)
+                        .font(.system(size: 12, weight: .medium))
+                        .foregroundStyle(Color(hex: 0x667085))
+                }
+            }
+            Spacer()
+            if isSelected {
+                Image(systemName: "checkmark.circle.fill")
+                    .foregroundStyle(Color(hex: 0x0B61CA))
+            }
+        }
+        .padding(.vertical, 4)
     }
 
     private var cpTypePicker: some View {

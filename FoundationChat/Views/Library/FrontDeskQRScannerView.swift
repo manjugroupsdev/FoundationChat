@@ -5,6 +5,12 @@ struct FrontDeskQRScannerView: View {
     @Environment(\.dismiss) private var dismiss
     @State private var scannedValue: String?
     @State private var cameraAccessDenied = false
+    @State private var scanLineAnimating = false
+    let showsCloseButton: Bool
+
+    init(showsCloseButton: Bool = false) {
+        self.showsCloseButton = showsCloseButton
+    }
 
     var body: some View {
         ZStack {
@@ -14,6 +20,7 @@ struct FrontDeskQRScannerView: View {
                 .ignoresSafeArea()
 
             scannerOverlay
+            scannerHeader
 
             if cameraAccessDenied {
                 cameraDeniedCard
@@ -27,84 +34,91 @@ struct FrontDeskQRScannerView: View {
         .navigationBarBackButtonHidden(true)
         .toolbar(.hidden, for: .navigationBar)
         .toolbar(.hidden, for: .tabBar)
+        .preferredColorScheme(.dark)
         .animation(.spring(response: 0.34, dampingFraction: 0.88), value: scannedValue)
     }
 
-    private var scannerOverlay: some View {
+    private var scannerHeader: some View {
         VStack(spacing: 0) {
             HStack {
                 Button {
                     dismiss()
                 } label: {
-                    Image(systemName: "chevron.left")
-                        .font(.system(size: 18, weight: .bold))
+                    Image(systemName: showsCloseButton ? "xmark" : "chevron.left")
+                        .font(.system(size: 20, weight: .bold))
                         .foregroundStyle(.white)
-                        .frame(width: 44, height: 44)
-                        .background(.black.opacity(0.38), in: Circle())
+                        .frame(width: 50, height: 50)
+                        .background(.black.opacity(0.28), in: Circle())
                 }
-                .buttonStyle(.plain)
+                .accessibilityLabel(showsCloseButton ? "Close scanner" : "Back")
 
                 Spacer()
 
                 Text("Front Desk Scanner")
-                    .font(.system(size: 17, weight: .semibold))
+                    .font(.system(size: 18, weight: .bold))
                     .foregroundStyle(.white)
+                    .shadow(color: .black.opacity(0.28), radius: 8, y: 2)
 
                 Spacer()
 
-                Button {
-                    scannedValue = nil
-                } label: {
-                    Image(systemName: "arrow.clockwise")
-                        .font(.system(size: 17, weight: .bold))
-                        .foregroundStyle(.white)
-                        .frame(width: 44, height: 44)
-                        .background(.black.opacity(0.38), in: Circle())
+                if scannedValue == nil {
+                    Color.clear
+                        .frame(width: 50, height: 50)
+                } else {
+                    Button {
+                        scannedValue = nil
+                    } label: {
+                        Image(systemName: "arrow.clockwise")
+                            .font(.system(size: 17, weight: .bold))
+                            .foregroundStyle(.white)
+                            .frame(width: 50, height: 50)
+                            .background(.black.opacity(0.28), in: Circle())
+                    }
+                    .accessibilityLabel("Scan another QR code")
                 }
-                .buttonStyle(.plain)
-                .opacity(scannedValue == nil ? 0 : 1)
-                .disabled(scannedValue == nil)
             }
-            .padding(.horizontal, 18)
-            .padding(.top, 52)
-
-            Spacer()
-
-            ZStack {
-                RoundedRectangle(cornerRadius: 26, style: .continuous)
-                    .stroke(.white.opacity(0.92), lineWidth: 3)
-                    .frame(width: 250, height: 250)
-
-                VStack {
-                    Rectangle()
-                        .fill(
-                            LinearGradient(
-                                colors: [.clear, Color(hex: 0x16A34A), .clear],
-                                startPoint: .leading,
-                                endPoint: .trailing
-                            )
-                        )
-                        .frame(width: 214, height: 3)
-                        .shadow(color: Color(hex: 0x16A34A).opacity(0.7), radius: 8)
-                        .padding(.top, 18)
-
-                    Spacer()
-                }
-                .frame(width: 250, height: 250)
-            }
-
-            Text("Align QR code inside the box to scan")
-                .font(.system(size: 14, weight: .medium))
-                .foregroundStyle(.white.opacity(0.84))
-                .padding(.top, 24)
+            .padding(.horizontal, 24)
+            .padding(.top, 58)
 
             Spacer()
         }
-        .background(
-            Rectangle()
-                .fill(.black.opacity(scannedValue == nil ? 0.18 : 0.42))
-                .ignoresSafeArea()
-        )
+        .ignoresSafeArea(edges: .top)
+    }
+
+    private var scannerOverlay: some View {
+        GeometryReader { proxy in
+            let boxSize = min(proxy.size.width * 0.72, 292)
+            let centerYOffset = proxy.size.height * 0.07
+
+            VStack(spacing: 22) {
+                ScannerTargetView(
+                    size: boxSize,
+                    isAnimating: scanLineAnimating && scannedValue == nil
+                )
+
+                Text("Align QR code inside the box to scan")
+                    .font(.system(size: 15, weight: .semibold))
+                    .foregroundStyle(.white.opacity(0.88))
+                    .multilineTextAlignment(.center)
+                    .shadow(color: .black.opacity(0.28), radius: 8, y: 2)
+            }
+            .frame(maxWidth: .infinity, maxHeight: .infinity)
+            .offset(y: centerYOffset)
+            .padding(.horizontal, 24)
+            .background(
+                Rectangle()
+                    .fill(.black.opacity(scannedValue == nil ? 0.22 : 0.44))
+                    .ignoresSafeArea()
+            )
+            .onAppear {
+                scanLineAnimating = false
+                DispatchQueue.main.async {
+                    withAnimation(.linear(duration: 1.55).repeatForever(autoreverses: true)) {
+                        scanLineAnimating = true
+                    }
+                }
+            }
+        }
     }
 
     private var cameraDeniedCard: some View {
@@ -193,6 +207,38 @@ struct FrontDeskQRScannerView: View {
             .first
             .map(String.init)?
             .trimmingCharacters(in: CharacterSet(charactersIn: "/ "))
+    }
+}
+
+private struct ScannerTargetView: View {
+    let size: CGFloat
+    let isAnimating: Bool
+
+    var body: some View {
+        ZStack {
+            RoundedRectangle(cornerRadius: 28, style: .continuous)
+                .stroke(.white.opacity(0.94), lineWidth: 3.5)
+                .frame(width: size, height: size)
+                .shadow(color: .black.opacity(0.22), radius: 12, y: 6)
+
+            RoundedRectangle(cornerRadius: 26, style: .continuous)
+                .fill(.black.opacity(0.08))
+                .frame(width: size - 6, height: size - 6)
+
+            Rectangle()
+                .fill(
+                    LinearGradient(
+                        colors: [.clear, Color(hex: 0x22C55E), .clear],
+                        startPoint: .leading,
+                        endPoint: .trailing
+                    )
+                )
+                .frame(width: size - 48, height: 3)
+                .shadow(color: Color(hex: 0x22C55E).opacity(0.95), radius: 10)
+                .offset(y: isAnimating ? (size / 2 - 30) : -(size / 2 - 30))
+        }
+        .frame(width: size, height: size)
+        .drawingGroup()
     }
 }
 

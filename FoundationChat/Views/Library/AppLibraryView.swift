@@ -416,7 +416,7 @@ private struct AppLibrarySection: Identifiable {
                 ? .init(
                     title: "Task Manager",
                     icon: "AppLibraryIconAppsTasks",
-                    destination: .tasks,
+                    destination: .taskManager,
                     systemIcon: "checklist",
                     iconTint: Color(hex: 0x0891B2),
                     iconBackground: Color(hex: 0xE0F7FA)
@@ -447,7 +447,7 @@ private struct AppLibrarySection: Identifiable {
 
         let projectItems: [AppLibraryItem] = [
             canAny(["tasks.view", "tasks.viewAll", "tasks.create"])
-                ? .init(title: "Tasks", icon: "AppLibraryIconAppsTasks", destination: .tasks)
+                ? .init(title: "Tasks", icon: "AppLibraryIconAppsTasks", destination: .projectTasks)
                 : nil,
             canAny(["tasks.view", "tasks.viewAll", "tasks.create"])
                 ? .init(
@@ -684,7 +684,8 @@ private enum AppLibraryDestination: String {
     case dialer
     case inventory
     case bookings
-    case tasks
+    case taskManager
+    case projectTasks
     case issues
     case expenses
     case landInspection
@@ -722,8 +723,10 @@ private enum AppLibraryDestination: String {
                 InventoryProjectsListView()
             case .bookings:
                 BookingsListView()
-            case .tasks:
+            case .taskManager:
                 TasksListView()
+            case .projectTasks:
+                ProjectTasksView()
             case .issues:
                 IssuesView()
             case .expenses:

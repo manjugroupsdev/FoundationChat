@@ -30,6 +30,7 @@ struct HomeView: View {
     @State private var showQRPanel = false
     @State private var showQRScanner = false
     @State private var showScrollToTop = false
+    @State private var homeScrollOffset: CGFloat = 0
 
     private let geoAPI = GeoTrackAPIService.shared
     private let timer = Timer.publish(every: 60, on: .main, in: .common).autoconnect()
@@ -49,64 +50,79 @@ struct HomeView: View {
 
                 headerTopFill
 
-                VStack(spacing: 0) {
-                    blueHeader
-                        .zIndex(1)
+                blueHeader
+                    .frame(maxHeight: .infinity, alignment: .top)
+                    .ignoresSafeArea(edges: .top)
+                    .zIndex(1)
 
-                    ScrollViewReader { scrollProxy in
-                        ScrollView {
-                            Color.clear
-                                .frame(height: 0)
-                                .id(HomeScrollTarget.top)
-
-                            GeometryReader { geometry in
-                                Color.clear
-                                    .preference(
-                                        key: HomeScrollOffsetPreferenceKey.self,
-                                        value: geometry.frame(in: .named(HomeScrollTarget.space)).minY
-                                    )
-                            }
+                ScrollViewReader { scrollProxy in
+                    ScrollView {
+                        Color.clear
                             .frame(height: 0)
+                            .id(HomeScrollTarget.top)
 
-                            contentArea
-                                .padding(.bottom, 28)
+                        GeometryReader { geometry in
+                            Color.clear
+                                .preference(
+                                    key: HomeScrollOffsetPreferenceKey.self,
+                                    value: geometry.frame(in: .named(HomeScrollTarget.space)).minY
+                                )
                         }
-                        .coordinateSpace(name: HomeScrollTarget.space)
-                        .scrollIndicators(.hidden)
-                        .refreshable { await reload() }
-                        .onPreferenceChange(HomeScrollOffsetPreferenceKey.self) { offset in
-                            let shouldShow = offset < -520
-                            guard shouldShow != showScrollToTop else { return }
-                            withAnimation(.spring(response: 0.28, dampingFraction: 0.82)) {
-                                showScrollToTop = shouldShow
-                            }
-                        }
-                        .overlay(alignment: .bottomTrailing) {
-                            if showScrollToTop {
-                                Button {
-                                    withAnimation(.snappy(duration: 0.35)) {
-                                        scrollProxy.scrollTo(HomeScrollTarget.top, anchor: .top)
-                                    }
-                                } label: {
-                                    Image(systemName: "chevron.up")
-                                        .font(.system(size: 17, weight: .bold))
-                                        .foregroundStyle(.white)
-                                        .frame(width: 46, height: 46)
-                                        .background(.blue.gradient, in: Circle())
-                                        .shadow(color: Color(hex: 0x0B61CA).opacity(0.28), radius: 14, x: 0, y: 8)
-                                }
-                                .buttonStyle(.plain)
-                                .accessibilityLabel("Scroll to top")
-                                .padding(.trailing, 18)
-                                .padding(.bottom, 18)
-                                .transition(.scale(scale: 0.82).combined(with: .opacity))
-                            }
-                        }
-                        .offset(y: headerEntryStarted ? 0 : -150)
-                        .animation(.easeOut(duration: 0.72), value: headerEntryStarted)
+                        .frame(height: 0)
+
+                        Color.clear
+                            .frame(height: 222)
+
+                        contentArea
+                            .padding(.bottom, 28)
                     }
-                    .zIndex(2)
+                    .coordinateSpace(name: HomeScrollTarget.space)
+                    .scrollIndicators(.hidden)
+                    .refreshable { await reload() }
+                    .ignoresSafeArea(edges: .top)
+                    .onPreferenceChange(HomeScrollOffsetPreferenceKey.self) { offset in
+                        homeScrollOffset = offset
+                        let shouldShow = offset < -520
+                        guard shouldShow != showScrollToTop else { return }
+                        withAnimation(.spring(response: 0.28, dampingFraction: 0.82)) {
+                            showScrollToTop = shouldShow
+                        }
+                    }
+                    .overlay(alignment: .bottomTrailing) {
+                        if showScrollToTop {
+                            Button {
+                                withAnimation(.snappy(duration: 0.35)) {
+                                    scrollProxy.scrollTo(HomeScrollTarget.top, anchor: .top)
+                                }
+                            } label: {
+                                Image(systemName: "chevron.up")
+                                    .font(.system(size: 17, weight: .bold))
+                                    .foregroundStyle(.white)
+                                    .frame(width: 46, height: 46)
+                                    .background(.blue.gradient, in: Circle())
+                                    .shadow(color: Color(hex: 0x0B61CA).opacity(0.28), radius: 14, x: 0, y: 8)
+                            }
+                            .buttonStyle(.plain)
+                            .accessibilityLabel("Scroll to top")
+                            .padding(.trailing, 18)
+                            .padding(.bottom, 18)
+                            .transition(.scale(scale: 0.82).combined(with: .opacity))
+                        }
+                    }
+                    .offset(y: headerEntryStarted ? 0 : -150)
+                    .animation(.easeOut(duration: 0.72), value: headerEntryStarted)
                 }
+                .zIndex(2)
+
+                homeHeaderActions
+                    .padding(.top, 4)
+                    .padding(.trailing, 18)
+                    .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topTrailing)
+                    .opacity(headerEntryStarted ? headerActionsOpacity : 0)
+                    .offset(y: headerEntryStarted ? (-38 * headerActionsScrollProgress) : -16)
+                    .allowsHitTesting(headerActionsOpacity > 0.72)
+                    .animation(.easeOut(duration: 0.36), value: headerEntryStarted)
+                    .zIndex(headerActionsScrollProgress > 0.45 ? 0.5 : 10)
 
                 edgeQRHandle
                     .zIndex(12)
@@ -120,6 +136,7 @@ struct HomeView: View {
             .navigationTitle("")
             .navigationBarTitleDisplayMode(.inline)
             .toolbar(.hidden, for: .navigationBar)
+            .toolbar(showQRPanel ? .hidden : .visible, for: .tabBar)
             .navigationDestination(item: $visitToOpen) { visit in
                 TripNavigationView(
                     visitId: visit.id,
@@ -163,7 +180,7 @@ struct HomeView: View {
             }
             .fullScreenCover(isPresented: $showQRScanner) {
                 NavigationStack {
-                    FrontDeskQRScannerView()
+                    FrontDeskQRScannerView(showsCloseButton: true)
                 }
             }
             .task {
@@ -199,6 +216,14 @@ struct HomeView: View {
         .ignoresSafeArea(edges: .top)
     }
 
+    private var headerActionsScrollProgress: CGFloat {
+        min(max((-homeScrollOffset - 4) / 44, 0), 1)
+    }
+
+    private var headerActionsOpacity: Double {
+        Double(1 - headerActionsScrollProgress)
+    }
+
     private var blueHeader: some View {
         VStack(spacing: 0) {
             summaryBanner
@@ -218,15 +243,15 @@ struct HomeView: View {
         ZStack(alignment: .topTrailing) {
             VStack(alignment: .leading, spacing: 0) {
                 Text("Plan, Visit & Achieve")
-                    .font(.system(size: 17, weight: .semibold))
+                    .font(.system(size: 16, weight: .semibold))
                     .foregroundStyle(.white)
-                    .padding(.top, 60)
+                    .padding(.top, 70)
                     .opacity(headerEntryStarted ? 1 : 0)
                     .offset(x: headerEntryStarted ? 0 : -30)
                     .animation(.timingCurve(0.4, 0, 0.2, 1, duration: 0.38).delay(0.12), value: headerEntryStarted)
 
                 Text("Track your tasks, visits and\nattendance in one place.")
-                    .font(.system(size: 11.5, weight: .medium))
+                    .font(.system(size: 10.8, weight: .medium))
                     .foregroundStyle(Color(red: 0.93, green: 0.92, blue: 1.0))
                     .lineSpacing(2)
                     .padding(.top, 4)
@@ -239,37 +264,31 @@ struct HomeView: View {
                 } label: {
                     HStack(spacing: 4) {
                         Text("View My Summary")
-                            .font(.system(size: 10, weight: .semibold))
+                            .font(.system(size: 9.6, weight: .semibold))
 
                         Image(systemName: "chevron.right.3")
                             .font(.system(size: 9, weight: .bold))
                     }
                     .foregroundStyle(HomePalette.headerBlue)
-                    .padding(.horizontal, 10)
-                    .padding(.vertical, 5)
+                    .padding(.horizontal, 9)
+                    .padding(.vertical, 4.5)
                     .background(Color.white.opacity(0.96), in: Capsule())
                 }
                 .buttonStyle(.plain)
-                .padding(.top, 12)
+                .padding(.top, 10)
                 .opacity(headerEntryStarted ? 1 : 0)
                 .offset(x: headerEntryStarted ? 0 : -30)
                 .animation(.timingCurve(0.4, 0, 0.2, 1, duration: 0.38).delay(0.30), value: headerEntryStarted)
 
                 Spacer(minLength: 0)
             }
+            .frame(width: 208, alignment: .leading)
             .frame(maxWidth: .infinity, alignment: .leading)
-            .padding(.leading, 16)
-
-            homeHeaderActions
-                .padding(.top, 16)
-                .padding(.trailing, 12)
-                .opacity(headerEntryStarted ? 1 : 0)
-                .offset(y: headerEntryStarted ? 0 : -16)
-                .animation(.easeOut(duration: 0.36), value: headerEntryStarted)
+            .padding(.leading, 22)
 
             bannerIllustration
-                .padding(.top, 60)
-                .padding(.trailing, 16)
+                .padding(.top, 82)
+                .padding(.trailing, 20)
         }
         .frame(height: 222)
         .clipped()
@@ -352,7 +371,7 @@ struct HomeView: View {
             )
             .padding(.bottom, 16)
         }
-        .frame(width: 150, height: 160)
+        .frame(width: 150, height: 140)
         .accessibilityHidden(true)
     }
 

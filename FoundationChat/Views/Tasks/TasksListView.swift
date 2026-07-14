@@ -1,62 +1,90 @@
 import SwiftUI
-#if canImport(UIKit)
-import UIKit
-#endif
 
 struct TasksListView: View {
     @Environment(AuthStore.self) private var authStore
 
-    @State private var tasks: [ConvexTask] = []
-    @State private var summary: ConvexTaskSummary?
-    @State private var filter: TaskListFilter = .all
-    @State private var searchText = ""
+    @State private var tasks: [DailyTask] = []
+    @State private var teamIds: Set<String> = []
+    @State private var scope: String?
+    @State private var statusFilter: DailyTaskStatusFilter = .all
+    @State private var categoryFilter = "All"
     @State private var isLoading = false
     @State private var errorMessage: String?
-    @State private var didAnimateIn = false
 
-    private var filteredTasks: [ConvexTask] {
-        let query = searchText.trimmingCharacters(in: .whitespacesAndNewlines).lowercased()
-        return tasks.filter { task in
-            filter.matches(task) && (
-                query.isEmpty
-                || task.displayTitle.lowercased().contains(query)
-                || task.displayProject.lowercased().contains(query)
-                || (task.displayDescription?.lowercased().contains(query) ?? false)
-            )
-        }
+    private var todayString: String {
+        AppModuleFormatters.ymd.string(from: Date())
+    }
+
+    private var currentStaffId: String? {
+        authStore.currentSession?.user.staffId?.nonBlank ?? authStore.currentSession?.user._id.nonBlank
+    }
+
+    private var metrics: DailyTaskMetrics {
+        DailyTaskMetrics(tasks: tasks, teamIds: teamIds, scope: scope, staffId: currentStaffId, todayString: todayString)
+    }
+
+    private var categories: [String] {
+        let modules = Set(tasks.map(moduleLabel(for:))).sorted()
+        return ["All"] + modules
+    }
+
+    private var visibleTasks: [DailyTask] {
+        tasks
+            .filter { statusFilter.matches($0, todayString: todayString) }
+            .filter { categoryFilter == "All" || moduleLabel(for: $0) == categoryFilter }
     }
 
     var body: some View {
-        GeometryReader { proxy in
-            ZStack(alignment: .top) {
-                Color(hex: 0x0B61CA)
-                    .ignoresSafeArea(edges: .top)
+        ScrollView(showsIndicators: false) {
+            VStack(alignment: .leading, spacing: 14) {
+                metricsRow
 
-                Color(hex: 0xF1F3F8)
-                    .ignoresSafeArea()
-                    .padding(.top, proxy.safeAreaInsets.top + 180)
-
-                VStack(spacing: 0) {
-                    header(topInset: proxy.safeAreaInsets.top)
-                        .zIndex(1)
-
-                    contentSheet
-                        .padding(.top, -20)
+                TaskFilterSection(title: "STATUS") {
+                    ForEach(DailyTaskStatusFilter.allCases) { filter in
+                        TaskManagerChip(
+                            title: filter.title,
+                            count: metrics.count(for: filter),
+                            isSelected: statusFilter == filter
+                        ) {
+                            withAnimation(.easeInOut(duration: 0.18)) {
+                                statusFilter = filter
+                            }
+                        }
+                    }
                 }
+
+                TaskFilterSection(title: "CATEGORY") {
+                    ForEach(categories, id: \.self) { category in
+                        TaskCategoryChip(
+                            title: category,
+                            isSelected: categoryFilter == category
+                        ) {
+                            withAnimation(.easeInOut(duration: 0.18)) {
+                                categoryFilter = category
+                            }
+                        }
+                    }
+                }
+
+                taskContent
             }
-            .ignoresSafeArea(edges: .top)
+            .padding(.horizontal, 16)
+            .padding(.top, 14)
+            .padding(.bottom, 28)
         }
-        .navigationBarBackButtonHidden(true)
-        .toolbar(.hidden, for: .navigationBar)
+        .background(Color(hex: 0xF1F3F8).ignoresSafeArea())
+        .navigationTitle("Task Manager")
+        .navigationBarTitleDisplayMode(.inline)
+        .toolbarBackground(Color.white, for: .navigationBar)
+        .toolbarBackground(.visible, for: .navigationBar)
         .toolbar(.hidden, for: .tabBar)
-        .task { await loadDataAsync() }
-        .refreshable { await loadDataAsync() }
+        .task { await loadTasks() }
+        .refreshable { await loadTasks() }
         .alert("Error", isPresented: errorAlertBinding, actions: {
             Button("OK", role: .cancel) { errorMessage = nil }
         }, message: {
             Text(errorMessage ?? "")
         })
-        .onAppear { playEntryAnimation() }
     }
 
     private var errorAlertBinding: Binding<Bool> {
@@ -66,394 +94,457 @@ struct TasksListView: View {
         )
     }
 
-    private func header(topInset: CGFloat) -> some View {
-        ZStack(alignment: .topTrailing) {
-            Color(hex: 0x0B61CA)
-
-            Image("onboard_todays_tasks")
-                .resizable()
-                .scaledToFit()
-                .frame(width: 120, height: 100)
-                .opacity(0.95)
-                .padding(.top, topInset + 32)
-                .padding(.trailing, 12)
-                .opacity(didAnimateIn ? 1 : 0)
-                .scaleEffect(didAnimateIn ? 1 : 0.88)
-                .animation(.spring(response: 0.52, dampingFraction: 0.82).delay(0.16), value: didAnimateIn)
-
-            VStack(alignment: .leading, spacing: 0) {
-                Text("My Tasks")
-                    .font(.system(size: 24, weight: .bold))
-                    .foregroundStyle(.white)
-
-                Text("Manage and track all tasks")
-                    .font(.system(size: 13, weight: .medium))
-                    .foregroundStyle(Color(hex: 0xD9D6FE))
-                    .padding(.top, 3)
-            }
-            .frame(maxWidth: .infinity, alignment: .leading)
-            .padding(.horizontal, 20)
-            .padding(.top, topInset + 64)
-            .opacity(didAnimateIn ? 1 : 0)
-            .offset(x: didAnimateIn ? 0 : -28)
-            .animation(.easeOut(duration: 0.42).delay(0.08), value: didAnimateIn)
-        }
-        .frame(height: 180 + topInset)
-    }
-
-    private var contentSheet: some View {
-        VStack(spacing: 0) {
-            searchField
-                .padding(.horizontal, 20)
-                .padding(.top, 38)
-
-            filterChips
-                .padding(.top, 16)
-
-            taskList
-        }
-        .frame(maxWidth: .infinity, maxHeight: .infinity)
-        .background(Color.white, in: UnevenRoundedRectangle(topLeadingRadius: 28, topTrailingRadius: 28))
-    }
-
-    private var searchField: some View {
-        NativeTaskSearchBar(text: $searchText, placeholder: "Search Tasks")
-            .frame(height: 52)
-        .opacity(didAnimateIn ? 1 : 0)
-        .offset(y: didAnimateIn ? 0 : 16)
-        .animation(.easeOut(duration: 0.34).delay(0.2), value: didAnimateIn)
-    }
-
-    private var filterChips: some View {
+    private var metricsRow: some View {
         ScrollView(.horizontal, showsIndicators: false) {
             HStack(spacing: 8) {
-                ForEach(TaskListFilter.allCases) { item in
-                    Button {
-                        withAnimation(.easeInOut(duration: 0.18)) {
-                            filter = item
-                        }
-                    } label: {
-                        Text(item.label)
-                            .font(.system(size: 14, weight: .semibold))
-                            .foregroundStyle(filter == item ? .white : Color(hex: 0x475467))
-                            .padding(.horizontal, 15)
-                            .frame(height: 34)
-                            .background(
-                                filter == item ? Color(hex: 0x0B61CA) : Color(hex: 0xF2F4F7),
-                                in: Capsule()
-                            )
-                    }
-                    .buttonStyle(.plain)
-                    .scaleEffect(filter == item ? 1 : 0.98)
-                }
+                TaskMetricCard(title: "My Tasks", value: metrics.myTasks)
+                TaskMetricCard(title: "My Team Tasks", value: metrics.teamTasks)
+                TaskMetricCard(title: "Assigned By Me", value: metrics.assignedByMe)
+                TaskMetricCard(title: "Extension Requests", value: metrics.extensionRequests)
+                TaskMetricCard(title: "Overdue", value: metrics.overdue)
             }
-            .padding(.horizontal, 20)
+            .padding(.vertical, 2)
         }
-        .sensoryFeedback(.selection, trigger: filter)
-        .opacity(didAnimateIn ? 1 : 0)
-        .offset(y: didAnimateIn ? 0 : 18)
-        .animation(.easeOut(duration: 0.36).delay(0.28), value: didAnimateIn)
     }
 
     @ViewBuilder
-    private var taskList: some View {
+    private var taskContent: some View {
         if isLoading && tasks.isEmpty {
-            ScrollView {
-                AppModuleLoadingRows()
-                    .padding(.top, 12)
+            VStack(spacing: 12) {
+                ForEach(0..<5, id: \.self) { _ in
+                    RoundedRectangle(cornerRadius: 14, style: .continuous)
+                        .fill(Color.white)
+                        .frame(height: 112)
+                        .redacted(reason: .placeholder)
+                }
             }
-        } else if filteredTasks.isEmpty {
-            VStack(spacing: 14) {
-                Image("HomeEmptyTrips")
-                    .resizable()
-                    .scaledToFit()
-                    .frame(width: 156, height: 156)
-                    .opacity(0.62)
+            .padding(.top, 4)
+        } else if visibleTasks.isEmpty {
+            VStack(spacing: 12) {
+                Image(systemName: "checklist.unchecked")
+                    .font(.system(size: 44, weight: .regular))
+                    .foregroundStyle(Color(hex: 0x98A2B3))
 
-                Text("No Tasks Available")
+                Text("No tasks")
                     .font(.system(size: 20, weight: .bold))
                     .foregroundStyle(Color(hex: 0x101828))
 
-                Text(emptyMessage)
-                    .font(.system(size: 12, weight: .medium))
+                Text("Task manager items will land here.")
+                    .font(.system(size: 13, weight: .medium))
                     .foregroundStyle(Color(hex: 0x667085))
-                    .multilineTextAlignment(.center)
-                    .padding(.horizontal, 42)
             }
-            .frame(maxWidth: .infinity, maxHeight: .infinity)
+            .frame(maxWidth: .infinity)
+            .padding(.top, 150)
         } else {
-            ScrollView(showsIndicators: false) {
-                LazyVStack(spacing: 12) {
-                    ForEach(Array(filteredTasks.enumerated()), id: \.element.id) { index, task in
-                        NavigationLink {
-                            TaskDetailView(taskId: task._id, initial: task) {
-                                await loadDataAsync()
-                            }
-                        } label: {
-                            AndroidTaskCard(task: task)
-                        }
-                        .buttonStyle(.plain)
-                        .opacity(didAnimateIn ? 1 : 0)
-                        .offset(y: didAnimateIn ? 0 : 32)
-                        .animation(
-                            .spring(response: 0.44, dampingFraction: 0.9).delay(0.34 + Double(index) * 0.045),
-                            value: didAnimateIn
-                        )
-                    }
+            LazyVStack(spacing: 12) {
+                ForEach(visibleTasks) { task in
+                    DailyTaskManagerCard(
+                        task: task,
+                        module: moduleLabel(for: task),
+                        isOverdue: DailyTaskStatusFilter.isOverdue(task, todayString: todayString)
+                    )
                 }
-                .padding(.horizontal, 20)
-                .padding(.top, 12)
-                .padding(.bottom, 28)
             }
-            .refreshable { await loadDataAsync() }
+            .padding(.top, 2)
         }
     }
 
-    private var emptyMessage: String {
-        switch filter {
-        case .all: return "It looks like you don't have any tasks scheduled at the moment."
-        case .inProgress: return "No tasks are currently in progress."
-        case .pending: return "No pending tasks are waiting on you."
-        case .completed: return "No completed tasks yet."
-        }
-    }
-
-    private func playEntryAnimation() {
-        didAnimateIn = false
-        Task { @MainActor in
-            try? await Task.sleep(for: .milliseconds(20))
-            didAnimateIn = true
-        }
-    }
-
-    private func loadDataAsync() async {
+    private func loadTasks() async {
         guard let token = authStore.currentSession?.token else { return }
         isLoading = true
         defer { isLoading = false }
+
         do {
-            async let tasksReq = TasksConvexAPIService.getMyTasks(token: token)
-            async let summaryReq = TasksConvexAPIService.getMySummary(token: token)
-            tasks = try await tasksReq
-            summary = try? await summaryReq
+            let payload = try await TasksConvexAPIService.getTaskManagerTasks(token: token, today: todayString)
+            tasks = payload.tasks.sorted { ($0.creationTime ?? 0) > ($1.creationTime ?? 0) }
+            teamIds = payload.teamIds
+            scope = payload.scope
+            if !categories.contains(categoryFilter) {
+                categoryFilter = "All"
+            }
         } catch {
             errorMessage = error.localizedDescription
         }
     }
-}
 
-#if canImport(UIKit)
-private struct NativeTaskSearchBar: UIViewRepresentable {
-    @Binding var text: String
-    let placeholder: String
+    private func moduleLabel(for task: DailyTask) -> String {
+        if let module = task.module?.nonBlank { return module }
+        let path = normalizedPath(task.actionUrl)
+        let source = task.sourceReferenceType?.lowercased() ?? ""
 
-    func makeUIView(context: Context) -> UISearchBar {
-        let searchBar = UISearchBar(frame: .zero)
-        searchBar.delegate = context.coordinator
-        searchBar.placeholder = placeholder
-        searchBar.searchBarStyle = .minimal
-        searchBar.autocapitalizationType = .none
-        searchBar.autocorrectionType = .no
-        searchBar.returnKeyType = .search
+        if path.hasPrefix("/telecaller") { return "Telecaller" }
+        if path.hasPrefix("/marketing/fleet") || path.hasPrefix("/fleet") { return "Fleets" }
+        if path.hasPrefix("/marketing") { return "Marketing" }
+        if path.hasPrefix("/post-sales") { return "Post Sales" }
+        if ["/projects", "/tasks", "/issues", "/library", "/workforce", "/procurement", "/materials", "/purchase-orders", "/vendors", "/equipment", "/assets", "/manpower", "/geotrack"].contains(where: path.hasPrefix) {
+            return "Project Management"
+        }
+        if path.hasPrefix("/land-procurement") { return "Land Procurement" }
+        if ["/hr", "/attendance", "/my-team", "/payroll"].contains(where: path.hasPrefix) { return "HR" }
+        if path.hasPrefix("/accounts") { return "Accounts" }
+        if path.hasPrefix("/finance") || path.hasPrefix("/financials") { return "Finance" }
+        if path.hasPrefix("/complaints") { return "CRM" }
+        if path.hasPrefix("/settings") { return "Settings" }
+        if path.hasPrefix("/task-manager") { return "Task Manager" }
 
-        let field = searchBar.searchTextField
-        field.backgroundColor = UIColor(Color(hex: 0xF7F8FA))
-        field.layer.cornerRadius = 24
-        field.layer.masksToBounds = true
-        field.layer.borderWidth = 1
-        field.layer.borderColor = UIColor(Color(hex: 0xEAECF0)).cgColor
-        field.font = .systemFont(ofSize: 16, weight: .medium)
-        field.textColor = UIColor(Color(hex: 0x101828))
-        field.attributedPlaceholder = NSAttributedString(
-            string: placeholder,
-            attributes: [
-                .foregroundColor: UIColor(Color(hex: 0xC4C7CF)),
-                .font: UIFont.systemFont(ofSize: 16, weight: .medium)
-            ]
-        )
-        field.leftView?.tintColor = UIColor(Color(hex: 0x98A2B3))
-        return searchBar
+        if ["staff-attendance", "leave", "permission", "work-from-home", "loan", "hiring-request", "onboarding", "staff-asset", "shift_update"].contains(source) {
+            return "HR"
+        }
+        if source.hasPrefix("loan_") { return "Post Sales" }
+        if source.contains("booking") { return "Marketing" }
+        if source.contains("site_visit") || source == "out_of_station_handoff" || source == "client_place_visit" {
+            return "Marketing"
+        }
+        if source.contains("project") || source.contains("boq") || source == "work-order" || source == "issue" {
+            return "Project Management"
+        }
+        return "Task Manager"
     }
 
-    func updateUIView(_ uiView: UISearchBar, context: Context) {
-        if uiView.text != text {
-            uiView.text = text
-        }
-    }
-
-    func makeCoordinator() -> Coordinator {
-        Coordinator(text: $text)
-    }
-
-    final class Coordinator: NSObject, UISearchBarDelegate {
-        @Binding var text: String
-
-        init(text: Binding<String>) {
-            _text = text
-        }
-
-        func searchBar(_ searchBar: UISearchBar, textDidChange searchText: String) {
-            text = searchText
-        }
-
-        func searchBarSearchButtonClicked(_ searchBar: UISearchBar) {
-            searchBar.resignFirstResponder()
-        }
+    private func normalizedPath(_ raw: String?) -> String {
+        guard let raw = raw?.nonBlank else { return "" }
+        let urlPath = URL(string: raw)?.path ?? raw
+        return urlPath
+            .components(separatedBy: "?").first?
+            .components(separatedBy: "#").first?
+            .lowercased() ?? ""
     }
 }
-#else
-private struct NativeTaskSearchBar: View {
-    @Binding var text: String
-    let placeholder: String
+
+private struct DailyTaskMetrics {
+    let myTasks: Int
+    let teamTasks: Int
+    let assignedByMe: Int
+    let extensionRequests: Int
+    let overdue: Int
+    let all: Int
+    let pending: Int
+    let inProgress: Int
+    let completed: Int
+    let cancelled: Int
+
+    init(tasks: [DailyTask], teamIds: Set<String>, scope: String?, staffId: String?, todayString: String) {
+        var my = 0
+        var team = 0
+        var assigned = 0
+        var ext = 0
+        var overdueCount = 0
+        var pendingCount = 0
+        var inProgressCount = 0
+        var completedCount = 0
+        var cancelledCount = 0
+
+        for task in tasks {
+            if let staffId, task.assignedTo == staffId { my += 1 }
+            if scope == "all" || task.assignedTo.map(teamIds.contains) == true { team += 1 }
+            if let staffId, task.assignedBy == staffId { assigned += 1 }
+            if task.pendingExtensionRequest == true { ext += 1 }
+            if DailyTaskStatusFilter.isOverdue(task, todayString: todayString) { overdueCount += 1 }
+
+            switch task.status {
+            case "pending": pendingCount += 1
+            case "in-progress": inProgressCount += 1
+            case "completed": completedCount += 1
+            case "cancelled": cancelledCount += 1
+            default: break
+            }
+        }
+
+        myTasks = my
+        teamTasks = team
+        assignedByMe = assigned
+        extensionRequests = ext
+        overdue = overdueCount
+        all = tasks.count
+        pending = pendingCount
+        inProgress = inProgressCount
+        completed = completedCount
+        cancelled = cancelledCount
+    }
+
+    func count(for filter: DailyTaskStatusFilter) -> Int {
+        switch filter {
+        case .all: return all
+        case .pending: return pending
+        case .overdue: return overdue
+        case .inProgress: return inProgress
+        case .completed: return completed
+        case .cancelled: return cancelled
+        }
+    }
+}
+
+private enum DailyTaskStatusFilter: String, CaseIterable, Identifiable {
+    case all
+    case pending
+    case overdue
+    case inProgress
+    case completed
+    case cancelled
+
+    var id: String { rawValue }
+
+    var title: String {
+        switch self {
+        case .all: return "All"
+        case .pending: return "Pending"
+        case .overdue: return "Overdue"
+        case .inProgress: return "In progress"
+        case .completed: return "Completed"
+        case .cancelled: return "Cancelled"
+        }
+    }
+
+    func matches(_ task: DailyTask, todayString: String) -> Bool {
+        switch self {
+        case .all: return true
+        case .pending: return task.status == "pending"
+        case .overdue: return Self.isOverdue(task, todayString: todayString)
+        case .inProgress: return task.status == "in-progress"
+        case .completed: return task.status == "completed"
+        case .cancelled: return task.status == "cancelled"
+        }
+    }
+
+    static func isOverdue(_ task: DailyTask, todayString: String) -> Bool {
+        guard task.status != "completed", task.status != "cancelled" else { return false }
+        if let deadline = task.deadline?.nonBlank {
+            return deadline < todayString
+        }
+        guard let creationTime = task.creationTime else { return false }
+        let ageMs = Date().timeIntervalSince1970 * 1000 - creationTime
+        return ageMs >= 24 * 60 * 60 * 1000
+    }
+}
+
+private struct TaskMetricCard: View {
+    let title: String
+    let value: Int
 
     var body: some View {
-        TextField(placeholder, text: $text)
-            .textFieldStyle(.roundedBorder)
+        VStack(alignment: .leading, spacing: 8) {
+            Text(title)
+                .font(.system(size: 11, weight: .medium))
+                .foregroundStyle(Color(hex: 0x475467))
+                .lineLimit(1)
+
+            Text("\(value)")
+                .font(.system(size: 22, weight: .bold))
+                .foregroundStyle(Color(hex: 0x101828))
+                .monospacedDigit()
+        }
+        .frame(width: 112, alignment: .leading)
+        .padding(.horizontal, 12)
+        .padding(.vertical, 12)
+        .background(Color.white, in: RoundedRectangle(cornerRadius: 12, style: .continuous))
+        .overlay {
+            RoundedRectangle(cornerRadius: 12, style: .continuous)
+                .stroke(Color(hex: 0xE5E7EB), lineWidth: 1)
+        }
     }
 }
-#endif
 
-private struct AndroidTaskCard: View {
-    let task: ConvexTask
+private struct TaskFilterSection<Content: View>: View {
+    let title: String
+    @ViewBuilder let content: Content
 
     var body: some View {
-        VStack(spacing: 0) {
-            VStack(spacing: 16) {
-                HStack(alignment: .center, spacing: 12) {
-                    ZStack {
-                        Circle()
-                            .fill(Color(hex: 0x0B61CA))
-                            .frame(width: 40, height: 40)
+        VStack(alignment: .leading, spacing: 8) {
+            Text(title)
+                .font(.system(size: 10, weight: .semibold))
+                .foregroundStyle(Color(hex: 0x98A2B3))
+                .tracking(0.8)
 
-                        Image(systemName: "doc.text.fill")
-                            .font(.system(size: 18, weight: .semibold))
-                            .foregroundStyle(.white)
-                    }
-
-                    VStack(alignment: .leading, spacing: 3) {
-                        Text(task.displayTitle)
-                            .font(.system(size: 15, weight: .bold))
-                            .foregroundStyle(Color(hex: 0x101828))
-                            .lineLimit(2)
-
-                        Text(task.displayProject)
-                            .font(.system(size: 12, weight: .medium))
-                            .foregroundStyle(Color(hex: 0x667085))
-                            .lineLimit(1)
-                    }
-
-                    Spacer(minLength: 8)
-
-                    priorityBadge
-                }
-
-                HStack(spacing: 12) {
-                    GeometryReader { proxy in
-                        ZStack(alignment: .leading) {
-                            Capsule()
-                                .fill(Color(hex: 0xEAECF0))
-
-                            Capsule()
-                                .fill(Color(hex: 0x0B61CA))
-                                .frame(width: proxy.size.width * CGFloat(task.displayProgress) / 100)
-                        }
-                    }
-                    .frame(height: 6)
-
-                    Text("\(task.displayProgress)%")
-                        .font(.system(size: 12, weight: .medium))
-                        .foregroundStyle(Color(hex: 0x667085))
-                        .monospacedDigit()
-                }
-
-                Divider()
-                    .overlay(Color(hex: 0xF2F4F7))
-
-                HStack(spacing: 12) {
-                    statusBadge
-
-                    Image(systemName: "calendar")
-                        .font(.system(size: 13, weight: .semibold))
-                        .foregroundStyle(Color(hex: 0x667085))
-
-                    Text(shortDueDate)
-                        .font(.system(size: 12, weight: .medium))
-                        .foregroundStyle(Color(hex: 0x344054))
-
-                    Spacer(minLength: 0)
+            ScrollView(.horizontal, showsIndicators: false) {
+                HStack(spacing: 8) {
+                    content
                 }
             }
-            .padding(16)
         }
-        .background(Color.white, in: RoundedRectangle(cornerRadius: 16, style: .continuous))
+    }
+}
+
+private struct TaskManagerChip: View {
+    let title: String
+    let count: Int?
+    let isSelected: Bool
+    let action: () -> Void
+
+    var body: some View {
+        Button(action: action) {
+            HStack(spacing: 6) {
+                Text(title)
+                    .font(.system(size: 12, weight: .semibold))
+
+                if let count {
+                    Text("\(count)")
+                        .font(.system(size: 10, weight: .bold))
+                        .foregroundStyle(isSelected ? Color(hex: 0x0B61CA) : .white)
+                        .padding(.horizontal, 6)
+                        .frame(height: 18)
+                        .background(isSelected ? Color.white : Color(hex: 0x0B61CA), in: Capsule())
+                }
+            }
+            .foregroundStyle(isSelected ? .white : Color(hex: 0x475467))
+            .padding(.horizontal, 14)
+            .frame(height: 36)
+            .background(isSelected ? Color(hex: 0x0B61CA) : Color(hex: 0xE8EEF6), in: RoundedRectangle(cornerRadius: 10, style: .continuous))
+        }
+        .buttonStyle(.plain)
+    }
+}
+
+private struct TaskCategoryChip: View {
+    let title: String
+    let isSelected: Bool
+    let action: () -> Void
+
+    var body: some View {
+        Button(action: action) {
+            HStack(spacing: 7) {
+                Circle()
+                    .fill(isSelected ? Color.white : Color(hex: 0x0B61CA).opacity(0.45))
+                    .frame(width: 7, height: 7)
+
+                Text(title)
+                    .font(.system(size: 12, weight: .semibold))
+                    .lineLimit(1)
+            }
+            .foregroundStyle(isSelected ? .white : Color(hex: 0x344054))
+            .padding(.horizontal, 13)
+            .frame(height: 34)
+            .background(isSelected ? Color(hex: 0x0B61CA) : Color.white, in: Capsule())
+            .overlay {
+                Capsule()
+                    .stroke(isSelected ? Color(hex: 0x0B61CA) : Color(hex: 0xD9E2F0), lineWidth: 1)
+            }
+        }
+        .buttonStyle(.plain)
+    }
+}
+
+private struct DailyTaskManagerCard: View {
+    let task: DailyTask
+    let module: String
+    let isOverdue: Bool
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 12) {
+            HStack(alignment: .top, spacing: 10) {
+                VStack(alignment: .leading, spacing: 4) {
+                    Text(task.displayTitle)
+                        .font(.system(size: 14, weight: .bold))
+                        .foregroundStyle(Color(hex: 0x101828))
+                        .lineLimit(2)
+
+                    if let subtitle = task.displaySubtitle {
+                        Text(subtitle)
+                            .font(.system(size: 11, weight: .regular))
+                            .foregroundStyle(Color(hex: 0x667085))
+                            .lineLimit(2)
+                    }
+                }
+
+                Spacer(minLength: 8)
+
+                statusPill
+            }
+
+            HStack(alignment: .top, spacing: 16) {
+                VStack(alignment: .leading, spacing: 4) {
+                    Text("Deadline")
+                        .font(.system(size: 10, weight: .regular))
+                        .foregroundStyle(Color(hex: 0x98A2B3))
+
+                    Text(shortDeadline)
+                        .font(.system(size: 12, weight: .semibold))
+                        .foregroundStyle(Color(hex: 0x101828))
+                }
+
+                Spacer(minLength: 12)
+
+                VStack(alignment: .leading, spacing: 4) {
+                    Text("Assigned to")
+                        .font(.system(size: 10, weight: .regular))
+                        .foregroundStyle(Color(hex: 0x98A2B3))
+
+                    Text(task.displayAssignedTo)
+                        .font(.system(size: 12, weight: .semibold))
+                        .foregroundStyle(Color(hex: 0x101828))
+                        .lineLimit(1)
+                }
+                .frame(width: 132, alignment: .leading)
+            }
+
+            if let badge = badgeText {
+                Text(badge)
+                    .font(.system(size: 9, weight: .medium))
+                    .foregroundStyle(Color(hex: 0x475467))
+                    .padding(.horizontal, 8)
+                    .frame(height: 20)
+                    .background(Color(hex: 0xF2F4F7), in: Capsule())
+            }
+        }
+        .padding(14)
+        .background(Color.white, in: RoundedRectangle(cornerRadius: 14, style: .continuous))
         .overlay {
-            RoundedRectangle(cornerRadius: 16, style: .continuous)
-                .stroke(Color.black.opacity(0.04), lineWidth: 1)
+            RoundedRectangle(cornerRadius: 14, style: .continuous)
+                .stroke(Color(hex: 0xE5E7EB), lineWidth: 1)
         }
-        .shadow(color: .black.opacity(0.05), radius: 4, x: 0, y: 1)
-        .contentShape(RoundedRectangle(cornerRadius: 16, style: .continuous))
     }
 
-    private var priorityBadge: some View {
-        Text((task.priority?.taskNilIfBlank ?? "Medium").capitalized)
+    private var badgeText: String? {
+        if module != "Task Manager" { return module }
+        return task.label?.nonBlank ?? task.taskCategory?.nonBlank
+    }
+
+    private var statusPill: some View {
+        Text(statusLabel)
             .font(.system(size: 10, weight: .bold))
-            .foregroundStyle(.white)
-            .padding(.horizontal, 12)
-            .frame(height: 24)
-            .background(priorityColor, in: Capsule())
-    }
-
-    private var statusBadge: some View {
-        Text(task.normalizedStatus.label)
-            .font(.system(size: 11, weight: .semibold))
             .foregroundStyle(statusTextColor)
-            .padding(.horizontal, 12)
-            .frame(height: 24)
+            .padding(.horizontal, 10)
+            .frame(height: 22)
             .background(statusBackground, in: Capsule())
     }
 
-    private var priorityColor: Color {
-        switch task.priority?.lowercased() {
-        case "high", "urgent", "critical": return Color(hex: 0xF04438)
-        case "low": return Color(hex: 0x16A34A)
-        default: return Color(hex: 0xF97316)
+    private var statusLabel: String {
+        if isOverdue { return "Overdue" }
+        switch task.status {
+        case "completed": return "Completed"
+        case "in-progress": return "In Progress"
+        case "cancelled": return "Cancelled"
+        default: return "Pending"
         }
     }
 
     private var statusTextColor: Color {
-        switch task.normalizedStatus {
-        case .completed: return Color(hex: 0x16A34A)
-        case .inProgress: return Color(hex: 0x175CD3)
-        case .delayed: return Color(hex: 0xB42318)
-        case .pending: return Color(hex: 0xB54708)
+        if isOverdue { return Color(hex: 0xB42318) }
+        switch task.status {
+        case "completed": return Color(hex: 0x16A34A)
+        case "in-progress": return Color(hex: 0x175CD3)
+        case "cancelled": return Color(hex: 0xB42318)
+        default: return Color(hex: 0xB54708)
         }
     }
 
     private var statusBackground: Color {
-        switch task.normalizedStatus {
-        case .completed: return Color(hex: 0xECFDF3)
-        case .inProgress: return Color(hex: 0xEFF8FF)
-        case .delayed: return Color(hex: 0xFEF3F2)
-        case .pending: return Color(hex: 0xFFFAEB)
+        if isOverdue { return Color(hex: 0xFEF3F2) }
+        switch task.status {
+        case "completed": return Color(hex: 0xECFDF3)
+        case "in-progress": return Color(hex: 0xEFF8FF)
+        case "cancelled": return Color(hex: 0xFEF3F2)
+        default: return Color(hex: 0xFFFAEB)
         }
     }
 
-    private var shortDueDate: String {
-        guard let raw = task.displayDueDate?.taskNilIfBlank else { return "-" }
-        let parser = DateFormatter()
-        parser.locale = Locale(identifier: "en_US_POSIX")
-        parser.dateFormat = "yyyy-MM-dd"
-        if let date = parser.date(from: raw) {
-            let display = DateFormatter()
-            display.dateFormat = "d MMM"
-            return display.string(from: date)
+    private var shortDeadline: String {
+        guard let raw = task.deadline?.nonBlank else { return "-" }
+        if let date = AppModuleFormatters.ymd.date(from: raw) {
+            let formatter = DateFormatter()
+            formatter.locale = Locale(identifier: "en_US_POSIX")
+            formatter.dateFormat = "d MMM"
+            return formatter.string(from: date)
         }
         return raw
-    }
-}
-
-private extension String {
-    var taskNilIfBlank: String? {
-        let trimmed = trimmingCharacters(in: .whitespacesAndNewlines)
-        return trimmed.isEmpty ? nil : trimmed
     }
 }

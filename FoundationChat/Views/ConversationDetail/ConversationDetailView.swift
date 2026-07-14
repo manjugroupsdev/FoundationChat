@@ -35,7 +35,7 @@ struct ConversationDetailView: View {
   @State private var isPhotoPickerPresented = false
   @State private var selectedPhotoItem: PhotosPickerItem?
   @State private var isCameraPresented = false
-  @State private var capturedCameraImage: UIImage?
+  @State private var capturedCameraMedia: CapturedChatMedia?
   @State private var isFileImporterPresented = false
   @State private var activeDetailSheet: ActiveDetailSheet?
   @State private var replyTarget: Message?
@@ -448,7 +448,7 @@ struct ConversationDetailView: View {
       .presentationDragIndicator(.hidden)
     }
     .sheet(isPresented: $isCameraPresented) {
-      ChatCameraPicker(image: $capturedCameraImage)
+      ChatCameraPicker(media: $capturedCameraMedia)
         .ignoresSafeArea()
     }
     .fullScreenCover(item: $pendingImageAttachment) { attachment in
@@ -484,10 +484,10 @@ struct ConversationDetailView: View {
         await handleSelectedMedia(newValue)
       }
     }
-    .onChange(of: capturedCameraImage) { _, newValue in
+    .onChange(of: capturedCameraMedia) { _, newValue in
       guard let newValue else { return }
       Task {
-        await handleCapturedCameraImage(newValue)
+        await handleCapturedCameraMedia(newValue)
       }
     }
     .fileImporter(
@@ -1258,6 +1258,19 @@ private struct PendingImageAttachment: Identifiable {
 
   var displayKind: String {
     isVideo ? "Video" : "Photo"
+  }
+}
+
+private struct CapturedChatMedia: Equatable {
+  let id = UUID()
+  let data: Data
+  let fileName: String
+  let mimeType: String
+  let attachmentType: String
+  let image: UIImage?
+
+  static func == (lhs: CapturedChatMedia, rhs: CapturedChatMedia) -> Bool {
+    lhs.id == rhs.id
   }
 }
 
@@ -2175,29 +2188,16 @@ private struct MessageInfoSheet: View {
 
 extension ConversationDetailView {
   @MainActor
-  private func handleCapturedCameraImage(_ image: UIImage) async {
-    defer { capturedCameraImage = nil }
+  private func handleCapturedCameraMedia(_ media: CapturedChatMedia) async {
+    defer { capturedCameraMedia = nil }
 
-    guard let jpegData = image.jpegData(compressionQuality: 0.9) else {
-      conversation.messages.append(
-        Message(
-          content: "Failed to process captured photo.",
-          role: .system,
-          timestamp: Date()
-        )
-      )
-      try? modelContext.save()
-      return
-    }
-
-    let fileName = "Camera-\(Int(Date().timeIntervalSince1970)).jpg"
     pendingImageAttachment = PendingImageAttachment(
-      data: jpegData,
-      fileName: fileName,
-      mimeType: "image/jpeg",
-      attachmentType: "image",
-      image: image,
-      previewURL: localAttachmentPreviewURL(data: jpegData, fileName: fileName)
+      data: media.data,
+      fileName: media.fileName,
+      mimeType: media.mimeType,
+      attachmentType: media.attachmentType,
+      image: media.image,
+      previewURL: localAttachmentPreviewURL(data: media.data, fileName: media.fileName)
     )
   }
 
@@ -2214,13 +2214,15 @@ extension ConversationDetailView {
       let fileName = "\(fileNamePrefix)-\(Int(Date().timeIntervalSince1970)).\(fileExtension)"
 
       if !isVideo, let image = UIImage(data: mediaData) {
+        let uploadData = image.chatCompressedJPEGData() ?? mediaData
+        let fileName = "\(fileNamePrefix)-\(Int(Date().timeIntervalSince1970)).jpg"
         pendingImageAttachment = PendingImageAttachment(
-          data: mediaData,
+          data: uploadData,
           fileName: fileName,
-          mimeType: mimeType,
+          mimeType: "image/jpeg",
           attachmentType: attachmentType,
           image: image,
-          previewURL: localAttachmentPreviewURL(data: mediaData, fileName: fileName)
+          previewURL: localAttachmentPreviewURL(data: uploadData, fileName: fileName)
         )
         selectedPhotoItem = nil
         return
@@ -2552,7 +2554,9 @@ extension ConversationDetailView {
       attachementFileSize: data.count,
       attachementTitle: attachmentTitle,
       attachementDescription: attachmentDescription,
-      attachementURL: localPreviewURL?.absoluteString
+      attachementURL: localPreviewURL?.absoluteString,
+      deliveryState: "pending",
+      pendingConversationID: remoteConversationID
     )
     conversation.messages.append(localPlaceholderMessage)
     try? modelContext.save()
@@ -2578,14 +2582,8 @@ extension ConversationDetailView {
       )
       sync(savedMessage: savedMessage, into: localPlaceholderMessage)
     } catch {
-      conversation.messages.removeAll(where: { $0 === localPlaceholderMessage })
-      conversation.messages.append(
-        Message(
-          content: "Failed to upload attachment: \(error.localizedDescription)",
-          role: .system,
-          timestamp: Date()
-        )
-      )
+      localPlaceholderMessage.deliveryState = "failed"
+      localPlaceholderMessage.deliveryError = "Failed to upload attachment: \(error.localizedDescription)"
     }
 
     withAnimation {
@@ -2948,6 +2946,36 @@ extension ConversationDetailView {
     try? modelContext.save()
 
     do {
+      if let attachmentData = localAttachmentData(from: message),
+        let fileName = message.attachementFileName,
+        let attachmentType = message.attachementType,
+        let mimeType = message.attachementMimeType ?? message.attachementType
+      {
+        let uploadURL = try await authStore.generateAttachmentUploadURL()
+        let storageId = try await authStore.uploadAttachmentData(
+          attachmentData,
+          uploadURL: uploadURL,
+          mimeType: mimeType
+        )
+        let savedMessage = try await authStore.sendMessage(
+          conversationID: remoteConversationID,
+          role: .user,
+          content: message.content,
+          attachmentType: attachmentType,
+          attachmentStorageId: storageId,
+          attachmentFileName: fileName,
+          attachmentMimeType: mimeType,
+          attachmentFileSize: attachmentData.count,
+          attachmentTitle: message.attachementTitle,
+          attachmentDescription: message.attachementDescription,
+          parentMessageId: message.pendingParentMessageID ?? message.replyToRemoteMessageID,
+          mentionedStaffIds: pendingMentionIds(from: message.pendingMentionedStaffIds)
+        )
+        sync(savedMessage: savedMessage, into: message)
+        try? modelContext.save()
+        return
+      }
+
       let savedMessage = try await authStore.sendMessage(
         conversationID: remoteConversationID,
         role: .user,
@@ -2961,6 +2989,14 @@ extension ConversationDetailView {
       message.deliveryError = error.localizedDescription
     }
     try? modelContext.save()
+  }
+
+  private func localAttachmentData(from message: Message) -> Data? {
+    guard let rawURL = message.attachementURL,
+      let url = URL(string: rawURL),
+      url.isFileURL
+    else { return nil }
+    return try? Data(contentsOf: url)
   }
 
   private func pendingMentionIds(from csv: String?) -> [String]? {
@@ -3400,8 +3436,27 @@ extension ConversationDetailView {
   }
 }
 
+private extension UIImage {
+  func chatCompressedJPEGData(maxEdge: CGFloat = 1800, quality: CGFloat = 0.78) -> Data? {
+    let largestEdge = max(size.width, size.height)
+    guard largestEdge > 0 else { return jpegData(compressionQuality: quality) }
+    let scale = min(1, maxEdge / largestEdge)
+    let targetSize = CGSize(width: size.width * scale, height: size.height * scale)
+
+    if scale >= 1 {
+      return jpegData(compressionQuality: quality)
+    }
+
+    let renderer = UIGraphicsImageRenderer(size: targetSize)
+    let resizedImage = renderer.image { _ in
+      draw(in: CGRect(origin: .zero, size: targetSize))
+    }
+    return resizedImage.jpegData(compressionQuality: quality)
+  }
+}
+
 private struct ChatCameraPicker: UIViewControllerRepresentable {
-  @Binding var image: UIImage?
+  @Binding var media: CapturedChatMedia?
   @Environment(\.dismiss) private var dismiss
 
   func makeCoordinator() -> Coordinator {
@@ -3412,8 +3467,18 @@ private struct ChatCameraPicker: UIViewControllerRepresentable {
     let picker = UIImagePickerController()
     picker.delegate = context.coordinator
     picker.allowsEditing = false
-    picker.sourceType = UIImagePickerController.isSourceTypeAvailable(.camera) ? .camera : .photoLibrary
-    picker.cameraCaptureMode = .photo
+    let sourceType: UIImagePickerController.SourceType = UIImagePickerController.isSourceTypeAvailable(.camera)
+      ? .camera
+      : .photoLibrary
+    picker.sourceType = sourceType
+    let availableMediaTypes = UIImagePickerController.availableMediaTypes(for: sourceType) ?? []
+    let supportedMediaTypes = [UTType.image.identifier, UTType.movie.identifier]
+      .filter { availableMediaTypes.contains($0) }
+    if !supportedMediaTypes.isEmpty {
+      picker.mediaTypes = supportedMediaTypes
+    }
+    picker.videoQuality = .typeMedium
+    picker.videoMaximumDuration = 90
     return picker
   }
 
@@ -3427,8 +3492,30 @@ private struct ChatCameraPicker: UIViewControllerRepresentable {
     }
 
     func imagePickerController(_ picker: UIImagePickerController, didFinishPickingMediaWithInfo info: [UIImagePickerController.InfoKey : Any]) {
-      if let selectedImage = info[.originalImage] as? UIImage {
-        parent.image = selectedImage
+      let timestamp = Int(Date().timeIntervalSince1970)
+      let mediaType = info[.mediaType] as? String
+
+      if mediaType == UTType.movie.identifier, let videoURL = info[.mediaURL] as? URL,
+        let videoData = try? Data(contentsOf: videoURL)
+      {
+        let fileExtension = videoURL.pathExtension.isEmpty ? "mov" : videoURL.pathExtension
+        parent.media = CapturedChatMedia(
+          data: videoData,
+          fileName: "Camera-\(timestamp).\(fileExtension)",
+          mimeType: UTType(filenameExtension: fileExtension)?.preferredMIMEType ?? "video/quicktime",
+          attachmentType: "video",
+          image: nil
+        )
+      } else if let selectedImage = info[.originalImage] as? UIImage,
+        let jpegData = selectedImage.chatCompressedJPEGData()
+      {
+        parent.media = CapturedChatMedia(
+          data: jpegData,
+          fileName: "Camera-\(timestamp).jpg",
+          mimeType: "image/jpeg",
+          attachmentType: "image",
+          image: selectedImage
+        )
       }
       parent.dismiss()
     }

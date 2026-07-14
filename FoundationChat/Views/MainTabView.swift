@@ -1,4 +1,5 @@
 import SwiftUI
+import UIKit
 
 enum AppTab: Hashable {
     case home
@@ -30,7 +31,9 @@ struct MainTabView: View {
         let inactive = UIColor(red: 0.6, green: 0.615, blue: 0.635, alpha: 1)
         let tabBar = UITabBar.appearance()
         let appearance = UITabBarAppearance()
-        appearance.configureWithDefaultBackground()
+        appearance.configureWithTransparentBackground()
+        appearance.backgroundEffect = UIBlurEffect(style: .systemUltraThinMaterialLight)
+        appearance.backgroundColor = UIColor.white.withAlphaComponent(0.62)
         [appearance.stackedLayoutAppearance,
          appearance.inlineLayoutAppearance,
          appearance.compactInlineLayoutAppearance].forEach { itemAppearance in

@@ -195,6 +195,12 @@ enum HRConvexAPIService {
         let error: String?
     }
 
+    private struct CreateFineResponse: Decodable {
+        let success: Bool
+        let fineId: String?
+        let error: String?
+    }
+
     static func listFines(token: String, status: String? = nil) async throws -> [ConvexFineDeduction] {
         var path = "/api/hr/fines/list"
         if let status = status?.addingPercentEncoding(withAllowedCharacters: .urlQueryAllowed) {
@@ -211,6 +217,34 @@ enum HRConvexAPIService {
         let wrapper = try decode(FinesListResponse.self, from: data)
         guard wrapper.success else { throw HRConvexAPIError.server(wrapper.error ?? "Failed to load fines") }
         return wrapper.fines ?? []
+    }
+
+    static func createFine(
+        token: String,
+        employeeId: String,
+        amount: Double,
+        month: Int,
+        year: Int,
+        customTypeName: String,
+        notes: String? = nil,
+        photoStorageId: String? = nil,
+        photoFileName: String? = nil
+    ) async throws -> String {
+        var body: [String: Any] = [
+            "employeeId": employeeId,
+            "amount": amount,
+            "month": month,
+            "year": year,
+            "customTypeName": customTypeName
+        ]
+        if let notes, !notes.isEmpty { body["notes"] = notes }
+        if let photoStorageId, !photoStorageId.isEmpty { body["photoStorageId"] = photoStorageId }
+        if let photoFileName, !photoFileName.isEmpty { body["photoFileName"] = photoFileName }
+
+        let data = try await post(path: "/api/hr/fines/create", token: token, jsonBody: body)
+        let wrapper = try decode(CreateFineResponse.self, from: data)
+        guard wrapper.success else { throw HRConvexAPIError.server(wrapper.error ?? "Failed to create fine") }
+        return wrapper.fineId ?? ""
     }
 
     // MARK: - Attendance
@@ -577,8 +611,12 @@ enum HRConvexAPIService {
     }
 
     /// `GET /api/hr/staff` — full directory (unpaginated).
-    static func listAllStaff(token: String) async throws -> [ConvexStaffListItem] {
-        let data = try await get(path: "/api/hr/staff", token: token)
+    static func listAllStaff(token: String, status: String? = nil) async throws -> [ConvexStaffListItem] {
+        var path = "/api/hr/staff"
+        if let status = status?.addingPercentEncoding(withAllowedCharacters: .urlQueryAllowed) {
+            path += "?status=\(status)"
+        }
+        let data = try await get(path: path, token: token)
         let wrapper = try decode(StaffListResponse.self, from: data)
         if !wrapper.success, let err = wrapper.error {
             throw HRConvexAPIError.server(err)
@@ -642,8 +680,12 @@ enum HRConvexAPIService {
         var request = URLRequest(url: url)
         request.httpMethod = "POST"
         request.setValue(contentType, forHTTPHeaderField: "Content-Type")
-        request.httpBody = fileData
-        let (data, response) = try await URLSession.shared.data(for: request)
+        request.timeoutInterval = 180
+        let configuration = URLSessionConfiguration.ephemeral
+        configuration.timeoutIntervalForRequest = 180
+        configuration.timeoutIntervalForResource = 300
+        let session = URLSession(configuration: configuration)
+        let (data, response) = try await session.upload(for: request, from: fileData)
         guard let http = response as? HTTPURLResponse, (200..<300).contains(http.statusCode) else {
             throw HRConvexAPIError.server("File upload failed")
         }

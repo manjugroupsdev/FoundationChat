@@ -139,6 +139,59 @@ struct ConvexTask: Decodable, Identifiable, Equatable, Sendable {
     }
 }
 
+struct DailyTaskManagerPayload: Equatable, Sendable {
+    let tasks: [DailyTask]
+    let teamIds: Set<String>
+    let scope: String?
+}
+
+struct DailyTask: Decodable, Identifiable, Equatable, Sendable {
+    let _id: String
+    let title: String?
+    let taskName: String?
+    let label: String?
+    let priority: String?
+    let description: String?
+    let deadline: String?
+    let assignedTo: String?
+    let assignedBy: String?
+    let assignedToName: String?
+    let assignedByName: String?
+    let taskCategory: String?
+    let status: String?
+    let module: String?
+    let pendingExtensionRequest: Bool?
+    let sourceReferenceType: String?
+    let sourceReferenceId: String?
+    let actionUrl: String?
+    let creationTime: Double?
+
+    enum CodingKeys: String, CodingKey {
+        case _id, title, taskName, label, priority, description, deadline
+        case assignedTo, assignedBy, assignedToName, assignedByName
+        case taskCategory, status, module, pendingExtensionRequest
+        case sourceReferenceType, sourceReferenceId, actionUrl
+        case creationTime = "_creationTime"
+    }
+
+    var id: String { _id }
+
+    var displayTitle: String {
+        title?.taskNilIfBlank ?? taskName?.taskNilIfBlank ?? "Task"
+    }
+
+    var displaySubtitle: String? {
+        if let taskName = taskName?.taskNilIfBlank, taskName != displayTitle {
+            return taskName
+        }
+        return description?.taskNilIfBlank
+    }
+
+    var displayAssignedTo: String {
+        assignedToName?.taskNilIfBlank ?? assignedTo?.taskNilIfBlank ?? "-"
+    }
+}
+
 struct TaskResourceEntry: Decodable, Identifiable, Equatable, Sendable {
     let id: String
     let taskId: String?

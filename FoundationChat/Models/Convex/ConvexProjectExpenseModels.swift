@@ -17,8 +17,27 @@ struct ProjectSummary: Decodable, Identifiable, Hashable, Sendable {
 
     enum CodingKeys: String, CodingKey {
         case id = "_id"
+        case plainId = "id"
         case name, description, status, progress, startDate, endDate, budget
         case location, managerName, staffManagerId, projectType
+    }
+
+    init(from decoder: Decoder) throws {
+        let container = try decoder.container(keyedBy: CodingKeys.self)
+        id = try container.decodeIfPresent(String.self, forKey: .id)
+            ?? container.decodeIfPresent(String.self, forKey: .plainId)
+            ?? UUID().uuidString
+        name = try container.decodeIfPresent(String.self, forKey: .name)
+        description = try container.decodeIfPresent(String.self, forKey: .description)
+        status = try container.decodeIfPresent(String.self, forKey: .status)
+        progress = try container.decodeIfPresent(Int.self, forKey: .progress)
+        startDate = try container.decodeIfPresent(String.self, forKey: .startDate)
+        endDate = try container.decodeIfPresent(String.self, forKey: .endDate)
+        budget = try container.decodeIfPresent(Double.self, forKey: .budget)
+        location = try container.decodeIfPresent(String.self, forKey: .location)
+        managerName = try container.decodeIfPresent(String.self, forKey: .managerName)
+        staffManagerId = try container.decodeIfPresent(String.self, forKey: .staffManagerId)
+        projectType = try container.decodeIfPresent(String.self, forKey: .projectType)
     }
 
     var displayName: String { name?.projectNilIfBlank ?? "Untitled project" }

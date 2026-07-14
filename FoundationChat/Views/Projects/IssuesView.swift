@@ -295,14 +295,26 @@ private struct CreateIssueSheet: View {
 
     let onCreated: () async -> Void
 
-    @State private var projectId = ""
+    @State private var projects: [ProjectSummary] = []
+    @State private var selectedProject: ProjectSummary?
+    @State private var showProjectPicker = false
     @State private var title = ""
     @State private var description = ""
     @State private var isSubmitting = false
+    @State private var isLoadingProjects = false
     @State private var errorMessage: String?
+    @State private var audioRecorder: AVAudioRecorder?
+    @State private var previewPlayer: AVAudioPlayer?
+    @State private var recordedAudioURL: URL?
+    @State private var recordedAudioData: Data?
+    @State private var isRecording = false
+    @State private var isPlayingPreview = false
+    @State private var recordingElapsedSeconds = 0
+    @State private var audioDurationSeconds = 0
+    @State private var recordingTimer: Timer?
 
     private var canSubmit: Bool {
-        !projectId.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
+        selectedProject != nil
             && !title.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
             && !isSubmitting
     }
@@ -310,32 +322,44 @@ private struct CreateIssueSheet: View {
     var body: some View {
         VStack(spacing: 0) {
             ScrollView(showsIndicators: false) {
-                VStack(alignment: .leading, spacing: 18) {
-                    VStack(alignment: .leading, spacing: 4) {
-                        Text("Create Issue")
-                            .font(.system(size: 24, weight: .bold))
-                            .foregroundStyle(Color(hex: 0x101828))
-                        Text("Information about project issue")
-                            .font(.system(size: 14, weight: .medium))
-                            .foregroundStyle(Color(hex: 0x667085))
-                    }
-                    .padding(.top, 16)
+                VStack(alignment: .leading, spacing: 20) {
+                    Text("New Issue")
+                        .font(.system(size: 18, weight: .bold))
+                        .foregroundStyle(Color(hex: 0x0F172A))
+                        .frame(maxWidth: .infinity)
+                        .padding(.top, 12)
+                        .padding(.bottom, 4)
 
-                    issueField(title: "Project ID *", text: $projectId, placeholder: "Enter project id", icon: "folder")
-                    issueField(title: "Title *", text: $title, placeholder: "Title is compulsory", icon: "text.badge.checkmark")
+                    issuePickerField(
+                        title: "Project *",
+                        value: selectedProject?.displayName ?? (isLoadingProjects ? "Loading projects..." : "Select project"),
+                        isPlaceholder: selectedProject == nil,
+                        action: {
+                            if projects.isEmpty {
+                                Task { await loadProjects() }
+                            } else {
+                                showProjectPicker = true
+                            }
+                        }
+                    )
+
+                    issueTextField(title: "Issue Title *", text: $title, placeholder: "Enter issue title")
 
                     VStack(alignment: .leading, spacing: 8) {
                         Text("Description")
                             .font(.system(size: 13, weight: .semibold))
-                            .foregroundStyle(Color(hex: 0x344054))
+                            .foregroundStyle(Color(hex: 0x334155))
                         TextEditor(text: $description)
-                            .font(.system(size: 15, weight: .medium))
-                            .frame(minHeight: 120)
-                            .padding(10)
+                            .font(.system(size: 14, weight: .regular))
+                            .foregroundStyle(Color(hex: 0x0F172A))
+                            .frame(minHeight: 100)
+                            .padding(12)
                             .scrollContentBackground(.hidden)
-                            .background(Color(hex: 0xF8FAFC), in: RoundedRectangle(cornerRadius: 14, style: .continuous))
-                            .overlay(RoundedRectangle(cornerRadius: 14).stroke(Color(hex: 0xE4E7EC), lineWidth: 1))
+                            .background(Color.white, in: RoundedRectangle(cornerRadius: 12, style: .continuous))
+                            .overlay(RoundedRectangle(cornerRadius: 12).stroke(Color(hex: 0xE2E8F0), lineWidth: 1))
                     }
+
+                    voiceNoteSection
 
                     if let errorMessage {
                         Text(errorMessage)
@@ -343,9 +367,8 @@ private struct CreateIssueSheet: View {
                             .foregroundStyle(Color(hex: 0xDC2626))
                     }
                 }
-                .padding(.horizontal, 22)
-                .padding(.top, 26)
-                .padding(.bottom, 18)
+                .padding(.horizontal, 20)
+                .padding(.bottom, 20)
             }
 
             VStack(spacing: 0) {
@@ -377,35 +400,288 @@ private struct CreateIssueSheet: View {
                 }
                 .buttonStyle(.plain)
                 .disabled(!canSubmit)
-                .padding(.horizontal, 22)
+                .padding(.horizontal, 20)
                 .padding(.top, 12)
-                .padding(.bottom, 14)
+                .padding(.bottom, 18)
             }
             .background(Color.white)
         }
         .background(Color.white)
+        .task {
+            await loadProjects()
+        }
+        .sheet(isPresented: $showProjectPicker) {
+            NativeSearchableSelectionSheet(
+                title: "Select Project",
+                prompt: "Search projects",
+                items: projects,
+                selectedId: selectedProject?.id,
+                searchText: { project in
+                    [project.displayName, project.status ?? ""].joined(separator: " ")
+                },
+                rowContent: { project, isSelected in
+                    HStack(spacing: 12) {
+                        Image(systemName: "folder")
+                            .font(.system(size: 16, weight: .semibold))
+                            .foregroundStyle(isSelected ? Color(hex: 0x0B61CA) : Color(hex: 0x64748B))
+                            .frame(width: 34, height: 34)
+                            .background((isSelected ? Color(hex: 0xEAF3FF) : Color(hex: 0xF1F5F9)), in: Circle())
+                        VStack(alignment: .leading, spacing: 2) {
+                            Text(project.displayName)
+                                .font(.system(size: 15, weight: .semibold))
+                                .foregroundStyle(Color(hex: 0x0F172A))
+                            if let status = project.status?.nonBlank {
+                                Text(status.capitalized)
+                                    .font(.system(size: 12, weight: .regular))
+                                    .foregroundStyle(Color(hex: 0x64748B))
+                            }
+                        }
+                        Spacer()
+                        if isSelected {
+                            Image(systemName: "checkmark")
+                                .font(.system(size: 14, weight: .bold))
+                                .foregroundStyle(Color(hex: 0x0B61CA))
+                        }
+                    }
+                    .padding(.vertical, 4)
+                },
+                onSelect: { project in
+                    selectedProject = project
+                }
+            )
+        }
+        .onDisappear {
+            stopRecording()
+            stopPreview()
+        }
     }
 
-    private func issueField(title: String, text: Binding<String>, placeholder: String, icon: String) -> some View {
+    private func issueTextField(title: String, text: Binding<String>, placeholder: String) -> some View {
         VStack(alignment: .leading, spacing: 8) {
             Text(title)
                 .font(.system(size: 13, weight: .semibold))
-                .foregroundStyle(Color(hex: 0x344054))
-            HStack(spacing: 12) {
-                Image(systemName: icon)
-                    .font(.system(size: 18, weight: .semibold))
-                    .foregroundStyle(Color(hex: 0x667085))
-                    .frame(width: 24)
+                .foregroundStyle(Color(hex: 0x334155))
                 TextField(placeholder, text: text)
-                    .font(.system(size: 15, weight: .medium))
-                    .textInputAutocapitalization(.never)
+                    .font(.system(size: 14, weight: .regular))
+                    .foregroundStyle(Color(hex: 0x0F172A))
+                    .textInputAutocapitalization(.sentences)
                     .autocorrectionDisabled()
-            }
-            .padding(.horizontal, 14)
-            .frame(height: 50)
-            .background(Color(hex: 0xF8FAFC), in: RoundedRectangle(cornerRadius: 14, style: .continuous))
-            .overlay(RoundedRectangle(cornerRadius: 14).stroke(Color(hex: 0xE4E7EC), lineWidth: 1))
+                    .padding(.horizontal, 16)
+                    .frame(height: 48)
+                    .background(Color.white, in: RoundedRectangle(cornerRadius: 12, style: .continuous))
+                    .overlay(RoundedRectangle(cornerRadius: 12).stroke(Color(hex: 0xE2E8F0), lineWidth: 1))
         }
+    }
+
+    private func issuePickerField(title: String, value: String, isPlaceholder: Bool, action: @escaping () -> Void) -> some View {
+        VStack(alignment: .leading, spacing: 8) {
+            Text(title)
+                .font(.system(size: 13, weight: .semibold))
+                .foregroundStyle(Color(hex: 0x334155))
+            Button(action: action) {
+                HStack(spacing: 10) {
+                    Text(value)
+                        .font(.system(size: 14, weight: .regular))
+                        .foregroundStyle(isPlaceholder ? Color(hex: 0x94A3B8) : Color(hex: 0x0F172A))
+                        .lineLimit(1)
+                    Spacer()
+                    Image(systemName: "chevron.down")
+                        .font(.system(size: 13, weight: .bold))
+                        .foregroundStyle(Color(hex: 0x64748B))
+                }
+                .padding(.horizontal, 16)
+                .frame(height: 48)
+                .background(Color.white, in: RoundedRectangle(cornerRadius: 12, style: .continuous))
+                .overlay(RoundedRectangle(cornerRadius: 12).stroke(Color(hex: 0xE2E8F0), lineWidth: 1))
+            }
+            .buttonStyle(.plain)
+            .disabled(isLoadingProjects)
+        }
+    }
+
+    private var voiceNoteSection: some View {
+        VStack(alignment: .leading, spacing: 8) {
+            Text("Voice Note")
+                .font(.system(size: 13, weight: .semibold))
+                .foregroundStyle(Color(hex: 0x334155))
+
+            HStack(spacing: 12) {
+                VStack(alignment: .leading, spacing: 4) {
+                    Text(audioStatusText)
+                        .font(.system(size: 13, weight: .medium))
+                        .foregroundStyle(audioStatusColor)
+                    if isRecording {
+                        Text(formatDuration(recordingElapsedSeconds))
+                            .font(.system(size: 12, weight: .semibold))
+                            .foregroundStyle(Color(hex: 0x0B61CA))
+                    }
+                }
+
+                Spacer(minLength: 12)
+
+                if recordedAudioURL != nil && !isRecording {
+                    Button(action: togglePreview) {
+                        Image(systemName: isPlayingPreview ? "pause.fill" : "play.fill")
+                            .font(.system(size: 13, weight: .bold))
+                            .foregroundStyle(Color(hex: 0x0B61CA))
+                            .frame(width: 32, height: 32)
+                            .background(Color(hex: 0xEFF8FF), in: Circle())
+                    }
+                    .buttonStyle(.plain)
+
+                    Button(action: deleteRecording) {
+                        Image(systemName: "trash")
+                            .font(.system(size: 14, weight: .semibold))
+                            .foregroundStyle(Color(hex: 0xEF4444))
+                            .frame(width: 32, height: 32)
+                    }
+                    .buttonStyle(.plain)
+                }
+
+                Button(action: toggleRecording) {
+                    Image(systemName: isRecording ? "stop.fill" : "mic.fill")
+                        .font(.system(size: 16, weight: .bold))
+                        .foregroundStyle(.white)
+                        .frame(width: 36, height: 36)
+                        .background(isRecording ? Color(hex: 0xEF4444) : Color(hex: 0x0B61CA), in: Circle())
+                }
+                .buttonStyle(.plain)
+            }
+            .padding(12)
+            .background(Color(hex: 0xF8FAFC), in: RoundedRectangle(cornerRadius: 12, style: .continuous))
+            .overlay(RoundedRectangle(cornerRadius: 12).stroke(Color(hex: 0xE2E8F0), lineWidth: 1))
+        }
+    }
+
+    private var audioStatusText: String {
+        if isRecording { return "Recording voice note..." }
+        if recordedAudioURL != nil { return isPlayingPreview ? "Playing voice note..." : "Voice note attached" }
+        return "Tap microphone to record voice note"
+    }
+
+    private var audioStatusColor: Color {
+        if isRecording { return Color(hex: 0xEF4444) }
+        if recordedAudioURL != nil { return Color(hex: 0x16A34A) }
+        return Color(hex: 0x64748B)
+    }
+
+    @MainActor
+    private func loadProjects() async {
+        guard projects.isEmpty, let token = authStore.currentSession?.token else { return }
+        isLoadingProjects = true
+        defer { isLoadingProjects = false }
+        do {
+            let loaded = try await ProjectConvexAPIService.getMyProjects(token: token)
+            projects = loaded.filter { ($0.status ?? "").trimmingCharacters(in: .whitespacesAndNewlines).lowercased() == "ongoing" }
+            if projects.isEmpty {
+                projects = loaded
+            }
+            if selectedProject == nil {
+                selectedProject = projects.first
+            }
+        } catch {
+            errorMessage = error.localizedDescription
+        }
+    }
+
+    private func toggleRecording() {
+        if isRecording {
+            stopRecording()
+            return
+        }
+        startRecording()
+    }
+
+    private func startRecording() {
+        stopPreview()
+        AVAudioSession.sharedInstance().requestRecordPermission { granted in
+            DispatchQueue.main.async {
+                guard granted else {
+                    errorMessage = "Permission to record audio is required."
+                    return
+                }
+                do {
+                    let session = AVAudioSession.sharedInstance()
+                    try session.setCategory(.playAndRecord, mode: .default, options: [.defaultToSpeaker])
+                    try session.setActive(true)
+
+                    let url = FileManager.default.temporaryDirectory
+                        .appendingPathComponent("issue_voice_\(Int(Date().timeIntervalSince1970)).m4a")
+                    let settings: [String: Any] = [
+                        AVFormatIDKey: Int(kAudioFormatMPEG4AAC),
+                        AVSampleRateKey: 44_100,
+                        AVNumberOfChannelsKey: 1,
+                        AVEncoderAudioQualityKey: AVAudioQuality.medium.rawValue
+                    ]
+                    let recorder = try AVAudioRecorder(url: url, settings: settings)
+                    recorder.record()
+                    audioRecorder = recorder
+                    recordedAudioURL = url
+                    recordedAudioData = nil
+                    audioDurationSeconds = 0
+                    recordingElapsedSeconds = 0
+                    isRecording = true
+                    recordingTimer?.invalidate()
+                    recordingTimer = Timer.scheduledTimer(withTimeInterval: 1, repeats: true) { _ in
+                        recordingElapsedSeconds += 1
+                    }
+                } catch {
+                    errorMessage = "Failed to start audio recording."
+                }
+            }
+        }
+    }
+
+    private func stopRecording() {
+        guard isRecording else { return }
+        audioRecorder?.stop()
+        audioRecorder = nil
+        recordingTimer?.invalidate()
+        recordingTimer = nil
+        isRecording = false
+        audioDurationSeconds = max(recordingElapsedSeconds, 1)
+        if let recordedAudioURL {
+            recordedAudioData = try? Data(contentsOf: recordedAudioURL)
+        }
+    }
+
+    private func togglePreview() {
+        if isPlayingPreview {
+            stopPreview()
+            return
+        }
+        guard let recordedAudioURL else { return }
+        do {
+            let player = try AVAudioPlayer(contentsOf: recordedAudioURL)
+            player.prepareToPlay()
+            player.play()
+            previewPlayer = player
+            isPlayingPreview = true
+        } catch {
+            errorMessage = "Failed to play audio preview."
+        }
+    }
+
+    private func stopPreview() {
+        previewPlayer?.stop()
+        previewPlayer = nil
+        isPlayingPreview = false
+    }
+
+    private func deleteRecording() {
+        stopPreview()
+        stopRecording()
+        if let recordedAudioURL {
+            try? FileManager.default.removeItem(at: recordedAudioURL)
+        }
+        recordedAudioURL = nil
+        recordedAudioData = nil
+        audioDurationSeconds = 0
+        recordingElapsedSeconds = 0
+    }
+
+    private func formatDuration(_ seconds: Int) -> String {
+        String(format: "%02d:%02d", seconds / 60, seconds % 60)
     }
 
     @MainActor
@@ -414,14 +690,39 @@ private struct CreateIssueSheet: View {
             errorMessage = "Please login again."
             return
         }
+        guard let selectedProject else {
+            errorMessage = "Please select a project."
+            return
+        }
+        if isRecording {
+            stopRecording()
+        }
         isSubmitting = true
         defer { isSubmitting = false }
         do {
+            var audioStorageId: String?
+            var audioFileSize: Int?
+            var audioDuration: Int?
+            if let recordedAudioData, !recordedAudioData.isEmpty {
+                let uploadURL = try await authStore.generateAttachmentUploadURL()
+                audioStorageId = try await authStore.uploadAttachmentData(
+                    recordedAudioData,
+                    uploadURL: uploadURL,
+                    mimeType: "audio/mp4"
+                )
+                audioFileSize = recordedAudioData.count
+                audioDuration = audioDurationSeconds
+            }
             try await IssuesAPIService.createIssue(
                 token: token,
-                projectId: projectId.trimmingCharacters(in: .whitespacesAndNewlines),
+                projectId: selectedProject.id,
                 title: title.trimmingCharacters(in: .whitespacesAndNewlines),
-                description: description
+                description: description,
+                audioStorageId: audioStorageId,
+                audioFileName: audioStorageId == nil ? nil : "voice.m4a",
+                audioFileType: audioStorageId == nil ? nil : "audio/mp4",
+                audioFileSize: audioFileSize,
+                audioDurationSeconds: audioDuration
             )
             await onCreated()
             dismiss()

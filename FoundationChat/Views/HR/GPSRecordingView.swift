@@ -1,7 +1,6 @@
 import Combine
 import MapKit
 import SwiftUI
-import PhotosUI
 
 struct GPSRecordingView: View {
     @Environment(\.dismiss) private var dismiss
@@ -14,8 +13,6 @@ struct GPSRecordingView: View {
     @State private var errorMessage: String?
     @State private var tripResult: GPSSessionEndResult?
     @State private var showTripSummary = false
-    @State private var showCamera = false
-    @State private var selectedPhoto: PhotosPickerItem?
     @State private var mapPosition: MapCameraPosition = .automatic
     @State private var elapsedText = "00:00:00"
     @State private var timer = Timer.publish(every: 1, on: .main, in: .common).autoconnect()
@@ -160,7 +157,11 @@ struct GPSRecordingView: View {
                     }
                     .buttonStyle(.bordered)
 
-                    PhotosPicker(selection: $selectedPhoto, matching: .images) {
+                    CameraFirstPhotoPicker(maxSelectionCount: 1) { photos in
+                        if let data = photos.first {
+                            await uploadPhoto(data)
+                        }
+                    } label: {
                         VStack(spacing: 4) {
                             Image(systemName: "camera.circle.fill")
                                 .font(.title2)
@@ -202,9 +203,6 @@ struct GPSRecordingView: View {
         .onReceive(timer) { _ in
             updateElapsed()
             updateRoute()
-        }
-        .onChange(of: selectedPhoto) {
-            Task { await uploadPhoto() }
         }
     }
 
@@ -254,10 +252,7 @@ struct GPSRecordingView: View {
         isEnding = false
     }
 
-    private func uploadPhoto() async {
-        guard let item = selectedPhoto else { return }
-        selectedPhoto = nil
-        guard let data = try? await item.loadTransferable(type: Data.self) else { return }
+    private func uploadPhoto(_ data: Data) async {
         do {
             _ = try await tracker?.capturePhoto(imageData: data)
         } catch {}

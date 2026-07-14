@@ -295,6 +295,7 @@
 				INFOPLIST_KEY_NSLocationWhenInUseUsageDescription = "M-Chat uses your location for attendance punch-in, visits, and GeoTrack tracking when required.";
 				INFOPLIST_KEY_NSMicrophoneUsageDescription = "M-Chat needs microphone access to record and send voice messages.";
 				INFOPLIST_KEY_NSMotionUsageDescription = "M-Chat uses motion data to improve location tracking accuracy and detect activity during trips.";
+				INFOPLIST_KEY_NSPhotoLibraryUsageDescription = "M-Chat needs photo library access to attach photos when camera is unavailable or gallery is selected.";
 				"INFOPLIST_KEY_UIApplicationSceneManifest_Generation[sdk=iphoneos*]" = YES;
 				"INFOPLIST_KEY_UIApplicationSceneManifest_Generation[sdk=iphonesimulator*]" = YES;
 				"INFOPLIST_KEY_UIApplicationSupportsIndirectInputEvents[sdk=iphoneos*]" = YES;
@@ -364,6 +365,7 @@
 				INFOPLIST_KEY_NSLocationWhenInUseUsageDescription = "M-Chat uses your location for attendance punch-in, visits, and GeoTrack tracking when required.";
 				INFOPLIST_KEY_NSMicrophoneUsageDescription = "M-Chat needs microphone access to record and send voice messages.";
 				INFOPLIST_KEY_NSMotionUsageDescription = "M-Chat uses motion data to improve location tracking accuracy and detect activity during trips.";
+				INFOPLIST_KEY_NSPhotoLibraryUsageDescription = "M-Chat needs photo library access to attach photos when camera is unavailable or gallery is selected.";
 				"INFOPLIST_KEY_UIApplicationSceneManifest_Generation[sdk=iphoneos*]" = YES;
 				"INFOPLIST_KEY_UIApplicationSceneManifest_Generation[sdk=iphonesimulator*]" = YES;
 				"INFOPLIST_KEY_UIApplicationSupportsIndirectInputEvents[sdk=iphoneos*]" = YES;

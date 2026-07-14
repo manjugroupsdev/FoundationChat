@@ -1,4 +1,3 @@
-import PhotosUI
 import SwiftUI
 #if canImport(UIKit)
 import UIKit
@@ -19,6 +18,7 @@ struct ProjectExpensesView: View {
     @State private var errorMessage: String?
     @State private var showingDateFilter = false
     @State private var showingCreateExpense = false
+    @State private var showingProjectPicker = false
     @State private var selectedExpenseForDetail: ProjectExpense?
     @State private var didAnimateIn = false
 
@@ -31,7 +31,7 @@ struct ProjectExpensesView: View {
                     .ignoresSafeArea(edges: .top)
 
                 Color(hex: 0xF8F9FB).ignoresSafeArea()
-                    .padding(.top, topInset + 158)
+                    .padding(.top, topInset + 126)
 
                 VStack(spacing: 0) {
                     header(topInset: topInset)
@@ -52,12 +52,12 @@ struct ProjectExpensesView: View {
                     .background(Color(hex: 0xF8F9FB))
                     .clipShape(
                         UnevenRoundedRectangle(
-                            topLeadingRadius: 26,
-                            topTrailingRadius: 26,
+                            topLeadingRadius: 24,
+                            topTrailingRadius: 24,
                             style: .continuous
                         )
                     )
-                    .offset(y: -20)
+                    .offset(y: -22)
                 }
             }
         }
@@ -71,6 +71,24 @@ struct ProjectExpensesView: View {
             .presentationDetents([.height(620), .large])
             .presentationCornerRadius(28)
             .presentationDragIndicator(.hidden)
+        }
+        .sheet(isPresented: $showingProjectPicker) {
+            NativeSearchableSelectionSheet(
+                title: "Select Project",
+                prompt: "Search projects",
+                items: projects,
+                selectedId: selectedProject?.id,
+                searchText: { project in project.displayName },
+                rowContent: { project, isSelected in
+                    projectSelectionRow(project, isSelected: isSelected)
+                },
+                onSelect: { project in
+                    selectedProject = project
+                    showingProjectPicker = false
+                    Task { await refreshExpenses() }
+                }
+            )
+            .presentationDetents([.medium, .large])
         }
         .sheet(isPresented: $showingCreateExpense) {
             if let selectedProject {
@@ -110,9 +128,9 @@ struct ProjectExpensesView: View {
             Image("ProjectExpensesHeaderIllustration")
                 .resizable()
                 .scaledToFit()
-                .frame(width: 96, height: 72)
-                .padding(.trailing, 22)
-                .offset(y: topInset + 4)
+                .frame(width: 82, height: 62)
+                .padding(.trailing, 28)
+                .offset(y: topInset + 18)
                 .opacity(didAnimateIn ? 1 : 0)
                 .scaleEffect(didAnimateIn ? 1 : 0.88)
                 .animation(.spring(response: 0.52, dampingFraction: 0.82).delay(0.16), value: didAnimateIn)
@@ -123,28 +141,17 @@ struct ProjectExpensesView: View {
                     .foregroundStyle(.white)
 
                 Text("Manage and track all Expenses")
-                    .font(.system(size: 13, weight: .medium))
+                    .font(.system(size: 12, weight: .medium))
                     .foregroundStyle(Color(hex: 0xD9D6FE))
-                    .padding(.top, 4)
+                    .padding(.top, 3)
 
                 HStack(spacing: 8) {
-                    Menu {
-                        ForEach(projects) { project in
-                            Button {
-                                selectedProject = project
-                                Task { await refreshExpenses() }
-                            } label: {
-                                if selectedProject?.id == project.id {
-                                    Label(project.displayName, systemImage: "checkmark")
-                                } else {
-                                    Text(project.displayName)
-                                }
-                            }
-                        }
+                    Button {
+                        showingProjectPicker = true
                     } label: {
                         HStack(spacing: 8) {
                             Text(selectedProject?.displayName ?? (projects.isEmpty ? "Choose a project" : "Choose a project"))
-                                .font(.system(size: 14, weight: .semibold))
+                                .font(.system(size: 13, weight: .medium))
                                 .foregroundStyle(Color(hex: 0x101828))
                                 .lineLimit(1)
                                 .truncationMode(.tail)
@@ -161,7 +168,7 @@ struct ProjectExpensesView: View {
                                 .foregroundStyle(Color(hex: 0x667085))
                         }
                         .padding(.horizontal, 14)
-                        .frame(maxWidth: .infinity, minHeight: 44, maxHeight: 44)
+                        .frame(maxWidth: .infinity, minHeight: 42, maxHeight: 42)
                         .background(.white, in: RoundedRectangle(cornerRadius: 10, style: .continuous))
                         .contentShape(RoundedRectangle(cornerRadius: 10, style: .continuous))
                     }
@@ -175,26 +182,41 @@ struct ProjectExpensesView: View {
                         Image(systemName: "calendar")
                             .font(.system(size: 22, weight: .semibold))
                             .foregroundStyle(Color(hex: 0x0B61CA))
-                            .frame(width: 44, height: 44)
+                            .frame(width: 42, height: 42)
                             .background(.white, in: RoundedRectangle(cornerRadius: 10, style: .continuous))
                     }
                     .buttonStyle(.plain)
                     .accessibilityLabel("Date filter")
                 }
-                .padding(.top, 14)
+                .padding(.top, 12)
                 .zIndex(2)
             }
-            .padding(.horizontal, 16)
-            .padding(.top, topInset + 8)
+            .padding(.horizontal, 20)
+            .padding(.top, topInset + 18)
             .opacity(didAnimateIn ? 1 : 0)
             .offset(x: didAnimateIn ? 0 : -26)
             .animation(.easeOut(duration: 0.42).delay(0.08), value: didAnimateIn)
         }
-        .frame(height: topInset + 178)
+        .frame(height: topInset + 150)
+    }
+
+    private func projectSelectionRow(_ project: ProjectSummary, isSelected: Bool) -> some View {
+        HStack(spacing: 12) {
+            Text(project.displayName)
+                .font(.system(size: 15, weight: .semibold))
+                .foregroundStyle(Color(hex: 0x101828))
+                .lineLimit(2)
+            Spacer()
+            if isSelected {
+                Image(systemName: "checkmark.circle.fill")
+                    .foregroundStyle(Color(hex: 0x0B61CA))
+            }
+        }
+        .padding(.vertical, 4)
     }
 
     private var totalsCard: some View {
-        VStack(spacing: 20) {
+        VStack(spacing: 14) {
             HStack(alignment: .center) {
                 VStack(alignment: .leading, spacing: 4) {
                     Text("Total Expenses")
@@ -202,7 +224,7 @@ struct ProjectExpensesView: View {
                         .foregroundStyle(Color(hex: 0x667085))
 
                     Text(formatRsUpper(totals.total))
-                        .font(.system(size: 28, weight: .bold))
+                        .font(.system(size: 27, weight: .bold))
                         .foregroundStyle(Color(hex: 0x101828))
                         .minimumScaleFactor(0.72)
                         .lineLimit(1)
@@ -215,7 +237,7 @@ struct ProjectExpensesView: View {
                 Spacer(minLength: 16)
 
                 ExpenseDonutChart(totals: totals.byCategory)
-                    .frame(width: 108, height: 108)
+                    .frame(width: 102, height: 102)
             }
 
             HStack(alignment: .top, spacing: 8) {
@@ -224,9 +246,8 @@ struct ProjectExpensesView: View {
                 ExpenseLegendItem(title: "Equipments", value: formatRs(totals.byCategory.equipment), color: ProjectExpenseCategory.equipment.color)
             }
         }
-        .padding(16)
-        .background(Color.white, in: RoundedRectangle(cornerRadius: 16, style: .continuous))
-        .shadow(color: .black.opacity(0.05), radius: 4, x: 0, y: 2)
+        .padding(14)
+        .background(Color.white, in: RoundedRectangle(cornerRadius: 8, style: .continuous))
         .opacity(didAnimateIn ? 1 : 0)
         .offset(y: didAnimateIn ? 0 : 40)
         .animation(.easeOut(duration: 0.4).delay(0.1), value: didAnimateIn)
@@ -243,9 +264,9 @@ struct ProjectExpensesView: View {
                         Task { await refreshExpenses() }
                     } label: {
                         Text(category.title)
-                            .font(.system(size: 14, weight: .semibold))
+                            .font(.system(size: 14, weight: .medium))
                             .foregroundStyle(selectedCategory == category ? .white : Color(hex: 0x475467))
-                            .padding(.horizontal, 15)
+                            .padding(.horizontal, 14)
                             .frame(height: 34)
                             .background(
                                 selectedCategory == category ? Color(hex: 0x0B61CA) : Color(hex: 0xF2F4F7),
@@ -273,6 +294,7 @@ struct ProjectExpensesView: View {
                 .font(.system(size: 15, weight: .medium))
                 .foregroundStyle(Color(hex: 0x71717A))
                 .frame(maxWidth: .infinity, maxHeight: .infinity)
+                .padding(.top, 92)
         } else {
             ScrollView(showsIndicators: false) {
                 LazyVStack(spacing: 12) {
@@ -293,7 +315,7 @@ struct ProjectExpensesView: View {
                     }
                 }
                 .padding(.top, 8)
-                .padding(.bottom, 14)
+                .padding(.bottom, 18)
             }
             .refreshable { await refreshExpenses() }
         }
@@ -312,11 +334,18 @@ struct ProjectExpensesView: View {
                 .foregroundStyle(.white)
                 .frame(maxWidth: .infinity)
                 .frame(height: 56)
-                .background(Color(hex: 0x1BCA0B), in: Capsule())
+                .background(
+                    LinearGradient(
+                        colors: [Color(hex: 0x18D40D), Color(hex: 0x27A800)],
+                        startPoint: .leading,
+                        endPoint: .trailing
+                    ),
+                    in: Capsule()
+                )
         }
         .buttonStyle(.plain)
         .padding(.horizontal, 16)
-        .padding(.top, 10)
+        .padding(.top, 8)
         .padding(.bottom, 14)
     }
 
@@ -766,7 +795,6 @@ private struct ExpenseCreationSheet: View {
     @State private var isSaving = false
     @State private var isLoadingPhotos = false
     @State private var errorMessage: String?
-    @State private var selectedPhotoItems: [PhotosPickerItem] = []
     @State private var selectedPhotoData: [Data] = []
 
     private let categories: [ProjectExpenseCategory] = [.labour, .materials, .equipment, .other]
@@ -865,9 +893,6 @@ private struct ExpenseCreationSheet: View {
             if selectedProject == nil {
                 selectedProject = project
             }
-        }
-        .onChange(of: selectedPhotoItems) { _, _ in
-            Task { await loadSelectedPhotos() }
         }
         .sheet(isPresented: $showingDatePicker) {
             VStack(alignment: .leading, spacing: 18) {
@@ -1046,13 +1071,17 @@ private struct ExpenseCreationSheet: View {
                     ForEach(Array(selectedPhotoData.enumerated()), id: \.offset) { index, data in
                         selectedPhotoThumbnail(data: data) {
                             selectedPhotoData.remove(at: index)
-                            if selectedPhotoItems.indices.contains(index) {
-                                selectedPhotoItems.remove(at: index)
-                            }
                         }
                     }
 
-                    PhotosPicker(selection: $selectedPhotoItems, maxSelectionCount: 6, matching: .images) {
+                    CameraFirstPhotoPicker(
+                        maxSelectionCount: max(1, 6 - selectedPhotoData.count),
+                        isDisabled: isSaving || isLoadingPhotos || selectedPhotoData.count >= 6
+                    ) { photos in
+                        isLoadingPhotos = true
+                        selectedPhotoData.append(contentsOf: photos.prefix(max(0, 6 - selectedPhotoData.count)))
+                        isLoadingPhotos = false
+                    } label: {
                         ZStack {
                             RoundedRectangle(cornerRadius: 16, style: .continuous)
                                 .fill(Color(hex: 0xF8FAFC))
@@ -1070,7 +1099,6 @@ private struct ExpenseCreationSheet: View {
                         .frame(width: 72, height: 72)
                     }
                     .buttonStyle(.plain)
-                    .disabled(isSaving || isLoadingPhotos)
                     .accessibilityLabel("Add receipt photo")
                 }
             }
@@ -1109,19 +1137,6 @@ private struct ExpenseCreationSheet: View {
             .offset(x: 6, y: -6)
             .accessibilityLabel("Remove receipt photo")
         }
-    }
-
-    private func loadSelectedPhotos() async {
-        isLoadingPhotos = true
-        defer { isLoadingPhotos = false }
-
-        var loaded: [Data] = []
-        for item in selectedPhotoItems {
-            if let data = try? await item.loadTransferable(type: Data.self), !data.isEmpty {
-                loaded.append(data)
-            }
-        }
-        selectedPhotoData = loaded
     }
 
     private func saveExpense() {

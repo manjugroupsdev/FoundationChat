@@ -23,6 +23,7 @@ struct SiteVisitOutcomeSheet: View {
     @State private var showProjectPicker = false
     @State private var showUnitPicker = false
     @State private var showLeadPicker = false
+    @State private var activeStaffPicker: SiteVisitOutcomeStaffField?
     @State private var isSearchingLead = false
 
     @State private var selectedPostponeReasons: Set<SiteVisitPostponeReason> = []
@@ -116,6 +117,29 @@ struct SiteVisitOutcomeSheet: View {
             .sheet(isPresented: $showProjectPicker) { projectPickerSheet }
             .sheet(isPresented: $showUnitPicker) { unitPickerSheet }
             .sheet(isPresented: $showLeadPicker) { leadPickerSheet }
+            .sheet(item: $activeStaffPicker) { field in
+                NativeSearchableSelectionSheet(
+                    title: "Select \(field.title)",
+                    prompt: "Search staff",
+                    items: staff,
+                    selectedId: staffSelection(for: field),
+                    searchText: { item in
+                        [item.displayName, item.designation, item.role, item.employeeId, item.phone].compactMap(\.self).joined(separator: " ")
+                    },
+                    rowContent: { item, isSelected in
+                        selectionRow(
+                            title: item.displayName,
+                            subtitle: item.subtitle.isEmpty ? item.formattedPhone : item.subtitle,
+                            isSelected: isSelected
+                        )
+                    },
+                    onSelect: { item in
+                        setStaffSelection(item.id, for: field)
+                        activeStaffPicker = nil
+                    }
+                )
+                .presentationDetents([.medium, .large])
+            }
         }
     }
 
@@ -328,11 +352,11 @@ struct SiteVisitOutcomeSheet: View {
 
     private var bookingStaffSection: some View {
         VStack(alignment: .leading, spacing: 14) {
-            staffPicker("AVP", selection: $booking.originalAvpStaffId)
-            staffPicker("General Manager", selection: $booking.originalGmStaffId)
-            staffPicker("Senior Manager", selection: $booking.originalSeniorManagerStaffId)
-            staffPicker("BDO", selection: $booking.originalBdoStaffId)
-            staffPicker("Telecaller", selection: $booking.originalTelecallerStaffId)
+            staffPicker(.avp)
+            staffPicker(.generalManager)
+            staffPicker(.seniorManager)
+            staffPicker(.bdo)
+            staffPicker(.telecaller)
             SiteVisitOutcomeTextField("Aadhar Details", text: $booking.aadhaar, placeholder: "Enter Details", icon: "doc", keyboard: .numberPad)
             SiteVisitOutcomeTextField("Pancard Details", text: $booking.pan, placeholder: "Enter Details", icon: "doc")
             SiteVisitOutcomeTextField("Reference Name 1", text: $booking.referenceName1, placeholder: "Enter Name", icon: "person")
@@ -456,75 +480,134 @@ struct SiteVisitOutcomeSheet: View {
         .buttonStyle(.plain)
     }
 
-    private func staffPicker(_ title: String, selection: Binding<String>) -> some View {
-        Menu {
-            Button("Clear") { selection.wrappedValue = "" }
-            ForEach(staff) { item in
-                Button(item.displayName) { selection.wrappedValue = item.id }
-            }
+    private func staffPicker(_ field: SiteVisitOutcomeStaffField) -> some View {
+        Button {
+            activeStaffPicker = field
         } label: {
-            SiteVisitOutcomePickerShell(title: title, value: staff.first { $0.id == selection.wrappedValue }?.displayName ?? "Select", icon: "person")
+            SiteVisitOutcomePickerShell(
+                title: field.title,
+                value: staff.first { $0.id == staffSelection(for: field) }?.displayName ?? "Select",
+                icon: "person"
+            )
+        }
+        .buttonStyle(.plain)
+    }
+
+    private func staffSelection(for field: SiteVisitOutcomeStaffField) -> String {
+        switch field {
+        case .avp: booking.originalAvpStaffId
+        case .generalManager: booking.originalGmStaffId
+        case .seniorManager: booking.originalSeniorManagerStaffId
+        case .bdo: booking.originalBdoStaffId
+        case .telecaller: booking.originalTelecallerStaffId
+        }
+    }
+
+    private func setStaffSelection(_ id: String, for field: SiteVisitOutcomeStaffField) {
+        switch field {
+        case .avp: booking.originalAvpStaffId = id
+        case .generalManager: booking.originalGmStaffId = id
+        case .seniorManager: booking.originalSeniorManagerStaffId = id
+        case .bdo: booking.originalBdoStaffId = id
+        case .telecaller: booking.originalTelecallerStaffId = id
         }
     }
 
     private var projectPickerSheet: some View {
-        NavigationStack {
-            List(projects) { project in
-                Button(project.name ?? "Unnamed project") {
-                    selectedProject = project
-                    booking.projectName = project.name ?? ""
-                    selectedUnit = nil
-                    booking.plotNo = ""
-                    showProjectPicker = false
-                }
+        NativeSearchableSelectionSheet(
+            title: "Select Project",
+            prompt: "Search projects",
+            items: projects,
+            selectedId: selectedProject?.id,
+            searchText: { project in
+                [project.name, project.location].compactMap(\.self).joined(separator: " ")
+            },
+            rowContent: { project, isSelected in
+                selectionRow(
+                    title: project.name ?? "Unnamed project",
+                    subtitle: project.location,
+                    isSelected: isSelected
+                )
+            },
+            onSelect: { project in
+                selectedProject = project
+                booking.projectName = project.name ?? ""
+                selectedUnit = nil
+                booking.plotNo = ""
+                showProjectPicker = false
             }
-            .navigationTitle("Select Project")
-            .navigationBarTitleDisplayMode(.inline)
-        }
+        )
         .presentationDetents([.medium, .large])
     }
 
     private var unitPickerSheet: some View {
-        NavigationStack {
-            List(units) { unit in
-                Button {
-                    selectedUnit = unit
-                    booking.plotNo = unit.unitNumber ?? ""
-                    showUnitPicker = false
-                } label: {
-                    VStack(alignment: .leading, spacing: 4) {
-                        Text(unit.unitNumber ?? "Unit")
-                        Text(unitSummary(unit))
-                            .font(.caption)
-                            .foregroundStyle(.secondary)
-                    }
-                }
+        NativeSearchableSelectionSheet(
+            title: "Select Plot",
+            prompt: "Search plots",
+            items: units,
+            selectedId: selectedUnit?.id,
+            searchText: { unit in
+                [unit.unitNumber, unitSummary(unit)].compactMap(\.self).joined(separator: " ")
+            },
+            rowContent: { unit, isSelected in
+                selectionRow(
+                    title: unit.unitNumber ?? "Unit",
+                    subtitle: unitSummary(unit),
+                    isSelected: isSelected
+                )
+            },
+            onSelect: { unit in
+                selectedUnit = unit
+                booking.plotNo = unit.unitNumber ?? ""
+                showUnitPicker = false
             }
-            .navigationTitle("Select Plot")
-            .navigationBarTitleDisplayMode(.inline)
-        }
+        )
         .presentationDetents([.medium, .large])
     }
 
     private var leadPickerSheet: some View {
-        NavigationStack {
-            List(leadMatches) { lead in
-                Button {
-                    applyLead(lead)
-                    showLeadPicker = false
-                } label: {
-                    VStack(alignment: .leading, spacing: 4) {
-                        Text(lead.displayName)
-                        Text(lead.mobileNumber ?? "No mobile")
-                            .font(.caption)
-                            .foregroundStyle(.secondary)
-                    }
+        NativeSearchableSelectionSheet(
+            title: "Select Client",
+            prompt: "Search clients",
+            items: leadMatches,
+            selectedId: selectedLead?.id,
+            searchText: { lead in
+                [lead.displayName, lead.mobileNumber].compactMap(\.self).joined(separator: " ")
+            },
+            rowContent: { lead, isSelected in
+                selectionRow(
+                    title: lead.displayName,
+                    subtitle: lead.mobileNumber ?? "No mobile",
+                    isSelected: isSelected
+                )
+            },
+            onSelect: { lead in
+                applyLead(lead)
+                showLeadPicker = false
+            }
+        )
+        .presentationDetents([.medium])
+    }
+
+    private func selectionRow(title: String, subtitle: String?, isSelected: Bool) -> some View {
+        HStack(spacing: 12) {
+            VStack(alignment: .leading, spacing: 4) {
+                Text(title)
+                    .font(.system(size: 15, weight: .semibold))
+                    .foregroundStyle(Color(hex: 0x101828))
+                if let subtitle, !subtitle.isEmpty {
+                    Text(subtitle)
+                        .font(.caption)
+                        .foregroundStyle(.secondary)
                 }
             }
-            .navigationTitle("Select Client")
-            .navigationBarTitleDisplayMode(.inline)
+            Spacer()
+            if isSelected {
+                Image(systemName: "checkmark.circle.fill")
+                    .foregroundStyle(Color(hex: 0x0B61CA))
+            }
         }
-        .presentationDetents([.medium])
+        .padding(.vertical, 4)
     }
 
     private var ctaTitle: String {
@@ -829,6 +912,26 @@ private enum SiteVisitBookingSub: String, CaseIterable, Identifiable {
         case .charges: return "Charges Details"
         case .payment: return "Payment Details"
         case .staff: return "Payment & Staff"
+        }
+    }
+}
+
+private enum SiteVisitOutcomeStaffField: String, Identifiable {
+    case avp
+    case generalManager
+    case seniorManager
+    case bdo
+    case telecaller
+
+    var id: String { rawValue }
+
+    var title: String {
+        switch self {
+        case .avp: return "AVP"
+        case .generalManager: return "General Manager"
+        case .seniorManager: return "Senior Manager"
+        case .bdo: return "BDO"
+        case .telecaller: return "Telecaller"
         }
     }
 }

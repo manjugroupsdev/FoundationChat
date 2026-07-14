@@ -391,6 +391,32 @@ struct ConvexStaffListItem: Decodable, Identifiable, Equatable, Sendable, Hashab
 
     var id: String { _id }
 
+    private enum CodingKeys: String, CodingKey {
+        case _id
+        case id
+        case name
+        case phone
+        case role
+        case designation
+        case status
+        case employeeId
+        case department
+    }
+
+    init(from decoder: Decoder) throws {
+        let container = try decoder.container(keyedBy: CodingKeys.self)
+        _id = try container.decodeIfPresent(String.self, forKey: ._id)
+            ?? container.decodeIfPresent(String.self, forKey: .id)
+            ?? UUID().uuidString
+        name = try container.decodeIfPresent(String.self, forKey: .name)
+        phone = try container.decodeIfPresent(String.self, forKey: .phone)
+        role = try container.decodeIfPresent(String.self, forKey: .role)
+        designation = try container.decodeIfPresent(String.self, forKey: .designation)
+        status = try container.decodeIfPresent(String.self, forKey: .status)
+        employeeId = try container.decodeIfPresent(String.self, forKey: .employeeId)
+        department = try container.decodeIfPresent(String.self, forKey: .department)
+    }
+
     var displayName: String {
         let trimmed = name?.trimmingCharacters(in: .whitespacesAndNewlines)
         return (trimmed?.isEmpty == false ? trimmed : nil) ?? "Unnamed"

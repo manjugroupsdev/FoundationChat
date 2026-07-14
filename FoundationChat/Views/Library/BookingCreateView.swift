@@ -19,6 +19,7 @@ struct BookingCreateView: View {
     @State private var showProjectPicker = false
     @State private var showUnitPicker = false
     @State private var showLeadPicker = false
+    @State private var activeStaffPicker: DirectBookingStaffField?
     @State private var isSubmitting = false
     @State private var isSearchingLead = false
     @State private var errorMessage: String?
@@ -42,6 +43,13 @@ struct BookingCreateView: View {
         VStack(spacing: 0) {
             ScrollView {
                 VStack(alignment: .leading, spacing: 12) {
+                    Capsule()
+                        .fill(Color(hex: 0xD0D5DD))
+                        .frame(width: 38, height: 4)
+                        .frame(maxWidth: .infinity)
+                        .padding(.top, 8)
+                        .padding(.bottom, 6)
+
                     header
                     tabStrip
 
@@ -71,6 +79,7 @@ struct BookingCreateView: View {
         .background(Color.white.ignoresSafeArea())
         .navigationBarTitleDisplayMode(.inline)
         .navigationTitle("New Booking")
+        .toolbar(.hidden, for: .navigationBar)
         .task {
             restoreDraftIfNeeded()
             await loadInitialData()
@@ -82,6 +91,29 @@ struct BookingCreateView: View {
         .sheet(isPresented: $showProjectPicker) { projectPickerSheet }
         .sheet(isPresented: $showUnitPicker) { unitPickerSheet }
         .sheet(isPresented: $showLeadPicker) { leadPickerSheet }
+        .sheet(item: $activeStaffPicker) { field in
+            NativeSearchableSelectionSheet(
+                title: "Select \(field.title)",
+                prompt: "Search staff",
+                items: staff,
+                selectedId: staffSelection(for: field),
+                searchText: { item in
+                    [item.displayName, item.designation, item.role, item.employeeId, item.phone].compactMap(\.self).joined(separator: " ")
+                },
+                rowContent: { item, isSelected in
+                    selectionRow(
+                        title: item.displayName,
+                        subtitle: item.subtitle.isEmpty ? item.formattedPhone : item.subtitle,
+                        isSelected: isSelected
+                    )
+                },
+                onSelect: { item in
+                    setStaffSelection(item.id, for: field)
+                    activeStaffPicker = nil
+                }
+            )
+            .presentationDetents([.medium, .large])
+        }
         .alert("Booking", isPresented: Binding(
             get: { errorMessage != nil || successMessage != nil },
             set: { if !$0 { errorMessage = nil; successMessage = nil } }
@@ -113,42 +145,47 @@ struct BookingCreateView: View {
         HStack(alignment: .center) {
             VStack(alignment: .leading, spacing: 2) {
                 Text("New Booking")
-                    .font(.system(size: 20, weight: .bold))
+                    .font(.system(size: 17, weight: .bold))
                     .foregroundStyle(Color(hex: 0x101828))
                 Text("Booking form")
-                    .font(.system(size: 13, weight: .medium))
+                    .font(.system(size: 10.5, weight: .medium))
                     .foregroundStyle(Color(hex: 0x94A3B8))
             }
             Spacer()
             Button("Back") { dismiss() }
-                .buttonStyle(.bordered)
-                .controlSize(.regular)
+                .font(.system(size: 12, weight: .medium))
+                .foregroundStyle(Color(hex: 0x101828))
+                .padding(.horizontal, 16)
+                .frame(height: 32)
+                .background(Color.white, in: Capsule())
+                .overlay(Capsule().stroke(Color(hex: 0xEAECF0), lineWidth: 1))
             Button("Clear") { clearForm() }
-                .buttonStyle(.bordered)
-                .controlSize(.regular)
-                .tint(Color(hex: 0x2DAE12))
+                .font(.system(size: 12, weight: .medium))
+                .foregroundStyle(Color(hex: 0x20B40B))
+                .padding(.horizontal, 16)
+                .frame(height: 32)
+                .background(Color.white, in: Capsule())
+                .overlay(Capsule().stroke(Color(hex: 0x20B40B), lineWidth: 1))
         }
     }
 
     private var tabStrip: some View {
         ScrollView(.horizontal, showsIndicators: false) {
-            HStack(spacing: 10) {
+            HStack(spacing: 8) {
                 ForEach(DirectBookingTab.allCases) { tab in
-                    if selectedTab == tab {
-                        Button(tab.title) { selectedTab = tab }
-                            .font(.system(size: 13, weight: .semibold))
-                            .buttonStyle(.borderedProminent)
-                            .controlSize(.regular)
-                            .tint(Color(hex: 0x2DAE12))
-                    } else {
-                        Button(tab.title) { selectedTab = tab }
-                            .font(.system(size: 13, weight: .semibold))
-                            .buttonStyle(.bordered)
-                            .controlSize(.regular)
-                            .tint(Color(hex: 0x2DAE12))
-                    }
+                    Button(tab.title) { selectedTab = tab } 
+                        .font(.system(size: 12, weight: .semibold))
+                        .foregroundStyle(selectedTab == tab ? .white : Color(hex: 0x20B40B))
+                        .padding(.horizontal, 14)
+                        .frame(height: 32)
+                        .background(selectedTab == tab ? Color(hex: 0x20B40B) : Color.white, in: Capsule())
+                        .overlay(
+                            Capsule()
+                                .stroke(selectedTab == tab ? Color.clear : Color(hex: 0xDDEFE0), lineWidth: 1)
+                        )
                 }
             }
+            .padding(.vertical, 2)
         }
     }
 
@@ -197,19 +234,21 @@ struct BookingCreateView: View {
     private var tabBody: some View {
         switch selectedTab {
         case .client:
-            clientDetails
-        case .professional:
-            professionalDetails
-        case .office:
-            officeDetails
-        case .booking:
-            bookingDetails
-        case .charges:
-            chargesDetails
-        case .payment:
-            paymentDetails
-        case .staff:
-            staffDetails
+            VStack(alignment: .leading, spacing: 12) {
+                clientDetails
+                professionalDetails
+                officeDetails
+            }
+        case .bookingFinance:
+            VStack(alignment: .leading, spacing: 12) {
+                bookingDetails
+                chargesDetails
+            }
+        case .paymentStaff:
+            VStack(alignment: .leading, spacing: 12) {
+                paymentDetails
+                staffDetails
+            }
         }
     }
 
@@ -316,11 +355,11 @@ struct BookingCreateView: View {
 
     private var staffDetails: some View {
         VStack(alignment: .leading, spacing: 10) {
-            staffPicker("AVP", selection: $booking.originalAvpStaffId)
-            staffPicker("General Manager", selection: $booking.originalGmStaffId)
-            staffPicker("Senior Manager", selection: $booking.originalSeniorManagerStaffId)
-            staffPicker("BDO", selection: $booking.originalBdoStaffId)
-            staffPicker("Telecaller", selection: $booking.originalTelecallerStaffId)
+            staffPicker(.avp)
+            staffPicker(.generalManager)
+            staffPicker(.seniorManager)
+            staffPicker(.bdo)
+            staffPicker(.telecaller)
             DirectBookingTextField("Aadhar Details", text: $booking.aadhaar, placeholder: "Enter Details", icon: "doc", keyboard: .numberPad)
             DirectBookingTextField("Pancard Details", text: $booking.pan, placeholder: "Enter Details", icon: "doc")
             DirectBookingTextField("Reference Name 1", text: $booking.referenceName1, placeholder: "Enter Name", icon: "person")
@@ -392,76 +431,138 @@ struct BookingCreateView: View {
         }
     }
 
-    private func staffPicker(_ title: String, selection: Binding<String>) -> some View {
-        Menu {
-            Button("Clear") { selection.wrappedValue = "" }
-            ForEach(staff) { item in
-                Button(item.displayName) { selection.wrappedValue = item.id }
-            }
+    private func staffPicker(_ field: DirectBookingStaffField) -> some View {
+        Button {
+            activeStaffPicker = field
         } label: {
-            DirectBookingPickerShell(title: title, value: staff.first { $0.id == selection.wrappedValue }?.displayName ?? "Select", icon: "person")
+            DirectBookingPickerShell(
+                title: field.title,
+                value: staff.first { $0.id == staffSelection(for: field) }?.displayName ?? "Select",
+                icon: "person"
+            )
+        }
+        .buttonStyle(.plain)
+    }
+
+    private func staffSelection(for field: DirectBookingStaffField) -> String {
+        switch field {
+        case .avp: booking.originalAvpStaffId
+        case .generalManager: booking.originalGmStaffId
+        case .seniorManager: booking.originalSeniorManagerStaffId
+        case .bdo: booking.originalBdoStaffId
+        case .telecaller: booking.originalTelecallerStaffId
+        }
+    }
+
+    private func setStaffSelection(_ id: String, for field: DirectBookingStaffField) {
+        switch field {
+        case .avp: booking.originalAvpStaffId = id
+        case .generalManager: booking.originalGmStaffId = id
+        case .seniorManager: booking.originalSeniorManagerStaffId = id
+        case .bdo: booking.originalBdoStaffId = id
+        case .telecaller: booking.originalTelecallerStaffId = id
         }
     }
 
     private var projectPickerSheet: some View {
-        NavigationStack {
-            List(projects) { project in
-                Button(project.name ?? "Unnamed") {
-                    selectedProject = project
-                    booking.projectName = project.name ?? ""
-                    selectedUnit = nil
-                    booking.plotNo = ""
-                    showProjectPicker = false
-                }
+        NativeSearchableSelectionSheet(
+            title: "Select Project",
+            prompt: "Search projects",
+            items: projects,
+            selectedId: selectedProject?.id,
+            searchText: { project in
+                [project.name, project.location].compactMap(\.self).joined(separator: " ")
+            },
+            rowContent: { project, isSelected in
+                selectionRow(
+                    title: project.name ?? "Unnamed project",
+                    subtitle: project.location,
+                    isSelected: isSelected
+                )
+            },
+            onSelect: { project in
+                selectedProject = project
+                booking.projectName = project.name ?? ""
+                selectedUnit = nil
+                booking.plotNo = ""
+                showProjectPicker = false
             }
-            .navigationTitle("Select Project")
-        }
+        )
         .presentationDetents([.medium, .large])
     }
 
     private var unitPickerSheet: some View {
-        NavigationStack {
-            List(availableUnits) { unit in
-                Button {
-                    guard unit.status == "available" else {
-                        errorMessage = "Unit is no longer available"
-                        return
-                    }
-                    selectedUnit = unit
-                    booking.plotNo = unit.unitNumber ?? ""
-                    showUnitPicker = false
-                } label: {
-                    VStack(alignment: .leading, spacing: 4) {
-                        Text(unit.unitNumber ?? "Unit")
-                        Text(unit.status)
-                            .font(AppModuleFont.rowMeta)
-                            .foregroundStyle(.secondary)
-                    }
+        NativeSearchableSelectionSheet(
+            title: "Select Plot",
+            prompt: "Search plots",
+            items: availableUnits,
+            selectedId: selectedUnit?.id,
+            searchText: { unit in
+                [unit.unitNumber, unit.status].compactMap(\.self).joined(separator: " ")
+            },
+            rowContent: { unit, isSelected in
+                selectionRow(
+                    title: unit.unitNumber ?? "Unit",
+                    subtitle: unit.status,
+                    isSelected: isSelected
+                )
+            },
+            onSelect: { unit in
+                guard unit.status == "available" else {
+                    errorMessage = "Unit is no longer available"
+                    return
                 }
+                selectedUnit = unit
+                booking.plotNo = unit.unitNumber ?? ""
+                showUnitPicker = false
             }
-            .navigationTitle("Select Plot")
-        }
+        )
         .presentationDetents([.medium, .large])
     }
 
     private var leadPickerSheet: some View {
-        NavigationStack {
-            List(leadMatches) { lead in
-                Button {
-                    applyLead(lead)
-                    showLeadPicker = false
-                } label: {
-                    VStack(alignment: .leading, spacing: 4) {
-                        Text(lead.displayName)
-                        Text(lead.mobileNumber ?? "No phone")
-                            .font(AppModuleFont.rowMeta)
-                            .foregroundStyle(.secondary)
-                    }
+        NativeSearchableSelectionSheet(
+            title: "Select Linked Lead",
+            prompt: "Search leads",
+            items: leadMatches,
+            selectedId: selectedLead?.id,
+            searchText: { lead in
+                [lead.displayName, lead.mobileNumber].compactMap(\.self).joined(separator: " ")
+            },
+            rowContent: { lead, isSelected in
+                selectionRow(
+                    title: lead.displayName,
+                    subtitle: lead.mobileNumber ?? "No phone",
+                    isSelected: isSelected
+                )
+            },
+            onSelect: { lead in
+                applyLead(lead)
+                showLeadPicker = false
+            }
+        )
+        .presentationDetents([.medium])
+    }
+
+    private func selectionRow(title: String, subtitle: String?, isSelected: Bool) -> some View {
+        HStack(spacing: 12) {
+            VStack(alignment: .leading, spacing: 4) {
+                Text(title)
+                    .font(.system(size: 15, weight: .semibold))
+                    .foregroundStyle(Color(hex: 0x101828))
+                if let subtitle, !subtitle.isEmpty {
+                    Text(subtitle)
+                        .font(AppModuleFont.rowMeta)
+                        .foregroundStyle(.secondary)
                 }
             }
-            .navigationTitle("Select Linked Lead")
+            Spacer()
+            if isSelected {
+                Image(systemName: "checkmark.circle.fill")
+                    .foregroundStyle(Color(hex: 0x0B61CA))
+            }
         }
-        .presentationDetents([.medium])
+        .padding(.vertical, 4)
     }
 
     @MainActor
@@ -547,7 +648,7 @@ struct BookingCreateView: View {
         let mobile = AppModuleFormatters.normalizePhone(booking.phone)
         guard mobile.count == 10 else { errorMessage = "Client phone number is required"; selectedTab = .client; return }
         guard !booking.name.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else { errorMessage = "Client name is required"; selectedTab = .client; return }
-        guard booking.bookingDate.directBookingNilIfBlank != nil else { errorMessage = "Booking date is required"; selectedTab = .booking; return }
+        guard booking.bookingDate.directBookingNilIfBlank != nil else { errorMessage = "Booking date is required"; selectedTab = .bookingFinance; return }
         guard let token = authStore.currentSession?.token else { return }
 
         isSubmitting = true
@@ -638,23 +739,35 @@ struct BookingCreateView: View {
 
 private enum DirectBookingTab: String, CaseIterable, Identifiable {
     case client
-    case professional
-    case office
-    case booking
-    case charges
-    case payment
-    case staff
+    case bookingFinance
+    case paymentStaff
 
     var id: String { rawValue }
     var title: String {
         switch self {
         case .client: return "Client Details"
-        case .professional: return "Professional Details"
-        case .office: return "Office Details"
-        case .booking: return "Booking & Finance"
-        case .charges: return "Charges Details"
-        case .payment: return "Payment Details"
-        case .staff: return "Payment & Staff"
+        case .bookingFinance: return "Booking & Finance"
+        case .paymentStaff: return "Payment & Staff"
+        }
+    }
+}
+
+private enum DirectBookingStaffField: String, Identifiable {
+    case avp
+    case generalManager
+    case seniorManager
+    case bdo
+    case telecaller
+
+    var id: String { rawValue }
+
+    var title: String {
+        switch self {
+        case .avp: return "AVP"
+        case .generalManager: return "General Manager"
+        case .seniorManager: return "Senior Manager"
+        case .bdo: return "BDO"
+        case .telecaller: return "Telecaller"
         }
     }
 }

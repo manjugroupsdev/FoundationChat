@@ -1,4 +1,3 @@
-import PhotosUI
 import SwiftUI
 
 struct ProfileEditView: View {
@@ -10,7 +9,6 @@ struct ProfileEditView: View {
   @State private var phone = ""
   @State private var pendingPhotoData: Data?
   @State private var pendingPhotoRemoved = false
-  @State private var selectedItem: PhotosPickerItem?
   @State private var imageToCrop: UIImage?
   @State private var isLoadingPhoto = false
   @State private var isSaving = false
@@ -31,7 +29,9 @@ struct ProfileEditView: View {
         HStack {
           Spacer()
           VStack(spacing: 10) {
-            PhotosPicker(selection: $selectedItem, matching: .images) {
+            CameraFirstPhotoPicker(maxSelectionCount: 1, isDisabled: isLoadingPhoto || isSaving) { data in
+              await handlePhotoPick(data: data.first)
+            } label: {
               avatarView
                 .overlay(alignment: .bottomTrailing) {
                   Image(systemName: "camera.fill")
@@ -43,19 +43,18 @@ struct ProfileEditView: View {
                 }
             }
             .buttonStyle(.plain)
-            .disabled(isLoadingPhoto || isSaving)
 
             HStack(spacing: 16) {
-              PhotosPicker(selection: $selectedItem, matching: .images) {
+              CameraFirstPhotoPicker(maxSelectionCount: 1, isDisabled: isLoadingPhoto || isSaving) { data in
+                await handlePhotoPick(data: data.first)
+              } label: {
                 Text(pendingPhotoData == nil && remotePhotoURL == nil ? "Add Photo" : "Change Photo")
               }
-              .disabled(isLoadingPhoto || isSaving)
 
               if pendingPhotoData != nil || hasExistingRemotePhoto {
                 Button("Remove", role: .destructive) {
                   pendingPhotoData = nil
                   pendingPhotoRemoved = true
-                  selectedItem = nil
                 }
                 .disabled(isLoadingPhoto || isSaving)
               }
@@ -125,10 +124,6 @@ struct ProfileEditView: View {
     .onAppear(perform: hydrateFromSession)
     .task(id: authStore.viewer?.photo) {
       await loadRemoteAvatar()
-    }
-    .onChange(of: selectedItem) { _, item in
-      guard let item else { return }
-      Task { await handlePhotoPick(item: item) }
     }
     .sheet(isPresented: Binding(
       get: { imageToCrop != nil },
@@ -243,24 +238,20 @@ struct ProfileEditView: View {
 
   // MARK: - Photo
 
-  private func handlePhotoPick(item: PhotosPickerItem) async {
+  private func handlePhotoPick(data: Data?) async {
     isLoadingPhoto = true
     errorMessage = nil
     defer { isLoadingPhoto = false }
 
-    do {
-      guard let data = try await item.loadTransferable(type: Data.self) else {
-        errorMessage = "Could not read selected image."
-        return
-      }
-      guard let image = UIImage(data: data) else {
-        errorMessage = "Could not prepare selected image."
-        return
-      }
-      imageToCrop = image.normalizedForProfileCrop()
-    } catch {
-      errorMessage = error.localizedDescription
+    guard let data else {
+      errorMessage = "Could not read selected image."
+      return
     }
+    guard let image = UIImage(data: data) else {
+      errorMessage = "Could not prepare selected image."
+      return
+    }
+    imageToCrop = image.normalizedForProfileCrop()
   }
 
   // MARK: - Save

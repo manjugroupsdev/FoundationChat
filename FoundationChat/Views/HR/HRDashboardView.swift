@@ -33,7 +33,7 @@ struct HRDashboardView: View {
     @AppStorage("attendance.onDuty.tripId") private var onDutyTripId = ""
 
     private let timer = Timer.publish(every: 1, on: .main, in: .common).autoconnect()
-    private let attendancePanelTopOffset: CGFloat = 132
+    private let attendancePanelTopOffset: CGFloat = 116
 
     init(openRoute: HRDashboardRoute? = nil, onOpenRouteHandled: @escaping () -> Void = {}) {
         self.openRoute = openRoute

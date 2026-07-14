@@ -23,21 +23,25 @@ struct ChatLocationPayload: Equatable {
 
   init?(messageBody: String) {
     let trimmed = messageBody.trimmingCharacters(in: .whitespacesAndNewlines)
-    guard trimmed.hasPrefix("[LOCATION:"), trimmed.hasSuffix("]") else { return nil }
+    guard
+      let startRange = trimmed.range(of: "[LOCATION:"),
+      let endIndex = trimmed[startRange.upperBound...].firstIndex(of: "]")
+    else { return nil }
 
-    let start = trimmed.index(trimmed.startIndex, offsetBy: 10)
-    let end = trimmed.index(before: trimmed.endIndex)
-    let body = trimmed[start..<end]
+    let body = trimmed[startRange.upperBound..<endIndex]
     var values: [String: String] = [:]
 
-    for part in body.split(separator: ";") {
+    for part in body.split(whereSeparator: { $0 == ";" || $0 == "," }) {
       let pair = part.split(separator: "=", maxSplits: 1, omittingEmptySubsequences: false)
       guard pair.count == 2 else { continue }
-      values[String(pair[0]).trimmingCharacters(in: .whitespacesAndNewlines)] =
+      values[String(pair[0]).trimmingCharacters(in: .whitespacesAndNewlines).lowercased()] =
         String(pair[1]).trimmingCharacters(in: .whitespacesAndNewlines)
     }
 
-    guard let lat = Double(values["lat"] ?? ""), let lon = Double(values["lon"] ?? "") else {
+    guard
+      let lat = Double(values["lat"] ?? values["latitude"] ?? ""),
+      let lon = Double(values["lon"] ?? values["lng"] ?? values["longitude"] ?? "")
+    else {
       return nil
     }
 
@@ -46,7 +50,7 @@ struct ChatLocationPayload: Equatable {
     label = values["label"]?.isEmpty == false ? values["label"]! : "Current Location"
     battery = values["battery"].flatMap(Int.init)
     speed = values["speed"]
-    status = values["status"]
+    status = values["status"] ?? values["motion"]
   }
 
   var encodedBody: String {
@@ -224,11 +228,13 @@ struct ShareLocationSheet: View {
 struct ChatLocationCard: View {
   let payload: ChatLocationPayload
   let isOutgoing: Bool
-  @State private var showMap = false
+  @Environment(\.openURL) private var openURL
 
   var body: some View {
     Button {
-      showMap = true
+      if let url = payload.mapsURL {
+        openURL(url)
+      }
     } label: {
       VStack(alignment: .leading, spacing: 10) {
         Map(position: .constant(.region(MKCoordinateRegion(
@@ -238,28 +244,27 @@ struct ChatLocationCard: View {
           Marker(payload.label, coordinate: payload.coordinate)
         }
         .allowsHitTesting(false)
-        .frame(width: 230, height: 118)
+        .frame(width: 250, height: 138)
         .clipShape(RoundedRectangle(cornerRadius: 14, style: .continuous))
 
         HStack(spacing: 10) {
-          Image(systemName: "location.fill")
-            .font(.system(size: 15, weight: .semibold))
+          Image(systemName: "location.north.fill")
+            .font(.system(size: 18, weight: .semibold))
             .foregroundStyle(isOutgoing ? .white : Color(red: 0.05, green: 0.38, blue: 0.79))
+            .frame(width: 24)
           VStack(alignment: .leading, spacing: 2) {
             Text(payload.label)
-              .font(.system(size: 15, weight: .semibold))
+              .font(.system(size: 16, weight: .semibold))
               .foregroundStyle(isOutgoing ? .white : Color.black.opacity(0.9))
             Text(metaText)
-              .font(.system(size: 12, weight: .medium))
+              .font(.system(size: 13, weight: .medium))
               .foregroundStyle(isOutgoing ? .white.opacity(0.72) : .secondary)
           }
+          Spacer(minLength: 0)
         }
       }
     }
     .buttonStyle(.plain)
-    .sheet(isPresented: $showMap) {
-      ChatLocationMapSheet(payload: payload)
-    }
   }
 
   private var metaText: String {

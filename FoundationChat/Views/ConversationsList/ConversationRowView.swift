@@ -13,6 +13,9 @@ struct ConversationRowView: View {
     if let lastMessage = conversation.sortedMessages.last {
       let text = lastMessage.content.trimmingCharacters(in: .whitespacesAndNewlines)
       if !text.isEmpty {
+        if ChatLocationPayload(messageBody: text) != nil {
+          return "Current Location"
+        }
         return text
       }
       if lastMessage.attachementType == "image"
@@ -98,8 +101,8 @@ extension ConversationRowView {
   @ViewBuilder
   private var subtitleView: some View {
     HStack(spacing: 6) {
-      if subtitle.localizedCaseInsensitiveContains("location") {
-        Image(systemName: "mappin")
+      if subtitle == "Current Location" || subtitle.localizedCaseInsensitiveContains("[LOCATION:") {
+        Image(systemName: "location.fill")
           .font(.system(size: 15, weight: .semibold))
           .foregroundStyle(Color.black)
       } else if subtitle.localizedCaseInsensitiveContains("call") {

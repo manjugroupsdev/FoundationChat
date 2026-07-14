@@ -1,4 +1,3 @@
-import PhotosUI
 import SwiftUI
 #if canImport(UIKit)
 import UIKit
@@ -21,7 +20,6 @@ struct TaskUpdateSheet: View {
     @State private var isSubmitting = false
     @State private var isLoadingPhotos = false
     @State private var errorMessage: String?
-    @State private var selectedPhotoItems: [PhotosPickerItem] = []
     @State private var selectedPhotoData: [Data] = []
     @State private var showingDatePicker = false
     @State private var didSelectDate = false
@@ -75,9 +73,6 @@ struct TaskUpdateSheet: View {
             .padding(.bottom, 28)
         }
         .background(Color.white)
-        .onChange(of: selectedPhotoItems) { _, _ in
-            Task { await loadSelectedPhotos() }
-        }
         .onChange(of: progress) { _, value in
             progressText = "\(Int(value.rounded()))%"
             updateStatusFromProgress()
@@ -362,13 +357,17 @@ struct TaskUpdateSheet: View {
                     ForEach(Array(selectedPhotoData.enumerated()), id: \.offset) { index, data in
                         selectedPhotoThumbnail(data: data) {
                             selectedPhotoData.remove(at: index)
-                            if selectedPhotoItems.indices.contains(index) {
-                                selectedPhotoItems.remove(at: index)
-                            }
                         }
                     }
 
-                    PhotosPicker(selection: $selectedPhotoItems, maxSelectionCount: 6, matching: .images) {
+                    CameraFirstPhotoPicker(
+                        maxSelectionCount: max(1, 6 - selectedPhotoData.count),
+                        isDisabled: isSubmitting || isLoadingPhotos || selectedPhotoData.count >= 6
+                    ) { photos in
+                        isLoadingPhotos = true
+                        selectedPhotoData.append(contentsOf: photos.prefix(max(0, 6 - selectedPhotoData.count)))
+                        isLoadingPhotos = false
+                    } label: {
                         ZStack {
                             RoundedRectangle(cornerRadius: 18, style: .continuous)
                                 .fill(Color(hex: 0xF8FAFC))
@@ -387,7 +386,6 @@ struct TaskUpdateSheet: View {
                         .frame(width: 76, height: 76)
                     }
                     .buttonStyle(.plain)
-                    .disabled(isSubmitting || isLoadingPhotos)
                     .accessibilityLabel("Add photo")
                 }
             }
@@ -473,19 +471,6 @@ struct TaskUpdateSheet: View {
             .offset(x: 6, y: -6)
             .accessibilityLabel("Remove photo")
         }
-    }
-
-    private func loadSelectedPhotos() async {
-        isLoadingPhotos = true
-        defer { isLoadingPhotos = false }
-
-        var loaded: [Data] = []
-        for item in selectedPhotoItems {
-            if let data = try? await item.loadTransferable(type: Data.self), !data.isEmpty {
-                loaded.append(data)
-            }
-        }
-        selectedPhotoData = loaded
     }
 
     private func submit() {

@@ -13,6 +13,14 @@ enum TasksConvexAPIService {
         let error: String?
     }
 
+    private struct DailyTaskManagerResponse: Decodable {
+        let success: Bool
+        let tasks: [DailyTask]?
+        let teamIds: [String]?
+        let scope: String?
+        let error: String?
+    }
+
     private struct TaskSummaryResponse: Decodable {
         let success: Bool
         let summary: ConvexTaskSummary?
@@ -62,6 +70,23 @@ enum TasksConvexAPIService {
             throw HRConvexAPIError.server(wrapper.error ?? "Failed to load tasks")
         }
         return wrapper.tasks ?? []
+    }
+
+    static func getTaskManagerTasks(token: String, today: String? = nil) async throws -> DailyTaskManagerPayload {
+        var path = "/api/dailyTasks/listForTaskManager"
+        if let today, !today.isEmpty {
+            path += "?today=\(urlEncode(today))"
+        }
+        let data = try await get(path: path, token: token)
+        let wrapper = try JSONDecoder().decode(DailyTaskManagerResponse.self, from: data)
+        guard wrapper.success else {
+            throw HRConvexAPIError.server(wrapper.error ?? "Failed to load task manager")
+        }
+        return DailyTaskManagerPayload(
+            tasks: wrapper.tasks ?? [],
+            teamIds: Set(wrapper.teamIds ?? []),
+            scope: wrapper.scope
+        )
     }
 
     static func getMySummary(token: String) async throws -> ConvexTaskSummary {

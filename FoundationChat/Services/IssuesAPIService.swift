@@ -39,17 +39,22 @@ enum IssuesAPIService {
         token: String,
         projectId: String,
         title: String,
-        description: String?
+        description: String?,
+        audioStorageId: String? = nil,
+        audioFileName: String? = nil,
+        audioFileType: String? = nil,
+        audioFileSize: Int? = nil,
+        audioDurationSeconds: Int? = nil
     ) async throws {
         let request = CreateIssueRequest(
             projectId: projectId,
             title: title,
             description: description?.nonBlank,
-            audioStorageId: nil,
-            audioFileName: nil,
-            audioFileType: nil,
-            audioFileSize: nil,
-            audioDurationSeconds: nil
+            audioStorageId: audioStorageId,
+            audioFileName: audioFileName,
+            audioFileType: audioFileType,
+            audioFileSize: audioFileSize,
+            audioDurationSeconds: audioDurationSeconds
         )
         let data = try await post(path: "/api/projects/issues", token: token, body: request)
         let wrapper = try JSONDecoder().decode(CreateIssueResponse.self, from: data)
