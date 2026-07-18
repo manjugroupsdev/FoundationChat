@@ -50,15 +50,15 @@ struct LoansView: View {
             LoanRequestSheet {
                 await load()
             }
-            .presentationDetents([.large])
-            .presentationDragIndicator(.hidden)
+            .appLibraryNativeSheet([.height(720), .large])
+            .presentationBackground(Color.white)
         }
         .sheet(isPresented: $showingSalaryAdvance) {
             SalaryAdvanceRequestSheet {
                 await load()
             }
-            .presentationDetents([.medium])
-            .presentationDragIndicator(.hidden)
+            .appLibraryNativeSheet([.height(520), .large])
+            .presentationBackground(Color.white)
         }
         .alert("Couldn't load loans", isPresented: Binding(
             get: { errorMessage != nil && active.isEmpty && previous.isEmpty && hasLoaded },
@@ -650,13 +650,6 @@ private struct LoanNomineePickerSheet: View {
 
     var body: some View {
         VStack(alignment: .leading, spacing: 0) {
-            Capsule()
-                .fill(Color(hex: 0xD0D5DD))
-                .frame(width: 52, height: 5)
-                .frame(maxWidth: .infinity)
-                .padding(.top, 8)
-                .padding(.bottom, 16)
-
             HStack {
                 VStack(alignment: .leading, spacing: 3) {
                     Text(title)
@@ -805,20 +798,15 @@ private struct LoanRequestSheet: View {
 
             ScrollView(showsIndicators: false) {
                 VStack(alignment: .leading, spacing: 0) {
-                    Capsule()
-                        .fill(Color(hex: 0xD9D9D9))
-                        .frame(width: 52, height: 5)
-                        .frame(maxWidth: .infinity)
-                        .padding(.top, 8)
-                        .padding(.bottom, 16)
-
                     Text("Request Loan")
-                        .font(.system(size: 16, weight: .semibold))
-                        .foregroundStyle(Color(hex: 0x101828))
+                        .font(.system(size: 18, weight: .bold))
+                        .foregroundStyle(Color(hex: 0x0F172A))
+                        .frame(maxWidth: .infinity)
+                        .padding(.top, 16)
+                        .padding(.bottom, 10)
                     Text("Information about Loans")
-                        .font(.system(size: 12, weight: .regular))
+                        .font(.system(size: 13, weight: .medium))
                         .foregroundStyle(Color(hex: 0x667085))
-                        .padding(.top, 2)
                         .padding(.bottom, 16)
 
                     nomineeMenuField(title: "Nominee 1 *", selection: $selectedNominee1)
@@ -878,8 +866,8 @@ private struct LoanRequestSheet: View {
                             .padding(.top, 4)
                     }
                 }
-                .padding(.horizontal, 16)
-                .padding(.bottom, 90)
+                .padding(.horizontal, 20)
+                .padding(.bottom, 104)
             }
 
             VStack(spacing: 0) {
@@ -919,16 +907,14 @@ private struct LoanRequestSheet: View {
                 setNominee(item, for: target)
                 nomineePickerTarget = nil
             }
-            .presentationDetents([.height(520), .large])
-            .presentationDragIndicator(.hidden)
+            .appLibraryNativeSheet([.height(520), .large])
         }
         .sheet(item: $datePickerTarget) { target in
             LoanDatePickerSheet(
                 title: target.title,
                 selection: dateBinding(for: target)
             )
-            .presentationDetents([.height(360)])
-            .presentationDragIndicator(.hidden)
+            .appLibraryNativeSheet([.height(360)])
         }
     }
 
@@ -1045,12 +1031,6 @@ private struct LoanDatePickerSheet: View {
 
     var body: some View {
         VStack(spacing: 0) {
-            Capsule()
-                .fill(Color(hex: 0xD0D5DD))
-                .frame(width: 52, height: 5)
-                .padding(.top, 8)
-                .padding(.bottom, 18)
-
             HStack {
                 VStack(alignment: .leading, spacing: 3) {
                     Text(title)
@@ -1068,6 +1048,7 @@ private struct LoanDatePickerSheet: View {
                 .foregroundStyle(Color(hex: 0x0B61CA))
             }
             .padding(.horizontal, 18)
+            .padding(.top, 24)
             .padding(.bottom, 8)
 
             DatePicker("", selection: $selection, displayedComponents: .date)
@@ -1248,36 +1229,34 @@ private struct SalaryAdvanceRequestSheet: View {
         ZStack(alignment: .bottom) {
             Color.white.ignoresSafeArea()
 
-            VStack(alignment: .leading, spacing: 0) {
-                Capsule()
-                    .fill(Color(hex: 0xD9D9D9))
-                    .frame(width: 52, height: 5)
-                    .frame(maxWidth: .infinity)
-                    .padding(.top, 8)
-                    .padding(.bottom, 16)
+            ScrollView(showsIndicators: false) {
+                VStack(alignment: .leading, spacing: 0) {
+                    Text("Request Advance")
+                        .font(.system(size: 18, weight: .bold))
+                        .foregroundStyle(Color(hex: 0x0F172A))
+                        .frame(maxWidth: .infinity)
+                        .padding(.top, 16)
+                        .padding(.bottom, 10)
+                    Text("Information about Salary Advance")
+                        .font(.system(size: 13, weight: .medium))
+                        .foregroundStyle(Color(hex: 0x667085))
+                        .padding(.bottom, 16)
 
-                Text("Request Advance")
-                    .font(.system(size: 16, weight: .semibold))
-                    .foregroundStyle(Color(hex: 0x101828))
-                Text("Information about Salary Advance")
-                    .font(.system(size: 12, weight: .regular))
-                    .foregroundStyle(Color(hex: 0x667085))
-                    .padding(.top, 2)
-                    .padding(.bottom, 16)
+                    advanceInput(title: "Amount *", placeholder: "Enter Amount", icon: "indianrupeesign.circle", text: $amount, keyboard: .decimalPad)
+                    advanceInput(title: "Purpose", placeholder: "Enter Details", icon: "doc.text", text: $purpose, keyboard: .default, minHeight: 80, axis: .vertical)
 
-                advanceInput(title: "Amount *", placeholder: "Enter Amount", icon: "indianrupeesign.circle", text: $amount, keyboard: .decimalPad)
-                advanceInput(title: "Purpose", placeholder: "Enter Details", icon: "doc.text", text: $purpose, keyboard: .default, minHeight: 80, axis: .vertical)
+                    if let errorMessage {
+                        Text(errorMessage)
+                            .font(.system(size: 12, weight: .medium))
+                            .foregroundStyle(Color(hex: 0xB42318))
+                            .padding(.top, 4)
+                    }
 
-                if let errorMessage {
-                    Text(errorMessage)
-                        .font(.system(size: 12, weight: .medium))
-                        .foregroundStyle(Color(hex: 0xB42318))
-                        .padding(.top, 4)
+                    Spacer(minLength: 90)
                 }
-
-                Spacer(minLength: 90)
+                .padding(.horizontal, 20)
+                .padding(.bottom, 104)
             }
-            .padding(.horizontal, 16)
 
             VStack(spacing: 0) {
                 Divider()

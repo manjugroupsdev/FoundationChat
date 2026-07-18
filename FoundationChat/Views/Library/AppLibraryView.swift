@@ -301,7 +301,7 @@ private struct LibraryIconView: View {
 }
 
 private enum AppLibraryFilter: String, CaseIterable, Identifiable {
-    case all, taskManager, hr, marketing, project, land, fleet, sales, accounts, frontDesk, settings
+    case all, taskManager, hr, marketing, project, land, sales, accounts, frontDesk, settings
 
     var id: String { rawValue }
 
@@ -313,7 +313,6 @@ private enum AppLibraryFilter: String, CaseIterable, Identifiable {
         case .marketing: return "Marketing"
         case .project: return "Project"
         case .land: return "Land"
-        case .fleet: return "Fleet"
         case .sales: return "Post Sales"
         case .accounts: return "Accounts"
         case .frontDesk: return "Front Desk"
@@ -329,7 +328,6 @@ private enum AppLibraryFilter: String, CaseIterable, Identifiable {
         case .marketing: return "AppLibraryIconAppsPillMarketing"
         case .project: return "AppLibraryIconAppsPillProject"
         case .land: return "AppLibraryIconAppsPillProject"
-        case .fleet: return "AppLibraryIconAppsPillAll"
         case .sales: return "AppLibraryIconAppsPillMarketing"
         case .accounts: return "AppLibraryIconAppsPillSettings"
         case .frontDesk: return "AppLibraryIconAppsPillSettings"
@@ -345,7 +343,6 @@ private enum AppLibraryFilter: String, CaseIterable, Identifiable {
         case .marketing: return "megaphone"
         case .project: return "folder"
         case .land: return "map"
-        case .fleet: return "car"
         case .sales: return "creditcard"
         case .accounts: return "checkmark.seal"
         case .frontDesk: return "qrcode.viewfinder"
@@ -361,7 +358,6 @@ private enum AppLibraryFilter: String, CaseIterable, Identifiable {
         case .marketing: return "megaphone.fill"
         case .project: return "folder.fill"
         case .land: return "map.fill"
-        case .fleet: return "car.fill"
         case .sales: return "creditcard.fill"
         case .accounts: return "checkmark.seal.fill"
         case .frontDesk: return "qrcode.viewfinder"
@@ -449,6 +445,16 @@ private struct AppLibrarySection: Identifiable {
             canAny(["tasks.view", "tasks.viewAll", "tasks.create"])
                 ? .init(title: "Tasks", icon: "AppLibraryIconAppsTasks", destination: .projectTasks)
                 : nil,
+            canAny(["projects.view"])
+                ? .init(
+                    title: "Daily Log",
+                    icon: "sf:doc.text.magnifyingglass",
+                    destination: .dailyLog,
+                    systemIcon: "doc.text.magnifyingglass",
+                    iconTint: Color(hex: 0x16A34A),
+                    iconBackground: Color(hex: 0xDCFCE7)
+                )
+                : nil,
             canAny(["tasks.view", "tasks.viewAll", "tasks.create"])
                 ? .init(
                     title: "Issues",
@@ -490,19 +496,6 @@ private struct AppLibrarySection: Identifiable {
                     systemIcon: "questionmark.bubble",
                     iconTint: Color(hex: 0xE401B3),
                     iconBackground: Color(hex: 0xFFE8FC)
-                )
-                : nil
-        ].compactMap(\.self)
-
-        let fleetItems: [AppLibraryItem] = [
-            (authStore.currentSession?.user.isFleetDriverMode == true || canAny(["marketing.siteVisits.view", "fleet.view"]))
-                ? .init(
-                    title: "My Trips",
-                    icon: "sf:car.fill",
-                    destination: .fleetMyTrips,
-                    systemIcon: "car.fill",
-                    iconTint: Color(hex: 0x00838F),
-                    iconBackground: Color(hex: 0xE0F7FA)
                 )
                 : nil
         ].compactMap(\.self)
@@ -586,7 +579,7 @@ private struct AppLibrarySection: Identifiable {
                 id: "project",
                 filter: .project,
                 title: "Project Management",
-                subtitle: "Tasks • Issues • Expenses",
+                subtitle: "Tasks • Daily Log • Issues • Expenses",
                 icon: "AppLibraryIconAppsCatPm",
                 systemIcon: "folder.badge.gearshape",
                 iconTint: Color(hex: 0x16A34A),
@@ -603,17 +596,6 @@ private struct AppLibrarySection: Identifiable {
                 iconTint: Color(hex: 0xE401B3),
                 iconBackground: Color(hex: 0xFFE8FC),
                 items: landItems
-            ),
-            .init(
-                id: "fleet",
-                filter: .fleet,
-                title: "Fleet Management",
-                subtitle: "Fleets • My Trips",
-                icon: "AppLibraryIconAppsCatPm",
-                systemIcon: "car.fill",
-                iconTint: Color(hex: 0x00838F),
-                iconBackground: Color(hex: 0xE0F7FA),
-                items: fleetItems
             ),
             .init(
                 id: "sales",
@@ -686,6 +668,7 @@ private enum AppLibraryDestination: String {
     case bookings
     case taskManager
     case projectTasks
+    case dailyLog
     case issues
     case expenses
     case landInspection
@@ -727,6 +710,8 @@ private enum AppLibraryDestination: String {
                 TasksListView()
             case .projectTasks:
                 ProjectTasksView()
+            case .dailyLog:
+                ProjectDailyLogView()
             case .issues:
                 IssuesView()
             case .expenses:

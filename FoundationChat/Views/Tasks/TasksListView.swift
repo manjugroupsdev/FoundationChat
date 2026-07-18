@@ -6,6 +6,7 @@ struct TasksListView: View {
     @State private var tasks: [DailyTask] = []
     @State private var teamIds: Set<String> = []
     @State private var scope: String?
+    @State private var selectedTaskScope: DailyTaskScopeFilter = .teamTasks
     @State private var statusFilter: DailyTaskStatusFilter = .all
     @State private var categoryFilter = "All"
     @State private var isLoading = false
@@ -23,13 +24,29 @@ struct TasksListView: View {
         DailyTaskMetrics(tasks: tasks, teamIds: teamIds, scope: scope, staffId: currentStaffId, todayString: todayString)
     }
 
+    private var scopedTasks: [DailyTask] {
+        tasks.filter {
+            selectedTaskScope.matches(
+                $0,
+                teamIds: teamIds,
+                scope: scope,
+                staffId: currentStaffId,
+                todayString: todayString
+            )
+        }
+    }
+
+    private var scopedMetrics: DailyTaskMetrics {
+        DailyTaskMetrics(tasks: scopedTasks, teamIds: teamIds, scope: scope, staffId: currentStaffId, todayString: todayString)
+    }
+
     private var categories: [String] {
-        let modules = Set(tasks.map(moduleLabel(for:))).sorted()
+        let modules = Set(scopedTasks.map(moduleLabel(for:))).sorted()
         return ["All"] + modules
     }
 
     private var visibleTasks: [DailyTask] {
-        tasks
+        scopedTasks
             .filter { statusFilter.matches($0, todayString: todayString) }
             .filter { categoryFilter == "All" || moduleLabel(for: $0) == categoryFilter }
     }
@@ -43,7 +60,7 @@ struct TasksListView: View {
                     ForEach(DailyTaskStatusFilter.allCases) { filter in
                         TaskManagerChip(
                             title: filter.title,
-                            count: metrics.count(for: filter),
+                            count: scopedMetrics.count(for: filter),
                             isSelected: statusFilter == filter
                         ) {
                             withAnimation(.easeInOut(duration: 0.18)) {
@@ -97,11 +114,20 @@ struct TasksListView: View {
     private var metricsRow: some View {
         ScrollView(.horizontal, showsIndicators: false) {
             HStack(spacing: 8) {
-                TaskMetricCard(title: "My Tasks", value: metrics.myTasks)
-                TaskMetricCard(title: "My Team Tasks", value: metrics.teamTasks)
-                TaskMetricCard(title: "Assigned By Me", value: metrics.assignedByMe)
-                TaskMetricCard(title: "Extension Requests", value: metrics.extensionRequests)
-                TaskMetricCard(title: "Overdue", value: metrics.overdue)
+                ForEach(DailyTaskScopeFilter.allCases) { filter in
+                    TaskMetricCard(
+                        title: filter.title,
+                        value: filter.count(in: metrics),
+                        isSelected: selectedTaskScope == filter,
+                        isDanger: filter == .overdue
+                    ) {
+                        withAnimation(.easeInOut(duration: 0.18)) {
+                            selectedTaskScope = filter
+                            statusFilter = .all
+                            categoryFilter = "All"
+                        }
+                    }
+                }
             }
             .padding(.vertical, 2)
         }
@@ -317,30 +343,93 @@ private enum DailyTaskStatusFilter: String, CaseIterable, Identifiable {
     }
 }
 
+private enum DailyTaskScopeFilter: String, CaseIterable, Identifiable {
+    case myTasks
+    case teamTasks
+    case assignedByMe
+    case extensionRequests
+    case overdue
+
+    var id: String { rawValue }
+
+    var title: String {
+        switch self {
+        case .myTasks: return "My Tasks"
+        case .teamTasks: return "My Team Tasks"
+        case .assignedByMe: return "Assigned By Me"
+        case .extensionRequests: return "Extension Requests"
+        case .overdue: return "Overdue"
+        }
+    }
+
+    func count(in metrics: DailyTaskMetrics) -> Int {
+        switch self {
+        case .myTasks: return metrics.myTasks
+        case .teamTasks: return metrics.teamTasks
+        case .assignedByMe: return metrics.assignedByMe
+        case .extensionRequests: return metrics.extensionRequests
+        case .overdue: return metrics.overdue
+        }
+    }
+
+    func matches(
+        _ task: DailyTask,
+        teamIds: Set<String>,
+        scope: String?,
+        staffId: String?,
+        todayString: String
+    ) -> Bool {
+        switch self {
+        case .myTasks:
+            guard let staffId else { return false }
+            return task.assignedTo == staffId
+        case .teamTasks:
+            return scope == "all" || task.assignedTo.map(teamIds.contains) == true
+        case .assignedByMe:
+            guard let staffId else { return false }
+            return task.assignedBy == staffId
+        case .extensionRequests:
+            return task.pendingExtensionRequest == true
+        case .overdue:
+            return DailyTaskStatusFilter.isOverdue(task, todayString: todayString)
+        }
+    }
+}
+
 private struct TaskMetricCard: View {
     let title: String
     let value: Int
+    let isSelected: Bool
+    let isDanger: Bool
+    let action: () -> Void
 
     var body: some View {
-        VStack(alignment: .leading, spacing: 8) {
-            Text(title)
-                .font(.system(size: 11, weight: .medium))
-                .foregroundStyle(Color(hex: 0x475467))
-                .lineLimit(1)
+        Button(action: action) {
+            VStack(alignment: .leading, spacing: 8) {
+                Text(title)
+                    .font(.system(size: 11, weight: .medium))
+                    .foregroundStyle(isSelected ? Color(hex: 0x0B61CA) : Color(hex: 0x475467))
+                    .lineLimit(1)
 
-            Text("\(value)")
-                .font(.system(size: 22, weight: .bold))
-                .foregroundStyle(Color(hex: 0x101828))
-                .monospacedDigit()
+                Text("\(value)")
+                    .font(.system(size: 22, weight: .bold))
+                    .foregroundStyle(isDanger ? Color(hex: 0xDC2626) : Color(hex: 0x101828))
+                    .monospacedDigit()
+            }
+            .frame(width: 112, alignment: .leading)
+            .padding(.horizontal, 12)
+            .padding(.vertical, 12)
+            .background(
+                isSelected ? Color(hex: 0xEFF6FF) : Color.white,
+                in: RoundedRectangle(cornerRadius: 12, style: .continuous)
+            )
+            .overlay {
+                RoundedRectangle(cornerRadius: 12, style: .continuous)
+                    .stroke(isSelected ? Color(hex: 0x0B61CA) : Color(hex: 0xE5E7EB), lineWidth: isSelected ? 1.4 : 1)
+            }
+            .contentShape(RoundedRectangle(cornerRadius: 12, style: .continuous))
         }
-        .frame(width: 112, alignment: .leading)
-        .padding(.horizontal, 12)
-        .padding(.vertical, 12)
-        .background(Color.white, in: RoundedRectangle(cornerRadius: 12, style: .continuous))
-        .overlay {
-            RoundedRectangle(cornerRadius: 12, style: .continuous)
-                .stroke(Color(hex: 0xE5E7EB), lineWidth: 1)
-        }
+        .buttonStyle(.plain)
     }
 }
 

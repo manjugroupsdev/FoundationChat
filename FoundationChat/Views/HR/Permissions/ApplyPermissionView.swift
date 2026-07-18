@@ -24,12 +24,6 @@ struct ApplyPermissionView: View {
 
             ScrollView(showsIndicators: false) {
                 VStack(alignment: .leading, spacing: 0) {
-                    Capsule()
-                        .fill(Color(hex: 0xCBD0D8))
-                        .frame(width: 40, height: 4)
-                        .frame(maxWidth: .infinity)
-                        .padding(.bottom, 14)
-
                     Text("Fill Permission Summary")
                         .font(.system(size: 18, weight: .bold))
                         .foregroundStyle(Color(hex: 0x101828))
@@ -227,22 +221,6 @@ struct ApplyPermissionView: View {
         onDone: @escaping () -> Void
     ) -> some View {
         VStack(alignment: .leading, spacing: 0) {
-            Capsule()
-                .fill(Color(hex: 0xCBD0D8))
-                .frame(width: 40, height: 4)
-                .frame(maxWidth: .infinity)
-                .padding(.top, 16)
-                .padding(.bottom, 14)
-                .contentShape(Rectangle())
-                .gesture(
-                    DragGesture(minimumDistance: 12)
-                        .onEnded { value in
-                            if value.translation.height > 32 {
-                                closePickerOverlay()
-                            }
-                        }
-                )
-
             Text(title)
                 .font(.system(size: 22, weight: .bold))
                 .foregroundStyle(Color(hex: 0x101828))

@@ -119,8 +119,7 @@ struct ConvexPermissionListView: View {
             ApplyPermissionView {
                 loadData()
             }
-            .presentationDetents([.height(590), .large])
-            .presentationDragIndicator(.hidden)
+            .appLibraryNativeSheet([.height(590), .large])
         }
         .alert("Error", isPresented: .constant(errorMessage != nil), actions: {
             Button("OK") { errorMessage = nil }

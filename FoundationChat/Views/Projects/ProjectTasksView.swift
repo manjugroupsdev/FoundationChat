@@ -9,6 +9,9 @@ struct ProjectTasksView: View {
     @State private var isLoading = false
     @State private var errorMessage: String?
 
+    private let headerHeight: CGFloat = 208
+    private let panelOverlap: CGFloat = 28
+
     private var visibleTasks: [ConvexTask] {
         let query = searchText.trimmingCharacters(in: .whitespacesAndNewlines).lowercased()
         return tasks
@@ -26,23 +29,44 @@ struct ProjectTasksView: View {
         ZStack(alignment: .top) {
             Color(hex: 0xF1F3F8).ignoresSafeArea()
 
-            VStack(spacing: 0) {
-                header
+            headerTopFill
 
-                content
-                    .offset(y: -28)
-                    .padding(.bottom, -28)
+            header
+
+            GeometryReader { proxy in
+                ScrollView(showsIndicators: false) {
+                    VStack(spacing: 0) {
+                        Color.clear
+                            .frame(height: headerHeight - panelOverlap)
+
+                        content
+                            .frame(
+                                minHeight: max(proxy.size.height - (headerHeight - panelOverlap), 0),
+                                alignment: .top
+                            )
+                            .background(Color.white)
+                            .clipShape(.rect(topLeadingRadius: 32, topTrailingRadius: 32))
+                    }
+                }
+                .refreshable { await loadTasks() }
+                .ignoresSafeArea(edges: .top)
             }
         }
         .toolbar(.hidden, for: .navigationBar)
         .toolbar(.hidden, for: .tabBar)
         .task { await loadTasks() }
-        .refreshable { await loadTasks() }
         .alert("Tasks", isPresented: errorAlertBinding, actions: {
             Button("OK", role: .cancel) { errorMessage = nil }
         }, message: {
             Text(errorMessage ?? "")
         })
+    }
+
+    private var headerTopFill: some View {
+        Color(hex: 0x0B61CA)
+            .frame(height: headerHeight)
+            .frame(maxWidth: .infinity, alignment: .top)
+            .ignoresSafeArea(edges: .top)
     }
 
     private var header: some View {
@@ -52,57 +76,55 @@ struct ProjectTasksView: View {
                 startPoint: .topLeading,
                 endPoint: .bottomTrailing
             )
-            .frame(height: 242)
+            .frame(height: headerHeight)
             .ignoresSafeArea(edges: .top)
 
             HStack(alignment: .center, spacing: 18) {
                 VStack(alignment: .leading, spacing: 8) {
                     Text("My Tasks")
-                        .font(.system(size: 26, weight: .bold))
+                        .font(.system(size: 28, weight: .bold))
                         .foregroundStyle(.white)
 
                     Text("Manage and track all tasks")
-                        .font(.system(size: 14, weight: .semibold))
-                        .foregroundStyle(.white.opacity(0.82))
+                        .font(.system(size: 16, weight: .medium))
+                        .foregroundStyle(Color(hex: 0xD9D6FE))
+                        .lineLimit(1)
+                        .minimumScaleFactor(0.86)
                 }
                 .frame(maxWidth: .infinity, alignment: .leading)
 
-                Image("onboard_todays_tasks")
+                Image("TasksHeader3D")
                     .resizable()
                     .scaledToFit()
-                    .frame(width: 138, height: 104)
-                    .offset(y: 3)
+                    .frame(width: 152, height: 104)
+                    .offset(x: 8, y: -5)
                     .accessibilityHidden(true)
             }
-            .padding(.horizontal, 28)
-            .padding(.top, 82)
+            .padding(.leading, 28)
+            .padding(.trailing, 16)
+            .padding(.top, 76)
         }
-        .frame(height: 242)
+        .frame(height: headerHeight)
+        .frame(maxHeight: .infinity, alignment: .top)
+        .ignoresSafeArea(edges: .top)
     }
 
     private var content: some View {
         VStack(spacing: 0) {
-            VStack(spacing: 20) {
-                searchBar
-                    .padding(.top, 26)
+            searchBar
+                .padding(.horizontal, 20)
+                .padding(.top, 20)
 
-                filterStrip
-            }
-            .padding(.horizontal, 20)
-            .padding(.bottom, 22)
-            .background(
-                UnevenRoundedRectangle(
-                    topLeadingRadius: 28,
-                    bottomLeadingRadius: 0,
-                    bottomTrailingRadius: 0,
-                    topTrailingRadius: 28,
-                    style: .continuous
-                )
-                .fill(Color.white)
-            )
+            filterStrip
+                .padding(.top, 12)
+                .padding(.bottom, 10)
 
             taskContent
+                .frame(maxWidth: .infinity)
         }
+        .frame(maxWidth: .infinity, alignment: .top)
+        .background(Color.white)
+        .clipShape(.rect(topLeadingRadius: 32, topTrailingRadius: 32))
     }
 
     private var searchBar: some View {
@@ -114,11 +136,11 @@ struct ProjectTasksView: View {
                 .autocorrectionDisabled()
 
             Image(systemName: "magnifyingglass")
-                .font(.system(size: 21, weight: .semibold))
+                .font(.system(size: 20, weight: .medium))
                 .foregroundStyle(Color(hex: 0x667085))
         }
         .padding(.horizontal, 16)
-        .frame(height: 54)
+        .frame(height: 44)
         .background(Color.white, in: RoundedRectangle(cornerRadius: 14, style: .continuous))
         .overlay(
             RoundedRectangle(cornerRadius: 14, style: .continuous)
@@ -128,7 +150,7 @@ struct ProjectTasksView: View {
 
     private var filterStrip: some View {
         ScrollView(.horizontal, showsIndicators: false) {
-            HStack(spacing: 28) {
+            HStack(spacing: 8) {
                 ForEach(TaskListFilter.allCases) { filter in
                     Button {
                         withAnimation(.easeInOut(duration: 0.18)) {
@@ -137,19 +159,17 @@ struct ProjectTasksView: View {
                     } label: {
                         Text(filter.label)
                             .font(.system(size: 14, weight: selectedFilter == filter ? .semibold : .medium))
-                            .foregroundStyle(selectedFilter == filter ? .white : Color(hex: 0x344054))
-                            .padding(.horizontal, selectedFilter == filter ? 18 : 0)
-                            .frame(height: 38)
-                            .background {
-                                if selectedFilter == filter {
-                                    Capsule().fill(Color(hex: 0x0B6ED8))
-                                }
-                            }
+                            .foregroundStyle(selectedFilter == filter ? .white : Color(hex: 0x475467))
+                            .lineLimit(1)
+                            .fixedSize(horizontal: true, vertical: false)
+                            .padding(.horizontal, 14)
+                            .frame(height: 34)
+                            .background(selectedFilter == filter ? Color(hex: 0x0B61CA) : Color(hex: 0xF2F4F7), in: Capsule())
                     }
                     .buttonStyle(.plain)
                 }
             }
-            .padding(.horizontal, 2)
+            .padding(.horizontal, 20)
         }
     }
 
@@ -167,24 +187,23 @@ struct ProjectTasksView: View {
             ProjectTasksEmptyState()
                 .frame(maxWidth: .infinity)
                 .padding(.top, 112)
+                .padding(.bottom, 180)
         } else {
-            ScrollView(showsIndicators: false) {
-                LazyVStack(spacing: 12) {
-                    ForEach(visibleTasks) { task in
-                        NavigationLink {
-                            TaskDetailView(taskId: task.id, initial: task) {
-                                await loadTasks()
-                            }
-                        } label: {
-                            ProjectTaskCard(task: task)
+            LazyVStack(spacing: 12) {
+                ForEach(visibleTasks) { task in
+                    NavigationLink {
+                        TaskDetailView(taskId: task.id, initial: task) {
+                            await loadTasks()
                         }
-                        .buttonStyle(.plain)
+                    } label: {
+                        ProjectTaskCard(task: task)
                     }
+                    .buttonStyle(.plain)
                 }
-                .padding(.horizontal, 20)
-                .padding(.top, 16)
-                .padding(.bottom, 32)
             }
+            .padding(.horizontal, 20)
+            .padding(.top, 16)
+            .padding(.bottom, 28)
         }
     }
 
@@ -215,7 +234,7 @@ private struct ProjectTaskCard: View {
     let task: ConvexTask
 
     var body: some View {
-        VStack(alignment: .leading, spacing: 14) {
+        VStack(alignment: .leading, spacing: 16) {
             HStack(alignment: .top, spacing: 12) {
                 icon
 
@@ -245,13 +264,13 @@ private struct ProjectTaskCard: View {
 
             VStack(alignment: .trailing, spacing: 5) {
                 Text("\(task.displayProgress)%")
-                    .font(.system(size: 12, weight: .medium))
+                    .font(.system(size: 13, weight: .medium))
                     .foregroundStyle(Color(hex: 0x344054))
                     .frame(maxWidth: .infinity, alignment: .trailing)
 
                 GeometryReader { proxy in
                     ZStack(alignment: .leading) {
-                        Capsule().fill(Color(hex: 0xE5E7EB))
+                        Capsule().fill(Color(hex: 0xE7EAF0))
                         Capsule()
                             .fill(Color(hex: 0x0B6ED8))
                             .frame(width: proxy.size.width * CGFloat(task.displayProgress) / 100)
@@ -273,8 +292,13 @@ private struct ProjectTaskCard: View {
             }
         }
         .padding(16)
-        .background(Color.white, in: RoundedRectangle(cornerRadius: 10, style: .continuous))
-        .shadow(color: Color.black.opacity(0.03), radius: 8, x: 0, y: 3)
+        .frame(maxWidth: .infinity, minHeight: 150, alignment: .topLeading)
+        .background(Color.white, in: RoundedRectangle(cornerRadius: 18, style: .continuous))
+        .overlay {
+            RoundedRectangle(cornerRadius: 18, style: .continuous)
+                .stroke(Color(hex: 0xEEF2F7), lineWidth: 1)
+        }
+        .shadow(color: Color.black.opacity(0.05), radius: 14, x: 0, y: 6)
     }
 
     private var icon: some View {
@@ -329,23 +353,23 @@ private struct ProjectTaskCard: View {
 
 private struct ProjectTasksEmptyState: View {
     var body: some View {
-        VStack(spacing: 16) {
-            Image("PermissionEmptyState")
+        VStack(spacing: 14) {
+            Image("HomeEmptyTrips")
                 .resizable()
                 .scaledToFit()
-                .frame(width: 170, height: 150)
+                .frame(width: 188, height: 176)
                 .opacity(0.95)
                 .accessibilityHidden(true)
 
             Text("No Tasks Available")
-                .font(.system(size: 22, weight: .bold))
+                .font(.system(size: 23, weight: .bold))
                 .foregroundStyle(Color(hex: 0x101828))
 
             Text("It looks like you don't have any tasks scheduled at the moment.")
-                .font(.system(size: 14, weight: .medium))
+                .font(.system(size: 15, weight: .medium))
                 .foregroundStyle(Color(hex: 0x98A2B3))
                 .multilineTextAlignment(.center)
-                .padding(.horizontal, 34)
+                .padding(.horizontal, 30)
         }
     }
 }

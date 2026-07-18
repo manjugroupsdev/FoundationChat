@@ -104,12 +104,12 @@ struct CpVisitsView: View {
         }
         .task { if !hasLoaded { await load() } }
         .sheet(isPresented: $showCreateSheet) {
-            NavigationStack {
-                CreateCpVisitSheet {
-                    showCreateSheet = false
-                    Task { await load() }
-                }
+            CreateCpVisitSheet {
+                showCreateSheet = false
+                Task { await load() }
             }
+            .appLibraryNativeSheet([.height(720), .large])
+            .presentationBackground(Color.white)
         }
         .sheet(item: $selectedOutcomeVisit) { visit in
             CompleteCpVisitSheet(
@@ -1322,6 +1322,9 @@ private struct CreateCpVisitSheet: View {
     @State private var phone = ""
     @State private var date = Date()
     @State private var doorNo = ""
+    @State private var street = ""
+    @State private var addressLine1 = ""
+    @State private var addressLine2 = ""
     @State private var pincode = ""
     @State private var village = ""
     @State private var taluk = ""
@@ -1356,36 +1359,17 @@ private struct CreateCpVisitSheet: View {
         ZStack(alignment: .bottom) {
             ScrollView {
                 VStack(alignment: .leading, spacing: 0) {
-                    Capsule()
-                        .fill(Color(hex: 0xD9DDE5))
-                        .frame(width: 40, height: 4)
+                    Text("CP Creation")
+                        .font(.system(size: 18, weight: .bold))
+                        .foregroundStyle(Color(hex: 0x0F172A))
                         .frame(maxWidth: .infinity)
-                        .padding(.bottom, 28)
+                        .padding(.top, 12)
+                        .padding(.bottom, 22)
 
-                    HStack(alignment: .top, spacing: 12) {
-                        VStack(alignment: .leading, spacing: 4) {
-                            Text("CP Creation")
-                                .font(.system(size: 20, weight: .bold))
-                                .foregroundStyle(Color(hex: 0x101828))
-                            Text("Information about CP")
-                                .font(.system(size: 13))
-                                .foregroundStyle(Color(hex: 0x667085))
-                        }
-
-                        Spacer()
-
-                        Button {
-                            dismiss()
-                        } label: {
-                            Image(systemName: "xmark")
-                                .font(.system(size: 15, weight: .semibold))
-                                .foregroundStyle(Color(hex: 0x344054))
-                                .frame(width: 44, height: 44)
-                        }
-                        .buttonStyle(IOSGlassCloseButtonStyle())
-                        .accessibilityLabel("Close CP Creation")
-                    }
-                    .padding(.bottom, 18)
+                    Text("Information about CP")
+                        .font(.system(size: 13, weight: .medium))
+                        .foregroundStyle(Color(hex: 0x667085))
+                        .padding(.bottom, 2)
 
                     cpTextField("Client Phone Number *", placeholder: "Enter Client Number", text: $phone, systemImage: "phone", keyboard: .phonePad)
                         .onChange(of: phone) { _, _ in
@@ -1459,15 +1443,13 @@ private struct CreateCpVisitSheet: View {
                     cpTypePicker
                     cpDatePicker
 
-                    cpTextField("Door No", placeholder: "Enter Door No", text: $doorNo, systemImage: "house")
-                    cpTextField("Pincode *", placeholder: "6 digits", text: $pincode, systemImage: "checkmark.circle", keyboard: .numberPad)
-                    cpTextField("Village *", placeholder: "Enter Village", text: $village, systemImage: "mappin.and.ellipse")
-                    cpTextField("Taluk", placeholder: "Enter Taluk", text: $taluk, systemImage: "map")
-                    cpTextField("District *", placeholder: "Enter District", text: $district, systemImage: "building.2")
+                    cpTextField("Door / Plot No", placeholder: "Enter Door / Plot No", text: $doorNo, systemImage: "house")
+                    cpTextField("Street", placeholder: "Enter Street", text: $street, systemImage: "road.lanes")
+                    cpTextField("Address Line 1 *", placeholder: "Enter Address", text: $addressLine1, systemImage: "mappin.and.ellipse", axis: .vertical)
+                    cpTextField("Landmark / Address Line 2", placeholder: "Enter Landmark", text: $addressLine2, systemImage: "signpost.right")
                     cpTextField("City *", placeholder: "Enter City", text: $city, systemImage: "building")
-                    cpTextField("Locality *", placeholder: "Enter Locality", text: $locality, systemImage: "location")
                     cpTextField("State", placeholder: "Enter State", text: $state, systemImage: "map.fill")
-                    cpTextField("Full Address", placeholder: "Layout / building / locality", text: $fullAddress, systemImage: "text.alignleft", axis: .vertical)
+                    cpTextField("Pincode *", placeholder: "6 digits", text: $pincode, systemImage: "checkmark.circle", keyboard: .numberPad)
 
                     cpTextField("Google Map Link (Optional)", placeholder: "Skip if you only have the address", text: $mapsLink, systemImage: "link", keyboard: .URL)
 
@@ -1525,8 +1507,6 @@ private struct CreateCpVisitSheet: View {
             }
         }
         .background(Color.white.ignoresSafeArea())
-        .navigationTitle("")
-        .navigationBarTitleDisplayMode(.inline)
         .alert("CP Visit", isPresented: Binding(
             get: { errorMessage != nil },
             set: { if !$0 { errorMessage = nil } }
@@ -1552,7 +1532,7 @@ private struct CreateCpVisitSheet: View {
                     showStaffPicker = false
                 }
             )
-            .presentationDetents([.medium, .large])
+            .appLibraryNativeSheet([.medium, .large])
         }
         .sheet(isPresented: $showProjectPicker) {
             NativeSearchableSelectionSheet(
@@ -1571,7 +1551,7 @@ private struct CreateCpVisitSheet: View {
                     showProjectPicker = false
                 }
             )
-            .presentationDetents([.medium, .large])
+            .appLibraryNativeSheet([.medium, .large])
         }
         .task { await loadBootstrapData() }
     }
@@ -1862,18 +1842,43 @@ private struct CreateCpVisitSheet: View {
     @MainActor
     private func applyLead(_ lead: TelecallerLeadSearchData) {
         selectedLead = lead
-        clientName = lead.displayName
+        fillIfBlank($clientName, lead.displayName)
         phone = AppModuleFormatters.normalizePhone(lead.mobileNumber ?? phone)
-        if fullAddress.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
-            fullAddress = lead.suggestedVisitAddress?.blankToNil
-                ?? lead.latestAnalysisProfile?.address?.blankToNil
-                ?? lead.locationPreferred?.blankToNil
-                ?? ""
+
+        let analysis = lead.latestAnalysisProfile
+        let place = lead.clientPlaceProfile
+        let manual = lead.manualProfile
+        let fallbackAddress = lead.suggestedVisitAddress?.blankToNil ?? lead.locationPreferred?.blankToNil
+        let fallbackPincode = fallbackAddress.flatMap { Self.firstSixDigitPincode(in: $0) }
+
+        fillIfBlank($doorNo, place?.doorNo ?? analysis?.doorNo ?? manual?.doorNo)
+        fillIfBlank($street, place?.street ?? analysis?.street ?? manual?.street)
+        fillIfBlank($addressLine1, analysis?.address ?? place?.address ?? place?.formattedAddress ?? manual?.address ?? fallbackAddress)
+        fillIfBlank($addressLine2, place?.landmark ?? analysis?.landmark ?? manual?.landmark)
+        fillIfBlank($city, place?.city ?? lead.clientCity)
+        fillIfBlank($state, place?.state ?? analysis?.state ?? manual?.state)
+        fillIfBlank($pincode, place?.pincode ?? analysis?.pincode ?? manual?.pincode ?? fallbackPincode)
+
+        if latitude.blankToNil == nil, let lat = lead.suggestedVisitLat {
+            latitude = String(lat)
         }
-        if locality.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
-            locality = lead.locationPreferred?.blankToNil ?? ""
+        if longitude.blankToNil == nil, let lng = lead.suggestedVisitLng {
+            longitude = String(lng)
         }
+        fillIfBlank($mapsLink, lead.suggestedGoogleMapsLink)
+
+        if selectedProject == nil, let projectId = lead.projectId?.blankToNil {
+            selectedProject = projects.first { $0.id == projectId }
+        }
+
         leadMatches = []
+    }
+
+    private func fillIfBlank(_ binding: Binding<String>, _ value: String?) {
+        guard let value = value?.blankToNil else { return }
+        if binding.wrappedValue.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
+            binding.wrappedValue = value
+        }
     }
 
     @MainActor
@@ -1913,6 +1918,19 @@ private struct CreateCpVisitSheet: View {
         guard selectedProject != nil else { errorMessage = "Project is required"; return }
         guard selectedStaff != nil || !(staffId.isEmpty) else { errorMessage = "Field staff is required"; return }
         let trimmedAddress = composedAddress
+        guard !addressLine1.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else {
+            errorMessage = "Address Line 1 is required"
+            return
+        }
+        guard !city.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else {
+            errorMessage = "City is required"
+            return
+        }
+        let normalizedPincode = pincode.filter(\.isNumber)
+        guard normalizedPincode.count == 6 else {
+            errorMessage = "Pincode must be 6 digits"
+            return
+        }
         guard !trimmedAddress.isEmpty else { errorMessage = "Address is required"; return }
         if let lat = coordinateValue(latitude), !(lat >= -90 && lat <= 90) {
             errorMessage = "Latitude must be between -90 and 90"
@@ -1958,18 +1976,14 @@ private struct CreateCpVisitSheet: View {
     }
 
     private var composedAddress: String {
-        if let full = fullAddress.blankToNil {
-            return full
-        }
         return [
-            doorNo.blankToNil,
-            locality.blankToNil,
-            village.blankToNil,
-            taluk.blankToNil,
-            city.blankToNil,
-            district.blankToNil,
-            state.blankToNil,
-            pincode.blankToNil
+            doorNo.blankToNil.map { "Door/Plot No: \($0)" },
+            street.blankToNil.map { "Street: \($0)" },
+            addressLine1.blankToNil.map { "Address: \($0)" },
+            addressLine2.blankToNil.map { "Landmark: \($0)" },
+            city.blankToNil.map { "City: \($0)" },
+            state.blankToNil.map { "State: \($0)" },
+            pincode.filter(\.isNumber).blankToNil.map { "Pincode: \($0)" }
         ]
         .compactMap { $0 }
         .joined(separator: ", ")
@@ -1979,13 +1993,12 @@ private struct CreateCpVisitSheet: View {
         let pairs: [(String, String?)] = [
             ("notes", notes.blankToNil),
             ("door_no", doorNo.blankToNil),
-            ("pincode", pincode.blankToNil),
-            ("village", village.blankToNil),
-            ("taluk", taluk.blankToNil),
-            ("district", district.blankToNil),
+            ("street", street.blankToNil),
+            ("address_line_1", addressLine1.blankToNil),
+            ("address_line_2", addressLine2.blankToNil),
             ("city", city.blankToNil),
-            ("locality", locality.blankToNil),
             ("state", state.blankToNil),
+            ("pincode", pincode.filter(\.isNumber).blankToNil),
             ("google_map_link", mapsLink.blankToNil),
             ("latitude", latitude.blankToNil),
             ("longitude", longitude.blankToNil),
@@ -2008,6 +2021,11 @@ private struct CreateCpVisitSheet: View {
         formatter.dateFormat = "HH:mm"
         return formatter
     }()
+
+    private static func firstSixDigitPincode(in text: String) -> String? {
+        guard let range = text.range(of: #"\b\d{6}\b"#, options: .regularExpression) else { return nil }
+        return String(text[range])
+    }
 }
 
 private extension String {

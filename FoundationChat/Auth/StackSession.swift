@@ -55,9 +55,42 @@ struct AuthUser: Codable, Sendable, Equatable {
 
 extension AuthUser {
   var isFleetDriverMode: Bool {
-    designation?
+    let isFleetAdminDriver = designation?
       .trimmingCharacters(in: .whitespacesAndNewlines)
       .localizedCaseInsensitiveCompare("Driver") == .orderedSame
+      && department?
+        .trimmingCharacters(in: .whitespacesAndNewlines)
+        .localizedCaseInsensitiveCompare("Administration") == .orderedSame
+
+    return !isFleetAdminDriver && designation?
+      .trimmingCharacters(in: .whitespacesAndNewlines)
+      .localizedCaseInsensitiveCompare("Driver") == .orderedSame
+  }
+
+  /// Mirrors Android `SessionManager.canViewVpDashboard()`.
+  /// Do not key this off broad `isAdmin`; Android only allows super-admin,
+  /// explicit `vpDashboard.view`, or VP/GM/MD designation families.
+  var canViewManagementDashboard: Bool {
+    let normalizedRole = role?
+      .trimmingCharacters(in: .whitespacesAndNewlines)
+      .lowercased()
+    if normalizedRole == "super-admin" { return true }
+    if iamPermissions?.contains("vpDashboard.view") == true { return true }
+
+    let normalizedDesignation = designation?
+      .trimmingCharacters(in: .whitespacesAndNewlines)
+      .lowercased() ?? ""
+    guard !normalizedDesignation.isEmpty else { return false }
+    if normalizedDesignation.contains("vice president")
+      || normalizedDesignation.contains("vice-president")
+      || normalizedDesignation.contains("general manager")
+      || normalizedDesignation.contains("managing director") {
+      return true
+    }
+    return normalizedDesignation.range(
+      of: #"(^|[^a-z])(vp|avp|gm|agm|dgm)([^a-z]|$)"#,
+      options: .regularExpression
+    ) != nil
   }
 }
 

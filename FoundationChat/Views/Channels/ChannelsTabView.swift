@@ -212,12 +212,14 @@ struct ChannelsTabView: View {
 
 struct ChannelChatView: View {
   @Environment(AuthStore.self) private var authStore
+  @Environment(\.dismiss) private var dismiss
   let channel: ChannelSummary
 
   @State private var newMessage = ""
   @State private var messages: [ChannelChatMessage] = []
   @State private var errorMessage: String?
   @State private var isInviteSheetPresented = false
+  @State private var isGroupInfoPresented = false
   @State private var isSendingMessage = false
   @State private var isJoiningChannel = false
   @State private var hasJoinedPublicChannel = false
@@ -251,6 +253,10 @@ struct ChannelChatView: View {
       && !hasJoinedPublicChannel
   }
 
+  private var channelDisplayTitle: String {
+    channel.type?.lowercased() == "public" ? "#\(channel.name)" : channel.name
+  }
+
   var body: some View {
     let currentUserStackUserId = authStore.viewer?.subject
 
@@ -261,7 +267,7 @@ struct ChannelChatView: View {
             ContentUnavailableView(
               "No messages yet",
               systemImage: "message",
-              description: Text("Start the conversation in #\(channel.name).")
+              description: Text("Start the conversation in \(channelDisplayTitle).")
             )
             .padding(.top, 40)
           } else {
@@ -285,16 +291,22 @@ struct ChannelChatView: View {
         }
       }
     }
-    .navigationTitle("#\(channel.name)")
+    .navigationTitle(channelDisplayTitle)
     .navigationBarTitleDisplayMode(.inline)
     .toolbar {
-      if authStore.isAdmin {
-        ToolbarItem(placement: .navigationBarTrailing) {
+      ToolbarItemGroup(placement: .navigationBarTrailing) {
+        if authStore.isAdmin {
           Button {
             isInviteSheetPresented = true
           } label: {
             Image(systemName: "plus")
           }
+        }
+
+        Button {
+          isGroupInfoPresented = true
+        } label: {
+          Image(systemName: "info.circle")
         }
       }
     }
@@ -362,6 +374,18 @@ struct ChannelChatView: View {
     .sheet(isPresented: $isInviteSheetPresented) {
       InviteMemberSheet(channelID: channel.id) {
         startMessagesSubscription()
+      }
+    }
+    .sheet(isPresented: $isGroupInfoPresented) {
+      NavigationStack {
+        ConversationInfoView(
+          source: .channel(id: channel.id, summary: channel),
+          initialDisplayName: channelDisplayTitle,
+          onChannelExited: {
+            isGroupInfoPresented = false
+            dismiss()
+          }
+        )
       }
     }
     .sheet(isPresented: $isAttachmentOptionsPresented) {
@@ -695,12 +719,7 @@ struct ChannelChatView: View {
     defer { isSendingMessage = false }
 
     do {
-      let uploadURL = try await authStore.generateAttachmentUploadURL()
-      let storageId = try await authStore.uploadAttachmentData(
-        data,
-        uploadURL: uploadURL,
-        mimeType: mimeType
-      )
+      let storageId = try await authStore.uploadChatAttachmentData(data, mimeType: mimeType)
       let trimmedCaption = caption.trimmingCharacters(in: .whitespacesAndNewlines)
       let sentMessage = try await authStore.sendChannelMessage(
         channelID: channel.id,
@@ -1215,7 +1234,18 @@ struct InviteMemberSheet: View {
   @Environment(\.dismiss) private var dismiss
 
   let channelID: String
+  let excludedMemberIds: Set<String>
   let onInvited: () async -> Void
+
+  init(
+    channelID: String,
+    excludedMemberIds: Set<String> = [],
+    onInvited: @escaping () async -> Void
+  ) {
+    self.channelID = channelID
+    self.excludedMemberIds = excludedMemberIds
+    self.onInvited = onInvited
+  }
 
   @State private var searchText = ""
   @State private var users: [DirectoryUser] = []
@@ -1293,6 +1323,7 @@ struct InviteMemberSheet: View {
     errorMessage = nil
     do {
       users = try await authStore.fetchDirectoryUsers(search: searchText)
+        .filter { !excludedMemberIds.contains($0.stackUserId) && !excludedMemberIds.contains($0.id) }
     } catch {
       users = []
       errorMessage = error.localizedDescription

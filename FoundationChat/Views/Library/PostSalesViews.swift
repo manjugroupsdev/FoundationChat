@@ -3,6 +3,7 @@ import UniformTypeIdentifiers
 
 struct CollectionsView: View {
     @Environment(AuthStore.self) private var authStore
+    @Environment(\.dismiss) private var dismiss
     @State private var collections: [CustomerCollectionRow] = []
     @State private var isLoading = false
     @State private var hasLoaded = false
@@ -10,11 +11,14 @@ struct CollectionsView: View {
     @State private var showingSubmitSheet = false
     @State private var rectifyingCollection: CustomerCollectionRow?
     @State private var selectedFilter: CollectionPaymentFilter = .all
+    @State private var selectedDate: Date?
+    @State private var draftDate = Date()
+    @State private var showingDateFilter = false
     @State private var searchText = ""
     @State private var previewURL: URL?
 
     private var visibleCollections: [CustomerCollectionRow] {
-        filterCollections(collections, filter: selectedFilter, searchText: searchText)
+        filterCollections(collections, filter: selectedFilter, searchText: searchText, selectedDate: selectedDate)
     }
 
     private var summary: CollectionSummary {
@@ -22,55 +26,84 @@ struct CollectionsView: View {
     }
 
     var body: some View {
-        ScrollView {
-            VStack(spacing: 0) {
-                FleetHeader(
-                    title: "Collections",
-                    subtitle: "Customer payment entries and verification status",
-                    systemImage: "creditcard.fill"
-                )
-                CollectionControls(filter: $selectedFilter, summary: summary)
-                    .padding(.horizontal, 16)
-                    .padding(.top, -34)
-                    .padding(.bottom, 12)
-                content
+        VStack(spacing: 0) {
+            ScrollView(showsIndicators: false) {
+                VStack(spacing: 16) {
+                    PostSalesSearchField(
+                        placeholder: "Search Collections",
+                        text: $searchText
+                    )
+
+                    PostSalesSegmentedFilter(selection: $selectedFilter)
+
+                    PostSalesSummaryCard(
+                        leadingTitle: "\(visibleCollections.count) Collections",
+                        amount: summary.amount
+                    )
+
+                    content
+                }
+                .padding(.horizontal, 16)
+                .padding(.top, 16)
+                .padding(.bottom, 28)
             }
-            .padding(.bottom, 28)
         }
-        .background(Color(.systemGroupedBackground))
+        .background(Color(hex: 0xF3F5FA).ignoresSafeArea())
         .navigationTitle("Collections")
         .navigationBarTitleDisplayMode(.inline)
-        .searchable(text: $searchText, placement: .navigationBarDrawer(displayMode: .always), prompt: "Search collections")
+        .toolbarBackground(Color.white, for: .navigationBar)
+        .toolbarBackground(.visible, for: .navigationBar)
         .toolbar {
-            ToolbarItem(placement: .topBarTrailing) {
+            ToolbarItem(placement: .principal) {
+                Text("Collections")
+                    .font(.system(size: 18, weight: .bold))
+                    .foregroundStyle(Color(hex: 0x101828))
+            }
+            ToolbarItemGroup(placement: .topBarTrailing) {
+                Button {
+                    draftDate = selectedDate ?? Date()
+                    showingDateFilter = true
+                } label: {
+                    Image(systemName: "calendar")
+                        .font(.system(size: 18, weight: .semibold))
+                }
+                .accessibilityLabel("Filter collections by date")
+
                 Button {
                     showingSubmitSheet = true
                 } label: {
                     Image(systemName: "plus")
+                        .font(.system(size: 20, weight: .semibold))
                 }
-                .accessibilityLabel("Add Collection")
+                .accessibilityLabel("Create collection")
             }
         }
+        .tint(Color(hex: 0x0B61CA))
+        .toolbar(.hidden, for: .tabBar)
         .refreshable { await load() }
         .task { if !hasLoaded { await load() } }
         .sheet(isPresented: $showingSubmitSheet) {
             CollectionSubmitSheet(rectifyingCollection: nil) {
                 await load()
             }
-            .presentationDetents([.large])
-            .presentationDragIndicator(.hidden)
+            .appLibraryNativeSheet([.height(720), .large])
+            .presentationBackground(Color.white)
         }
         .sheet(item: $rectifyingCollection) { collection in
             CollectionSubmitSheet(rectifyingCollection: collection) {
                 await load()
             }
-            .presentationDetents([.large])
-            .presentationDragIndicator(.hidden)
+            .appLibraryNativeSheet([.height(720), .large])
+            .presentationBackground(Color.white)
+        }
+        .sheet(isPresented: $showingDateFilter) {
+            PostSalesCollectionDateFilterSheet(date: $draftDate, selectedDate: $selectedDate)
+                .appLibraryNativeSheet([.height(560)])
+                .presentationBackground(Color.white)
         }
         .sheet(item: Binding(get: { previewURL.map(URLPreviewItem.init(url:)) }, set: { if $0 == nil { previewURL = nil } })) { item in
             StoragePreviewSheet(url: item.url)
-                .presentationDetents([.medium, .large])
-                .presentationDragIndicator(.hidden)
+                .appLibraryNativeSheet([.medium, .large])
         }
         .alert("Collections", isPresented: Binding(get: { errorMessage != nil }, set: { if !$0 { errorMessage = nil } })) {
             Button("OK", role: .cancel) { errorMessage = nil }
@@ -84,14 +117,8 @@ struct CollectionsView: View {
             if isLoading && !hasLoaded {
                 AppModuleLoadingRows()
             } else if visibleCollections.isEmpty {
-                ContentUnavailableView(
-                    "No Collections",
-                    systemImage: "creditcard",
-                    description: Text("Submitted collections will appear here.")
-                )
-                .padding(.vertical, 38)
-                .background(Color.white, in: RoundedRectangle(cornerRadius: 18))
-                .padding(.horizontal, 16)
+                Color.clear
+                    .frame(height: 1)
             } else {
                 LazyVStack(spacing: 12) {
                     ForEach(visibleCollections) { collection in
@@ -102,7 +129,6 @@ struct CollectionsView: View {
                         )
                     }
                 }
-                .padding(.horizontal, 16)
             }
         }
     }
@@ -141,6 +167,7 @@ struct CollectionsView: View {
 
 struct AccountsCollectionsReviewView: View {
     @Environment(AuthStore.self) private var authStore
+    @Environment(\.dismiss) private var dismiss
     @State private var collections: [CustomerCollectionRow] = []
     @State private var isLoading = false
     @State private var hasLoaded = false
@@ -148,11 +175,14 @@ struct AccountsCollectionsReviewView: View {
     @State private var selectedForReject: CustomerCollectionRow?
     @State private var rejectRemarks = ""
     @State private var selectedFilter: CollectionPaymentFilter = .all
+    @State private var selectedDate: Date?
+    @State private var draftDate = Date()
+    @State private var showingDateFilter = false
     @State private var searchText = ""
     @State private var previewURL: URL?
 
     private var visibleCollections: [CustomerCollectionRow] {
-        filterCollections(collections, filter: selectedFilter, searchText: searchText)
+        filterCollections(collections, filter: selectedFilter, searchText: searchText, selectedDate: selectedDate)
     }
 
     private var summary: CollectionSummary {
@@ -160,25 +190,54 @@ struct AccountsCollectionsReviewView: View {
     }
 
     var body: some View {
-        ScrollView {
-            VStack(spacing: 0) {
-                FleetHeader(
-                    title: "Post Sales Verification",
-                    subtitle: "Account verification for customer collections",
-                    systemImage: "checkmark.seal.fill"
-                )
-                CollectionControls(filter: $selectedFilter, summary: summary)
-                    .padding(.horizontal, 16)
-                    .padding(.top, -34)
-                    .padding(.bottom, 12)
-                content
+        VStack(spacing: 0) {
+            ScrollView(showsIndicators: false) {
+                VStack(spacing: 16) {
+                    PostSalesSearchField(
+                        placeholder: "Search Sales Verification",
+                        text: $searchText
+                    )
+
+                    PostSalesSegmentedFilter(selection: $selectedFilter)
+
+                    PostSalesSummaryCard(
+                        leadingTitle: "\(summary.count) Pending Verification",
+                        amount: summary.amount
+                    )
+
+                    content
+                }
+                .padding(.horizontal, 16)
+                .padding(.top, 16)
+                .padding(.bottom, 28)
             }
-            .padding(.bottom, 28)
         }
-        .background(Color(.systemGroupedBackground))
+        .background(Color(hex: 0xF3F5FA).ignoresSafeArea())
         .navigationTitle("Post Sales Verification")
         .navigationBarTitleDisplayMode(.inline)
-        .searchable(text: $searchText, placement: .navigationBarDrawer(displayMode: .always), prompt: "Search Sales Verification")
+        .toolbarBackground(Color.white, for: .navigationBar)
+        .toolbarBackground(.visible, for: .navigationBar)
+        .toolbar {
+            ToolbarItem(placement: .principal) {
+                Text("Post Sales Verification")
+                    .font(.system(size: 18, weight: .bold))
+                    .foregroundStyle(Color(hex: 0x101828))
+                    .lineLimit(1)
+                    .minimumScaleFactor(0.82)
+            }
+            ToolbarItem(placement: .topBarTrailing) {
+                Button {
+                    draftDate = selectedDate ?? Date()
+                    showingDateFilter = true
+                } label: {
+                    Image(systemName: "calendar")
+                        .font(.system(size: 18, weight: .semibold))
+                }
+                .accessibilityLabel("Filter verification by date")
+            }
+        }
+        .tint(Color(hex: 0x0B61CA))
+        .toolbar(.hidden, for: .tabBar)
         .refreshable { await load() }
         .task { if !hasLoaded { await load() } }
         .alert("Accounts", isPresented: Binding(get: { errorMessage != nil }, set: { if !$0 { errorMessage = nil } })) {
@@ -194,13 +253,16 @@ struct AccountsCollectionsReviewView: View {
             ) {
                 await reject(collection)
             }
-            .presentationDetents([.medium])
-            .presentationDragIndicator(.hidden)
+            .appLibraryNativeSheet([.medium])
         }
         .sheet(item: Binding(get: { previewURL.map(URLPreviewItem.init(url:)) }, set: { if $0 == nil { previewURL = nil } })) { item in
             StoragePreviewSheet(url: item.url)
-                .presentationDetents([.medium, .large])
-                .presentationDragIndicator(.hidden)
+                .appLibraryNativeSheet([.medium, .large])
+        }
+        .sheet(isPresented: $showingDateFilter) {
+            PostSalesCollectionDateFilterSheet(date: $draftDate, selectedDate: $selectedDate)
+                .appLibraryNativeSheet([.height(560)])
+                .presentationBackground(Color.white)
         }
     }
 
@@ -209,14 +271,8 @@ struct AccountsCollectionsReviewView: View {
             if isLoading && !hasLoaded {
                 AppModuleLoadingRows()
             } else if visibleCollections.isEmpty {
-                ContentUnavailableView(
-                    "No Pending Collections",
-                    systemImage: "checkmark.seal",
-                    description: Text("Collections waiting for account verification will appear here.")
-                )
-                .padding(.vertical, 38)
-                .background(Color.white, in: RoundedRectangle(cornerRadius: 18))
-                .padding(.horizontal, 16)
+                Color.clear
+                    .frame(height: 1)
             } else {
                 LazyVStack(spacing: 12) {
                     ForEach(visibleCollections) { collection in
@@ -235,7 +291,6 @@ struct AccountsCollectionsReviewView: View {
                         )
                     }
                 }
-                .padding(.horizontal, 16)
             }
         }
     }
@@ -310,6 +365,7 @@ struct AccountsCollectionsReviewView: View {
 
 struct LoanDeskView: View {
     @Environment(AuthStore.self) private var authStore
+    @Environment(\.dismiss) private var dismiss
     @State private var selectedMode: LoanDeskMode = .sales
     @State private var cases: [LoanCaseRow] = []
     @State private var legalStaff: [LegalStaffRow] = []
@@ -341,62 +397,47 @@ struct LoanDeskView: View {
         }
     }
 
-    private var availableModes: [LoanDeskMode] {
-        guard authStore.currentSession?.user.isAdmin != true else { return LoanDeskMode.allCases }
-        return [resolvedMode]
-    }
-
     private var resolvedMode: LoanDeskMode {
         LoanDeskMode(user: authStore.currentSession?.user)
     }
 
     var body: some View {
-        ScrollView {
-            VStack(spacing: 0) {
-                FleetHeader(
-                    title: "Loan Desk",
-                    subtitle: "Sales handoff and legal verification workflow",
-                    systemImage: "doc.text.magnifyingglass"
-                )
-                if availableModes.count > 1 {
-                    Picker("Loan desk mode", selection: $selectedMode) {
-                        ForEach(availableModes) { mode in
-                            Text(mode.title).tag(mode)
-                        }
-                    }
-                    .pickerStyle(.segmented)
-                    .padding(.horizontal, 16)
-                    .padding(.top, -34)
-                    .padding(.bottom, 14)
-                    .onChange(of: selectedMode) { _, _ in
-                        Task { await load() }
-                    }
-                } else {
-                    LoanModeBanner(mode: selectedMode)
-                        .padding(.horizontal, 16)
-                        .padding(.top, -34)
-                        .padding(.bottom, 14)
+        VStack(spacing: 0) {
+            ScrollView(showsIndicators: false) {
+                VStack(spacing: 16) {
+                    PostSalesSearchField(
+                        placeholder: "Search Loan Desk",
+                        text: $searchText
+                    )
+
+                    content
                 }
-                content
+                .padding(.horizontal, 16)
+                .padding(.top, 16)
+                .padding(.bottom, 28)
             }
-            .padding(.bottom, 28)
         }
-        .background(Color(.systemGroupedBackground))
+        .background(Color(hex: 0xF3F5FA).ignoresSafeArea())
         .navigationTitle("Loan Desk")
         .navigationBarTitleDisplayMode(.inline)
-        .searchable(text: $searchText, placement: .navigationBarDrawer(displayMode: .always), prompt: "Search loan cases")
+        .toolbarBackground(Color.white, for: .navigationBar)
+        .toolbarBackground(.visible, for: .navigationBar)
         .toolbar {
+            ToolbarItem(placement: .principal) {
+                Text("Loan Desk")
+                    .font(.system(size: 18, weight: .bold))
+                    .foregroundStyle(Color(hex: 0x101828))
+            }
             ToolbarItem(placement: .topBarTrailing) {
-                if selectedMode == .sales {
-                    Button {
-                        showingSubmitSheet = true
-                    } label: {
-                        Image(systemName: "plus")
-                    }
-                    .accessibilityLabel("Submit Loan")
+                Button {} label: {
+                    Image(systemName: "calendar")
+                        .font(.system(size: 18, weight: .semibold))
                 }
+                .accessibilityLabel("Loan desk calendar")
             }
         }
+        .tint(Color(hex: 0x0B61CA))
+        .toolbar(.hidden, for: .tabBar)
         .refreshable { await load() }
         .task {
             if !hasLoaded {
@@ -413,22 +454,19 @@ struct LoanDeskView: View {
             AssignLoanSheet(staff: legalStaff, selectedStaffId: $selectedStaffId) {
                 await assign(loanCase)
             }
-            .presentationDetents([.medium])
-            .presentationDragIndicator(.hidden)
+            .appLibraryNativeSheet([.medium])
         }
         .sheet(item: $rejectingCase) { loanCase in
             RejectCollectionSheet(title: "Reject Loan", remarks: $rejectRemarks) {
                 await reject(loanCase)
             }
-            .presentationDetents([.medium])
-            .presentationDragIndicator(.hidden)
+            .appLibraryNativeSheet([.medium])
         }
         .sheet(isPresented: $showingSubmitSheet) {
             SubmitLoanCaseSheet {
                 await load()
             }
-            .presentationDetents([.large])
-            .presentationDragIndicator(.hidden)
+            .appLibraryNativeSheet([.large])
         }
     }
 
@@ -437,14 +475,7 @@ struct LoanDeskView: View {
             if isLoading && !hasLoaded {
                 AppModuleLoadingRows()
             } else if visibleCases.isEmpty {
-                ContentUnavailableView(
-                    "No Loan Cases",
-                    systemImage: "doc.text",
-                    description: Text("Cases for this workflow stage will appear here.")
-                )
-                .padding(.vertical, 38)
-                .background(Color.white, in: RoundedRectangle(cornerRadius: 18))
-                .padding(.horizontal, 16)
+                loanDeskEmptyState
             } else {
                 LazyVStack(spacing: 12) {
                     ForEach(visibleCases) { loanCase in
@@ -465,9 +496,35 @@ struct LoanDeskView: View {
                         )
                     }
                 }
-                .padding(.horizontal, 16)
             }
         }
+    }
+
+    private var loanDeskEmptyState: some View {
+        let hasQuery = !searchText.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
+
+        return VStack(spacing: 12) {
+            Image("LoansEmptyState")
+                .resizable()
+                .scaledToFit()
+                .frame(width: 190, height: 150)
+                .opacity(0.82)
+
+            Text(hasQuery ? "No Loan Requests Found" : "No Loan Desk Yet")
+                .font(.system(size: 20, weight: .bold))
+                .foregroundStyle(Color(hex: 0x0F172A))
+
+            Text(hasQuery
+                 ? "Try searching with a different customer, phone number, booking reference, or project."
+                 : "Loan requests and their processing status will appear here when records become available.")
+                .font(.system(size: 14, weight: .regular))
+                .foregroundStyle(Color(hex: 0x64748B))
+                .multilineTextAlignment(.center)
+                .lineSpacing(4)
+                .padding(.horizontal, 28)
+        }
+        .frame(maxWidth: .infinity)
+        .frame(minHeight: 500)
     }
 
     @MainActor
@@ -674,7 +731,109 @@ private struct LoanModeBanner: View {
     }
 }
 
-private enum CollectionPaymentFilter: String, CaseIterable, Identifiable {
+struct PostSalesSearchField: View {
+    let placeholder: String
+    @Binding var text: String
+
+    var body: some View {
+        HStack(spacing: 12) {
+            TextField(placeholder, text: $text)
+                .font(.system(size: 15, weight: .regular))
+                .foregroundStyle(Color(hex: 0x101828))
+                .textInputAutocapitalization(.words)
+
+            Image(systemName: "magnifyingglass")
+                .font(.system(size: 22, weight: .semibold))
+                .foregroundStyle(Color(hex: 0x101828))
+        }
+        .padding(.horizontal, 14)
+        .frame(height: 56)
+        .background(Color.white, in: RoundedRectangle(cornerRadius: 14, style: .continuous))
+        .overlay(
+            RoundedRectangle(cornerRadius: 14, style: .continuous)
+                .stroke(Color(hex: 0xE0E4EC), lineWidth: 1)
+        )
+    }
+}
+
+struct PostSalesSegmentedFilter: View {
+    @Binding var selection: CollectionPaymentFilter
+
+    var body: some View {
+        HStack(spacing: 0) {
+            ForEach(CollectionPaymentFilter.allCases) { item in
+                Button {
+                    withAnimation(.interactiveSpring(response: 0.24, dampingFraction: 0.86)) {
+                        selection = item
+                    }
+                } label: {
+                    Text(item.title)
+                        .font(.system(size: 14, weight: selection == item ? .bold : .semibold))
+                        .foregroundStyle(selection == item ? .white : Color(hex: 0x667085))
+                        .frame(maxWidth: .infinity)
+                        .frame(height: 48)
+                        .background(
+                            selection == item ? Color(hex: 0x0B61CA) : Color.clear,
+                            in: Capsule()
+                        )
+                }
+                .buttonStyle(.plain)
+            }
+        }
+        .padding(3)
+        .background(Color.white, in: Capsule())
+        .overlay(
+            Capsule()
+                .stroke(Color(hex: 0xEAECF0), lineWidth: 1)
+        )
+    }
+}
+
+struct PostSalesSummaryCard: View {
+    let leadingTitle: String
+    let amount: Double
+
+    var body: some View {
+        HStack(spacing: 14) {
+            Image(systemName: "dollarsign.square")
+                .font(.system(size: 19, weight: .semibold))
+                .foregroundStyle(Color.white.opacity(0.92))
+                .frame(width: 40, height: 40)
+                .background(Color.white.opacity(0.13), in: Circle())
+
+            Text(leadingTitle)
+                .font(.system(size: 15, weight: .bold))
+                .foregroundStyle(.white)
+                .lineLimit(1)
+                .minimumScaleFactor(0.76)
+
+            Spacer(minLength: 12)
+
+            VStack(alignment: .trailing, spacing: 3) {
+                Text("Total Amount")
+                    .font(.system(size: 11, weight: .medium))
+                    .foregroundStyle(Color.white.opacity(0.78))
+                Text(AppModuleFormatters.rupees(amount))
+                    .font(.system(size: 20, weight: .bold))
+                    .foregroundStyle(.white)
+                    .lineLimit(1)
+                    .minimumScaleFactor(0.76)
+            }
+        }
+        .padding(.horizontal, 16)
+        .frame(height: 64)
+        .background(
+            LinearGradient(
+                colors: [Color(hex: 0x0B61CA), Color(hex: 0x02499D)],
+                startPoint: .topLeading,
+                endPoint: .bottomTrailing
+            ),
+            in: RoundedRectangle(cornerRadius: 14, style: .continuous)
+        )
+    }
+}
+
+enum CollectionPaymentFilter: String, CaseIterable, Identifiable {
     case all, selfFinance, bankLoan
 
     var id: String { rawValue }
@@ -702,10 +861,85 @@ private struct URLPreviewItem: Identifiable {
     var id: String { url.absoluteString }
 }
 
+private struct PostSalesCollectionDateFilterSheet: View {
+    @Environment(\.dismiss) private var dismiss
+    @Binding var date: Date
+    @Binding var selectedDate: Date?
+
+    var body: some View {
+        VStack(spacing: 0) {
+            ZStack {
+                HStack(spacing: 12) {
+                    Button {
+                        dismiss()
+                    } label: {
+                        Text("Cancel")
+                            .font(.system(size: 16, weight: .regular))
+                            .foregroundStyle(Color(hex: 0x101828))
+                            .frame(width: 86, height: 44)
+                            .background(Color(hex: 0xF8FAFC), in: Capsule())
+                    }
+                    .buttonStyle(.plain)
+
+                    Spacer(minLength: 12)
+
+                    HStack(spacing: 18) {
+                        Button {
+                            selectedDate = nil
+                            dismiss()
+                        } label: {
+                            Text("Clear")
+                                .font(.system(size: 16, weight: .semibold))
+                                .foregroundStyle(selectedDate == nil ? Color(hex: 0xC4C7CE) : Color(hex: 0x0B61CA))
+                        }
+                        .buttonStyle(.plain)
+                        .disabled(selectedDate == nil)
+
+                        Button {
+                            selectedDate = date
+                            dismiss()
+                        } label: {
+                            Text("Select")
+                                .font(.system(size: 16, weight: .semibold))
+                                .foregroundStyle(Color(hex: 0x0B61CA))
+                        }
+                        .buttonStyle(.plain)
+                    }
+                    .frame(width: 128, alignment: .trailing)
+                }
+
+                Text("Date Filter")
+                    .font(.system(size: 18, weight: .bold))
+                    .foregroundStyle(Color(hex: 0x101828))
+            }
+            .padding(.horizontal, 18)
+            .padding(.top, 28)
+            .padding(.bottom, 18)
+
+            VStack(spacing: 14) {
+                Text("Select Date Filter")
+                    .font(.system(size: 14, weight: .medium))
+                    .foregroundStyle(Color(hex: 0x667085))
+                    .frame(maxWidth: .infinity, alignment: .leading)
+                    .padding(.horizontal, 22)
+
+                DatePicker("Collection Date", selection: $date, displayedComponents: .date)
+                    .datePickerStyle(.graphical)
+                    .labelsHidden()
+                    .tint(Color(hex: 0x0B61CA))
+                    .padding(.horizontal, 14)
+            }
+            .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .top)
+        }
+        .background(Color.white)
+    }
+}
+
 private func filterCollections(
     _ rows: [CustomerCollectionRow],
     filter: CollectionPaymentFilter,
-    searchText: String
+    searchText: String,
+    selectedDate: Date?
 ) -> [CustomerCollectionRow] {
     let categoryFiltered = rows.filter { row in
         switch filter {
@@ -717,9 +951,15 @@ private func filterCollections(
             return row.normalizedPaymentCategory.contains("loan") || row.normalizedPaymentCategory.contains("bank")
         }
     }
+    let dateFiltered: [CustomerCollectionRow]
+    if let selectedDate {
+        dateFiltered = categoryFiltered.filter { $0.matchesCollectionDate(selectedDate) }
+    } else {
+        dateFiltered = categoryFiltered
+    }
     let query = searchText.trimmingCharacters(in: .whitespacesAndNewlines).lowercased()
-    guard !query.isEmpty else { return categoryFiltered }
-    return categoryFiltered.filter { row in
+    guard !query.isEmpty else { return dateFiltered }
+    return dateFiltered.filter { row in
         [
             row.collectionRefNo,
             row.customerName,
@@ -1651,14 +1891,29 @@ private extension CustomerCollectionRow {
         }
     }
 
+    func matchesCollectionDate(_ selectedDate: Date) -> Bool {
+        let calendar = Calendar.current
+        return collectionFilterDates.contains { calendar.isDate($0, inSameDayAs: selectedDate) }
+    }
+
+    private var collectionFilterDates: [Date] {
+        [collectionDate, createdAt].compactMap { Self.parseCollectionDate($0) }
+    }
+
     var androidCollectionDate: String? {
         let raw = createdAt?.nonBlank ?? collectionDate?.nonBlank
         guard let raw else { return nil }
-        let parsed = Self.isoMillisFormatter.date(from: raw)
-            ?? Self.isoNoMillisFormatter.date(from: raw)
-            ?? Self.dateOnlyFormatter.date(from: raw)
+        let parsed = Self.parseCollectionDate(raw)
         guard let parsed else { return raw }
         return Self.displayDateFormatter.string(from: parsed)
+    }
+
+    private static func parseCollectionDate(_ raw: String?) -> Date? {
+        guard let raw = raw?.nonBlank else { return nil }
+        return isoMillisFormatter.date(from: raw)
+            ?? isoNoMillisFormatter.date(from: raw)
+            ?? dateOnlyFormatter.date(from: raw)
+            ?? ISO8601DateFormatter().date(from: raw)
     }
 
     private static let displayDateFormatter: DateFormatter = {

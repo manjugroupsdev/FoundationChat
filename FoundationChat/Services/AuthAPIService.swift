@@ -44,6 +44,7 @@ enum AuthAPIService {
     let success: Bool?
     let total: Int?
     let permissions: [String]
+    let role: String?
     let isAdmin: Bool
     let error: String?
   }
@@ -156,7 +157,7 @@ enum AuthAPIService {
 
   /// Fetch the signed-in user's IAM permissions. Mirrors Android
   /// `GET /api/iam/my-permissions` used by App Library feature gates.
-  static func getMyIAMPermissions(token: String) async throws -> (permissions: [String], isAdmin: Bool) {
+  static func getMyIAMPermissions(token: String) async throws -> (permissions: [String], role: String?, isAdmin: Bool) {
     let url = URL(string: "\(baseURL)/api/iam/my-permissions")!
     var request = URLRequest(url: url)
     request.httpMethod = "GET"
@@ -175,7 +176,7 @@ enum AuthAPIService {
       )
     }
 
-    return (decoded.permissions, decoded.isAdmin)
+    return (decoded.permissions, decoded.role, decoded.isAdmin)
   }
 
   /// Logout / invalidate the session on the server.

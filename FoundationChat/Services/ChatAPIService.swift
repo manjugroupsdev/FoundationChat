@@ -19,6 +19,12 @@ enum ChatAPIService {
     let error: String?
   }
 
+  private struct StorageUploadResponse: Decodable {
+    let success: Bool
+    let storageId: String?
+    let error: String?
+  }
+
   // MARK: - Staff Directory
 
   struct StaffMember: Decodable, Sendable {
@@ -32,6 +38,58 @@ enum ChatAPIService {
     let department: String?
     let status: String?
     let profilePhoto: String?
+
+    private enum CodingKeys: String, CodingKey {
+      case _id
+      case id
+      case staffId
+      case employeeId
+      case name
+      case displayName
+      case phone
+      case email
+      case role
+      case designation
+      case department
+      case status
+      case profilePhoto
+      case profilePhotoUrl
+      case photo
+      case photoUrl
+      case avatar
+      case avatarUrl
+      case imageUrl
+      case profileImage
+      case profileImageUrl
+      case profilePicture
+      case profilePictureUrl
+    }
+
+    init(from decoder: Decoder) throws {
+      let container = try decoder.container(keyedBy: CodingKeys.self)
+      _id = try container.decodeFirstPresentString(forKeys: [._id, .id, .staffId])
+      employeeId = try container.decodeIfPresent(String.self, forKey: .employeeId)
+      name = try container.decodeFirstPresentString(forKeys: [.name, .displayName])
+      phone = try container.decodeIfPresent(String.self, forKey: .phone)
+      email = try container.decodeIfPresent(String.self, forKey: .email)
+      role = try container.decodeIfPresent(String.self, forKey: .role)
+      designation = try container.decodeIfPresent(String.self, forKey: .designation)
+      department = try container.decodeIfPresent(String.self, forKey: .department)
+      status = try container.decodeIfPresent(String.self, forKey: .status)
+      profilePhoto = try container.decodeFirstPresentString(forKeys: [
+        .profilePhoto,
+        .profilePhotoUrl,
+        .photo,
+        .photoUrl,
+        .avatar,
+        .avatarUrl,
+        .imageUrl,
+        .profileImage,
+        .profileImageUrl,
+        .profilePicture,
+        .profilePictureUrl
+      ])
+    }
   }
 
   private struct StaffListResponse: Decodable {
@@ -140,17 +198,30 @@ enum ChatAPIService {
     _ = try await post(path: "/api/chat/channels/set-role", token: token, jsonBody: body)
   }
 
-  static func updateChannel(token: String, channelId: String, name: String? = nil, description: String? = nil, type: String? = nil) async throws {
+  static func updateChannel(
+    token: String,
+    channelId: String,
+    name: String? = nil,
+    description: String? = nil,
+    type: String? = nil,
+    avatarStorageId: String? = nil
+  ) async throws {
     var body: [String: Any] = ["channelId": channelId]
     if let name { body["name"] = name }
     if let description { body["description"] = description }
     if let type { body["type"] = type }
+    if let avatarStorageId { body["avatarStorageId"] = avatarStorageId }
     _ = try await post(path: "/api/chat/channels/update", token: token, jsonBody: body)
   }
 
   static func archiveChannel(token: String, channelId: String) async throws {
     let body: [String: Any] = ["channelId": channelId]
     _ = try await post(path: "/api/chat/channels/archive", token: token, jsonBody: body)
+  }
+
+  static func deleteChannel(token: String, channelId: String) async throws {
+    let body: [String: Any] = ["channelId": channelId]
+    _ = try await post(path: "/api/chat/channels/delete", token: token, jsonBody: body)
   }
 
   // MARK: - Conversations
@@ -282,6 +353,41 @@ enum ChatAPIService {
     let wrapper = try decode(SendMessageResponse.self, from: data)
     guard let id = wrapper.messageId else { throw ChatAPIError.unexpected("Missing messageId") }
     return id
+  }
+
+  /// Upload chat media through the authenticated endpoint used by Android.
+  static func uploadAttachment(
+    token: String,
+    data fileData: Data,
+    mimeType: String
+  ) async throws -> String {
+    guard !fileData.isEmpty else {
+      throw ChatAPIError.unexpected("The selected attachment is empty")
+    }
+    guard let url = URL(string: "\(baseURL)/api/storage/upload") else {
+      throw ChatAPIError.badURL
+    }
+
+    var request = URLRequest(url: url)
+    request.httpMethod = "POST"
+    request.timeoutInterval = 90
+    request.setValue("Bearer \(token)", forHTTPHeaderField: "Authorization")
+    request.setValue(mimeType, forHTTPHeaderField: "Content-Type")
+
+    let configuration = URLSessionConfiguration.ephemeral
+    configuration.timeoutIntervalForRequest = 90
+    configuration.timeoutIntervalForResource = 180
+    let session = URLSession(configuration: configuration)
+    let (responseData, response) = try await session.upload(for: request, from: fileData)
+    try checkHTTPError(data: responseData, response: response)
+
+    let wrapper = try decode(StorageUploadResponse.self, from: responseData)
+    guard wrapper.success, let storageId = wrapper.storageId, !storageId.isEmpty else {
+      throw ChatAPIError.unexpected(
+        wrapper.error ?? "The attachment upload did not return a storage ID"
+      )
+    }
+    return storageId
   }
 
   static func editMessage(token: String, messageId: String, body: String) async throws {
@@ -659,6 +765,19 @@ enum ChatAPIService {
     }
   }
 
+}
+
+private extension KeyedDecodingContainer {
+  func decodeFirstPresentString(forKeys keys: [Key]) throws -> String? {
+    for key in keys {
+      if let value = try decodeIfPresent(String.self, forKey: key),
+        !value.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
+      {
+        return value
+      }
+    }
+    return nil
+  }
 }
 
 enum ChatAPIError: LocalizedError {

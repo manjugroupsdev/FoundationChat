@@ -15,7 +15,6 @@ struct LoginView: View {
     @FocusState private var phoneFieldFocused: Bool
     @FocusState private var focusedOtpBox: Int?
     @FocusState private var employeeFieldFocused: EmployeeField?
-    @State private var keyboardHeight: CGFloat = 0
 
     private enum EmployeeField {
         case employeeId
@@ -42,26 +41,15 @@ struct LoginView: View {
                 // Sheet moves as a single unit; the OTP badge is anchored to its top edge.
                 bottomSheet(geo: geo)
                 .frame(maxWidth: .infinity, maxHeight: .infinity)
-                .offset(y: -keyboardHeight)
             }
             .animation(.spring(response: 0.4, dampingFraction: 0.85), value: step)
             .contentShape(Rectangle())
             .simultaneousGesture(backSwipeGesture)
         }
-        .ignoresSafeArea()
-        .onReceive(NotificationCenter.default.publisher(for: UIResponder.keyboardWillShowNotification)) { notification in
-            let frame = (notification.userInfo?[UIResponder.keyboardFrameEndUserInfoKey] as? CGRect) ?? .zero
-            let duration = (notification.userInfo?[UIResponder.keyboardAnimationDurationUserInfoKey] as? Double) ?? 0.25
-            withAnimation(.easeOut(duration: duration)) {
-                keyboardHeight = frame.height
-            }
-        }
-        .onReceive(NotificationCenter.default.publisher(for: UIResponder.keyboardWillHideNotification)) { notification in
-            let duration = (notification.userInfo?[UIResponder.keyboardAnimationDurationUserInfoKey] as? Double) ?? 0.25
-            withAnimation(.easeOut(duration: duration)) {
-                keyboardHeight = 0
-            }
-        }
+        // Ignore the device container inset but keep the keyboard safe area.
+        // SwiftUI can then perform one native keyboard transition instead of
+        // competing with a second full-screen offset animation.
+        .ignoresSafeArea(.container, edges: .all)
         .onChange(of: authStore.status) { _, _ in }
     }
 

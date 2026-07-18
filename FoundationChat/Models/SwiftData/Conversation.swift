@@ -8,6 +8,7 @@ class Conversation {
   var summary: String?
   var remoteConversationID: String?
   var participantDisplayName: String?
+  var participantAvatarSource: String?
   var unreadCount: Int?
   var otherParticipantLastReadAt: Date?
   var isFavorite: Bool
@@ -29,6 +30,7 @@ class Conversation {
     summary: String?,
     remoteConversationID: String? = nil,
     participantDisplayName: String? = nil,
+    participantAvatarSource: String? = nil,
     unreadCount: Int = 0,
     otherParticipantLastReadAt: Date? = nil,
     isFavorite: Bool = false
@@ -37,6 +39,7 @@ class Conversation {
     self.summary = summary
     self.remoteConversationID = remoteConversationID
     self.participantDisplayName = participantDisplayName
+    self.participantAvatarSource = participantAvatarSource
     self.unreadCount = unreadCount
     self.otherParticipantLastReadAt = otherParticipantLastReadAt
     self.isFavorite = isFavorite

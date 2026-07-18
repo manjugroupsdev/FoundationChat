@@ -35,7 +35,7 @@ struct ProfileView: View {
           Button {
             isPresentingEdit = true
           } label: {
-            ProfileMenuRow(title: "Edit Profile", systemImage: "person.crop.circle.badge.pencil")
+            ProfileMenuRow(title: "Edit Profile", systemImage: "square.and.pencil")
           }
           .buttonStyle(.plain)
 
@@ -129,6 +129,8 @@ struct ProfileView: View {
           Task { await refreshStaffProfile() }
         })
       }
+      .appLibraryNativeSheet([.height(690), .large])
+      .presentationBackground(Color.white)
     }
     .sheet(isPresented: $isConfirmingLogout) {
       LogoutConfirmationSheet {

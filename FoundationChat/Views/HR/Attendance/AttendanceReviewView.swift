@@ -72,7 +72,7 @@ struct AttendanceReviewView: View {
         .toolbar(.hidden, for: .tabBar)
         .sheet(item: $selectedRecord) { record in
             PunchLogSheet(record: record)
-                .presentationDetents([.medium, .large])
+                .appLibraryNativeSheet([.medium, .large])
         }
         .confirmationDialog("Approve as", isPresented: Binding(
             get: { approvingRecord != nil },

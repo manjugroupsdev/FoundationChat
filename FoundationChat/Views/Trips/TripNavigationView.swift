@@ -184,8 +184,7 @@ struct TripNavigationView: View {
                     startCpNoPath()
                 }
             )
-            .presentationDetents([.height(270)])
-            .presentationDragIndicator(.hidden)
+            .appLibraryNativeSheet([.height(270)])
         }
         .sheet(isPresented: $showOtpSheet, onDismiss: {
             if !visitCompletedSuccessfully {
@@ -268,8 +267,7 @@ struct TripNavigationView: View {
                 showCpTripCompletedSheet = false
                 dismiss()
             }
-            .presentationDetents([.height(260)])
-            .presentationDragIndicator(.hidden)
+            .appLibraryNativeSheet([.height(260)])
         }
         .sheet(isPresented: $showDriverStartTripSheet) {
             DriverOdometerSheet(
@@ -280,8 +278,7 @@ struct TripNavigationView: View {
                 showDriverStartTripSheet = false
                 Task { await ensureVisitStarted(startProof: proof) }
             }
-            .presentationDetents([.large])
-            .presentationDragIndicator(.hidden)
+            .appLibraryNativeSheet([.large])
         }
         .sheet(isPresented: $showDriverEndTripSheet, onDismiss: {
             if pendingCompletionVisitId != nil && !visitCompletedSuccessfully && !isDriverEndSubmitting {
@@ -300,8 +297,7 @@ struct TripNavigationView: View {
                     Task { await completeGeoTrackVisit(visitId: pendingCompletionVisitId, endProof: proof) }
                 }
             }
-            .presentationDetents([.large])
-            .presentationDragIndicator(.hidden)
+            .appLibraryNativeSheet([.large])
         }
         .task {
             locationManager.requestLocation()
@@ -1875,12 +1871,6 @@ private struct SpecialCpCompletionSheet: View {
 
     var body: some View {
         VStack(spacing: 0) {
-            Capsule()
-                .fill(Color(hex: 0xD9DDE5))
-                .frame(width: 42, height: 4)
-                .padding(.top, 10)
-                .padding(.bottom, 18)
-
             header
 
             ScrollView {

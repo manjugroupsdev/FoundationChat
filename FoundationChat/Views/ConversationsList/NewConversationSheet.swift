@@ -11,17 +11,14 @@ struct NewConversationSheet: View {
 
   let onSelectUser: (DirectoryUser) async throws -> Void
   let onCreateGroup: ([DirectoryUser], String?) async throws -> Void
-  let onCreateChannel: (() -> Void)?
 
   init(
     initialMode: SelectionMode = .direct,
     onSelectUser: @escaping (DirectoryUser) async throws -> Void,
-    onCreateGroup: @escaping ([DirectoryUser], String?) async throws -> Void = { _, _ in },
-    onCreateChannel: (() -> Void)? = nil
+    onCreateGroup: @escaping ([DirectoryUser], String?) async throws -> Void = { _, _ in }
   ) {
     self.onSelectUser = onSelectUser
     self.onCreateGroup = onCreateGroup
-    self.onCreateChannel = onCreateChannel
     _isGroupMode = State(initialValue: initialMode == .group)
   }
 
@@ -34,16 +31,23 @@ struct NewConversationSheet: View {
   @State private var errorMessage: String?
   @State private var isSubmitting = false
 
+  private var trimmedGroupName: String {
+    groupName.trimmingCharacters(in: .whitespacesAndNewlines)
+  }
+
   private var canStart: Bool {
-    selectedUsers.count >= 1
+    if isGroupMode {
+      return selectedUsers.count >= 2 && !trimmedGroupName.isEmpty
+    }
+    return selectedUsers.count == 1
   }
 
   private var actionTitle: String {
     if isSubmitting {
-      return isGroupMode && selectedUsers.count > 1 ? "Creating..." : "Starting..."
+      return isGroupMode ? "Creating..." : "Starting..."
     }
 
-    if isGroupMode && selectedUsers.count > 1 {
+    if isGroupMode {
       return "Create Group"
     }
 
@@ -133,7 +137,7 @@ struct NewConversationSheet: View {
         VStack(alignment: .leading, spacing: 2) {
           Text(selectedUsers.count <= 1 ? "Select people" : "\(selectedUsers.count) selected")
             .font(.system(size: 15, weight: .semibold))
-          Text(selectedUsers.count <= 1 ? "Choose one for a DM or more for a group" : "Add or remove people below")
+          Text(selectedUsers.count < 2 ? "Select at least 2 members" : "Add or remove people below")
             .font(.system(size: 12))
             .foregroundStyle(.secondary)
         }
@@ -141,13 +145,18 @@ struct NewConversationSheet: View {
         Spacer()
       }
 
-      if selectedUsers.count > 1 {
-        TextField("Group name (optional)", text: $groupName)
-          .font(.system(size: 15, weight: .regular))
-          .textInputAutocapitalization(.words)
-          .padding(.horizontal, 12)
-          .frame(height: 44)
-          .background(Color(.systemGray6), in: RoundedRectangle(cornerRadius: 12, style: .continuous))
+      TextField("Group name", text: $groupName)
+        .font(.system(size: 15, weight: .regular))
+        .textInputAutocapitalization(.words)
+        .padding(.horizontal, 12)
+        .frame(height: 44)
+        .background(Color(.systemGray6), in: RoundedRectangle(cornerRadius: 12, style: .continuous))
+
+      if selectedUsers.count < 2 || trimmedGroupName.isEmpty {
+        Text(selectedUsers.count < 2 ? "Select at least 2 members" : "Give the group a name")
+          .font(.system(size: 12, weight: .medium))
+          .foregroundStyle(.secondary)
+          .frame(maxWidth: .infinity, alignment: .leading)
       }
     }
   }
@@ -210,9 +219,11 @@ struct NewConversationSheet: View {
           toggle(user)
         } label: {
           HStack(spacing: 12) {
-            AvatarPlaceholder(initials: initials(for: user.displayName))
-              .frame(width: 44, height: 44)
-              .scaleEffect(44 / 52)
+            ConversationAvatarView(
+              initials: initials(for: user.displayName),
+              source: user.imageUrl,
+              size: 44
+            )
 
             VStack(alignment: .leading, spacing: 2) {
               Text(user.displayName)
@@ -250,6 +261,12 @@ struct NewConversationSheet: View {
             toggle(user)
           } label: {
             HStack(spacing: 6) {
+              ConversationAvatarView(
+                initials: initials(for: user.displayName),
+                source: user.imageUrl,
+                size: 22
+              )
+
               Text(user.displayName)
                 .font(.system(size: 13, weight: .semibold))
                 .lineLimit(1)
@@ -314,11 +331,18 @@ struct NewConversationSheet: View {
     errorMessage = nil
 
     do {
-      if isGroupMode, selectedUsers.count > 1 {
-        try await onCreateGroup(
-          selectedUsers,
-          groupName.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty ? nil : groupName
-        )
+      if isGroupMode {
+        guard selectedUsers.count >= 2 else {
+          errorMessage = "Select at least 2 members"
+          isSubmitting = false
+          return
+        }
+        guard !trimmedGroupName.isEmpty else {
+          errorMessage = "Give the group a name"
+          isSubmitting = false
+          return
+        }
+        try await onCreateGroup(selectedUsers, trimmedGroupName)
       } else if let user = selectedUsers.first {
         try await onSelectUser(user)
       }

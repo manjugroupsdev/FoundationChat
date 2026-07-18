@@ -22,6 +22,12 @@ enum ProjectConvexAPIService {
         let error: String?
     }
 
+    private struct ProjectDetailResponse: Decodable {
+        let success: Bool
+        let project: ProjectSummary?
+        let error: String?
+    }
+
     private struct ProjectExpenseMutationResponse: Decodable {
         let success: Bool
         let id: String?
@@ -40,6 +46,19 @@ enum ProjectConvexAPIService {
             throw HRConvexAPIError.server(wrapper.error ?? "Failed to load projects")
         }
         return wrapper.projects ?? []
+    }
+
+    static func getProjectDetail(token: String, id: String) async throws -> ProjectSummary {
+        let data = try await get(
+            path: "/api/projects/get",
+            token: token,
+            queryItems: [URLQueryItem(name: "id", value: id)]
+        )
+        let wrapper = try JSONDecoder().decode(ProjectDetailResponse.self, from: data)
+        guard wrapper.success, let project = wrapper.project else {
+            throw HRConvexAPIError.server(wrapper.error ?? "Failed to load project")
+        }
+        return project
     }
 
     static func listExpenses(

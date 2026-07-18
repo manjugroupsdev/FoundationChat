@@ -1,3 +1,4 @@
+import PhotosUI
 import SwiftUI
 
 struct BookingCreateView: View {
@@ -10,6 +11,7 @@ struct BookingCreateView: View {
     @State private var booking = DirectBookingDraft()
     @State private var selectedTab: DirectBookingTab = .client
     @State private var selectedProject: MarketingProject?
+    @State private var selectedProjectSpecialPaymentEnabled: Bool?
     @State private var selectedUnit: InventoryUnit?
     @State private var selectedLead: TelecallerLeadSearchData?
     @State private var leadMatches: [TelecallerLeadSearchData] = []
@@ -20,6 +22,8 @@ struct BookingCreateView: View {
     @State private var showUnitPicker = false
     @State private var showLeadPicker = false
     @State private var activeStaffPicker: DirectBookingStaffField?
+    @State private var clientImagePickerItem: PhotosPickerItem?
+    @State private var isUploadingClientImage = false
     @State private var isSubmitting = false
     @State private var isSearchingLead = false
     @State private var errorMessage: String?
@@ -32,6 +36,7 @@ struct BookingCreateView: View {
         self.initialProject = initialProject
         self.initialUnit = initialUnit
         _selectedProject = State(initialValue: initialProject)
+        _selectedProjectSpecialPaymentEnabled = State(initialValue: initialProject?.specialPaymentEnabled)
         _selectedUnit = State(initialValue: initialUnit)
     }
 
@@ -43,13 +48,6 @@ struct BookingCreateView: View {
         VStack(spacing: 0) {
             ScrollView {
                 VStack(alignment: .leading, spacing: 12) {
-                    Capsule()
-                        .fill(Color(hex: 0xD0D5DD))
-                        .frame(width: 38, height: 4)
-                        .frame(maxWidth: .infinity)
-                        .padding(.top, 8)
-                        .padding(.bottom, 6)
-
                     header
                     tabStrip
 
@@ -70,24 +68,28 @@ struct BookingCreateView: View {
                     }
                 }
                 .padding(.horizontal, 16)
-                .padding(.top, 12)
+                .padding(.top, 16)
                 .padding(.bottom, 28)
             }
 
             fixedFooterAction
         }
         .background(Color.white.ignoresSafeArea())
-        .navigationBarTitleDisplayMode(.inline)
-        .navigationTitle("New Booking")
-        .toolbar(.hidden, for: .navigationBar)
         .task {
             restoreDraftIfNeeded()
             await loadInitialData()
+            await resolveSelectedProjectSpecialPaymentIfNeeded()
         }
         .onDisappear {
             draftSaveTask?.cancel()
         }
         .onChange(of: booking) { _, _ in scheduleDraftAutosave() }
+        .onChange(of: booking.customerPaymentCategory) { _, value in
+            if value != "B" { booking.loanAmountRequested = "" }
+        }
+        .onChange(of: clientImagePickerItem) { _, item in
+            Task { await uploadClientImage(item) }
+        }
         .sheet(isPresented: $showProjectPicker) { projectPickerSheet }
         .sheet(isPresented: $showUnitPicker) { unitPickerSheet }
         .sheet(isPresented: $showLeadPicker) { leadPickerSheet }
@@ -112,7 +114,7 @@ struct BookingCreateView: View {
                     activeStaffPicker = nil
                 }
             )
-            .presentationDetents([.medium, .large])
+            .appLibraryNativeSheet([.medium, .large])
         }
         .alert("Booking", isPresented: Binding(
             get: { errorMessage != nil || successMessage != nil },
@@ -142,31 +144,29 @@ struct BookingCreateView: View {
     }
 
     private var header: some View {
-        HStack(alignment: .center) {
-            VStack(alignment: .leading, spacing: 2) {
-                Text("New Booking")
-                    .font(.system(size: 17, weight: .bold))
-                    .foregroundStyle(Color(hex: 0x101828))
+        VStack(spacing: 8) {
+            Text("New Booking")
+                .font(.system(size: 18, weight: .bold))
+                .foregroundStyle(Color(hex: 0x0F172A))
+                .frame(maxWidth: .infinity)
+
+            HStack {
                 Text("Booking form")
-                    .font(.system(size: 10.5, weight: .medium))
-                    .foregroundStyle(Color(hex: 0x94A3B8))
-            }
-            Spacer()
-            Button("Back") { dismiss() }
-                .font(.system(size: 12, weight: .medium))
-                .foregroundStyle(Color(hex: 0x101828))
-                .padding(.horizontal, 16)
-                .frame(height: 32)
-                .background(Color.white, in: Capsule())
-                .overlay(Capsule().stroke(Color(hex: 0xEAECF0), lineWidth: 1))
-            Button("Clear") { clearForm() }
-                .font(.system(size: 12, weight: .medium))
+                    .font(.system(size: 12, weight: .medium))
+                    .foregroundStyle(Color(hex: 0x667085))
+
+                Spacer()
+
+                Button("Clear") {
+                    clearForm()
+                }
+                .font(.system(size: 12, weight: .semibold))
                 .foregroundStyle(Color(hex: 0x20B40B))
-                .padding(.horizontal, 16)
-                .frame(height: 32)
-                .background(Color.white, in: Capsule())
-                .overlay(Capsule().stroke(Color(hex: 0x20B40B), lineWidth: 1))
+                .buttonStyle(.plain)
+            }
         }
+        .padding(.top, 12)
+        .padding(.bottom, 4)
     }
 
     private var tabStrip: some View {
@@ -261,6 +261,7 @@ struct BookingCreateView: View {
             leadLookupStatus
             DirectBookingPicker("Title", value: $booking.title, placeholder: "Select Title", icon: "person", options: ["Mr", "Mrs", "Ms", "Dr", "Prof"])
             DirectBookingTextField("Client Name *", text: $booking.name, placeholder: "Enter Client Name", icon: "person")
+            clientImageUploadCard
             DirectBookingTextField("Father/Spouse Name", text: $booking.fatherSpouseName, placeholder: "Enter Name", icon: "person")
             DirectBookingDateField("Date of Birth", text: $booking.dateOfBirth)
             DirectBookingDateField("Anniversary Date", text: $booking.anniversaryDate)
@@ -273,6 +274,55 @@ struct BookingCreateView: View {
             DirectBookingTextField("State", text: $booking.state, placeholder: "Enter State", icon: "mappin")
             DirectBookingTextField("District", text: $booking.district, placeholder: "Enter District", icon: "mappin")
             DirectBookingTextField("Location", text: $booking.location, placeholder: "Enter Location", icon: "mappin")
+        }
+    }
+
+    private var clientImageUploadCard: some View {
+        VStack(alignment: .leading, spacing: 6) {
+            Text("Client Image")
+                .font(.system(size: 13, weight: .semibold))
+                .foregroundStyle(Color(hex: 0x475467))
+            PhotosPicker(selection: $clientImagePickerItem, matching: .images) {
+                HStack(spacing: 12) {
+                    Image(systemName: booking.clientImageStorageId.directBookingNilIfBlank == nil ? "photo.badge.plus" : "checkmark.circle.fill")
+                        .font(.system(size: 20, weight: .semibold))
+                        .foregroundStyle(booking.clientImageStorageId.directBookingNilIfBlank == nil ? Color(hex: 0x0B61CA) : Color(hex: 0x18B400))
+                    VStack(alignment: .leading, spacing: 3) {
+                        Text(isUploadingClientImage ? "Uploading client image..." : (booking.clientImageFileName.directBookingNilIfBlank ?? "Upload client photo"))
+                            .font(.system(size: 14, weight: .semibold))
+                            .foregroundStyle(Color(hex: 0x101828))
+                            .lineLimit(1)
+                        Text("Optional profile photo for the client")
+                            .font(.system(size: 12, weight: .medium))
+                            .foregroundStyle(Color(hex: 0x667085))
+                            .lineLimit(1)
+                    }
+                    Spacer()
+                    if isUploadingClientImage {
+                        ProgressView()
+                            .controlSize(.small)
+                    } else if booking.clientImageStorageId.directBookingNilIfBlank != nil {
+                        Button {
+                            booking.clientImageStorageId = ""
+                            booking.clientImageFileName = ""
+                        } label: {
+                            Image(systemName: "xmark.circle.fill")
+                                .font(.system(size: 20, weight: .semibold))
+                                .foregroundStyle(Color(hex: 0x98A2B3))
+                        }
+                        .buttonStyle(.plain)
+                    }
+                }
+                .padding(.horizontal, 14)
+                .padding(.vertical, 14)
+                .background(Color.white, in: RoundedRectangle(cornerRadius: 14))
+                .overlay(
+                    RoundedRectangle(cornerRadius: 14)
+                        .stroke(style: StrokeStyle(lineWidth: 1.2, dash: [6, 5]))
+                        .foregroundStyle(Color(hex: 0xD0D5DD))
+                )
+            }
+            .disabled(isUploadingClientImage)
         }
     }
 
@@ -339,16 +389,19 @@ struct BookingCreateView: View {
             DirectBookingTextField("Other Charges", text: $booking.otherCharges, placeholder: "Enter Value", icon: "indianrupeesign", keyboard: .decimalPad)
             androidCheckRow("If Applicable", isOn: $booking.otherChargesApplicable, onText: "Yes")
             DirectBookingTextField("Advance Amount", text: $booking.advanceAmount, placeholder: "Enter Details", icon: "indianrupeesign", keyboard: .decimalPad)
-            DirectBookingPicker("Payment Mode", value: $booking.paymentMode, placeholder: "Select Mode", icon: "creditcard", options: ["Cash", "Cheque", "NEFT", "Online", "Loan"])
-            androidCheckRow("Flexi Payment", isOn: $booking.freePayment, onText: "Yes")
+            DirectBookingOptionPicker("Payment Mode", value: $booking.customerPaymentCategory, placeholder: "Select Mode", icon: "creditcard", options: Self.customerPaymentCategoryOptions)
+            if booking.customerPaymentCategory == "B" {
+                DirectBookingTextField("Loan Amount Required", text: $booking.loanAmountRequested, placeholder: "Amount customer wants as loan", icon: "doc", keyboard: .decimalPad)
+            }
+            DirectBookingOptionPicker("Payment Plan", value: $booking.paymentPlan, placeholder: "Select Plan", icon: "calendar", options: paymentPlanOptions)
             DirectBookingTextField("Allotment Due Amount", text: $booking.allotmentDueAmount, placeholder: "Enter Cost", icon: "indianrupeesign", keyboard: .decimalPad)
-            DirectBookingDateField("Allotment Due Date", text: $booking.allotmentDueDate)
+            DirectBookingDateField("Allotment Due Date", text: $booking.allotmentDueDate, maxDate: paymentDateLimit(days: 10))
             DirectBookingTextField("2nd Payment Amount", text: $booking.secondPaymentAmount, placeholder: "Enter Cost", icon: "indianrupeesign", keyboard: .decimalPad)
-            DirectBookingDateField("2nd Payment Date", text: $booking.secondPaymentDate)
+            DirectBookingDateField("2nd Payment Date", text: $booking.secondPaymentDate, maxDate: paymentDateLimit(days: paymentPlanDays))
             DirectBookingTextField("3rd Payment Amount", text: $booking.thirdPaymentAmount, placeholder: "Enter Cost", icon: "indianrupeesign", keyboard: .decimalPad)
-            DirectBookingDateField("3rd Payment Date", text: $booking.thirdPaymentDate)
+            DirectBookingDateField("3rd Payment Date", text: $booking.thirdPaymentDate, maxDate: paymentDateLimit(days: paymentPlanDays))
             DirectBookingTextField("4th Payment Amount", text: $booking.fourthPaymentAmount, placeholder: "Enter Cost", icon: "indianrupeesign", keyboard: .decimalPad)
-            DirectBookingDateField("4th Payment Date", text: $booking.fourthPaymentDate)
+            DirectBookingDateField("4th Payment Date", text: $booking.fourthPaymentDate, maxDate: paymentDateLimit(days: paymentPlanDays))
             DirectBookingDateField("Preferred Registration Date", text: $booking.preferredRegistrationDate)
         }
     }
@@ -482,13 +535,18 @@ struct BookingCreateView: View {
             },
             onSelect: { project in
                 selectedProject = project
+                selectedProjectSpecialPaymentEnabled = project.specialPaymentEnabled
                 booking.projectName = project.name ?? ""
                 selectedUnit = nil
                 booking.plotNo = ""
+                if booking.paymentPlan == "Special", project.specialPaymentEnabled == false {
+                    booking.paymentPlan = "Regular"
+                }
                 showProjectPicker = false
+                Task { await resolveSelectedProjectSpecialPaymentIfNeeded() }
             }
         )
-        .presentationDetents([.medium, .large])
+        .appLibraryNativeSheet([.medium, .large])
     }
 
     private var unitPickerSheet: some View {
@@ -517,7 +575,7 @@ struct BookingCreateView: View {
                 showUnitPicker = false
             }
         )
-        .presentationDetents([.medium, .large])
+        .appLibraryNativeSheet([.medium, .large])
     }
 
     private var leadPickerSheet: some View {
@@ -541,7 +599,7 @@ struct BookingCreateView: View {
                 showLeadPicker = false
             }
         )
-        .presentationDetents([.medium])
+        .appLibraryNativeSheet([.medium])
     }
 
     private func selectionRow(title: String, subtitle: String?, isSelected: Bool) -> some View {
@@ -606,6 +664,47 @@ struct BookingCreateView: View {
             if availableUnits.isEmpty { errorMessage = "No available plots in this project" }
         } catch {
             errorMessage = error.localizedDescription
+        }
+    }
+
+    @MainActor
+    private func uploadClientImage(_ item: PhotosPickerItem?) async {
+        guard let item else { return }
+        guard let token = authStore.currentSession?.token else {
+            errorMessage = "Session expired. Please login again."
+            return
+        }
+        isUploadingClientImage = true
+        defer {
+            isUploadingClientImage = false
+            clientImagePickerItem = nil
+        }
+        do {
+            guard let data = try await item.loadTransferable(type: Data.self) else {
+                errorMessage = "Could not read selected image."
+                return
+            }
+            let storageId = try await HRConvexAPIService.uploadPhoto(token: token, imageData: data)
+            booking.clientImageStorageId = storageId
+            booking.clientImageFileName = "client-photo.jpg"
+        } catch {
+            errorMessage = error.localizedDescription
+        }
+    }
+
+    @MainActor
+    private func resolveSelectedProjectSpecialPaymentIfNeeded() async {
+        guard selectedProjectSpecialPaymentEnabled == nil else { return }
+        guard let token = authStore.currentSession?.token, let project = selectedProject else { return }
+        do {
+            let detail = try await ProjectConvexAPIService.getProjectDetail(token: token, id: project.id)
+            guard selectedProject?.id == project.id else { return }
+            selectedProjectSpecialPaymentEnabled = detail.specialPaymentEnabled
+            if booking.paymentPlan == "Special", detail.specialPaymentEnabled != true {
+                booking.paymentPlan = "Regular"
+            }
+        } catch {
+            // Keep the trimmed project response behavior if the detail fallback is unavailable.
         }
     }
 
@@ -681,6 +780,7 @@ struct BookingCreateView: View {
     private func clearForm() {
         booking = DirectBookingDraft()
         selectedProject = initialProject
+        selectedProjectSpecialPaymentEnabled = initialProject?.specialPaymentEnabled
         selectedUnit = initialUnit
         selectedLead = nil
         leadMatches = []
@@ -698,6 +798,7 @@ struct BookingCreateView: View {
     private func restoreDraftIfNeeded() {
         guard !hasRestoredDraft else { return }
         hasRestoredDraft = true
+        selectedProjectSpecialPaymentEnabled = initialProject?.specialPaymentEnabled
         if let initialProject { booking.projectName = initialProject.name ?? "" }
         if let initialUnit { booking.plotNo = initialUnit.unitNumber ?? "" }
         guard initialProject == nil, initialUnit == nil,
@@ -734,6 +835,50 @@ struct BookingCreateView: View {
         draftMessage = nil
         guard let token = authStore.currentSession?.token else { return }
         Task { try? await MarketingConvexAPIService.clearBookingDraft(token: token) }
+    }
+
+    private static let customerPaymentCategoryOptions = [
+        DirectBookingOption(value: "A", label: "A - Self Finance / Hand Cash"),
+        DirectBookingOption(value: "B", label: "B - Loan Customer"),
+        DirectBookingOption(value: "C", label: "C - High Risk")
+    ]
+
+    private var paymentPlanOptions: [DirectBookingOption] {
+        var options = [
+            DirectBookingOption(value: "Regular", label: paymentPlanLabel("Regular")),
+            DirectBookingOption(value: "Flexi", label: paymentPlanLabel("Flexi"))
+        ]
+        if specialPaymentAllowed {
+            options.append(DirectBookingOption(value: "Special", label: paymentPlanLabel("Special")))
+        }
+        return options
+    }
+
+    private var specialPaymentAllowed: Bool {
+        selectedProject?.specialPaymentEnabled == true || selectedProjectSpecialPaymentEnabled == true
+    }
+
+    private var paymentPlanDays: Int {
+        switch booking.normalizedPaymentPlan {
+        case "Flexi": return 60
+        case "Special": return 180
+        default: return 30
+        }
+    }
+
+    private func paymentPlanLabel(_ plan: String) -> String {
+        let days: Int
+        switch plan {
+        case "Flexi": days = 60
+        case "Special": days = 180
+        default: days = 30
+        }
+        return "\(plan) (max \(days) days)"
+    }
+
+    private func paymentDateLimit(days: Int) -> Date? {
+        let base = AppModuleFormatters.ymd.date(from: booking.bookingDate) ?? Date()
+        return Calendar.current.date(byAdding: .day, value: days, to: base)
     }
 }
 
@@ -781,6 +926,8 @@ private struct DirectBookingDraft: Codable, Equatable, Sendable {
     var phone = ""
     var title = ""
     var name = ""
+    var clientImageStorageId = ""
+    var clientImageFileName = ""
     var fatherSpouseName = ""
     var dateOfBirth = ""
     var anniversaryDate = ""
@@ -830,6 +977,9 @@ private struct DirectBookingDraft: Codable, Equatable, Sendable {
     var otherChargesApplicable = true
     var advanceAmount = ""
     var paymentMode = ""
+    var customerPaymentCategory = ""
+    var loanAmountRequested = ""
+    var paymentPlan = "Regular"
     var freePayment = true
     var allotmentDueAmount = ""
     var allotmentDueDate = ""
@@ -887,12 +1037,17 @@ private struct DirectBookingDraft: Codable, Equatable, Sendable {
         let cost = Double(bookingCost)
         let advance = Double(advanceAmount)
         let special = Double(specialConsideration)
+        let category = customerPaymentCategory.directBookingNilIfBlank
+        let categoryLabel = Self.paymentCategoryLabel(for: category)
+        let plan = normalizedPaymentPlan
         return CreateBookingRequest(
             clientName: name.trimmingCharacters(in: .whitespacesAndNewlines),
             mobileNumber: mobile,
             bookingDate: bookingDate.directBookingNilIfBlank ?? AppModuleFormatters.ymd.string(from: Date()),
             leadId: selectedLead?.id,
             title: title.directBookingNilIfBlank,
+            clientImageStorageId: clientImageStorageId.directBookingNilIfBlank,
+            clientImageFileName: clientImageStorageId.directBookingNilIfBlank == nil ? nil : (clientImageFileName.directBookingNilIfBlank ?? "client-photo.jpg"),
             fatherSpouseName: fatherSpouseName.directBookingNilIfBlank,
             dateOfBirth: dateOfBirth.directBookingNilIfBlank,
             anniversaryDate: anniversaryDate.directBookingNilIfBlank,
@@ -927,8 +1082,11 @@ private struct DirectBookingDraft: Codable, Equatable, Sendable {
             otherChargesApplicable: otherChargesApplicable,
             advanceAmount: advance,
             balanceAmount: cost.flatMap { total in advance.map { total - $0 } },
-            paymentMode: paymentMode.directBookingNilIfBlank,
-            freePayment: freePayment,
+            paymentMode: categoryLabel ?? paymentMode.directBookingNilIfBlank,
+            customerPaymentCategory: category,
+            loanAmountRequested: category == "B" ? Double(loanAmountRequested) : nil,
+            paymentPlan: plan,
+            freePayment: plan == "Flexi",
             allotmentDueAmount: Double(allotmentDueAmount),
             allotmentDueDate: allotmentDueDate.directBookingNilIfBlank,
             secondPaymentAmount: Double(secondPaymentAmount),
@@ -985,6 +1143,23 @@ private struct DirectBookingDraft: Codable, Equatable, Sendable {
             "Save as: \(saveAs.rawValue)"
         ].joined(separator: "\n").directBookingNilIfBlank
     }
+
+    var normalizedPaymentPlan: String {
+        switch paymentPlan.directBookingNilIfBlank ?? (freePayment ? "Flexi" : "Regular") {
+        case "Flexi": return "Flexi"
+        case "Special": return "Special"
+        default: return "Regular"
+        }
+    }
+
+    static func paymentCategoryLabel(for category: String?) -> String? {
+        switch category {
+        case "A": return "A - Self Finance / Hand Cash"
+        case "B": return "B - Loan Customer"
+        case "C": return "C - High Risk"
+        default: return nil
+        }
+    }
 }
 
 private struct BookingRemoteDraftPayload: Encodable, Sendable {
@@ -1039,6 +1214,44 @@ private struct DirectBookingTextField: View {
             .frame(minHeight: axis == .vertical ? 72 : 46)
             .background(Color.white, in: RoundedRectangle(cornerRadius: 12))
             .overlay(RoundedRectangle(cornerRadius: 12).stroke(Color(hex: 0xE4E7EC), lineWidth: 1))
+        }
+    }
+}
+
+private struct DirectBookingOption: Identifiable, Hashable {
+    let value: String
+    let label: String
+
+    var id: String { value }
+}
+
+private struct DirectBookingOptionPicker: View {
+    let title: String
+    @Binding var value: String
+    let placeholder: String
+    let icon: String
+    let options: [DirectBookingOption]
+
+    init(_ title: String, value: Binding<String>, placeholder: String, icon: String, options: [DirectBookingOption]) {
+        self.title = title
+        self._value = value
+        self.placeholder = placeholder
+        self.icon = icon
+        self.options = options
+    }
+
+    private var selectedLabel: String {
+        options.first { $0.value == value }?.label ?? placeholder
+    }
+
+    var body: some View {
+        Menu {
+            Button("Clear") { value = "" }
+            ForEach(options) { option in
+                Button(option.label) { value = option.value }
+            }
+        } label: {
+            DirectBookingPickerShell(title: title, value: selectedLabel, icon: icon)
         }
     }
 }
@@ -1126,13 +1339,15 @@ private struct DirectBookingDateField: View {
     let title: String
     @Binding var text: String
     let defaultsToToday: Bool
+    let maxDate: Date?
     @State private var date = Date()
     @State private var showPicker = false
 
-    init(_ title: String, text: Binding<String>, defaultsToToday: Bool = false) {
+    init(_ title: String, text: Binding<String>, defaultsToToday: Bool = false, maxDate: Date? = nil) {
         self.title = title
         self._text = text
         self.defaultsToToday = defaultsToToday
+        self.maxDate = maxDate
     }
 
     var body: some View {
@@ -1146,29 +1361,43 @@ private struct DirectBookingDateField: View {
             } else if text.isEmpty, defaultsToToday {
                 text = AppModuleFormatters.ymd.string(from: date)
             }
+            if let maxDate, date > maxDate {
+                date = maxDate
+            }
         }
         .sheet(isPresented: $showPicker) {
             NavigationStack {
-                DatePicker(title, selection: $date, displayedComponents: .date)
-                    .datePickerStyle(.graphical)
-                    .padding()
-                    .navigationTitle(title)
-                    .navigationBarTitleDisplayMode(.inline)
-                    .toolbar {
-                        ToolbarItem(placement: .cancellationAction) {
-                            Button("Cancel") { showPicker = false }
-                        }
-                        ToolbarItem(placement: .confirmationAction) {
-                            Button("Done") {
-                                text = AppModuleFormatters.ymd.string(from: date)
-                                showPicker = false
-                            }
-                            .buttonStyle(.borderedProminent)
-                            .tint(Color(hex: 0x2DAE12))
-                        }
+                VStack {
+                    if let maxDate {
+                        DatePicker(title, selection: $date, in: Date.distantPast...maxDate, displayedComponents: .date)
+                            .datePickerStyle(.graphical)
+                            .padding()
+                    } else {
+                        DatePicker(title, selection: $date, displayedComponents: .date)
+                            .datePickerStyle(.graphical)
+                            .padding()
                     }
+                }
+                .navigationTitle(title)
+                .navigationBarTitleDisplayMode(.inline)
+                .toolbar {
+                    ToolbarItem(placement: .cancellationAction) {
+                        Button("Cancel") { showPicker = false }
+                    }
+                    ToolbarItem(placement: .confirmationAction) {
+                        Button("Done") {
+                            if let maxDate, date > maxDate {
+                                date = maxDate
+                            }
+                            text = AppModuleFormatters.ymd.string(from: date)
+                            showPicker = false
+                        }
+                        .buttonStyle(.borderedProminent)
+                        .tint(Color(hex: 0x2DAE12))
+                    }
+                }
             }
-            .presentationDetents([.medium])
+            .appLibraryNativeSheet([.medium])
         }
     }
 }

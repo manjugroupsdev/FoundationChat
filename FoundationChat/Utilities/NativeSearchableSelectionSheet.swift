@@ -49,12 +49,14 @@ struct NativeSearchableSelectionSheet<Item: Identifiable, RowContent: View>: Vie
                 } else {
                     ForEach(filteredItems) { item in
                         Button {
-                            onSelect(item)
-                            dismiss()
+                            select(item)
                         } label: {
                             rowContent(item, selectedId == item.id)
+                                .frame(maxWidth: .infinity, alignment: .leading)
+                                .contentShape(Rectangle())
                         }
                         .buttonStyle(.plain)
+                        .listRowInsets(EdgeInsets(top: 8, leading: 16, bottom: 8, trailing: 16))
                     }
                 }
             }
@@ -73,5 +75,9 @@ struct NativeSearchableSelectionSheet<Item: Identifiable, RowContent: View>: Vie
             }
         }
     }
-}
 
+    private func select(_ item: Item) {
+        onSelect(item)
+        dismiss()
+    }
+}

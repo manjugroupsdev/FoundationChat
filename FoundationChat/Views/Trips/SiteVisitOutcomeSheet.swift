@@ -58,12 +58,6 @@ struct SiteVisitOutcomeSheet: View {
         NavigationStack {
             ScrollView {
                 VStack(alignment: .leading, spacing: 14) {
-                    Capsule()
-                        .fill(Color(hex: 0xE4E7EC))
-                        .frame(width: 40, height: 4)
-                        .frame(maxWidth: .infinity)
-                        .padding(.bottom, 2)
-
                     header
                     outcomeChips
 
@@ -138,7 +132,7 @@ struct SiteVisitOutcomeSheet: View {
                         activeStaffPicker = nil
                     }
                 )
-                .presentationDetents([.medium, .large])
+                .appLibraryNativeSheet([.medium, .large])
             }
         }
     }
@@ -537,7 +531,7 @@ struct SiteVisitOutcomeSheet: View {
                 showProjectPicker = false
             }
         )
-        .presentationDetents([.medium, .large])
+        .appLibraryNativeSheet([.medium, .large])
     }
 
     private var unitPickerSheet: some View {
@@ -562,7 +556,7 @@ struct SiteVisitOutcomeSheet: View {
                 showUnitPicker = false
             }
         )
-        .presentationDetents([.medium, .large])
+        .appLibraryNativeSheet([.medium, .large])
     }
 
     private var leadPickerSheet: some View {
@@ -586,7 +580,7 @@ struct SiteVisitOutcomeSheet: View {
                 showLeadPicker = false
             }
         )
-        .presentationDetents([.medium])
+        .appLibraryNativeSheet([.medium])
     }
 
     private func selectionRow(title: String, subtitle: String?, isSelected: Bool) -> some View {
@@ -1312,7 +1306,7 @@ private struct SiteVisitOutcomeDateField: View {
                         }
                     }
             }
-            .presentationDetents([.medium])
+            .appLibraryNativeSheet([.medium])
         }
     }
 }

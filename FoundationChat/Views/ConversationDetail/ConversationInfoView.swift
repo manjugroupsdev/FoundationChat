@@ -1,4 +1,6 @@
+import PhotosUI
 import SwiftUI
+import UIKit
 
 struct ConversationInfoView: View {
   enum Source {
@@ -13,15 +15,18 @@ struct ConversationInfoView: View {
   let source: Source
   let initialDisplayName: String?
   let onPinToggle: ((Bool) -> Void)?
+  let onChannelExited: (() -> Void)?
 
   init(
     source: Source,
     initialDisplayName: String? = nil,
-    onPinToggle: ((Bool) -> Void)? = nil
+    onPinToggle: ((Bool) -> Void)? = nil,
+    onChannelExited: (() -> Void)? = nil
   ) {
     self.source = source
     self.initialDisplayName = initialDisplayName
     self.onPinToggle = onPinToggle
+    self.onChannelExited = onChannelExited
   }
 
   @State private var conversation: ConvexConversationSummary?
@@ -32,14 +37,24 @@ struct ConversationInfoView: View {
   @State private var isMuted: Bool = false
   @State private var isMutating: Bool = false
   @State private var showLeaveConfirm: Bool = false
+  @State private var showDeleteConfirm: Bool = false
   @State private var showMediaSheet = false
   @State private var showSearchSheet = false
+  @State private var showEditGroupSheet = false
+  @State private var showAddMemberSheet = false
+  @State private var selectedPhotoItem: PhotosPickerItem?
+  @State private var isUploadingPhoto = false
+  @State private var selectedMemberForActions: ChannelMember?
+  @State private var showMemberActions = false
+  @State private var memberToRemove: ChannelMember?
+  @State private var showRemoveMemberConfirm = false
+  @State private var memberActionID: String?
   @State private var participantStaffIds: [String: String] = [:]
   @State private var participantStaffDetails: [String: ConvexStaffDetail] = [:]
 
   private var displayName: String {
     if case .channel = source, let channel {
-      return "#\(channel.name)"
+      return channel.type?.lowercased() == "public" ? "#\(channel.name)" : channel.name
     }
     if case .conversation = source, let conversation {
       return conversationParticipantsToShow.first?.displayName
@@ -54,8 +69,9 @@ struct ConversationInfoView: View {
   private var subtitle: String? {
     switch source {
     case .channel:
-      if let memberCount = channel?.memberCount {
-        return "\(memberCount) member\(memberCount == 1 ? "" : "s")"
+      let count = members.isEmpty ? channel?.memberCount : members.count
+      if let count {
+        return "Group · \(count) member\(count == 1 ? "" : "s")"
       }
       return channel?.description
     case .conversation:
@@ -71,6 +87,113 @@ struct ConversationInfoView: View {
     guard let participants = conversation?.participants else { return [] }
     let filtered = participants.filter { !isCurrentUser($0) }
     return filtered.isEmpty ? participants : filtered
+  }
+
+  private var channelID: String? {
+    guard case .channel(let id, _) = source else { return nil }
+    return id
+  }
+
+  private var currentUserIDs: Set<String> {
+    let values = [
+      authStore.viewer?.subject,
+      authStore.currentSession?.user._id,
+      authStore.currentSession?.user.staffId,
+      authStore.currentSession?.user.employeeId,
+      authStore.currentSession?.user.phone,
+    ]
+
+    return Set(values.compactMap { value in
+      let trimmed = value?.trimmingCharacters(in: .whitespacesAndNewlines)
+      return trimmed?.isEmpty == false ? trimmed : nil
+    })
+  }
+
+  private var currentChannelMember: ChannelMember? {
+    members.first { member in
+      currentUserIDs.contains(member.stackUserId) || currentUserIDs.contains(member.id)
+    }
+  }
+
+  private var canManageChannel: Bool {
+    guard case .channel = source else { return false }
+    let role = (currentChannelMember?.role ?? channel?.role)?.lowercased()
+    if role == "admin" || role == "owner" { return true }
+    if let createdBy = channel?.createdBy, currentUserIDs.contains(createdBy) { return true }
+    return false
+  }
+
+  private var isCurrentUserChannelCreator: Bool {
+    guard let createdBy = channel?.createdBy else { return false }
+    return currentUserIDs.contains(createdBy)
+  }
+
+  private var isAloneChannelCreator: Bool {
+    guard isCurrentUserChannelCreator, !members.isEmpty else { return false }
+    return members.allSatisfy(isCurrentChannelMember)
+  }
+
+  private var existingMemberIDs: Set<String> {
+    Set(members.flatMap { member in
+      [member.id, member.staffId].compactMap { $0 }
+    })
+  }
+
+  private var sortedChannelMembers: [ChannelMember] {
+    members.sorted { lhs, rhs in
+      let lhsRank = memberSortRank(lhs)
+      let rhsRank = memberSortRank(rhs)
+      if lhsRank != rhsRank { return lhsRank < rhsRank }
+      return memberDisplayName(lhs).localizedCaseInsensitiveCompare(memberDisplayName(rhs)) == .orderedAscending
+    }
+  }
+
+  private func memberSortRank(_ member: ChannelMember) -> Int {
+    if isCurrentChannelMember(member) { return 0 }
+    if normalizedRole(member.role) == "admin" { return 1 }
+    return 2
+  }
+
+  private func normalizedRole(_ role: String?) -> String {
+    role?.trimmingCharacters(in: .whitespacesAndNewlines).lowercased() ?? "member"
+  }
+
+  private func memberDisplayName(_ member: ChannelMember?) -> String {
+    guard let member else { return "Member" }
+    if isCurrentChannelMember(member) { return "You" }
+    let name = member.staffName?.trimmingCharacters(in: .whitespacesAndNewlines)
+    return name?.isEmpty == false ? name! : member.id
+  }
+
+  private func isCurrentChannelMember(_ member: ChannelMember) -> Bool {
+    currentUserIDs.contains(member.stackUserId) || currentUserIDs.contains(member.id)
+  }
+
+  private func isChannelCreator(_ member: ChannelMember) -> Bool {
+    guard let createdBy = channel?.createdBy else { return false }
+    return member.staffId == createdBy || member.id == createdBy
+  }
+
+  private func canManageMember(_ member: ChannelMember) -> Bool {
+    canManageChannel && !isCurrentChannelMember(member) && !isChannelCreator(member)
+  }
+
+  @ViewBuilder
+  private func memberManagementButtons(for member: ChannelMember) -> some View {
+    if normalizedRole(member.role) == "admin" {
+      Button("Dismiss as Admin") {
+        Task { await setRole("member", for: member) }
+      }
+    } else {
+      Button("Make Group Admin") {
+        Task { await setRole("admin", for: member) }
+      }
+    }
+
+    Button("Remove from Group", role: .destructive) {
+      memberToRemove = member
+      showRemoveMemberConfirm = true
+    }
   }
 
   var body: some View {
@@ -99,6 +222,24 @@ struct ConversationInfoView: View {
         } label: {
           InfoActionRow(systemImage: "photo.on.rectangle", tint: .purple, title: "Media, Files & Links")
         }
+
+        if case .channel = source, canManageChannel {
+          Button {
+            showEditGroupSheet = true
+          } label: {
+            InfoActionRow(systemImage: "pencil", tint: .orange, title: "Edit Group")
+          }
+
+          Button {
+            showAddMemberSheet = true
+          } label: {
+            InfoActionRow(systemImage: "person.badge.plus", tint: .green, title: "Add Member")
+          }
+        }
+      }
+
+      if case .channel = source {
+        channelDescriptionSection
       }
 
       Section("Notifications") {
@@ -117,8 +258,17 @@ struct ConversationInfoView: View {
           Button(role: .destructive) {
             showLeaveConfirm = true
           } label: {
-            Label("Leave Channel", systemImage: "rectangle.portrait.and.arrow.right")
+            Label("Exit Group", systemImage: "rectangle.portrait.and.arrow.right")
               .foregroundStyle(.red)
+          }
+
+          if isAloneChannelCreator {
+            Button(role: .destructive) {
+              showDeleteConfirm = true
+            } label: {
+              Label("Delete Group", systemImage: "trash")
+                .foregroundStyle(.red)
+            }
           }
         }
       }
@@ -130,11 +280,49 @@ struct ConversationInfoView: View {
     .refreshable { await load() }
     .alert("Leave Channel?", isPresented: $showLeaveConfirm) {
       Button("Cancel", role: .cancel) {}
-      Button("Leave", role: .destructive) {
+      Button("Exit Group", role: .destructive) {
         Task { await leaveChannel() }
       }
     } message: {
-      Text("You will stop receiving messages from this channel.")
+      Text("You'll stop receiving messages from \"\(displayName)\".")
+    }
+    .alert("Delete Group?", isPresented: $showDeleteConfirm) {
+      Button("Cancel", role: .cancel) {}
+      Button("Delete", role: .destructive) {
+        Task { await deleteChannel() }
+      }
+    } message: {
+      Text("\"\(displayName)\" and its message history will be permanently deleted.")
+    }
+    .alert("Remove Member?", isPresented: $showRemoveMemberConfirm, presenting: memberToRemove) { member in
+      Button("Cancel", role: .cancel) {}
+      Button("Remove", role: .destructive) {
+        Task { await removeMember(member) }
+      }
+    } message: { member in
+      Text("\(memberDisplayName(member)) will no longer see this group's messages.")
+    }
+    .confirmationDialog(
+      memberDisplayName(selectedMemberForActions),
+      isPresented: $showMemberActions,
+      titleVisibility: .visible
+    ) {
+      if let member = selectedMemberForActions {
+        if normalizedRole(member.role) == "admin" {
+          Button("Dismiss as Admin") {
+            Task { await setRole("member", for: member) }
+          }
+        } else {
+          Button("Make Group Admin") {
+            Task { await setRole("admin", for: member) }
+          }
+        }
+
+        Button("Remove from Group", role: .destructive) {
+          memberToRemove = member
+          showRemoveMemberConfirm = true
+        }
+      }
     }
     .sheet(isPresented: $showSearchSheet) {
       NavigationStack {
@@ -145,6 +333,28 @@ struct ConversationInfoView: View {
       NavigationStack {
         mediaView
       }
+    }
+    .sheet(isPresented: $showEditGroupSheet) {
+      NavigationStack {
+        EditGroupSheet(
+          name: displayName.replacingOccurrences(of: "#", with: ""),
+          description: channel?.description ?? "",
+          onSave: { name, description in
+            await updateGroup(name: name, description: description)
+          }
+        )
+      }
+    }
+    .sheet(isPresented: $showAddMemberSheet) {
+      if let channelID {
+        InviteMemberSheet(channelID: channelID, excludedMemberIds: existingMemberIDs) {
+          await load()
+        }
+      }
+    }
+    .onChange(of: selectedPhotoItem) { _, newValue in
+      guard let newValue else { return }
+      Task { await uploadGroupPhoto(from: newValue) }
     }
     .overlay(alignment: .top) {
       if let errorMessage {
@@ -161,20 +371,32 @@ struct ConversationInfoView: View {
 
   private var headerCard: some View {
     VStack(spacing: 12) {
-      ZStack {
-        Circle()
-          .fill(
-            LinearGradient(
-              colors: [Color.blue.opacity(0.7), Color.purple.opacity(0.7)],
-              startPoint: .topLeading,
-              endPoint: .bottomTrailing
-            )
-          )
-          .frame(width: 88, height: 88)
+      ZStack(alignment: .bottomTrailing) {
+        AvatarView(urlString: channel?.avatarUrl, initials: initials, size: 96)
 
-        Text(initials)
-          .font(.title.weight(.bold))
-          .foregroundStyle(.white)
+        if case .channel = source, canManageChannel {
+          PhotosPicker(selection: $selectedPhotoItem, matching: .images) {
+            Image(systemName: isUploadingPhoto ? "arrow.triangle.2.circlepath" : "camera.fill")
+              .font(.system(size: 14, weight: .semibold))
+              .foregroundStyle(.white)
+              .frame(width: 34, height: 34)
+              .background(Color.blue, in: Circle())
+              .overlay(
+                Circle()
+                  .stroke(Color(.systemGroupedBackground), lineWidth: 3)
+              )
+          }
+          .disabled(isUploadingPhoto)
+        }
+
+        if isUploadingPhoto {
+          Circle()
+            .fill(.black.opacity(0.35))
+            .frame(width: 96, height: 96)
+          ProgressView()
+            .tint(.white)
+            .frame(width: 96, height: 96)
+        }
       }
 
       Text(displayName)
@@ -191,6 +413,18 @@ struct ConversationInfoView: View {
     .frame(maxWidth: .infinity)
     .padding(.vertical, 24)
     .padding(.horizontal, 16)
+  }
+
+  @ViewBuilder
+  private var channelDescriptionSection: some View {
+    let description = channel?.description?.trimmingCharacters(in: .whitespacesAndNewlines)
+
+    Section("Description") {
+      Text(description?.isEmpty == false ? description! : (canManageChannel ? "Add group description" : "No description"))
+        .font(.subheadline)
+        .foregroundStyle(description?.isEmpty == false ? .primary : .secondary)
+        .frame(maxWidth: .infinity, alignment: .leading)
+    }
   }
 
   @ViewBuilder
@@ -273,30 +507,45 @@ struct ConversationInfoView: View {
           .font(.subheadline)
           .foregroundStyle(.secondary)
       } else {
-        ForEach(members) { member in
-          HStack(spacing: 12) {
-            ZStack {
-              Circle()
-                .fill(Color(.systemGray4))
-                .frame(width: 36, height: 36)
-              Text(memberInitials(member))
-                .font(.caption.weight(.semibold))
-                .foregroundStyle(.white)
-            }
-
-            VStack(alignment: .leading, spacing: 2) {
-              Text(member.staffName ?? member.id)
-                .font(.subheadline.weight(.semibold))
-              if let role = member.role, !role.isEmpty {
-                Text(role.capitalized)
-                  .font(.caption)
-                  .foregroundStyle(.secondary)
-              }
-            }
-
-            Spacer()
+        ForEach(sortedChannelMembers) { member in
+          ChannelMemberInfoRow(
+            member: member,
+            initials: memberInitials(member),
+            isCurrentUser: isCurrentChannelMember(member),
+            isCreator: isChannelCreator(member),
+            canManage: canManageMember(member),
+            isBusy: memberActionID == member.id
+          )
+          .contentShape(Rectangle())
+          .onTapGesture {
+            guard canManageMember(member) else { return }
+            selectedMemberForActions = member
+            showMemberActions = true
           }
-          .padding(.vertical, 4)
+          .contextMenu {
+            if canManageMember(member) {
+              memberManagementButtons(for: member)
+            }
+          }
+          .swipeActions(edge: .trailing, allowsFullSwipe: false) {
+            if canManageMember(member) {
+              Button(role: .destructive) {
+                memberToRemove = member
+                showRemoveMemberConfirm = true
+              } label: {
+                Label("Remove", systemImage: "person.crop.circle.badge.minus")
+              }
+
+              Button {
+                Task {
+                  await setRole(normalizedRole(member.role) == "admin" ? "member" : "admin", for: member)
+                }
+              } label: {
+                Label(normalizedRole(member.role) == "admin" ? "Dismiss" : "Admin", systemImage: "person.badge.key")
+              }
+              .tint(.blue)
+            }
+          }
         }
       }
     }
@@ -312,7 +561,8 @@ struct ConversationInfoView: View {
   private func memberInitials(_ member: ChannelMember) -> String {
     let name = member.staffName ?? member.id
     let parts = name.split(whereSeparator: { !$0.isLetter }).prefix(2).compactMap(\.first)
-    return String(parts).uppercased()
+    let result = String(parts).uppercased()
+    return result.isEmpty ? "?" : result
   }
 
   private var muteBinding: Binding<Bool> {
@@ -378,9 +628,116 @@ struct ConversationInfoView: View {
   @MainActor
   private func leaveChannel() async {
     guard case .channel(let id, _) = source else { return }
+    isMutating = true
+    errorMessage = nil
+    defer { isMutating = false }
+
     do {
       try await authStore.leaveChannel(channelID: id)
       dismiss()
+      onChannelExited?()
+    } catch {
+      errorMessage = error.localizedDescription
+    }
+  }
+
+  @MainActor
+  private func deleteChannel() async {
+    guard let channelID else { return }
+    isMutating = true
+    errorMessage = nil
+    defer { isMutating = false }
+
+    do {
+      try await authStore.deleteChannel(channelID: channelID)
+      dismiss()
+      onChannelExited?()
+    } catch {
+      errorMessage = error.localizedDescription
+    }
+  }
+
+  @MainActor
+  private func updateGroup(name: String, description: String) async {
+    guard let channelID else { return }
+    isMutating = true
+    errorMessage = nil
+    defer { isMutating = false }
+
+    do {
+      try await authStore.updateChannel(
+        channelID: channelID,
+        name: name,
+        description: description
+      )
+      showEditGroupSheet = false
+      await load()
+    } catch {
+      errorMessage = error.localizedDescription
+    }
+  }
+
+  @MainActor
+  private func setRole(_ role: String, for member: ChannelMember) async {
+    guard let channelID else { return }
+    memberActionID = member.id
+    errorMessage = nil
+    defer { memberActionID = nil }
+
+    do {
+      try await authStore.setChannelMemberRole(
+        channelID: channelID,
+        memberStackUserID: member.stackUserId,
+        role: role
+      )
+      await load()
+    } catch {
+      errorMessage = error.localizedDescription
+    }
+  }
+
+  @MainActor
+  private func removeMember(_ member: ChannelMember) async {
+    guard let channelID else { return }
+    memberActionID = member.id
+    errorMessage = nil
+    defer {
+      memberActionID = nil
+      memberToRemove = nil
+    }
+
+    do {
+      try await authStore.removeMember(channelID: channelID, memberStackUserID: member.stackUserId)
+      await load()
+    } catch {
+      errorMessage = error.localizedDescription
+    }
+  }
+
+  @MainActor
+  private func uploadGroupPhoto(from item: PhotosPickerItem) async {
+    guard let channelID else { return }
+    isUploadingPhoto = true
+    errorMessage = nil
+    defer {
+      isUploadingPhoto = false
+      selectedPhotoItem = nil
+    }
+
+    do {
+      guard let data = try await item.loadTransferable(type: Data.self) else {
+        throw AuthStoreError.invalidUploadURL
+      }
+
+      let uploadData: Data
+      if let image = UIImage(data: data), let jpegData = image.jpegData(compressionQuality: 0.86) {
+        uploadData = jpegData
+      } else {
+        uploadData = data
+      }
+
+      try await authStore.uploadChannelAvatar(channelID: channelID, imageData: uploadData)
+      await load()
     } catch {
       errorMessage = error.localizedDescription
     }
@@ -517,6 +874,141 @@ private struct InfoActionRow: View {
       Image(systemName: "chevron.right")
         .font(.caption.weight(.semibold))
         .foregroundStyle(.secondary)
+    }
+  }
+}
+
+private struct ChannelMemberInfoRow: View {
+  let member: ChannelMember
+  let initials: String
+  let isCurrentUser: Bool
+  let isCreator: Bool
+  let canManage: Bool
+  let isBusy: Bool
+
+  private var displayName: String {
+    if isCurrentUser { return "You" }
+    let name = member.staffName?.trimmingCharacters(in: .whitespacesAndNewlines)
+    return name?.isEmpty == false ? name! : member.id
+  }
+
+  private var subtitle: String? {
+    let designation = member.staffDesignation?.trimmingCharacters(in: .whitespacesAndNewlines)
+    if designation?.isEmpty == false { return designation }
+    let role = member.staffRole?.trimmingCharacters(in: .whitespacesAndNewlines)
+    if role?.isEmpty == false { return role }
+    return nil
+  }
+
+  private var roleLabel: String? {
+    if isCreator { return "Creator" }
+    if member.role?.lowercased() == "admin" { return "Admin" }
+    return nil
+  }
+
+  var body: some View {
+    HStack(spacing: 12) {
+      AvatarView(urlString: member.profilePhoto, initials: initials, size: 42)
+
+      VStack(alignment: .leading, spacing: 4) {
+        HStack(spacing: 6) {
+          Text(displayName)
+            .font(.subheadline.weight(.semibold))
+            .foregroundStyle(.primary)
+            .lineLimit(1)
+
+          if let roleLabel {
+            Text(roleLabel)
+              .font(.caption2.weight(.semibold))
+              .foregroundStyle(roleLabel == "Creator" ? .purple : .blue)
+              .padding(.horizontal, 7)
+              .padding(.vertical, 3)
+              .background(
+                (roleLabel == "Creator" ? Color.purple : Color.blue).opacity(0.12),
+                in: Capsule()
+              )
+          }
+        }
+
+        if let subtitle {
+          Text(subtitle)
+            .font(.caption)
+            .foregroundStyle(.secondary)
+            .lineLimit(1)
+        }
+      }
+
+      Spacer()
+
+      if isBusy {
+        ProgressView()
+      } else if canManage {
+        Image(systemName: "ellipsis")
+          .font(.subheadline.weight(.semibold))
+          .foregroundStyle(.secondary)
+      }
+    }
+    .padding(.vertical, 4)
+  }
+}
+
+private struct EditGroupSheet: View {
+  @Environment(\.dismiss) private var dismiss
+
+  let onSave: (String, String) async -> Void
+
+  @State private var name: String
+  @State private var description: String
+  @State private var isSaving = false
+
+  init(name: String, description: String, onSave: @escaping (String, String) async -> Void) {
+    self._name = State(initialValue: name)
+    self._description = State(initialValue: description)
+    self.onSave = onSave
+  }
+
+  private var trimmedName: String {
+    name.trimmingCharacters(in: .whitespacesAndNewlines)
+  }
+
+  var body: some View {
+    Form {
+      Section("Group Name") {
+        TextField("Group name", text: $name)
+          .textInputAutocapitalization(.words)
+      }
+
+      Section("Description") {
+        TextField("Group description", text: $description, axis: .vertical)
+          .lineLimit(3...6)
+      }
+    }
+    .navigationTitle("Edit Group")
+    .navigationBarTitleDisplayMode(.inline)
+    .toolbar {
+      ToolbarItem(placement: .cancellationAction) {
+        Button("Cancel") {
+          dismiss()
+        }
+        .disabled(isSaving)
+      }
+
+      ToolbarItem(placement: .confirmationAction) {
+        Button {
+          Task {
+            isSaving = true
+            await onSave(trimmedName, description.trimmingCharacters(in: .whitespacesAndNewlines))
+            isSaving = false
+          }
+        } label: {
+          if isSaving {
+            ProgressView()
+          } else {
+            Text("Save")
+          }
+        }
+        .disabled(trimmedName.isEmpty || isSaving)
+      }
     }
   }
 }

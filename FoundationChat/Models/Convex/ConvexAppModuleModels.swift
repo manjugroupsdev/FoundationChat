@@ -354,10 +354,11 @@ struct MarketingProject: Decodable, Identifiable, Hashable, Sendable {
     let scope: String?
     let status: String?
     let location: String?
+    let specialPaymentEnabled: Bool?
 
     enum CodingKeys: String, CodingKey {
         case id = "_id"
-        case name, scope, status, location
+        case name, scope, status, location, specialPaymentEnabled
     }
 }
 
@@ -409,15 +410,22 @@ struct TelecallerLeadSearchData: Decodable, Identifiable, Hashable, Sendable {
     let contactName: String?
     let mobileNumber: String?
     let emailId: String?
+    let projectId: String?
     let clientCity: String?
     let locationPreferred: String?
     let suggestedVisitAddress: String?
+    let suggestedVisitLat: Double?
+    let suggestedVisitLng: Double?
+    let suggestedGoogleMapsLink: String?
     let latestAnalysisProfile: LeadAnalysisProfile?
+    let clientPlaceProfile: LeadLocationProfile?
+    let manualProfile: LeadLocationProfile?
 
     enum CodingKeys: String, CodingKey {
         case id = "_id"
-        case contactName, mobileNumber, emailId, clientCity, locationPreferred
-        case suggestedVisitAddress, latestAnalysisProfile
+        case contactName, mobileNumber, emailId, projectId, clientCity, locationPreferred
+        case suggestedVisitAddress, suggestedVisitLat, suggestedVisitLng, suggestedGoogleMapsLink
+        case latestAnalysisProfile, clientPlaceProfile, manualProfile
     }
 
     var displayName: String {
@@ -430,6 +438,8 @@ struct TelecallerLeadSearchData: Decodable, Identifiable, Hashable, Sendable {
 
 struct LeadAnalysisProfile: Decodable, Hashable, Sendable {
     let clientName: String?
+    let doorNo: String?
+    let street: String?
     let pincode: String?
     let address: String?
     let landmark: String?
@@ -439,12 +449,26 @@ struct LeadAnalysisProfile: Decodable, Hashable, Sendable {
     let propertyType: String?
 }
 
+struct LeadLocationProfile: Decodable, Hashable, Sendable {
+    let clientName: String?
+    let doorNo: String?
+    let street: String?
+    let address: String?
+    let formattedAddress: String?
+    let landmark: String?
+    let city: String?
+    let state: String?
+    let pincode: String?
+}
+
 struct CreateBookingRequest: Encodable, Sendable {
     let clientName: String
     let mobileNumber: String
     let bookingDate: String
     let leadId: String?
     let title: String?
+    let clientImageStorageId: String?
+    let clientImageFileName: String?
     let fatherSpouseName: String?
     let dateOfBirth: String?
     let anniversaryDate: String?
@@ -480,6 +504,9 @@ struct CreateBookingRequest: Encodable, Sendable {
     let advanceAmount: Double?
     let balanceAmount: Double?
     let paymentMode: String?
+    let customerPaymentCategory: String?
+    let loanAmountRequested: Double?
+    let paymentPlan: String?
     let freePayment: Bool?
     let allotmentDueAmount: Double?
     let allotmentDueDate: String?
@@ -534,6 +561,8 @@ struct CreateBookingRequest: Encodable, Sendable {
         bookingDate: String,
         leadId: String? = nil,
         title: String? = nil,
+        clientImageStorageId: String? = nil,
+        clientImageFileName: String? = nil,
         fatherSpouseName: String? = nil,
         dateOfBirth: String? = nil,
         anniversaryDate: String? = nil,
@@ -569,6 +598,9 @@ struct CreateBookingRequest: Encodable, Sendable {
         advanceAmount: Double? = nil,
         balanceAmount: Double? = nil,
         paymentMode: String? = nil,
+        customerPaymentCategory: String? = nil,
+        loanAmountRequested: Double? = nil,
+        paymentPlan: String? = nil,
         freePayment: Bool? = nil,
         allotmentDueAmount: Double? = nil,
         allotmentDueDate: String? = nil,
@@ -622,6 +654,8 @@ struct CreateBookingRequest: Encodable, Sendable {
         self.bookingDate = bookingDate
         self.leadId = leadId
         self.title = title
+        self.clientImageStorageId = clientImageStorageId
+        self.clientImageFileName = clientImageFileName
         self.fatherSpouseName = fatherSpouseName
         self.dateOfBirth = dateOfBirth
         self.anniversaryDate = anniversaryDate
@@ -657,6 +691,9 @@ struct CreateBookingRequest: Encodable, Sendable {
         self.advanceAmount = advanceAmount
         self.balanceAmount = balanceAmount
         self.paymentMode = paymentMode
+        self.customerPaymentCategory = customerPaymentCategory
+        self.loanAmountRequested = loanAmountRequested
+        self.paymentPlan = paymentPlan
         self.freePayment = freePayment
         self.allotmentDueAmount = allotmentDueAmount
         self.allotmentDueDate = allotmentDueDate
@@ -736,6 +773,8 @@ struct AppBooking: Decodable, Identifiable, Equatable, Sendable {
     let bookingType: String?
     let bookingMode: String?
     let bookingCost: Double?
+    let clientImageStorageId: String?
+    let clientImageFileName: String?
     let title: String?
     let fatherSpouseName: String?
     let dateOfBirth: String?
@@ -764,6 +803,9 @@ struct AppBooking: Decodable, Identifiable, Equatable, Sendable {
     let pattaCharges: Double?
     let otherCharges: Double?
     let paymentMode: String?
+    let customerPaymentCategory: String?
+    let loanAmountRequested: Double?
+    let paymentPlan: String?
     let advanceAmount: Double?
     let balanceAmount: Double?
     let source: String?
@@ -777,10 +819,12 @@ struct AppBooking: Decodable, Identifiable, Equatable, Sendable {
         case id = "_id"
         case bookingRefNo, clientName, mobileNumber, projectId, projectName
         case plotId, plotNo, bookingDate, bookingType, bookingMode
+        case clientImageStorageId, clientImageFileName
         case title, fatherSpouseName, dateOfBirth, anniversaryDate, alternateNumbers, whatsappNumber
         case email, nationality, homeAddress, pincode, state, district, location
         case profession, designation, incomePerAnnum, officeName, officeEmail, officeMobile, officePhone, officeAddress
         case guidelineValue, registrationCharges, gstAmount, documentCharges, pattaCharges, otherCharges, paymentMode
+        case customerPaymentCategory, loanAmountRequested, paymentPlan
         case bookingCost, advanceAmount, balanceAmount, source, status
         case approvalStatus, notes, createdAt, updatedAt
     }
@@ -828,6 +872,9 @@ struct UpdateBookingRequest: Encodable, Sendable {
     let pattaCharges: Double?
     let otherCharges: Double?
     let paymentMode: String?
+    let customerPaymentCategory: String?
+    let loanAmountRequested: Double?
+    let paymentPlan: String?
 
     init(
         id: String,
@@ -866,7 +913,10 @@ struct UpdateBookingRequest: Encodable, Sendable {
         documentCharges: Double? = nil,
         pattaCharges: Double? = nil,
         otherCharges: Double? = nil,
-        paymentMode: String? = nil
+        paymentMode: String? = nil,
+        customerPaymentCategory: String? = nil,
+        loanAmountRequested: Double? = nil,
+        paymentPlan: String? = nil
     ) {
         self.id = id
         self.clientName = clientName
@@ -905,6 +955,9 @@ struct UpdateBookingRequest: Encodable, Sendable {
         self.pattaCharges = pattaCharges
         self.otherCharges = otherCharges
         self.paymentMode = paymentMode
+        self.customerPaymentCategory = customerPaymentCategory
+        self.loanAmountRequested = loanAmountRequested
+        self.paymentPlan = paymentPlan
     }
 }
 

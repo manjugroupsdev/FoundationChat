@@ -1,6 +1,7 @@
 import Combine
 import CoreLocation
 import SwiftUI
+import UIKit
 
 /// Home tab cloned from Android `HomeFragment`, adapted to SwiftUI.
 ///
@@ -13,6 +14,14 @@ struct HomeView: View {
     @State private var assignedPlaces: [GeoTrackAssignedPlace] = []
     @State private var todayAttendance: ConvexTodayAttendance?
     @State private var monthAttendanceRecords: [ConvexAttendanceRecord] = []
+    @State private var dailyTasks: [DailyTask] = []
+    @State private var taskNudgeTasks: [DailyTask] = []
+    @State private var managementDashboard: ConvexMobileDashboard?
+    @State private var managementDashboardError: String?
+    @State private var isManagementDashboardLoading = false
+    @State private var selectedManagementDashboardTab: HomeDashboardTab = .hr
+    @State private var selectedDashboardDate: Date?
+    @State private var dashboardPickerDate = Date()
     @State private var hasOpenSession = false
     @State private var unreadCount = 0
     @State private var isLoading = true
@@ -29,11 +38,18 @@ struct HomeView: View {
     @State private var headerFloating = false
     @State private var showQRPanel = false
     @State private var showQRScanner = false
+    @State private var showPendingTasksSheet = false
+    @State private var showTaskManager = false
+    @State private var showNotifications = false
+    @State private var showProfile = false
+    @State private var showDashboardDatePicker = false
     @State private var showScrollToTop = false
     @State private var homeScrollOffset: CGFloat = 0
+    @AppStorage("home.pendingTasksSheet.lastPresentedAt") private var pendingTaskSheetLastPresentedAt = 0.0
 
     private let geoAPI = GeoTrackAPIService.shared
     private let timer = Timer.publish(every: 60, on: .main, in: .common).autoconnect()
+    private let pendingTaskSheetInterval: TimeInterval = 15 * 60
 
     init(hasPlayedEntryAnimation: Binding<Bool> = .constant(false)) {
         _hasPlayedEntryAnimation = hasPlayedEntryAnimation
@@ -61,28 +77,20 @@ struct HomeView: View {
                             .frame(height: 0)
                             .id(HomeScrollTarget.top)
 
-                        GeometryReader { geometry in
-                            Color.clear
-                                .preference(
-                                    key: HomeScrollOffsetPreferenceKey.self,
-                                    value: geometry.frame(in: .named(HomeScrollTarget.space)).minY
-                                )
-                        }
-                        .frame(height: 0)
-
                         Color.clear
-                            .frame(height: 222)
+                            .frame(height: homeHeaderHeight)
 
                         contentArea
                             .padding(.bottom, 28)
                     }
-                    .coordinateSpace(name: HomeScrollTarget.space)
                     .scrollIndicators(.hidden)
                     .refreshable { await reload() }
                     .ignoresSafeArea(edges: .top)
-                    .onPreferenceChange(HomeScrollOffsetPreferenceKey.self) { offset in
-                        homeScrollOffset = offset
-                        let shouldShow = offset < -520
+                    .onScrollGeometryChange(for: CGFloat.self) { geometry in
+                        max(0, geometry.contentOffset.y + geometry.contentInsets.top)
+                    } action: { _, scrollY in
+                        homeScrollOffset = -scrollY
+                        let shouldShow = scrollY > 520
                         guard shouldShow != showScrollToTop else { return }
                         withAnimation(.spring(response: 0.28, dampingFraction: 0.82)) {
                             showScrollToTop = shouldShow
@@ -114,15 +122,40 @@ struct HomeView: View {
                 }
                 .zIndex(2)
 
-                homeHeaderActions
-                    .padding(.top, 4)
-                    .padding(.trailing, 18)
-                    .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topTrailing)
-                    .opacity(headerEntryStarted ? headerActionsOpacity : 0)
-                    .offset(y: headerEntryStarted ? (-38 * headerActionsScrollProgress) : -16)
-                    .allowsHitTesting(headerActionsOpacity > 0.72)
-                    .animation(.easeOut(duration: 0.36), value: headerEntryStarted)
-                    .zIndex(headerActionsScrollProgress > 0.45 ? 0.5 : 10)
+                if showsBottomTaskPeek {
+                    GeometryReader { geometry in
+                        let isCollapsed = isBottomTaskPeekCollapsed
+                        let peekWidth: CGFloat = isCollapsed ? 52 : 264
+                        let peekHeight: CGFloat = isCollapsed ? 52 : 40
+                        let firstTabCenterX = geometry.size.width / 8
+
+                        bottomPendingTaskStrip
+                            .frame(width: peekWidth, height: peekHeight)
+                            .position(
+                                x: isCollapsed ? firstTabCenterX : geometry.size.width / 2,
+                                y: geometry.size.height - 82 - (peekHeight / 2)
+                            )
+                    }
+                    .ignoresSafeArea(edges: .bottom)
+                    .transition(.move(edge: .bottom).combined(with: .opacity))
+                    .animation(
+                        .interactiveSpring(response: 0.42, dampingFraction: 0.88, blendDuration: 0.16),
+                        value: isBottomTaskPeekCollapsed
+                    )
+                    .zIndex(9)
+                }
+
+                if !isHomeChromeCollapsed {
+                    homeHeaderActions
+                        .padding(.top, 8)
+                        .padding(.trailing, 20)
+                        .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topTrailing)
+                        .opacity(headerEntryStarted ? 1 : 0)
+                        .offset(x: headerEntryStarted ? 0 : 30)
+                        .allowsHitTesting(headerEntryStarted && !showQRPanel)
+                        .transition(.move(edge: .top).combined(with: .opacity))
+                        .zIndex(13)
+                }
 
                 edgeQRHandle
                     .zIndex(12)
@@ -136,7 +169,10 @@ struct HomeView: View {
             .navigationTitle("")
             .navigationBarTitleDisplayMode(.inline)
             .toolbar(.hidden, for: .navigationBar)
-            .toolbar(showQRPanel ? .hidden : .visible, for: .tabBar)
+            .toolbar(
+                (showQRPanel || showNotifications || showProfile) ? .hidden : .visible,
+                for: .tabBar
+            )
             .navigationDestination(item: $visitToOpen) { visit in
                 TripNavigationView(
                     visitId: visit.id,
@@ -156,6 +192,17 @@ struct HomeView: View {
                         Task { await reload() }
                     }
                 )
+            }
+            .navigationDestination(isPresented: $showTaskManager) {
+                TasksListView()
+            }
+            .navigationDestination(isPresented: $showNotifications) {
+                NotificationsListView()
+                    .toolbar(.hidden, for: .tabBar)
+            }
+            .navigationDestination(isPresented: $showProfile) {
+                ProfileView()
+                    .toolbar(.hidden, for: .tabBar)
             }
             .sheet(isPresented: $showPunchIn) {
                 PunchFlowView(mode: .punchIn) {
@@ -177,6 +224,26 @@ struct HomeView: View {
                 .presentationDetents([.height(430)])
                 .presentationBackground(Color.clear)
                 .presentationDragIndicator(.hidden)
+            }
+            .sheet(isPresented: $showPendingTasksSheet) {
+                NavigationStack {
+                    PendingTasksSheet(
+                        tasks: pendingTaskNudgeTasks,
+                        totalPending: pendingTaskNudgeTasks.count,
+                        onOpenTaskManager: openTaskManagerFromPendingSheet
+                    )
+                }
+                .presentationDetents([.height(680), .large])
+                .presentationCornerRadius(30)
+                .presentationBackground(Color.white)
+                .presentationDragIndicator(.visible)
+            }
+            .sheet(isPresented: $showDashboardDatePicker) {
+                NavigationStack {
+                    dashboardDatePickerSheet
+                }
+                .presentationDetents([.medium, .large])
+                .presentationDragIndicator(.visible)
             }
             .fullScreenCover(isPresented: $showQRScanner) {
                 NavigationStack {
@@ -200,7 +267,12 @@ struct HomeView: View {
                 headerFloating = true
                 Task { await reload() }
             }
+            .onChange(of: canViewManagementDashboard) { oldValue, newValue in
+                guard oldValue != newValue, appeared else { return }
+                Task { await reload() }
+            }
             .onReceive(timer) { _ in
+                presentPendingTasksSheetIfDue()
                 guard todayAttendance?.isOpen == true || hasOpenSession else { return }
                 Task { await loadAttendanceSummary() }
             }
@@ -216,13 +288,7 @@ struct HomeView: View {
         .ignoresSafeArea(edges: .top)
     }
 
-    private var headerActionsScrollProgress: CGFloat {
-        min(max((-homeScrollOffset - 4) / 44, 0), 1)
-    }
-
-    private var headerActionsOpacity: Double {
-        Double(1 - headerActionsScrollProgress)
-    }
+    private var homeHeaderHeight: CGFloat { 222 }
 
     private var blueHeader: some View {
         VStack(spacing: 0) {
@@ -245,7 +311,7 @@ struct HomeView: View {
                 Text("Plan, Visit & Achieve")
                     .font(.system(size: 16, weight: .semibold))
                     .foregroundStyle(.white)
-                    .padding(.top, 70)
+                    .padding(.top, 98)
                     .opacity(headerEntryStarted ? 1 : 0)
                     .offset(x: headerEntryStarted ? 0 : -30)
                     .animation(.timingCurve(0.4, 0, 0.2, 1, duration: 0.38).delay(0.12), value: headerEntryStarted)
@@ -287,8 +353,9 @@ struct HomeView: View {
             .padding(.leading, 22)
 
             bannerIllustration
-                .padding(.top, 82)
+                .padding(.top, 104)
                 .padding(.trailing, 20)
+
         }
         .frame(height: 222)
         .clipped()
@@ -296,8 +363,8 @@ struct HomeView: View {
 
     private var homeHeaderActions: some View {
         HStack(spacing: 6) {
-            NavigationLink {
-                NotificationsListView()
+            Button {
+                showNotifications = true
             } label: {
                 ZStack(alignment: .topTrailing) {
                     Image(systemName: "bell")
@@ -318,14 +385,16 @@ struct HomeView: View {
                 }
             }
             .buttonStyle(.plain)
+            .accessibilityLabel("Notifications")
 
-            NavigationLink {
-                ProfileView()
+            Button {
+                showProfile = true
             } label: {
                 ProfileAvatarView(label: authStore.currentUserLabel)
                     .frame(width: 40, height: 40)
             }
             .buttonStyle(.plain)
+            .accessibilityLabel("Profile")
         }
         .padding(4)
         .background(Color.white.opacity(0.18), in: Capsule())
@@ -335,7 +404,7 @@ struct HomeView: View {
         ZStack {
             bannerImage(
                 name: "HomeBannerGlitter",
-                size: CGSize(width: 120, height: 60),
+                size: CGSize(width: 96, height: 48),
                 alignment: .top,
                 entryDelay: 0.16,
                 floatOffset: 4,
@@ -344,7 +413,7 @@ struct HomeView: View {
 
             bannerImage(
                 name: "HomeBannerMobile",
-                size: CGSize(width: 96, height: 125),
+                size: CGSize(width: 76, height: 99),
                 alignment: .center,
                 entryDelay: 0.20,
                 floatOffset: -6,
@@ -353,7 +422,7 @@ struct HomeView: View {
 
             bannerImage(
                 name: "HomeBannerProgress",
-                size: CGSize(width: 66, height: 42),
+                size: CGSize(width: 52, height: 33),
                 alignment: .bottomLeading,
                 entryDelay: 0.28,
                 floatOffset: 5,
@@ -363,7 +432,7 @@ struct HomeView: View {
 
             bannerImage(
                 name: "HomeBannerSuitcase",
-                size: CGSize(width: 66, height: 68),
+                size: CGSize(width: 50, height: 52),
                 alignment: .bottomTrailing,
                 entryDelay: 0.36,
                 floatOffset: -5,
@@ -371,7 +440,7 @@ struct HomeView: View {
             )
             .padding(.bottom, 16)
         }
-        .frame(width: 150, height: 140)
+        .frame(width: 122, height: 114)
         .accessibilityHidden(true)
     }
 
@@ -495,6 +564,55 @@ struct HomeView: View {
 
     private var contentArea: some View {
         VStack(alignment: .leading, spacing: 12) {
+            if canViewManagementDashboard {
+                managementDashboardSection
+                    .padding(.top, 18)
+            } else {
+                homeOverviewSection
+                    .padding(.top, 18)
+
+                tripSection
+            }
+        }
+        .padding(.horizontal, canViewManagementDashboard ? 16 : 12)
+        .padding(.bottom, 20)
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .background(
+            HomePalette.pageBackground,
+            in: UnevenRoundedRectangle(
+                topLeadingRadius: 24,
+                bottomLeadingRadius: 0,
+                bottomTrailingRadius: 0,
+                topTrailingRadius: 24,
+                style: .continuous
+            )
+        )
+    }
+
+    private var homeOverviewSection: some View {
+        VStack(alignment: .leading, spacing: 10) {
+            HStack(spacing: 8) {
+                Text("Today's Overview")
+                    .font(.system(size: 20, weight: .semibold))
+                    .foregroundStyle(HomePalette.textPrimary)
+
+                Spacer()
+
+                Text("Today")
+                    .font(.system(size: 11, weight: .semibold))
+                    .foregroundStyle(HomePalette.headerBlue)
+                    .padding(.horizontal, 10)
+                    .frame(height: 26)
+                    .background(Color(hex: 0xEAF1FF), in: Capsule())
+            }
+
+            todayAttendanceCard
+            monthlyStatsCard
+        }
+    }
+
+    private var tripSection: some View {
+        VStack(alignment: .leading, spacing: 12) {
             HStack(spacing: 9) {
                 Text("Today's Trip")
                     .font(.system(size: 20, weight: .semibold))
@@ -516,7 +634,6 @@ struct HomeView: View {
 
                 Spacer()
             }
-            .padding(.top, 20)
 
             if isDriverMode && !allTripVisits.isEmpty {
                 tripFilterRow
@@ -552,19 +669,281 @@ struct HomeView: View {
                     .padding(.horizontal, 4)
             }
         }
-        .padding(.horizontal, 12)
-        .padding(.bottom, 20)
-        .frame(maxWidth: .infinity, alignment: .leading)
-        .background(
-            HomePalette.pageBackground,
-            in: UnevenRoundedRectangle(
-                topLeadingRadius: 24,
-                bottomLeadingRadius: 0,
-                bottomTrailingRadius: 0,
-                topTrailingRadius: 24,
-                style: .continuous
+    }
+
+    private var managementDashboardSection: some View {
+        VStack(alignment: .leading, spacing: 14) {
+            Text("Overview")
+                .font(.system(size: 28, weight: .bold))
+                .foregroundStyle(Color(hex: 0x111827))
+                .padding(.bottom, 2)
+
+            managementDashboardTabs
+
+            if isManagementDashboardLoading && managementDashboard == nil {
+                managementDashboardSkeleton
+            } else if let managementDashboard {
+                managementDashboardGrid(for: managementDashboard)
+                    .transition(.opacity.combined(with: .move(edge: .bottom)))
+            } else {
+                ContentUnavailableView(
+                    "Dashboard Unavailable",
+                    systemImage: "chart.bar.doc.horizontal",
+                    description: Text(managementDashboardError ?? "Pull to refresh and try again.")
+                )
+                .font(.system(size: 13, weight: .medium))
+                .frame(maxWidth: .infinity)
+                .padding(.vertical, 22)
+                .background(Color.white, in: RoundedRectangle(cornerRadius: 12, style: .continuous))
+            }
+
+            if let managementDashboardError, managementDashboard != nil {
+                Label(managementDashboardError, systemImage: "exclamationmark.triangle.fill")
+                    .font(.system(size: 12, weight: .medium))
+                    .foregroundStyle(Color(hex: 0xB42318))
+                    .padding(.horizontal, 4)
+            }
+        }
+    }
+
+    private var managementDashboardTabs: some View {
+        HStack(spacing: 0) {
+            dashboardTabButton(.marketing)
+            dashboardTabButton(.hr)
+        }
+        .padding(3)
+        .frame(height: 36)
+        .background(Color.white, in: RoundedRectangle(cornerRadius: 12, style: .continuous))
+    }
+
+    private func dashboardTabButton(_ tab: HomeDashboardTab) -> some View {
+        Button {
+            withAnimation(.snappy(duration: 0.22)) {
+                selectedManagementDashboardTab = tab
+            }
+        } label: {
+            Text(tab.title)
+                .font(.system(size: 18, weight: selectedManagementDashboardTab == tab ? .bold : .medium))
+                .foregroundStyle(selectedManagementDashboardTab == tab ? .white : Color(hex: 0x475467))
+                .frame(maxWidth: .infinity)
+                .frame(height: 30)
+                .background(
+                    selectedManagementDashboardTab == tab ? HomePalette.headerBlue : Color.clear,
+                    in: RoundedRectangle(cornerRadius: 10, style: .continuous)
+                )
+        }
+        .buttonStyle(.plain)
+    }
+
+    @ViewBuilder
+    private func managementDashboardGrid(for dashboard: ConvexMobileDashboard) -> some View {
+        let metrics = dashboardMetrics(for: dashboard)
+        if selectedManagementDashboardTab == .hr {
+            let largeMetrics = Array(metrics.prefix(4))
+            let compactMetrics = Array(metrics.dropFirst(4))
+            VStack(spacing: 12) {
+                LazyVGrid(columns: dashboardGridColumns, spacing: 12) {
+                    ForEach(largeMetrics) { metric in
+                        dashboardMetricCard(metric)
+                    }
+                }
+
+                LazyVGrid(columns: dashboardCompactGridColumns, spacing: 10) {
+                    ForEach(compactMetrics) { metric in
+                        dashboardMetricCard(metric)
+                    }
+                }
+            }
+        } else {
+            LazyVGrid(columns: dashboardGridColumns, spacing: 12) {
+                ForEach(metrics) { metric in
+                    dashboardMetricCard(metric)
+                }
+            }
+        }
+    }
+
+    @ViewBuilder
+    private func dashboardMetricCard(_ metric: ManagementDashboardMetric) -> some View {
+        ManagementDashboardMetricCard(metric: metric)
+    }
+
+    private var managementDashboardSkeleton: some View {
+        LazyVGrid(columns: dashboardGridColumns, spacing: 12) {
+            ForEach(0..<6, id: \.self) { index in
+                VStack(alignment: .leading, spacing: 12) {
+                    Circle()
+                        .fill(HomePalette.skeleton)
+                        .frame(width: 34, height: 34)
+                    RoundedRectangle(cornerRadius: 5)
+                        .fill(HomePalette.skeleton)
+                        .frame(width: index.isMultiple(of: 2) ? 64 : 82, height: 22)
+                    RoundedRectangle(cornerRadius: 4)
+                        .fill(HomePalette.skeleton)
+                        .frame(width: index.isMultiple(of: 2) ? 92 : 74, height: 10)
+                }
+                .padding(14)
+                .frame(maxWidth: .infinity, minHeight: 145, alignment: .leading)
+                .background(Color.white.opacity(0.7), in: RoundedRectangle(cornerRadius: 14, style: .continuous))
+                .redacted(reason: .placeholder)
+            }
+        }
+    }
+
+    private var dashboardDatePickerSheet: some View {
+        VStack(spacing: 16) {
+            DatePicker(
+                "Dashboard date",
+                selection: $dashboardPickerDate,
+                in: ...Date(),
+                displayedComponents: .date
             )
-        )
+            .datePickerStyle(.graphical)
+            .labelsHidden()
+            .padding(.horizontal, 12)
+
+            HStack(spacing: 10) {
+                Button {
+                    selectedDashboardDate = nil
+                    dashboardPickerDate = Date()
+                    showDashboardDatePicker = false
+                    Task { await loadManagementDashboard(force: true) }
+                } label: {
+                    Text("Today")
+                        .font(.system(size: 14, weight: .semibold))
+                        .foregroundStyle(HomePalette.headerBlue)
+                        .frame(maxWidth: .infinity)
+                        .frame(height: 46)
+                        .background(Color(hex: 0xEAF1FF), in: RoundedRectangle(cornerRadius: 12, style: .continuous))
+                }
+                .buttonStyle(.plain)
+
+                Button {
+                    selectedDashboardDate = isDashboardDateToday(dashboardPickerDate) ? nil : dashboardPickerDate
+                    showDashboardDatePicker = false
+                    Task { await loadManagementDashboard(force: true) }
+                } label: {
+                    Text("Apply")
+                        .font(.system(size: 14, weight: .bold))
+                        .foregroundStyle(.white)
+                        .frame(maxWidth: .infinity)
+                        .frame(height: 46)
+                        .background(HomePalette.headerBlue, in: RoundedRectangle(cornerRadius: 12, style: .continuous))
+                }
+                .buttonStyle(.plain)
+            }
+            .padding(.horizontal, 18)
+            .padding(.bottom, 18)
+        }
+        .navigationTitle("Dashboard Date")
+        .navigationBarTitleDisplayMode(.inline)
+        .toolbar {
+            ToolbarItem(placement: .topBarTrailing) {
+                Button {
+                    showDashboardDatePicker = false
+                } label: {
+                    Image(systemName: "xmark")
+                        .font(.system(size: 13, weight: .bold))
+                }
+                .accessibilityLabel("Close")
+            }
+        }
+    }
+
+    private var showsBottomTaskPeek: Bool {
+        !pendingTaskNudgeTasks.isEmpty && !showPendingTasksSheet && !showQRPanel
+    }
+
+    private var isHomeChromeCollapsed: Bool {
+        homeScrollOffset < -10
+    }
+
+    private var isBottomTaskPeekCollapsed: Bool {
+        isHomeChromeCollapsed
+    }
+
+    private var bottomTaskPeekText: String {
+        if dueSoonTaskCount > 0 {
+            return "\(pendingTaskNudgeTasks.count) pending · \(dueSoonTaskCount) due"
+        }
+        return "\(pendingTaskNudgeTasks.count) pending"
+    }
+
+    private var bottomPendingTaskStrip: some View {
+        let isCollapsed = isBottomTaskPeekCollapsed
+
+        return Button {
+            presentPendingTasksSheet(force: true)
+        } label: {
+            ZStack {
+                ZStack(alignment: .topTrailing) {
+                    Image(systemName: "checkmark.circle.fill")
+                        .font(.system(size: 23, weight: .bold))
+                        .foregroundStyle(Color(hex: 0xB42318))
+                        .frame(width: 48, height: 48)
+
+                    Text("\(pendingTaskNudgeTasks.count)")
+                        .font(.system(size: 9, weight: .heavy))
+                        .foregroundStyle(.white)
+                        .monospacedDigit()
+                        .frame(minWidth: 20, minHeight: 20)
+                        .background(Color(hex: 0xE53935), in: Circle())
+                        .overlay {
+                            Circle().stroke(.white, lineWidth: 1.5)
+                        }
+                        .offset(x: 3, y: -3)
+                }
+                .opacity(isCollapsed ? 1 : 0)
+                .scaleEffect(isCollapsed ? 1 : 0.72)
+
+                HStack(spacing: 10) {
+                    Image(systemName: "chevron.up")
+                        .font(.system(size: 12, weight: .heavy))
+
+                    Text(bottomTaskPeekText)
+                        .font(.system(size: 16, weight: .heavy))
+                        .lineLimit(1)
+                        .minimumScaleFactor(0.72)
+                        .monospacedDigit()
+                }
+                .foregroundStyle(Color(hex: 0xA61B18))
+                .frame(maxWidth: .infinity)
+                .opacity(isCollapsed ? 0 : 1)
+                .scaleEffect(isCollapsed ? 0.92 : 1)
+            }
+            .frame(height: isCollapsed ? 52 : 40)
+            .background {
+                LinearGradient(
+                    colors: isCollapsed
+                        ? [Color.white.opacity(0.98), Color.white.opacity(0.92)]
+                        : [Color(hex: 0xFFF7F7).opacity(0.98), Color(hex: 0xFCE7E7).opacity(0.96)],
+                    startPoint: .top,
+                    endPoint: .bottom
+                )
+                .clipShape(
+                    UnevenRoundedRectangle(
+                        topLeadingRadius: isCollapsed ? 26 : 18,
+                        bottomLeadingRadius: isCollapsed ? 26 : 0,
+                        bottomTrailingRadius: isCollapsed ? 26 : 0,
+                        topTrailingRadius: isCollapsed ? 26 : 18,
+                        style: .continuous
+                    )
+                )
+            }
+            .overlay {
+                UnevenRoundedRectangle(
+                    topLeadingRadius: isCollapsed ? 26 : 18,
+                    bottomLeadingRadius: isCollapsed ? 26 : 0,
+                    bottomTrailingRadius: isCollapsed ? 26 : 0,
+                    topTrailingRadius: isCollapsed ? 26 : 18,
+                    style: .continuous
+                )
+                .stroke(Color(hex: 0xF0A8A8).opacity(0.8), lineWidth: 1.2)
+            }
+            .shadow(color: Color(hex: 0xB42318).opacity(isCollapsed ? 0.08 : 0.16), radius: isCollapsed ? 6 : 12, x: 0, y: isCollapsed ? 3 : 6)
+        }
+        .buttonStyle(.plain)
+        .accessibilityLabel(bottomTaskPeekText)
     }
 
     private var tripFilterRow: some View {
@@ -770,6 +1149,286 @@ struct HomeView: View {
         .white.shadow(.drop(color: .black.opacity(0.03), radius: 1, x: 0, y: 1))
     }
 
+    private var dashboardGridColumns: [GridItem] {
+        [
+            GridItem(.flexible(), spacing: 12),
+            GridItem(.flexible(), spacing: 12)
+        ]
+    }
+
+    private var dashboardCompactGridColumns: [GridItem] {
+        [
+            GridItem(.flexible(), spacing: 10),
+            GridItem(.flexible(), spacing: 10),
+            GridItem(.flexible(), spacing: 10)
+        ]
+    }
+
+    @ViewBuilder
+    private func dashboardDestination(_ destination: HomeDashboardDestination) -> some View {
+        switch destination {
+        case .attendance:
+            ConvexAttendanceListView()
+        case .leaves:
+            LeavesListView()
+        case .permissions:
+            ConvexPermissionListView()
+        case .calls:
+            DialerView()
+        case .leads:
+            MyLeadsView()
+        case .cpVisits:
+            CpVisitsView()
+        case .siteVisits:
+            SiteVisitsListView()
+        case .bookings:
+            BookingsListView()
+        case .collections:
+            CollectionsView()
+        }
+    }
+
+    private func dashboardMetrics(for dashboard: ConvexMobileDashboard) -> [ManagementDashboardMetric] {
+        let blue = Color(hex: 0x0B61CA)
+        let green = Color(hex: 0x059669)
+        let red = Color(hex: 0xDC2626)
+        let orange = Color(hex: 0xEA580C)
+        let gray = Color(hex: 0x64748B)
+        let blueBg = Color(hex: 0xF8FBFF)
+        let greenBg = Color(hex: 0xF5FFF9)
+        let redBg = Color(hex: 0xFFF8F8)
+        let orangeBg = Color(hex: 0xFFFCF7)
+        let grayBg = Color(hex: 0xF8FAFC)
+        let bluePill = Color(hex: 0xEAF1FF)
+        let greenPill = Color(hex: 0xE9FBF2)
+        let redPill = Color(hex: 0xFEF3F2)
+        let orangePill = Color(hex: 0xFFF4E8)
+        let grayPill = Color(hex: 0xEEF2F6)
+        let presentPercent = dashboard.totalStaff > 0
+            ? Int((Double(dashboard.present) / Double(dashboard.totalStaff) * 100).rounded())
+            : 0
+
+        switch selectedManagementDashboardTab {
+        case .hr:
+            return [
+                .init(
+                    title: "Total Active Staff",
+                    value: "\(dashboard.totalStaff)",
+                    pill: "All Departments",
+                    systemImage: "person",
+                    tint: blue,
+                    background: blueBg,
+                    pillBackground: bluePill,
+                    pillTextColor: Color(hex: 0x1D4ED8),
+                    imageName: "HomeOverview3DStaff",
+                    imageSize: CGSize(width: 60, height: 46),
+                    size: .large,
+                    destination: .attendance
+                ),
+                .init(
+                    title: "Present",
+                    value: "\(dashboard.present)",
+                    pill: "↗ \(presentPercent)% of Total",
+                    systemImage: "calendar",
+                    tint: green,
+                    background: greenBg,
+                    pillBackground: greenPill,
+                    pillTextColor: Color(hex: 0x047857),
+                    imageName: "HomeOverview3DPresent",
+                    imageSize: CGSize(width: 62, height: 62),
+                    size: .large,
+                    destination: .attendance
+                ),
+                .init(
+                    title: "Absent",
+                    value: "\(dashboard.absent)",
+                    pill: "↘ High Today",
+                    systemImage: "person",
+                    tint: red,
+                    background: redBg,
+                    pillBackground: redPill,
+                    pillTextColor: Color(hex: 0xB42318),
+                    imageName: "HomeOverview3DAbsent",
+                    imageSize: CGSize(width: 66, height: 60),
+                    size: .large,
+                    destination: .attendance
+                ),
+                .init(
+                    title: "Leave",
+                    value: "\(dashboard.leaveCount)",
+                    pill: "✓ Approved",
+                    systemImage: "calendar",
+                    tint: orange,
+                    background: orangeBg,
+                    pillBackground: orangePill,
+                    pillTextColor: Color(hex: 0xB54708),
+                    imageName: "HomeOverview3DLeave",
+                    imageSize: CGSize(width: 66, height: 60),
+                    size: .large,
+                    destination: .leaves
+                ),
+                .init(
+                    title: "Week Off",
+                    value: "\(dashboard.weekOff ?? 0)",
+                    pill: "No Data",
+                    systemImage: "calendar",
+                    tint: gray,
+                    background: grayBg,
+                    pillBackground: grayPill,
+                    pillTextColor: Color(hex: 0x475467),
+                    imageName: "HomeOverview3DWeekOff",
+                    imageSize: CGSize(width: 42, height: 50),
+                    size: .compact,
+                    destination: .attendance
+                ),
+                .init(
+                    title: "Permission",
+                    value: "\(dashboard.permissionCount ?? 0)",
+                    pill: "No Requests",
+                    systemImage: "clipboard",
+                    tint: blue,
+                    background: blueBg,
+                    pillBackground: bluePill,
+                    pillTextColor: Color(hex: 0x1D4ED8),
+                    imageName: "HomeOverview3DPermission",
+                    imageSize: CGSize(width: 38, height: 46),
+                    size: .compact,
+                    destination: .permissions
+                ),
+                .init(
+                    title: "WFH Approved",
+                    value: "\(dashboard.wfhApproved ?? 0)",
+                    pill: "No Data",
+                    systemImage: "house",
+                    tint: green,
+                    background: greenBg,
+                    pillBackground: grayPill,
+                    pillTextColor: Color(hex: 0x475467),
+                    imageName: "HomeOverview3DWfh",
+                    imageSize: CGSize(width: 50, height: 56),
+                    size: .compact,
+                    destination: .attendance
+                )
+            ]
+
+        case .marketing:
+            return [
+                .init(
+                    title: "Total Calls",
+                    value: "\(dashboard.totalCalls)",
+                    pill: "↗ 12% vs last week",
+                    systemImage: "phone",
+                    tint: blue,
+                    background: blueBg,
+                    pillBackground: bluePill,
+                    pillTextColor: Color(hex: 0x1D4ED8),
+                    imageName: "HomeMarketing3DCalls",
+                    imageSize: CGSize(width: 66, height: 66),
+                    size: .large,
+                    destination: .calls
+                ),
+                .init(
+                    title: "Incoming",
+                    value: "\(dashboard.incomingCalls)",
+                    pill: "↗ 5% vs last week",
+                    systemImage: "phone.fill",
+                    tint: green,
+                    background: greenBg,
+                    pillBackground: greenPill,
+                    pillTextColor: Color(hex: 0x047857),
+                    imageName: "HomeMarketing3DIncoming",
+                    imageSize: CGSize(width: 66, height: 66),
+                    size: .large,
+                    destination: .calls
+                ),
+                .init(
+                    title: "Outgoing",
+                    value: "\(dashboard.outboundCalls)",
+                    pill: "↘ 3% vs last week",
+                    systemImage: "phone",
+                    tint: blue,
+                    background: blueBg,
+                    pillBackground: bluePill,
+                    pillTextColor: Color(hex: 0x1D4ED8),
+                    imageName: "HomeMarketing3DOutgoing",
+                    imageSize: CGSize(width: 66, height: 66),
+                    size: .large,
+                    destination: .calls
+                ),
+                .init(
+                    title: "Hot",
+                    value: "\(dashboard.hotLeadCount)",
+                    pill: "🔥 High Priority",
+                    systemImage: "rectangle.fill",
+                    tint: red,
+                    background: redBg,
+                    pillBackground: redPill,
+                    pillTextColor: Color(hex: 0xB42318),
+                    imageName: "HomeMarketing3DHot",
+                    imageSize: CGSize(width: 60, height: 66),
+                    size: .large,
+                    destination: .leads
+                ),
+                .init(
+                    title: "Warm",
+                    value: "\(dashboard.warmLeadCount)",
+                    pill: "Trending",
+                    systemImage: "mappin",
+                    tint: orange,
+                    background: orangeBg,
+                    pillBackground: orangePill,
+                    pillTextColor: Color(hex: 0xB54708),
+                    imageName: "HomeMarketing3DWarm",
+                    imageSize: CGSize(width: 66, height: 66),
+                    size: .compact,
+                    destination: .leads
+                ),
+                .init(
+                    title: "Cold",
+                    value: "\(dashboard.coldLeadCount)",
+                    pill: "Needs Attention",
+                    systemImage: "person.fill",
+                    tint: gray,
+                    background: grayBg,
+                    pillBackground: grayPill,
+                    pillTextColor: Color(hex: 0x475467),
+                    imageName: "HomeMarketing3DCold",
+                    imageSize: CGSize(width: 72, height: 66),
+                    size: .compact,
+                    destination: .leads
+                ),
+                .init(
+                    title: "SV Fixed",
+                    value: "\(dashboard.svVisitsFixed)",
+                    pill: "Verified",
+                    systemImage: "clipboard",
+                    tint: blue,
+                    background: blueBg,
+                    pillBackground: bluePill,
+                    pillTextColor: Color(hex: 0x1D4ED8),
+                    imageName: "HomeMarketing3DSv",
+                    imageSize: CGSize(width: 72, height: 66),
+                    size: .compact,
+                    destination: .siteVisits
+                ),
+                .init(
+                    title: "CP / Bookings",
+                    value: "\(dashboard.cpVisitsFixed)",
+                    pill: "Confirmed",
+                    systemImage: "house",
+                    tint: green,
+                    background: greenBg,
+                    pillBackground: grayPill,
+                    pillTextColor: Color(hex: 0x475467),
+                    imageName: "HomeMarketing3DCp",
+                    imageSize: CGSize(width: 66, height: 66),
+                    size: .compact,
+                    destination: .cpVisits
+                )
+            ]
+        }
+    }
+
     // MARK: - Data Mapping
 
     private var allTripVisits: [GeoTrackTodayVisit] {
@@ -783,6 +1442,10 @@ struct HomeView: View {
 
     private var isDriverMode: Bool {
         authStore.currentSession?.user.isFleetDriverMode == true || backendDriverMode
+    }
+
+    private var canViewManagementDashboard: Bool {
+        authStore.currentSession?.user.canViewManagementDashboard == true
     }
 
     private func tripState(for visit: GeoTrackTodayVisit) -> HomeTripState {
@@ -823,19 +1486,56 @@ struct HomeView: View {
 
     @MainActor
     private func reload() async {
+        let usesManagementDashboard = canViewManagementDashboard
         isLoading = true
-        isVisitsLoading = true
+        isVisitsLoading = !usesManagementDashboard
         defer {
             isLoading = false
             isVisitsLoading = false
         }
 
         await withTaskGroup(of: Void.self) { group in
-            group.addTask { await self.loadTodayVisits() }
-            group.addTask { await self.loadAssignedPlaces() }
             group.addTask { await self.loadAttendanceGate() }
             group.addTask { await self.loadAttendanceSummary() }
+            group.addTask { await self.loadDailyTasks() }
             group.addTask { await self.loadUnread() }
+            if usesManagementDashboard {
+                group.addTask { await self.loadManagementDashboard() }
+            } else {
+                group.addTask { await self.loadTodayVisits() }
+                group.addTask { await self.loadAssignedPlaces() }
+            }
+        }
+    }
+
+    @MainActor
+    private func loadManagementDashboard(force: Bool = false) async {
+        guard let token = authStore.currentSession?.token else {
+            managementDashboard = nil
+            managementDashboardError = nil
+            return
+        }
+        guard force || !isManagementDashboardLoading else { return }
+
+        let requestedDate = dashboardDateQuery
+        isManagementDashboardLoading = true
+        defer { isManagementDashboardLoading = false }
+
+        do {
+            let dashboard = try await DashboardConvexAPIService.getMobileDashboard(
+                token: token,
+                date: requestedDate
+            )
+            guard requestedDate == dashboardDateQuery else { return }
+            managementDashboard = dashboard
+            managementDashboardError = nil
+        } catch {
+            guard requestedDate == dashboardDateQuery else { return }
+            if isCancellationError(error) { return }
+            managementDashboardError = error.localizedDescription
+            if managementDashboard == nil {
+                managementDashboard = nil
+            }
         }
     }
 
@@ -997,7 +1697,96 @@ struct HomeView: View {
         unreadCount = (try? await authStore.fetchUnreadNotificationCount()) ?? 0
     }
 
+    @MainActor
+    private func loadDailyTasks() async {
+        guard let token = authStore.currentSession?.token else {
+            dailyTasks = []
+            taskNudgeTasks = []
+            return
+        }
+        do {
+            let payload = try await TasksConvexAPIService.getTaskManagerTasks(token: token, today: todayDateKey)
+            let sortedTasks = payload.tasks.sorted { ($0.creationTime ?? 0) > ($1.creationTime ?? 0) }
+            dailyTasks = sortedTasks
+            taskNudgeTasks = scopedTaskNudgeTasks(sortedTasks)
+            presentPendingTasksSheetIfDue()
+        } catch {
+            dailyTasks = []
+            taskNudgeTasks = []
+        }
+    }
+
+    @MainActor
+    private func presentPendingTasksSheetIfDue() {
+        presentPendingTasksSheet(force: false)
+    }
+
+    @MainActor
+    private func presentPendingTasksSheet(force: Bool) {
+        guard !pendingTaskNudgeTasks.isEmpty, !showPendingTasksSheet, !showQRPanel else { return }
+
+        let now = Date().timeIntervalSince1970
+        let hasShownRecently = pendingTaskSheetLastPresentedAt > 0
+            && now - pendingTaskSheetLastPresentedAt < pendingTaskSheetInterval
+        guard force || !hasShownRecently else { return }
+
+        pendingTaskSheetLastPresentedAt = now
+        showPendingTasksSheet = true
+    }
+
+    @MainActor
+    private func openTaskManagerFromPendingSheet() {
+        pendingTaskSheetLastPresentedAt = Date().timeIntervalSince1970
+        showPendingTasksSheet = false
+
+        Task { @MainActor in
+            try? await Task.sleep(nanoseconds: 250_000_000)
+            showTaskManager = true
+        }
+    }
+
     // MARK: - Formatting
+
+    private var dashboardDateLabel: String {
+        guard let selectedDashboardDate else { return "Today" }
+        let formatter = DateFormatter()
+        formatter.locale = Locale(identifier: "en_US_POSIX")
+        formatter.dateFormat = "d MMM yyyy"
+        formatter.timeZone = TimeZone(identifier: "Asia/Kolkata")
+        return formatter.string(from: selectedDashboardDate)
+    }
+
+    private var dashboardDateQuery: String? {
+        guard let selectedDashboardDate, !isDashboardDateToday(selectedDashboardDate) else { return nil }
+        return dashboardDateKey(for: selectedDashboardDate)
+    }
+
+    private func dashboardDateKey(for date: Date) -> String {
+        let formatter = DateFormatter()
+        formatter.locale = Locale(identifier: "en_US_POSIX")
+        formatter.dateFormat = "yyyy-MM-dd"
+        formatter.timeZone = TimeZone(identifier: "Asia/Kolkata")
+        return formatter.string(from: date)
+    }
+
+    private func isDashboardDateToday(_ date: Date) -> Bool {
+        var calendar = Calendar(identifier: .gregorian)
+        calendar.timeZone = TimeZone(identifier: "Asia/Kolkata") ?? .current
+        return calendar.isDate(date, inSameDayAs: Date())
+    }
+
+    private func formatDashboardCurrency(_ value: Double) -> String {
+        if value >= 100_00_000 {
+            return String(format: "INR %.1fCr", value / 100_00_000)
+        }
+        if value >= 100_000 {
+            return String(format: "INR %.1fL", value / 100_000)
+        }
+        if value >= 1_000 {
+            return String(format: "INR %.1fK", value / 1_000)
+        }
+        return String(format: "INR %.0f", value)
+    }
 
     private func formatVisitTimeOrDate(_ visit: GeoTrackTodayVisit) -> String {
         let start = visit.scheduledStartTime.flatMap(formatTimeValue)
@@ -1075,12 +1864,59 @@ struct HomeView: View {
         return formatter
     }
 
-    private var userSubtitle: String {
-        let user = authStore.currentSession?.user
-        return [user?.designation?.nilIfBlank, user?.department?.nilIfBlank, user?.role?.nilIfBlank]
-            .compactMap { $0 }
-            .joined(separator: " · ")
-            .nilIfBlank ?? "Ready for today's work"
+    private var pendingDailyTasks: [DailyTask] {
+        dailyTasks.filter { task in
+            let status = task.status?.lowercased() ?? "pending"
+            return status != "completed" && status != "cancelled"
+        }
+    }
+
+    private var pendingTaskNudgeTasks: [DailyTask] {
+        taskNudgeTasks
+    }
+
+    private var dueSoonTaskCount: Int {
+        pendingTaskNudgeTasks.filter { task in
+            guard let deadline = task.deadline?.nilIfBlank else { return false }
+            return deadline <= todayDateKey
+        }.count
+    }
+
+    private func scopedTaskNudgeTasks(_ tasks: [DailyTask]) -> [DailyTask] {
+        let openTasks = tasks
+            .filter(isOpenTaskForNudge)
+            .sorted { ($0.creationTime ?? 0) > ($1.creationTime ?? 0) }
+
+        let role = authStore.currentSession?.user.role?.trimmingCharacters(in: .whitespacesAndNewlines).lowercased()
+        guard authStore.isAdmin == false && role != "super-admin" else {
+            return openTasks
+        }
+
+        let currentUserIDs = Set([
+            authStore.currentSession?.user.staffId,
+            authStore.currentSession?.user._id,
+            authStore.currentSession?.user.employeeId,
+            authStore.currentSession?.user.phone,
+        ].compactMap { value in
+            let trimmed = value?.trimmingCharacters(in: .whitespacesAndNewlines)
+            return trimmed?.isEmpty == false ? trimmed : nil
+        })
+
+        guard !currentUserIDs.isEmpty else { return [] }
+        return openTasks.filter { task in
+            guard let assignedTo = task.assignedTo?.trimmingCharacters(in: .whitespacesAndNewlines), !assignedTo.isEmpty else {
+                return false
+            }
+            return currentUserIDs.contains(assignedTo)
+        }
+    }
+
+    private func isOpenTaskForNudge(_ task: DailyTask) -> Bool {
+        let status = task.status?
+            .trimmingCharacters(in: .whitespacesAndNewlines)
+            .lowercased()
+            .replacingOccurrences(of: "_", with: "-") ?? "pending"
+        return !["completed", "complete", "cancelled", "canceled", "done", "closed"].contains(status)
     }
 
     private var todayPunchInRaw: String? {
@@ -1177,6 +2013,128 @@ struct HomeView: View {
         return nil
     }
 
+}
+
+private enum HomeDashboardTab: String, CaseIterable, Identifiable {
+    case hr
+    case marketing
+
+    var id: String { rawValue }
+
+    var title: String {
+        switch self {
+        case .hr: return "HR"
+        case .marketing: return "Marketing"
+        }
+    }
+}
+
+private enum HomeDashboardDestination {
+    case attendance
+    case leaves
+    case permissions
+    case calls
+    case leads
+    case cpVisits
+    case siteVisits
+    case bookings
+    case collections
+}
+
+private enum ManagementDashboardMetricSize {
+    case large
+    case compact
+
+    var height: CGFloat {
+        switch self {
+        case .large: return 138
+        case .compact: return 120
+        }
+    }
+}
+
+private struct ManagementDashboardMetric: Identifiable {
+    let id = UUID()
+    let title: String
+    let value: String
+    let pill: String
+    let systemImage: String
+    let tint: Color
+    let background: Color
+    let pillBackground: Color
+    let pillTextColor: Color
+    let imageName: String
+    let imageSize: CGSize
+    let size: ManagementDashboardMetricSize
+    var destination: HomeDashboardDestination?
+}
+
+private struct ManagementDashboardMetricCard: View {
+    let metric: ManagementDashboardMetric
+
+    var body: some View {
+        ZStack(alignment: .bottomTrailing) {
+            VStack(alignment: .leading, spacing: 0) {
+                HStack(alignment: .top) {
+                    Image(systemName: metric.systemImage)
+                        .font(.system(size: metric.size == .large ? 14 : 12, weight: .semibold))
+                        .foregroundStyle(metric.tint)
+                        .frame(width: metric.size == .large ? 30 : 26, height: metric.size == .large ? 30 : 26)
+                        .background(metric.tint.opacity(0.10), in: RoundedRectangle(cornerRadius: 9, style: .continuous))
+
+                    Spacer(minLength: 8)
+
+                    Color.clear
+                        .frame(width: 18, height: 18)
+                }
+
+                Spacer(minLength: metric.size == .large ? 14 : 9)
+
+                Text(metric.title)
+                    .font(.system(size: metric.size == .large ? 14 : 11, weight: .bold))
+                    .foregroundStyle(Color(hex: 0x111827))
+                    .lineLimit(2)
+                    .minimumScaleFactor(0.68)
+                    .frame(maxWidth: .infinity, alignment: .leading)
+                    .padding(.trailing, metric.size == .compact ? 8 : 0)
+
+                Text(metric.value)
+                    .font(.system(size: metric.size == .large ? 26 : 21, weight: .bold).monospacedDigit())
+                    .foregroundStyle(Color(hex: 0x111827))
+                    .lineLimit(1)
+                    .minimumScaleFactor(0.65)
+                    .padding(.top, metric.size == .large ? 3 : 1)
+
+                Text(metric.pill)
+                    .font(.system(size: 8.2, weight: .bold))
+                    .foregroundStyle(metric.pillTextColor)
+                    .lineLimit(1)
+                    .minimumScaleFactor(0.64)
+                    .padding(.horizontal, metric.size == .large ? 5 : 4)
+                    .padding(.vertical, 2.5)
+                    .background(metric.pillBackground, in: RoundedRectangle(cornerRadius: 5, style: .continuous))
+                    .padding(.top, metric.size == .large ? 5 : 3)
+            }
+            .padding(metric.size == .large ? 11 : 9)
+            .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
+
+            Image(metric.imageName)
+                .resizable()
+                .scaledToFit()
+                .frame(width: metric.imageSize.width, height: metric.imageSize.height)
+                .padding(.trailing, metric.size == .large ? 3 : 4)
+                .padding(.bottom, metric.size == .large ? 3 : 5)
+                .allowsHitTesting(false)
+        }
+        .frame(maxWidth: .infinity)
+        .frame(height: metric.size.height)
+        .background(metric.background, in: RoundedRectangle(cornerRadius: 16, style: .continuous))
+        .overlay {
+            RoundedRectangle(cornerRadius: 16, style: .continuous)
+                .stroke(Color(hex: 0xE5E7EB), lineWidth: 1)
+        }
+        .shadow(color: Color(hex: 0x101828).opacity(0.03), radius: 1, x: 0, y: 1)
+    }
 }
 
 private struct HomeTripCard: View {
@@ -1320,6 +2278,326 @@ private struct HomeTripCard: View {
     private var initial: String {
         title.first.map { String($0).uppercased() } ?? "M"
     }
+}
+
+private struct PendingTasksSheet: View {
+    @Environment(\.dismiss) private var dismiss
+    @State private var selectedIndex: Int? = 0
+
+    let tasks: [DailyTask]
+    let totalPending: Int
+    let onOpenTaskManager: () -> Void
+
+    private var previewTasks: [DailyTask] {
+        Array(tasks.prefix(5))
+    }
+
+    var body: some View {
+        VStack(spacing: 0) {
+            HStack(alignment: .top, spacing: 12) {
+                VStack(alignment: .leading, spacing: 5) {
+                    Text("Task Pending")
+                        .font(.system(size: 24, weight: .bold))
+                        .foregroundStyle(Color(hex: 0x101828))
+
+                    Text("You have \(totalPending) pending task\(totalPending == 1 ? "" : "s")")
+                        .font(.system(size: 18, weight: .medium))
+                        .foregroundStyle(Color(hex: 0xF04438))
+                }
+
+                Spacer()
+
+                Button {
+                    dismiss()
+                } label: {
+                    Image(systemName: "xmark")
+                        .font(.system(size: 16, weight: .medium))
+                        .foregroundStyle(Color(hex: 0xF04438))
+                        .frame(width: 50, height: 50)
+                        .background(Color(hex: 0xFEF3F2), in: Circle())
+                }
+                .buttonStyle(.plain)
+            }
+            .padding(.horizontal, 20)
+            .padding(.top, 28)
+            .padding(.bottom, 28)
+
+            if previewTasks.isEmpty {
+                ContentUnavailableView(
+                    "No Pending Tasks",
+                    systemImage: "checkmark.circle.fill",
+                    description: Text("You're all caught up.")
+                )
+                .foregroundStyle(Color(hex: 0x667085))
+                .frame(height: 430)
+            } else {
+                GeometryReader { geometry in
+                    let cardWidth = min(490, max(252, geometry.size.width - 100))
+                    ScrollView(.horizontal, showsIndicators: false) {
+                        LazyHStack(spacing: 16) {
+                            ForEach(Array(previewTasks.enumerated()), id: \.offset) { index, task in
+                                PendingTaskPreviewCard(task: task, index: index)
+                                    .frame(width: cardWidth, height: 430)
+                                    .contentShape(RoundedRectangle(cornerRadius: 24, style: .continuous))
+                                    .onTapGesture {
+                                        openTaskManager()
+                                    }
+                                    .id(index)
+                            }
+                        }
+                        .scrollTargetLayout()
+                        .padding(.horizontal, max(50, (geometry.size.width - cardWidth) / 2))
+                    }
+                    .scrollTargetBehavior(.viewAligned)
+                    .scrollPosition(id: $selectedIndex)
+                }
+                .frame(height: 430)
+            }
+
+            VStack(spacing: 16) {
+                if !previewTasks.isEmpty {
+                    HStack(spacing: 10) {
+                        ForEach(Array(previewTasks.enumerated()), id: \.element.id) { index, task in
+                            Circle()
+                                .fill((selectedIndex ?? 0) == index ? Color(hex: 0x2D68FE) : Color(hex: 0xBBD2FF))
+                                .frame(width: 8, height: 8)
+                                .animation(.snappy(duration: 0.18), value: selectedIndex)
+                        }
+                    }
+
+                    HStack(spacing: 8) {
+                        Image(systemName: "hand.draw")
+                            .font(.system(size: 14, weight: .medium))
+                        Text("Swipe to view all tasks")
+                            .font(.system(size: 14, weight: .medium))
+                    }
+                    .foregroundStyle(Color(hex: 0x98A2B3))
+                }
+
+                Button {
+                    openTaskManager()
+                } label: {
+                    Label(previewTasks.isEmpty ? "Open Tasks" : "Complete Task", systemImage: "checkmark.circle.fill")
+                        .font(.system(size: 18, weight: .bold))
+                        .foregroundStyle(.white)
+                        .frame(maxWidth: .infinity)
+                        .frame(height: 58)
+                        .background(
+                            LinearGradient(
+                                colors: [Color(hex: 0xF04438), Color(hex: 0xC9221C)],
+                                startPoint: .leading,
+                                endPoint: .trailing
+                            ),
+                            in: RoundedRectangle(cornerRadius: 16, style: .continuous)
+                        )
+                        .padding(.horizontal, 20)
+                }
+                .buttonStyle(.plain)
+            }
+            .padding(.top, 16)
+            .padding(.bottom, 24)
+            .frame(maxWidth: .infinity)
+            .background(
+                LinearGradient(
+                    colors: [Color.white.opacity(0.0), Color(hex: 0xFFF7F1)],
+                    startPoint: .top,
+                    endPoint: .bottom
+                )
+            )
+        }
+        .background(Color.white.ignoresSafeArea())
+        .navigationBarTitleDisplayMode(.inline)
+    }
+
+    private func openTaskManager() {
+        dismiss()
+        onOpenTaskManager()
+    }
+}
+
+private struct PendingTaskPreviewCard: View {
+    let task: DailyTask
+    let index: Int
+
+    private var theme: PendingTaskTheme {
+        PendingTaskTheme.themes[index % PendingTaskTheme.themes.count]
+    }
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 0) {
+            HStack(alignment: .center) {
+                Text(String(format: "%02d", index + 1))
+                    .font(.system(size: 14, weight: .bold).monospacedDigit())
+                    .foregroundStyle(theme.main)
+                    .frame(width: 32, height: 32)
+                    .background(Color.white, in: Circle())
+                    .overlay {
+                        Circle().stroke(theme.main, lineWidth: 1.5)
+                    }
+
+                Spacer()
+
+                Text(statusLabel)
+                    .font(.system(size: 11, weight: .medium))
+                    .foregroundStyle(theme.main)
+                    .padding(.horizontal, 10)
+                    .frame(height: 24)
+                    .background(theme.tint, in: Capsule())
+            }
+
+            Image(theme.imageName)
+                .resizable()
+                .scaledToFit()
+                .frame(maxWidth: .infinity)
+                .frame(height: 130)
+                .padding(.top, 4)
+
+            Text(task.displayTitle)
+                .font(.system(size: 17, weight: .bold))
+                .foregroundStyle(Color(hex: 0x111827))
+                .lineLimit(1)
+                .minimumScaleFactor(0.72)
+                .padding(.top, 6)
+
+            HStack(spacing: 8) {
+                Text("For")
+                    .font(.system(size: 12, weight: .semibold))
+                    .foregroundStyle(Color(hex: 0x111827))
+
+                Text(moduleLabel)
+                    .font(.system(size: 11, weight: .medium))
+                    .foregroundStyle(Color(hex: 0x475467))
+                    .lineLimit(1)
+                    .padding(.horizontal, 9)
+                    .frame(height: 23)
+                    .background(Color(hex: 0xE7ECFF), in: Capsule())
+            }
+            .padding(.top, 10)
+
+            Divider()
+                .padding(.top, 12)
+
+            VStack(alignment: .leading, spacing: 8) {
+                Text("Created by")
+                    .font(.system(size: 11, weight: .medium))
+                    .foregroundStyle(Color(hex: 0x475467))
+
+                HStack(spacing: 9) {
+                    Text(creatorInitials)
+                        .font(.system(size: 12, weight: .semibold))
+                        .foregroundStyle(theme.main)
+                        .frame(width: 28, height: 28)
+                        .background(theme.tint, in: Circle())
+                        .overlay {
+                            Circle().stroke(theme.main, lineWidth: 1.5)
+                        }
+
+                    VStack(alignment: .leading, spacing: 2) {
+                        Text(creatorName)
+                            .font(.system(size: 13, weight: .bold))
+                            .foregroundStyle(Color(hex: 0x111827))
+                            .lineLimit(1)
+
+                        if let creatorRole {
+                            Text(creatorRole)
+                                .font(.system(size: 10, weight: .medium))
+                                .foregroundStyle(Color(hex: 0x667085))
+                                .lineLimit(1)
+                        }
+                    }
+                }
+            }
+            .padding(.top, 10)
+
+            Divider()
+                .padding(.top, 10)
+
+            VStack(alignment: .leading, spacing: 8) {
+                Text("Created on")
+                    .font(.system(size: 11, weight: .medium))
+                    .foregroundStyle(Color(hex: 0x475467))
+
+                HStack(spacing: 9) {
+                    Image(systemName: "calendar")
+                        .font(.system(size: 18, weight: .semibold))
+                        .foregroundStyle(Color(hex: 0xF97316))
+
+                    Text(createdOnText)
+                        .font(.system(size: 14, weight: .bold))
+                        .foregroundStyle(Color(hex: 0x111827))
+                        .lineLimit(1)
+                }
+            }
+            .padding(.top, 8)
+        }
+        .padding(.horizontal, 16)
+        .padding(.vertical, 16)
+        .background(Color.white, in: RoundedRectangle(cornerRadius: 24, style: .continuous))
+        .overlay {
+            RoundedRectangle(cornerRadius: 24, style: .continuous)
+                .stroke(theme.main.opacity(index == (0) ? 1 : 0.18), lineWidth: index == 0 ? 2.5 : 1.2)
+        }
+    }
+
+    private var statusLabel: String {
+        switch task.status?.lowercased() {
+        case "in-progress", "in_progress": return "In Progress"
+        case "completed": return "Completed"
+        case "cancelled": return "Cancelled"
+        default: return "Pending"
+        }
+    }
+
+    private var moduleLabel: String {
+        task.module?.nilIfBlank ?? task.taskCategory?.nilIfBlank ?? task.label?.nilIfBlank ?? "General"
+    }
+
+    private var creatorName: String {
+        let assignedBy = task.assignedByName?.nilIfBlank
+        let assignedTo = task.assignedToName?.nilIfBlank
+        if let assignedBy, assignedBy == assignedTo {
+            return "Auto assigned"
+        }
+        return assignedBy ?? "Auto assigned"
+    }
+
+    private var creatorRole: String? {
+        task.assignedByRole?.nilIfBlank
+            ?? task.assignedByDesignation?.nilIfBlank
+            ?? task.creatorRole?.nilIfBlank
+            ?? task.creatorDesignation?.nilIfBlank
+    }
+
+    private var creatorInitials: String {
+        let pieces = creatorName
+            .split(separator: " ")
+            .prefix(2)
+            .compactMap { $0.first }
+        let initials = String(pieces).uppercased()
+        return initials.isEmpty ? "U" : initials
+    }
+
+    private var createdOnText: String {
+        guard let creationTime = task.creationTime else { return "Unknown" }
+        let seconds = creationTime > 10_000_000_000 ? creationTime / 1000 : creationTime
+        let date = Date(timeIntervalSince1970: seconds)
+        let formatter = DateFormatter()
+        formatter.dateFormat = "dd MMM yyyy"
+        return formatter.string(from: date)
+    }
+}
+
+private struct PendingTaskTheme {
+    let main: Color
+    let tint: Color
+    let symbol: String
+    let imageName: String
+
+    static let themes = [
+        PendingTaskTheme(main: Color(hex: 0x2D68FE), tint: Color(hex: 0xE0E7FF), symbol: "checklist", imageName: "HomeTask3DBlue"),
+        PendingTaskTheme(main: Color(hex: 0xF97316), tint: Color(hex: 0xFFEDD5), symbol: "calendar.badge.clock", imageName: "HomeTask3DOrange"),
+        PendingTaskTheme(main: Color(hex: 0x8B5CF6), tint: Color(hex: 0xEDE9FE), symbol: "sparkles", imageName: "HomeTask3DPurple")
+    ]
 }
 
 private enum HomeTripState: Equatable {
@@ -1661,15 +2939,6 @@ extension GeoTrackTodayVisit: Hashable {
 
 private enum HomeScrollTarget {
     static let top = "home-top"
-    static let space = "home-scroll-space"
-}
-
-private struct HomeScrollOffsetPreferenceKey: PreferenceKey {
-    static var defaultValue: CGFloat = 0
-
-    static func reduce(value: inout CGFloat, nextValue: () -> CGFloat) {
-        value = nextValue()
-    }
 }
 
 #Preview {

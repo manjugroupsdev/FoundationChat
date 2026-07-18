@@ -98,8 +98,7 @@ struct PunchFlowView: View {
                     address: address,
                     onDone: finishAfterSuccess
                 )
-                .presentationDetents([.height(310)])
-                .presentationDragIndicator(.hidden)
+                .appLibraryNativeSheet([.height(310)])
                 .interactiveDismissDisabled(isSubmitting)
             }
             .task {
@@ -292,12 +291,18 @@ struct PunchFlowView: View {
                 let today = Self.dateKeyFormatter.string(from: Date())
                 let daySessions = try? await HRConvexAPIService.getDaySessions(token: token, date: today)
                 let firstPunchIn = daySessions?.firstPunchIn ?? latestAttendance?.firstPunchIn ?? latestAttendance?.punchInTime
+                let lastPunchOut = daySessions?.lastPunchOut ?? latestAttendance?.lastPunchOut ?? latestAttendance?.punchOutTime
                 let hasPunchedInToday = firstPunchIn?.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty == false
+                let hasOpenSessionToday = daySessions?.hasOpenSession == true
+                    || latestAttendance?.isOpen == true
+                    || (hasPunchedInToday && lastPunchOut?.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty != false)
                 switch mode {
                 case .punchIn where hasPunchedInToday:
                     throw HRConvexAPIError.server("You have already clocked in today.")
                 case .punchOut where !hasPunchedInToday:
                     throw HRConvexAPIError.server("No attendance found for today.")
+                case .punchOut where !hasOpenSessionToday:
+                    throw HRConvexAPIError.server("You are already clocked out today.")
                 default:
                     break
                 }

@@ -52,7 +52,7 @@ struct ConversationRowView: View {
 
   var body: some View {
     HStack(spacing: 12) {
-      AvatarPlaceholder(initials: initials)
+      ConversationAvatarView(initials: initials, source: conversation.participantAvatarSource)
 
       VStack(alignment: .leading, spacing: 5) {
         HStack(alignment: .firstTextBaseline, spacing: 8) {
@@ -123,8 +123,42 @@ extension ConversationRowView {
   }
 }
 
+struct ConversationAvatarView: View {
+  @Environment(AuthStore.self) private var authStore
+  let initials: String
+  let source: String?
+  var size: CGFloat = 52
+  @State private var resolvedURL: URL?
+
+  var body: some View {
+    ZStack {
+      AvatarPlaceholder(initials: initials, size: size)
+
+      if let resolvedURL {
+        AsyncImage(url: resolvedURL) { phase in
+          if case .success(let image) = phase {
+            image
+              .resizable()
+              .scaledToFill()
+          }
+        }
+        .frame(width: size, height: size)
+        .clipShape(Circle())
+        .overlay(
+          Circle()
+            .stroke(Color.black.opacity(0.04), lineWidth: 1)
+        )
+      }
+    }
+    .task(id: source ?? "") {
+      resolvedURL = await authStore.resolveProfilePhotoURL(source)
+    }
+  }
+}
+
 struct AvatarPlaceholder: View {
   let initials: String
+  var size: CGFloat = 52
 
   var body: some View {
     ZStack {
@@ -139,14 +173,14 @@ struct AvatarPlaceholder: View {
             endPoint: .bottomTrailing
           )
         )
-        .frame(width: 52, height: 52)
+        .frame(width: size, height: size)
         .overlay(
           Circle()
             .stroke(Color.black.opacity(0.04), lineWidth: 1)
         )
 
       Text(initials)
-        .font(.system(size: 18, weight: .semibold))
+        .font(.system(size: size * 0.35, weight: .semibold))
         .foregroundStyle(Color(red: 0.18, green: 0.42, blue: 0.78))
         .lineLimit(1)
         .minimumScaleFactor(0.7)

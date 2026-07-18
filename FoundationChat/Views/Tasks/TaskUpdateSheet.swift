@@ -36,42 +36,32 @@ struct TaskUpdateSheet: View {
     }
 
     var body: some View {
-        ScrollView(showsIndicators: false) {
-            VStack(alignment: .leading, spacing: 22) {
-                header
-                dateField
-                textArea(title: "Today’s Update", required: true, systemImage: "doc.text", text: $todaysUpdate, placeholder: "Enter Title of this meeting", minHeight: 46)
-                progressField
-                singleLineField(title: "Issues/ Blockers", required: true, systemImage: "xmark.circle", text: $blocker, placeholder: "No Issues")
-                singleLineField(title: "Tomorrows Plan", required: true, systemImage: "calendar.badge.clock", text: $tomorrowsPlan, placeholder: "Need to Update Place")
-                photosBlock
+        VStack(spacing: 0) {
+            ScrollView(showsIndicators: false) {
+                VStack(alignment: .leading, spacing: 20) {
+                    header
+                    dateField
+                    textArea(title: "Today’s Update", required: true, systemImage: "doc.text", text: $todaysUpdate, placeholder: "Enter today’s update", minHeight: 58)
+                    progressField
+                    singleLineField(title: "Issues/ Blockers", required: true, systemImage: "xmark.circle", text: $blocker, placeholder: "No issues")
+                    singleLineField(title: "Tomorrows Plan", required: true, systemImage: "calendar.badge.clock", text: $tomorrowsPlan, placeholder: "Plan for tomorrow")
+                    photosBlock
 
-                if let errorMessage {
-                    Text(errorMessage)
-                        .font(.system(size: 12, weight: .medium))
-                        .foregroundStyle(.red)
-                        .frame(maxWidth: .infinity, alignment: .center)
-                }
-
-                Button {
-                    submit()
-                } label: {
-                    if isSubmitting {
-                        ProgressView()
-                    } else {
-                        Text("Update it")
+                    if let errorMessage {
+                        Text(errorMessage)
+                            .font(.system(size: 12, weight: .medium))
+                            .foregroundStyle(.red)
+                            .frame(maxWidth: .infinity, alignment: .center)
                     }
                 }
-                .buttonStyle(.borderedProminent)
-                .controlSize(.large)
-                .tint(Color(hex: 0x12B800))
-                .frame(maxWidth: .infinity)
-                .disabled(isSubmitting)
-                .padding(.top, 2)
+                .padding(.horizontal, 24)
+                .padding(.top, 16)
+                .padding(.bottom, 24)
             }
-            .padding(24)
-            .padding(.bottom, 28)
+
+            submitButton
         }
+        .scrollBounceBehavior(.basedOnSize)
         .background(Color.white)
         .onChange(of: progress) { _, value in
             progressText = "\(Int(value.rounded()))%"
@@ -79,21 +69,43 @@ struct TaskUpdateSheet: View {
         }
         .sheet(isPresented: $showingDatePicker) {
             taskUpdateDatePicker
-                .presentationDetents([.height(470)])
-                .presentationBackground(Color.clear)
-                .presentationCornerRadius(28)
-                .presentationDragIndicator(.hidden)
+                .appLibraryNativeSheet([.height(470)])
+                .presentationBackground(Color.white)
         }
     }
 
-    private var header: some View {
-        VStack(alignment: .center, spacing: 6) {
-            RoundedRectangle(cornerRadius: 2)
-                .fill(Color(hex: 0xE4E7EC))
-                .frame(width: 32, height: 4)
-                .frame(maxWidth: .infinity)
-                .padding(.bottom, 16)
+    private var submitButton: some View {
+        VStack(spacing: 12) {
+            Divider()
+                .opacity(0.35)
 
+            Button {
+                submit()
+            } label: {
+                HStack(spacing: 10) {
+                    if isSubmitting {
+                        ProgressView()
+                            .tint(.white)
+                    } else {
+                        Text("Update it")
+                            .font(.system(size: 17, weight: .bold))
+                    }
+                }
+                .foregroundStyle(.white)
+                .frame(maxWidth: .infinity)
+                .frame(height: 56)
+                .background(isSubmitting ? Color(hex: 0xA6ADB8) : Color(hex: 0x12B800), in: Capsule())
+            }
+            .buttonStyle(.plain)
+            .disabled(isSubmitting)
+            .padding(.horizontal, 24)
+            .padding(.bottom, 18)
+        }
+        .background(Color.white.opacity(0.98))
+    }
+
+    private var header: some View {
+        VStack(alignment: .center, spacing: 7) {
             Text("Today’s Update")
                 .font(.system(size: 22, weight: .bold))
                 .foregroundStyle(Color(hex: 0x101828))
@@ -101,8 +113,9 @@ struct TaskUpdateSheet: View {
             Text("Update your daily tasks in this form")
                 .font(.system(size: 13, weight: .medium))
                 .foregroundStyle(Color(hex: 0x667085))
-                .padding(.bottom, 18)
         }
+        .frame(maxWidth: .infinity)
+        .padding(.bottom, 8)
     }
 
     private var dateField: some View {
@@ -125,15 +138,15 @@ struct TaskUpdateSheet: View {
 
                     Spacer()
                 }
+                .padding(.horizontal, 16)
+                .frame(height: 54)
+                .background(Color(hex: 0xFCFCFD), in: RoundedRectangle(cornerRadius: 14, style: .continuous))
+                .overlay {
+                    RoundedRectangle(cornerRadius: 14, style: .continuous)
+                        .stroke(Color(hex: 0xD7DDE8), lineWidth: 1)
+                }
             }
-            .buttonStyle(.bordered)
-            .padding(.horizontal, 16)
-            .frame(height: 46)
-            .background(Color.white, in: RoundedRectangle(cornerRadius: 12, style: .continuous))
-            .overlay {
-                RoundedRectangle(cornerRadius: 12, style: .continuous)
-                    .stroke(Color(hex: 0xD0D5DD), lineWidth: 1)
-            }
+            .buttonStyle(.plain)
         }
     }
 
@@ -179,11 +192,11 @@ struct TaskUpdateSheet: View {
                 .buttonStyle(.plain)
             }
             .padding(.horizontal, 16)
-            .frame(height: 46)
-            .background(Color.white, in: RoundedRectangle(cornerRadius: 12, style: .continuous))
+            .frame(height: 54)
+            .background(Color(hex: 0xFCFCFD), in: RoundedRectangle(cornerRadius: 14, style: .continuous))
             .overlay {
-                RoundedRectangle(cornerRadius: 12, style: .continuous)
-                    .stroke(Color(hex: 0xD0D5DD), lineWidth: 1)
+                RoundedRectangle(cornerRadius: 14, style: .continuous)
+                    .stroke(Color(hex: 0xD7DDE8), lineWidth: 1)
             }
         }
     }
@@ -244,31 +257,20 @@ struct TaskUpdateSheet: View {
                     .font(.system(size: 19, weight: .semibold))
                     .foregroundStyle(Color(hex: 0x0B61CA))
                     .frame(width: 24)
-                    .padding(.top, 15)
+                    .padding(.top, 17)
 
-                ZStack(alignment: .topLeading) {
-                    TextEditor(text: text)
-                        .font(.system(size: 18, weight: .regular))
-                        .foregroundStyle(Color(hex: 0x101828))
-                        .scrollContentBackground(.hidden)
-                        .padding(.vertical, 6)
-                        .frame(minHeight: minHeight)
-
-                    if text.wrappedValue.isEmpty {
-                        Text(placeholder)
-                            .font(.system(size: 14, weight: .medium))
-                            .foregroundStyle(Color(hex: 0x101828))
-                            .padding(.top, 16)
-                            .allowsHitTesting(false)
-                    }
-                }
+                TextField(placeholder, text: text, axis: .vertical)
+                    .font(.system(size: 15, weight: .medium))
+                    .foregroundStyle(Color(hex: 0x101828))
+                    .lineLimit(1...4)
+                    .padding(.vertical, 16)
             }
             .padding(.horizontal, 16)
             .frame(minHeight: minHeight)
-            .background(Color.white, in: RoundedRectangle(cornerRadius: 12, style: .continuous))
+            .background(Color(hex: 0xFCFCFD), in: RoundedRectangle(cornerRadius: 14, style: .continuous))
             .overlay {
-                RoundedRectangle(cornerRadius: 12, style: .continuous)
-                    .stroke(Color(hex: 0xD0D5DD), lineWidth: 1)
+                RoundedRectangle(cornerRadius: 14, style: .continuous)
+                    .stroke(Color(hex: 0xD7DDE8), lineWidth: 1)
             }
         }
     }
@@ -294,21 +296,17 @@ struct TaskUpdateSheet: View {
                     .foregroundStyle(Color(hex: 0x101828))
             }
             .padding(.horizontal, 16)
-            .frame(height: 46)
-            .background(Color.white, in: RoundedRectangle(cornerRadius: 12, style: .continuous))
+            .frame(height: 54)
+            .background(Color(hex: 0xFCFCFD), in: RoundedRectangle(cornerRadius: 14, style: .continuous))
             .overlay {
-                RoundedRectangle(cornerRadius: 12, style: .continuous)
-                    .stroke(Color(hex: 0xD0D5DD), lineWidth: 1)
+                RoundedRectangle(cornerRadius: 14, style: .continuous)
+                    .stroke(Color(hex: 0xD7DDE8), lineWidth: 1)
             }
         }
     }
 
     private var taskUpdateDatePicker: some View {
         VStack(spacing: 18) {
-            RoundedRectangle(cornerRadius: 2)
-                .fill(Color(hex: 0xD9DDE3))
-                .frame(width: 42, height: 4)
-
             DatePicker("Select Date", selection: $selectedDate, displayedComponents: .date)
                 .datePickerStyle(.graphical)
                 .tint(Color(hex: 0x0B61CA))
@@ -325,19 +323,10 @@ struct TaskUpdateSheet: View {
             .frame(maxWidth: .infinity)
         }
         .padding(.horizontal, 24)
-        .padding(.top, 14)
+        .padding(.top, 26)
         .padding(.bottom, 22)
         .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .top)
         .background(Color.white)
-        .clipShape(
-            UnevenRoundedRectangle(
-                topLeadingRadius: 28,
-                bottomLeadingRadius: 0,
-                bottomTrailingRadius: 0,
-                topTrailingRadius: 28,
-                style: .continuous
-            )
-        )
     }
 
     private var photosBlock: some View {

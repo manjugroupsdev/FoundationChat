@@ -130,8 +130,7 @@ struct AttendanceFilterSheet: View {
                     showDateRangePicker = false
                 }
             )
-            .presentationDetents([.height(360)])
-            .presentationDragIndicator(.hidden)
+            .appLibraryNativeSheet([.height(360)])
         }
     }
 
@@ -214,11 +213,6 @@ private struct AttendanceDateRangePickerSheet: View {
 
     var body: some View {
         VStack(alignment: .leading, spacing: 14) {
-            Capsule()
-                .fill(Color(hex: 0xD0D5DD))
-                .frame(width: 40, height: 4)
-                .frame(maxWidth: .infinity)
-
             Text("Date Range")
                 .font(.system(size: 18, weight: .semibold))
                 .foregroundStyle(Color(hex: 0x101828))
@@ -242,7 +236,7 @@ private struct AttendanceDateRangePickerSheet: View {
             filterOutlineButton("Close Message", action: onCancel)
         }
         .padding(.horizontal, 20)
-        .padding(.top, 20)
+        .padding(.top, 26)
         .padding(.bottom, 20)
         .background(Color.white)
     }

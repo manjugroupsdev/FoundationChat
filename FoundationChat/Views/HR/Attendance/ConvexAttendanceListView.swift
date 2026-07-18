@@ -210,40 +210,30 @@ struct ConvexAttendanceListView: View {
         }
         .sheet(isPresented: $showFilter) {
             AttendanceFilterSheet(filter: $filter)
-                .presentationDetents([.height(250)])
-                .presentationDragIndicator(.hidden)
+                .appLibraryNativeSheet([.height(250)])
         }
         .sheet(item: $selectedRecord) { record in
             PunchLogSheet(record: record)
-                .presentationDetents([.medium, .large])
+                .appLibraryNativeSheet([.medium, .large])
         }
         .sheet(item: $approvalReviewRecord) { record in
             AttendanceApprovalReviewSheet(record: record) {
                 await loadDataAsync()
             }
-            .presentationDetents([.large])
-            .presentationBackground(Color.clear)
-            .presentationCornerRadius(28)
-            .presentationDragIndicator(.hidden)
+            .appLibraryNativeSheet([.large])
         }
         .sheet(item: $requestReviewRecord) { record in
             AttendanceRequestReviewSheet(record: record) {
                 await loadDataAsync()
             }
-            .presentationDetents([.height(690), .large])
-            .presentationBackground(Color.clear)
-            .presentationCornerRadius(28)
-            .presentationDragIndicator(.hidden)
+            .appLibraryNativeSheet([.height(690), .large])
         }
         .sheet(item: $editRecord) { record in
             AttendanceRequestSheet(record: record) {
                 if let date = record.date { submittedRequestDates.insert(date) }
                 await loadDataAsync()
             }
-            .presentationDetents([.height(560), .large])
-            .presentationBackground(Color.clear)
-            .presentationCornerRadius(28)
-            .presentationDragIndicator(.hidden)
+            .appLibraryNativeSheet([.height(560), .large])
         }
         .task(id: filter.apiRange.from + "_" + filter.apiRange.to) {
             await loadDataAsync()
@@ -1369,12 +1359,6 @@ private struct AttendanceApprovalReviewSheet: View {
 
     var body: some View {
         VStack(spacing: 0) {
-            Capsule()
-                .fill(Color(hex: 0xD0D5DD))
-                .frame(width: 40, height: 5)
-                .padding(.top, 10)
-                .padding(.bottom, 18)
-
             ScrollViewReader { proxy in
                 ScrollView {
                     VStack(alignment: .leading, spacing: 18) {
@@ -1995,12 +1979,6 @@ private struct AttendanceRequestReviewSheet: View {
 
     var body: some View {
         VStack(spacing: 0) {
-            Capsule()
-                .fill(Color(hex: 0xD0D5DD))
-                .frame(width: 40, height: 5)
-                .padding(.top, 10)
-                .padding(.bottom, 18)
-
             ScrollView {
                 VStack(alignment: .leading, spacing: 18) {
                     HStack(alignment: .top) {
@@ -2769,12 +2747,6 @@ private struct AttendanceRequestSheet: View {
 
     var body: some View {
         VStack(alignment: .leading, spacing: 0) {
-            Capsule()
-                .fill(Color(hex: 0xD0D5DD))
-                .frame(width: 40, height: 4)
-                .frame(maxWidth: .infinity)
-                .padding(.bottom, 12)
-
             Text("Remarks My Attendance")
                 .font(.system(size: 16, weight: .bold))
                 .foregroundStyle(Color(hex: 0x101828))

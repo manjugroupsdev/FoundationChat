@@ -54,8 +54,6 @@ struct ArrivalOtpSheet: View {
 
     var body: some View {
         VStack(spacing: 20) {
-            Capsule().fill(.tertiary).frame(width: 36, height: 5).padding(.top, 8)
-
             VStack(spacing: 6) {
                 Text("We have send an OTP to Client!")
                     .font(.system(size: 16, weight: .semibold))
@@ -128,8 +126,7 @@ struct ArrivalOtpSheet: View {
         .padding(.horizontal, 24)
         .padding(.bottom, 16)
         .frame(maxWidth: .infinity)
-        .presentationDetents([.medium, .large])
-        .presentationDragIndicator(.hidden)
+        .appLibraryNativeSheet([.medium, .large])
         .onAppear { fieldFocused = true }
         .onReceive(timer) { _ in tick() }
         .onTapGesture { fieldFocused = true }

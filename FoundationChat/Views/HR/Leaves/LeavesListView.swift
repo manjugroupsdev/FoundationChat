@@ -98,8 +98,7 @@ struct LeavesListView: View {
             ApplyLeaveView {
                 loadData()
             }
-            .presentationDetents([.height(620), .large])
-            .presentationDragIndicator(.hidden)
+            .appLibraryNativeSheet([.height(620), .large])
         }
         .alert("Error", isPresented: .constant(errorMessage != nil), actions: {
             Button("OK") { errorMessage = nil }

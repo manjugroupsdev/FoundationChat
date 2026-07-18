@@ -30,8 +30,8 @@ struct ProjectExpensesView: View {
                 Color(hex: 0x0B61CA)
                     .ignoresSafeArea(edges: .top)
 
-                Color(hex: 0xF8F9FB).ignoresSafeArea()
-                    .padding(.top, topInset + 126)
+                Color(hex: 0xF4F6F9).ignoresSafeArea()
+                    .padding(.top, topInset + 154)
 
                 VStack(spacing: 0) {
                     header(topInset: topInset)
@@ -39,7 +39,7 @@ struct ProjectExpensesView: View {
                     VStack(spacing: 0) {
                         totalsCard
                             .padding(.horizontal, 16)
-                            .padding(.top, 12)
+                            .padding(.top, 8)
                             .zIndex(1)
 
                         categoryChips
@@ -49,7 +49,7 @@ struct ProjectExpensesView: View {
 
                         addExpenseButton
                     }
-                    .background(Color(hex: 0xF8F9FB))
+                    .background(Color(hex: 0xF4F6F9))
                     .clipShape(
                         UnevenRoundedRectangle(
                             topLeadingRadius: 24,
@@ -68,9 +68,8 @@ struct ProjectExpensesView: View {
             ExpenseDateFilterSheet(fromDate: $fromDate, toDate: $toDate) {
                 Task { await refreshExpenses() }
             }
-            .presentationDetents([.height(620), .large])
-            .presentationCornerRadius(28)
-            .presentationDragIndicator(.hidden)
+            .appLibraryNativeSheet([.height(520)])
+            .presentationBackground(Color.white)
         }
         .sheet(isPresented: $showingProjectPicker) {
             NativeSearchableSelectionSheet(
@@ -88,21 +87,24 @@ struct ProjectExpensesView: View {
                     Task { await refreshExpenses() }
                 }
             )
-            .presentationDetents([.medium, .large])
+            .appLibraryNativeSheet([.medium, .large])
+            .presentationBackground(Color.white)
         }
         .sheet(isPresented: $showingCreateExpense) {
             if let selectedProject {
                 ExpenseCreationSheet(project: selectedProject, projects: projects) {
                     await refreshExpenses()
                 }
-                .presentationDetents([.large])
+                .appLibraryNativeSheet([.height(720), .large])
+                .presentationBackground(Color.white)
             }
         }
         .sheet(item: $selectedExpenseForDetail) { expense in
             ExpenseDetailSheet(expense: expense) {
                 await refreshExpenses()
             }
-            .presentationDetents([.height(390), .medium])
+            .appLibraryNativeSheet([.height(390), .medium])
+            .presentationBackground(Color.white)
         }
         .alert("Error", isPresented: errorAlertBinding, actions: {
             Button("OK", role: .cancel) { errorMessage = nil }
@@ -128,9 +130,9 @@ struct ProjectExpensesView: View {
             Image("ProjectExpensesHeaderIllustration")
                 .resizable()
                 .scaledToFit()
-                .frame(width: 82, height: 62)
-                .padding(.trailing, 28)
-                .offset(y: topInset + 18)
+                .frame(width: 138, height: 95)
+                .padding(.trailing, 16)
+                .offset(y: topInset - 10)
                 .opacity(didAnimateIn ? 1 : 0)
                 .scaleEffect(didAnimateIn ? 1 : 0.88)
                 .animation(.spring(response: 0.52, dampingFraction: 0.82).delay(0.16), value: didAnimateIn)
@@ -139,11 +141,13 @@ struct ProjectExpensesView: View {
                 Text("Expenses")
                     .font(.system(size: 24, weight: .bold))
                     .foregroundStyle(.white)
+                    .offset(y: -16)
 
                 Text("Manage and track all Expenses")
-                    .font(.system(size: 12, weight: .medium))
+                    .font(.system(size: 13, weight: .medium))
                     .foregroundStyle(Color(hex: 0xD9D6FE))
-                    .padding(.top, 3)
+                    .padding(.top, 4)
+                    .offset(y: -16)
 
                 HStack(spacing: 8) {
                     Button {
@@ -151,7 +155,7 @@ struct ProjectExpensesView: View {
                     } label: {
                         HStack(spacing: 8) {
                             Text(selectedProject?.displayName ?? (projects.isEmpty ? "Choose a project" : "Choose a project"))
-                                .font(.system(size: 13, weight: .medium))
+                                .font(.system(size: 14, weight: .semibold))
                                 .foregroundStyle(Color(hex: 0x101828))
                                 .lineLimit(1)
                                 .truncationMode(.tail)
@@ -168,7 +172,7 @@ struct ProjectExpensesView: View {
                                 .foregroundStyle(Color(hex: 0x667085))
                         }
                         .padding(.horizontal, 14)
-                        .frame(maxWidth: .infinity, minHeight: 42, maxHeight: 42)
+                        .frame(maxWidth: .infinity, minHeight: 46, maxHeight: 46)
                         .background(.white, in: RoundedRectangle(cornerRadius: 10, style: .continuous))
                         .contentShape(RoundedRectangle(cornerRadius: 10, style: .continuous))
                     }
@@ -182,22 +186,22 @@ struct ProjectExpensesView: View {
                         Image(systemName: "calendar")
                             .font(.system(size: 22, weight: .semibold))
                             .foregroundStyle(Color(hex: 0x0B61CA))
-                            .frame(width: 42, height: 42)
+                            .frame(width: 46, height: 46)
                             .background(.white, in: RoundedRectangle(cornerRadius: 10, style: .continuous))
                     }
                     .buttonStyle(.plain)
                     .accessibilityLabel("Date filter")
                 }
-                .padding(.top, 12)
+                .padding(.top, 16)
                 .zIndex(2)
             }
-            .padding(.horizontal, 20)
-            .padding(.top, topInset + 18)
+            .padding(.horizontal, 16)
+            .padding(.top, topInset + 28)
             .opacity(didAnimateIn ? 1 : 0)
             .offset(x: didAnimateIn ? 0 : -26)
             .animation(.easeOut(duration: 0.42).delay(0.08), value: didAnimateIn)
         }
-        .frame(height: topInset + 150)
+        .frame(height: topInset + 178)
     }
 
     private func projectSelectionRow(_ project: ProjectSummary, isSelected: Bool) -> some View {
@@ -237,7 +241,7 @@ struct ProjectExpensesView: View {
                 Spacer(minLength: 16)
 
                 ExpenseDonutChart(totals: totals.byCategory)
-                    .frame(width: 102, height: 102)
+                    .frame(width: 108, height: 108)
             }
 
             HStack(alignment: .top, spacing: 8) {
@@ -246,8 +250,9 @@ struct ProjectExpensesView: View {
                 ExpenseLegendItem(title: "Equipments", value: formatRs(totals.byCategory.equipment), color: ProjectExpenseCategory.equipment.color)
             }
         }
-        .padding(14)
-        .background(Color.white, in: RoundedRectangle(cornerRadius: 8, style: .continuous))
+        .padding(16)
+        .background(Color.white, in: RoundedRectangle(cornerRadius: 16, style: .continuous))
+        .shadow(color: .black.opacity(0.04), radius: 4, x: 0, y: 2)
         .opacity(didAnimateIn ? 1 : 0)
         .offset(y: didAnimateIn ? 0 : 40)
         .animation(.easeOut(duration: 0.4).delay(0.1), value: didAnimateIn)
@@ -690,7 +695,7 @@ private struct ExpenseDateFilterSheet: View {
             .padding(.top, 20)
         }
         .padding(.horizontal, 24)
-        .padding(.top, 12)
+        .padding(.top, 24)
         .padding(.bottom, 20)
         .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
         .background(Color.white)
@@ -702,10 +707,7 @@ private struct ExpenseDateFilterSheet: View {
     }
 
     private var sheetGrabber: some View {
-        RoundedRectangle(cornerRadius: 2)
-            .fill(Color(hex: 0xD9D9D9))
-            .frame(width: 32, height: 4)
-            .frame(maxWidth: .infinity)
+        EmptyView()
     }
 
     private var monthTitle: String {
@@ -896,16 +898,10 @@ private struct ExpenseCreationSheet: View {
         }
         .sheet(isPresented: $showingDatePicker) {
             VStack(alignment: .leading, spacing: 18) {
-                RoundedRectangle(cornerRadius: 2)
-                    .fill(Color(hex: 0xD9D9D9))
-                    .frame(width: 42, height: 4)
-                    .frame(maxWidth: .infinity)
-                    .padding(.top, 10)
-
                 Text("Select Date")
                     .font(.system(size: 22, weight: .bold))
                     .foregroundStyle(Color(hex: 0x101828))
-                    .padding(.top, 2)
+                    .padding(.top, 26)
 
                 DatePicker("", selection: $date, displayedComponents: .date)
                     .datePickerStyle(.graphical)
@@ -925,22 +921,17 @@ private struct ExpenseCreationSheet: View {
             .padding(.horizontal, 20)
             .padding(.bottom, 20)
             .background(Color.white)
-            .presentationDetents([.height(470)])
-            .presentationBackground(Color.white)
-            .presentationCornerRadius(28)
-            .presentationDragIndicator(.hidden)
+            .appLibraryNativeSheet([.height(470)])
         }
     }
 
     private func sheetHeader(title: String, subtitle: String) -> some View {
         VStack(spacing: 8) {
-            RoundedRectangle(cornerRadius: 2)
-                .fill(Color(hex: 0xD0D5DD))
-                .frame(width: 40, height: 4)
-                .padding(.bottom, 14)
             Text(title)
-                .font(.system(size: 22, weight: .bold))
-                .foregroundStyle(Color(hex: 0x101828))
+                .font(.system(size: 18, weight: .bold))
+                .foregroundStyle(Color(hex: 0x0F172A))
+                .padding(.top, 12)
+                .padding(.bottom, 4)
             Text(subtitle)
                 .font(.system(size: 13, weight: .medium))
                 .foregroundStyle(Color(hex: 0x667085))
@@ -1221,13 +1212,6 @@ private struct ExpenseDetailSheet: View {
 
     var body: some View {
         VStack(alignment: .leading, spacing: 0) {
-            RoundedRectangle(cornerRadius: 2)
-                .fill(Color(hex: 0xD9D9D9))
-                .frame(width: 40, height: 4)
-                .frame(maxWidth: .infinity)
-                .padding(.top, 8)
-                .padding(.bottom, 14)
-
             Text("Expense Details")
                 .font(.system(size: 22, weight: .bold))
                 .foregroundStyle(Color(hex: 0x101828))

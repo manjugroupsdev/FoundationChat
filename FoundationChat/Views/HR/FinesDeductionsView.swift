@@ -86,15 +86,14 @@ struct FinesDeductionsView: View {
         })
         .sheet(item: $selectedFine) { fine in
             FineDeductionDetailSheet(fine: fine)
-                .presentationDetents([.medium, .large])
-                .presentationDragIndicator(.hidden)
+                .appLibraryNativeSheet([.medium, .large])
         }
         .sheet(isPresented: $showingCreateFine) {
             CreateFineDeductionSheet {
                 await loadFines()
             }
-            .presentationDetents([.large])
-            .presentationDragIndicator(.hidden)
+            .appLibraryNativeSheet([.height(720), .large])
+            .presentationBackground(Color.white)
         }
     }
 
@@ -298,19 +297,13 @@ private struct CreateFineDeductionSheet: View {
 
     var body: some View {
         VStack(spacing: 0) {
-            Capsule()
-                .fill(Color(hex: 0xD0D5DD))
-                .frame(width: 44, height: 5)
-                .padding(.top, 10)
-                .padding(.bottom, 18)
-
             formContent
         }
         .background(Color.white)
         .task { await loadStaff() }
         .sheet(isPresented: $showEmployeePicker) {
             employeePickerSheet
-                .presentationDetents([.large])
+                .appLibraryNativeSheet([.large])
         }
         .alert("Error", isPresented: .constant(errorMessage != nil), actions: {
             Button("OK") { errorMessage = nil }
@@ -323,15 +316,17 @@ private struct CreateFineDeductionSheet: View {
         VStack(spacing: 0) {
             ScrollView(showsIndicators: false) {
                 VStack(alignment: .leading, spacing: 16) {
-                    VStack(alignment: .leading, spacing: 4) {
-                        Text("Create Fine")
-                            .font(.system(size: 24, weight: .bold))
-                            .foregroundStyle(Color(hex: 0x101828))
-                        Text("Information about fine details")
-                            .font(.system(size: 15, weight: .medium))
-                            .foregroundStyle(Color(hex: 0x667085))
-                    }
-                    .padding(.bottom, 4)
+                    Text("Create Fine")
+                        .font(.system(size: 18, weight: .bold))
+                        .foregroundStyle(Color(hex: 0x0F172A))
+                        .frame(maxWidth: .infinity)
+                        .padding(.top, 16)
+                        .padding(.bottom, 10)
+
+                    Text("Information about fine details")
+                        .font(.system(size: 13, weight: .medium))
+                        .foregroundStyle(Color(hex: 0x667085))
+                        .padding(.bottom, 2)
 
                     Button {
                         Task { await openEmployeePicker() }
@@ -692,12 +687,6 @@ private struct FineDeductionDetailSheet: View {
     var body: some View {
         ScrollView(showsIndicators: false) {
             VStack(alignment: .leading, spacing: 0) {
-                Capsule()
-                    .fill(Color(hex: 0xD0D5DD))
-                    .frame(width: 40, height: 4)
-                    .frame(maxWidth: .infinity)
-                    .padding(.bottom, 16)
-
                 Text(fine.displayName)
                     .font(.system(size: 18, weight: .bold))
                     .foregroundStyle(Color(hex: 0x101828))

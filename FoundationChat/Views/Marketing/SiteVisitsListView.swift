@@ -75,15 +75,13 @@ struct SiteVisitsListView: View {
             SiteVisitDateFilterSheet(fromDate: $fromDate, toDate: $toDate) {
                 Task { await load() }
             }
-            .presentationDetents([.medium])
-            .presentationDragIndicator(.hidden)
+            .appLibraryNativeSheet([.medium])
         }
         .sheet(item: $selectedVisit) { visit in
             SiteVisitOverviewSheet(visit: visit) {
                 Task { await load() }
             }
-            .presentationDetents([.fraction(0.78), .large])
-            .presentationDragIndicator(.hidden)
+            .appLibraryNativeSheet([.fraction(0.78), .large])
         }
     }
 
@@ -787,12 +785,6 @@ private struct SiteVisitOverviewSheet: View {
     var body: some View {
         ScrollView {
             VStack(alignment: .leading, spacing: 16) {
-                Capsule()
-                    .fill(Color(hex: 0xD0D5DD))
-                    .frame(width: 48, height: 4)
-                    .frame(maxWidth: .infinity)
-                    .padding(.top, 4)
-
                 header
                 progressStepper
 
@@ -836,6 +828,7 @@ private struct SiteVisitOverviewSheet: View {
                     .padding(.top, 4)
             }
             .padding(.horizontal, 20)
+            .padding(.top, 34)
             .padding(.bottom, 24)
         }
         .background(Color.white)
@@ -845,19 +838,19 @@ private struct SiteVisitOverviewSheet: View {
                 onChanged()
                 dismiss()
             }
-            .presentationDetents([.large])
-            .presentationDragIndicator(.hidden)
+            .appLibraryNativeSheet([.large])
         }
     }
 
     private var header: some View {
         VStack(alignment: .leading, spacing: 14) {
-            HStack(alignment: .top) {
+            HStack(alignment: .top, spacing: 12) {
                 VStack(alignment: .leading, spacing: 7) {
                     Text(overviewTitle)
-                        .font(.system(size: 26, weight: .bold))
+                        .font(.system(size: 24, weight: .bold))
                         .foregroundStyle(Color(hex: 0x101828))
                         .lineLimit(2)
+                        .minimumScaleFactor(0.82)
 
                     HStack(spacing: 8) {
                         Circle()
@@ -868,8 +861,7 @@ private struct SiteVisitOverviewSheet: View {
                             .foregroundStyle(Color(hex: 0x0B61CA))
                     }
                 }
-
-                Spacer()
+                .frame(maxWidth: .infinity, alignment: .leading)
 
                 Text(vehicleTitle)
                     .font(.system(size: 14, weight: .semibold))

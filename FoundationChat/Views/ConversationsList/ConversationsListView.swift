@@ -83,7 +83,6 @@ struct ConversationsListView: View {
   @State private var selectedFilter: ChatFilter = .all
   @State private var isNewConversationSheetPresented = false
   @State private var newConversationMode: NewConversationSheet.SelectionMode = .direct
-  @State private var isCreateChannelSheetPresented = false
   @State private var channels: [ChannelSummary] = []
   @State private var favoriteChannelIDs: Set<String> = []
   @State private var selectedHomeItemIDs: Set<String> = []
@@ -339,39 +338,31 @@ struct ConversationsListView: View {
               }
               .buttonStyle(.plain)
             } else {
-            Menu {
-              Button {
-                newConversationMode = .direct
-                isNewConversationSheetPresented = true
-              } label: {
-                Label("New Chat", systemImage: "message.fill")
-              }
-
-              Button {
-                newConversationMode = .group
-                isNewConversationSheetPresented = true
-              } label: {
-                Label("Create Group", systemImage: "person.3.fill")
-              }
-
-              if authStore.isAdmin {
+              Menu {
                 Button {
-                  isCreateChannelSheetPresented = true
+                  newConversationMode = .direct
+                  isNewConversationSheetPresented = true
                 } label: {
-                  Label("Create Channel", systemImage: "plus.bubble.fill")
+                  Label("New Chat", systemImage: "message.fill")
                 }
-              }
-            } label: {
-              Image(systemName: "plus")
-                .font(.system(size: 18, weight: .semibold))
-                .foregroundStyle(.primary)
-            }
 
-            NavigationLink {
-              ProfileView()
-            } label: {
-              ProfileAvatarView(label: authStore.currentUserLabel)
-            }
+                Button {
+                  newConversationMode = .group
+                  isNewConversationSheetPresented = true
+                } label: {
+                  Label("Create Group", systemImage: "person.3.fill")
+                }
+              } label: {
+                Image(systemName: "plus")
+                  .font(.system(size: 18, weight: .semibold))
+                  .foregroundStyle(.primary)
+              }
+
+              NavigationLink {
+                ProfileView()
+              } label: {
+                ProfileAvatarView(label: authStore.currentUserLabel)
+              }
             }
           }
         }
@@ -384,17 +375,8 @@ struct ConversationsListView: View {
           },
           onCreateGroup: { selectedUsers, groupName in
             try await startGroupConversation(with: selectedUsers, name: groupName)
-          },
-          onCreateChannel: authStore.isAdmin ? {
-            isCreateChannelSheetPresented = true
-          } : nil
+          }
         )
-      }
-      .sheet(isPresented: $isCreateChannelSheetPresented) {
-        CreateChannelSheet {
-          await loadChannels(search: searchText)
-          selectedFilter = .groups
-        }
       }
       .task(id: searchText) {
         await loadChannels(search: searchText)
@@ -550,6 +532,7 @@ struct ConversationsListView: View {
 
     for remoteConversation in remoteConversations {
       let displayName = remoteConversation.otherParticipant?.displayName
+      let avatarSource = remoteConversation.otherParticipant?.imageUrl
       let localConversation: Conversation
 
       if let existing = localByRemoteID[remoteConversation.id] {
@@ -559,7 +542,8 @@ struct ConversationsListView: View {
           messages: [],
           summary: displayName,
           remoteConversationID: remoteConversation.id,
-          participantDisplayName: displayName
+          participantDisplayName: displayName,
+          participantAvatarSource: avatarSource
         )
         modelContext.insert(localConversation)
         localByRemoteID[remoteConversation.id] = localConversation
@@ -576,6 +560,10 @@ struct ConversationsListView: View {
         if localConversation.summary?.isEmpty ?? true {
           localConversation.summary = cachedDisplayName
         }
+      }
+
+      if let avatarSource, !avatarSource.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
+        localConversation.participantAvatarSource = avatarSource
       }
 
       localConversation.unreadCount = remoteConversation.unreadCountValue
@@ -712,7 +700,8 @@ struct ConversationsListView: View {
       messages: [],
       summary: user.displayName,
       remoteConversationID: result.conversationId,
-      participantDisplayName: user.displayName
+      participantDisplayName: user.displayName,
+      participantAvatarSource: user.imageUrl
     )
     modelContext.insert(conversation)
     try modelContext.save()
@@ -721,26 +710,48 @@ struct ConversationsListView: View {
 
   @MainActor
   private func startGroupConversation(with users: [DirectoryUser], name: String?) async throws {
-    let result = try await authStore.createGroupConversation(
-      memberIds: users.map(\.stackUserId),
-      name: name
-    )
-
-    if let existing = conversations.first(where: { $0.remoteConversationID == result.conversationId }) {
-      path.append(existing)
-      return
+    let groupName = name?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
+    guard users.count >= 2 else {
+      throw ChatAPIError.unexpected("Select at least 2 members")
+    }
+    guard !groupName.isEmpty else {
+      throw ChatAPIError.unexpected("Give the group a name")
     }
 
-    let fallbackName = users.map(\.displayName).prefix(3).joined(separator: ", ")
-    let conversation = Conversation(
-      messages: [],
-      summary: name ?? fallbackName,
-      remoteConversationID: result.conversationId,
-      participantDisplayName: name ?? fallbackName
+    let memberIds = users.map(\.stackUserId)
+    let result = try await authStore.createChannel(
+      name: groupName,
+      description: nil,
+      type: "private",
+      memberIds: memberIds
     )
-    modelContext.insert(conversation)
-    try modelContext.save()
-    path.append(conversation)
+
+    let createdChannel = ChannelSummary(
+      _id: result.channelId,
+      name: groupName,
+      slug: nil,
+      description: nil,
+      type: "private",
+      createdBy: authStore.currentSession?.user.staffId,
+      isArchived: false,
+      memberCount: memberIds.count + 1,
+      role: "owner",
+      muted: false,
+      unreadCount: 0,
+      lastMessagePreview: nil,
+      lastMessageAtRaw: Date().timeIntervalSince1970 * 1000,
+      lastMessageSenderId: nil,
+      mentionCount: nil,
+      joined: true
+    )
+
+    selectedFilter = .groups
+    searchText = ""
+    await loadChannels(search: "")
+    if channels.first(where: { $0.id == result.channelId }) == nil {
+      channels.insert(createdChannel, at: 0)
+    }
+    path.append(result.channelId)
   }
 
   @MainActor
@@ -1004,7 +1015,7 @@ private struct ChannelSummaryRow: View {
 
   var body: some View {
     HStack(spacing: 12) {
-      AvatarPlaceholder(initials: "#")
+      ChannelListAvatar(channel: channel)
 
       VStack(alignment: .leading, spacing: 5) {
         HStack {
@@ -1045,6 +1056,44 @@ private struct ChannelSummaryRow: View {
         .frame(height: 1)
         .padding(.leading, 76)
     }
+  }
+}
+
+private struct ChannelListAvatar: View {
+  let channel: ChannelSummary
+
+  var body: some View {
+    ZStack {
+      AvatarPlaceholder(initials: channel.avatarUrl == nil ? "#" : initials)
+
+      if let url = avatarURL {
+        AsyncImage(url: url) { phase in
+          if case .success(let image) = phase {
+            image
+              .resizable()
+              .scaledToFill()
+          }
+        }
+        .frame(width: 52, height: 52)
+        .clipShape(Circle())
+      }
+    }
+  }
+
+  private var avatarURL: URL? {
+    guard let raw = channel.avatarUrl?.trimmingCharacters(in: .whitespacesAndNewlines), !raw.isEmpty else {
+      return nil
+    }
+    return URL(string: raw)
+  }
+
+  private var initials: String {
+    let parts = channel.name
+      .split(whereSeparator: { !$0.isLetter })
+      .prefix(2)
+      .compactMap(\.first)
+    let result = String(parts).uppercased()
+    return result.isEmpty ? "#" : result
   }
 }
 

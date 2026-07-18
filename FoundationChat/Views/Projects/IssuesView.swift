@@ -95,8 +95,7 @@ struct IssuesView: View {
             CreateIssueSheet {
                 await loadIssues()
             }
-            .presentationDetents([.height(620), .large])
-            .presentationDragIndicator(.visible)
+            .appLibraryNativeSheet([.height(620), .large])
         }
     }
 

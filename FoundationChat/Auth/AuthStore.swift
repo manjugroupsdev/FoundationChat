@@ -278,6 +278,7 @@ final class AuthStore {
     do {
       let iam = try await AuthAPIService.getMyIAMPermissions(token: t)
       guard let existing = currentSession?.user else { return }
+      let refreshedRole = iam.role?.trimmingCharacters(in: .whitespacesAndNewlines)
       let updated = AuthUser(
         _id: existing._id,
         staffId: existing.staffId,
@@ -285,7 +286,7 @@ final class AuthStore {
         name: existing.name,
         phone: existing.phone,
         email: existing.email,
-        role: existing.role,
+        role: refreshedRole.flatMap { $0.isEmpty ? nil : $0 } ?? existing.role,
         roleLevel: existing.roleLevel,
         iamPermissions: iam.permissions,
         isAdmin: iam.isAdmin,
@@ -600,9 +601,20 @@ final class AuthStore {
   }
 
   @discardableResult
-  func createChannel(name: String, description: String?) async throws -> CreateChannelResult {
+  func createChannel(
+    name: String,
+    description: String? = nil,
+    type: String = "private",
+    memberIds: [String]? = nil
+  ) async throws -> CreateChannelResult {
     let t = try requireToken()
-    let channelId = try await ChatAPIService.createChannel(token: t, name: name, description: description)
+    let channelId = try await ChatAPIService.createChannel(
+      token: t,
+      name: name,
+      description: description,
+      type: type,
+      memberIds: memberIds
+    )
     return CreateChannelResult(channelId: channelId)
   }
 
@@ -648,9 +660,36 @@ final class AuthStore {
     try await ChatAPIService.updateChannel(token: t, channelId: channelId, description: description)
   }
 
+  func updateChannel(
+    channelID: String,
+    name: String? = nil,
+    description: String? = nil,
+    avatarStorageId: String? = nil
+  ) async throws {
+    let t = try requireToken()
+    try await ChatAPIService.updateChannel(
+      token: t,
+      channelId: channelID,
+      name: name,
+      description: description,
+      avatarStorageId: avatarStorageId
+    )
+  }
+
+  func uploadChannelAvatar(channelID: String, imageData: Data, mimeType: String = "image/jpeg") async throws {
+    let uploadURL = try await generateAttachmentUploadURL()
+    let storageId = try await uploadAttachmentData(imageData, uploadURL: uploadURL, mimeType: mimeType)
+    try await updateChannel(channelID: channelID, avatarStorageId: storageId)
+  }
+
   func archiveChannel(channelID: String) async throws {
     let t = try requireToken()
     try await ChatAPIService.archiveChannel(token: t, channelId: channelID)
+  }
+
+  func deleteChannel(channelID: String) async throws {
+    let t = try requireToken()
+    try await ChatAPIService.deleteChannel(token: t, channelId: channelID)
   }
 
   func subscribeChannelMessages(channelID: String) throws -> AnyPublisher<[ChannelChatMessage]?, Never> {
@@ -924,6 +963,15 @@ final class AuthStore {
       uploadURL: uploadURL.absoluteString,
       data: data,
       contentType: mimeType
+    )
+  }
+
+  func uploadChatAttachmentData(_ data: Data, mimeType: String) async throws -> String {
+    let t = try requireToken()
+    return try await ChatAPIService.uploadAttachment(
+      token: t,
+      data: data,
+      mimeType: mimeType
     )
   }
 

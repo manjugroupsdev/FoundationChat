@@ -14,12 +14,43 @@ struct ProjectSummary: Decodable, Identifiable, Hashable, Sendable {
     let managerName: String?
     let staffManagerId: String?
     let projectType: String?
+    let specialPaymentEnabled: Bool?
 
     enum CodingKeys: String, CodingKey {
         case id = "_id"
         case plainId = "id"
         case name, description, status, progress, startDate, endDate, budget
-        case location, managerName, staffManagerId, projectType
+        case location, managerName, staffManagerId, projectType, specialPaymentEnabled
+    }
+
+    init(
+        id: String,
+        name: String? = nil,
+        description: String? = nil,
+        status: String? = nil,
+        progress: Int? = nil,
+        startDate: String? = nil,
+        endDate: String? = nil,
+        budget: Double? = nil,
+        location: String? = nil,
+        managerName: String? = nil,
+        staffManagerId: String? = nil,
+        projectType: String? = nil,
+        specialPaymentEnabled: Bool? = nil
+    ) {
+        self.id = id
+        self.name = name
+        self.description = description
+        self.status = status
+        self.progress = progress
+        self.startDate = startDate
+        self.endDate = endDate
+        self.budget = budget
+        self.location = location
+        self.managerName = managerName
+        self.staffManagerId = staffManagerId
+        self.projectType = projectType
+        self.specialPaymentEnabled = specialPaymentEnabled
     }
 
     init(from decoder: Decoder) throws {
@@ -38,6 +69,7 @@ struct ProjectSummary: Decodable, Identifiable, Hashable, Sendable {
         managerName = try container.decodeIfPresent(String.self, forKey: .managerName)
         staffManagerId = try container.decodeIfPresent(String.self, forKey: .staffManagerId)
         projectType = try container.decodeIfPresent(String.self, forKey: .projectType)
+        specialPaymentEnabled = try container.decodeIfPresent(Bool.self, forKey: .specialPaymentEnabled)
     }
 
     var displayName: String { name?.projectNilIfBlank ?? "Untitled project" }

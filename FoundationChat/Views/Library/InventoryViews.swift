@@ -99,6 +99,7 @@ struct ProjectInventoryView: View {
     @State private var actionMessage: String?
     @State private var actionUnitId: String?
     @State private var detailUnit: InventoryUnit?
+    @State private var bookingUnit: InventoryUnit?
 
     private var canCreateBooking: Bool {
         authStore.hasPermission("marketing.bookings.create")
@@ -170,14 +171,12 @@ struct ProjectInventoryView: View {
                 } else {
                     ForEach(units) { unit in
                         if canCreateBooking && unit.status == "available" {
-                            NavigationLink {
-                                BookingCreateView(
-                                    initialProject: project,
-                                    initialUnit: unit
-                                )
+                            Button {
+                                bookingUnit = unit
                             } label: {
                                 InventoryUnitRow(unit: unit)
                             }
+                            .buttonStyle(.plain)
                             .swipeActions(edge: .trailing, allowsFullSwipe: false) {
                                 unitActions(for: unit)
                             }
@@ -208,6 +207,17 @@ struct ProjectInventoryView: View {
             NavigationStack {
                 InventoryUnitDetailView(unit: unit)
             }
+            .appLibraryNativeSheet([.medium, .large])
+        }
+        .sheet(item: $bookingUnit, onDismiss: {
+            Task { await load() }
+        }) { unit in
+            BookingCreateView(
+                initialProject: project,
+                initialUnit: unit
+            )
+            .appLibraryNativeSheet([.height(720), .large])
+            .presentationBackground(Color.white)
         }
         .alert("Inventory", isPresented: Binding(
             get: { actionMessage != nil },
@@ -479,6 +489,7 @@ struct InventoryLayoutMapView: View {
             NavigationStack {
                 InventoryUnitDetailView(unit: unit)
             }
+            .appLibraryNativeSheet([.medium, .large])
         }
     }
 

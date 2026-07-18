@@ -18,6 +18,17 @@ enum HRConvexAPIService {
         let success: Bool; let leaveId: String?; let error: String?
     }
 
+    private struct CompOffCreditsResponse: Decodable {
+        let success: Bool
+        let credits: [ConvexCompOffCredit]?
+        let error: String?
+    }
+
+    private struct ApplyCompOffRequest: Encodable {
+        let creditId: String
+        let date: String
+    }
+
     private struct PolicyResponse: Decodable {
         let success: Bool
         let policy: PolicyData?
@@ -104,6 +115,27 @@ enum HRConvexAPIService {
         let data = try await post(path: "/api/hr/leaves/cancel", token: token, jsonBody: body)
         let wrapper = try decode(GenericSuccessResponse.self, from: data)
         guard wrapper.success else { throw HRConvexAPIError.server(wrapper.error ?? "Failed to cancel leave") }
+    }
+
+    static func getCompOffCredits(token: String) async throws -> [ConvexCompOffCredit] {
+        let data = try await get(path: "/api/hr/compoff/credits", token: token)
+        let wrapper = try decode(CompOffCreditsResponse.self, from: data)
+        guard wrapper.success else { throw HRConvexAPIError.server(wrapper.error ?? "Failed to load comp-off credits") }
+        return wrapper.credits ?? []
+    }
+
+    static func applyCompOff(token: String, creditId: String, date: String) async throws -> String {
+        let data = try await post(
+            path: "/api/hr/compoff/apply",
+            token: token,
+            jsonBody: [
+                "creditId": creditId,
+                "date": date
+            ]
+        )
+        let wrapper = try decode(LeaveActionResponse.self, from: data)
+        guard wrapper.success else { throw HRConvexAPIError.server(wrapper.error ?? "Failed to apply comp off") }
+        return wrapper.leaveId ?? ""
     }
 
     // MARK: - Permissions

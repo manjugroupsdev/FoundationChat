@@ -12,7 +12,7 @@ private struct LeaveCategoryOption: Identifiable, Equatable, Sendable {
     }
 
     static let defaultOptions = options(from: ["casual", "sick", "earned", "unpaid", "compensatory", "half_day"])
-    static let fallbackOptions = options(from: ["casual", "sick", "earned", "half_day"])
+    static let fallbackOptions = options(from: ["casual", "sick", "earned", "unpaid", "half_day", "compensatory"])
 
     static func options(from backendTypes: [String]) -> [LeaveCategoryOption] {
         let normalizedTypes = backendTypes
@@ -77,9 +77,14 @@ struct ApplyLeaveView: View {
     @State private var toDate: Date?
     @State private var reason = ""
     @State private var selectedHalfDaySession = "Morning"
+    @State private var compOffCredits: [ConvexCompOffCredit] = []
+    @State private var selectedCompOffCredit: ConvexCompOffCredit?
+    @State private var compOffCreditsLoaded = false
+    @State private var isLoadingCompOffCredits = false
     @State private var isSubmitting = false
     @State private var errorMessage: String?
     @State private var showCategorySheet = false
+    @State private var showCompOffCreditSheet = false
     @State private var showDurationSheet = false
     @State private var showSubmitConfirmation = false
     @FocusState private var isReasonFocused: Bool
@@ -87,7 +92,10 @@ struct ApplyLeaveView: View {
     var onApplied: (() -> Void)?
 
     private var canSubmit: Bool {
-        fromDate != nil && toDate != nil && !isSubmitting
+        if selectedLeaveCategory.backendCode == "compensatory" {
+            return selectedCompOffCredit != nil && fromDate != nil && !isSubmitting
+        }
+        return fromDate != nil && toDate != nil && !isSubmitting
     }
 
     private var selectedLeaveTypeLabel: String {
@@ -102,16 +110,19 @@ struct ApplyLeaveView: View {
         return "\(Self.labelDateFormatter.string(from: fromDate)) - \(Self.labelDateFormatter.string(from: toDate))"
     }
 
+    private var isCompOff: Bool {
+        selectedLeaveCategory.backendCode == "compensatory"
+    }
+
+    private var compOffCreditLabel: String {
+        guard let selectedCompOffCredit else { return "Select Credit" }
+        return Self.compOffCreditLabel(selectedCompOffCredit)
+    }
+
     var body: some View {
         VStack(spacing: 0) {
             ScrollView {
                 VStack(alignment: .leading, spacing: 0) {
-                    Capsule()
-                        .fill(Color(hex: 0xD0D5DD))
-                        .frame(width: 40, height: 4)
-                        .frame(maxWidth: .infinity)
-                        .padding(.bottom, 14)
-
                     Text("Fill Leave Information")
                         .font(.system(size: 18, weight: .bold))
                         .foregroundStyle(Color(hex: 0x101828))
@@ -125,30 +136,51 @@ struct ApplyLeaveView: View {
                         .padding(.top, 16)
                     applyField(icon: "doc.text", value: selectedLeaveTypeLabel, action: { showCategorySheet = true })
 
-                    fieldLabel("Leave Duration")
+                    if isCompOff {
+                        fieldLabel("Comp Off Credit")
+                            .padding(.top, 16)
+                        applyField(
+                            icon: "checkmark.seal",
+                            value: isLoadingCompOffCredits ? "Loading credits..." : compOffCreditLabel,
+                            action: { showCompOffCreditPicker() }
+                        )
+                        .disabled(compOffCredits.isEmpty && compOffCreditsLoaded)
+                        .opacity((compOffCredits.isEmpty && compOffCreditsLoaded) ? 0.55 : 1)
+
+                        if compOffCreditsLoaded && compOffCredits.isEmpty {
+                            Text("No comp-off balance available. You earn 1 comp-off credit by working a full day on your weekly-off or a holiday.")
+                                .font(.system(size: 12, weight: .medium))
+                                .foregroundStyle(Color(hex: 0x667085))
+                                .padding(.top, 8)
+                        }
+                    }
+
+                    fieldLabel(isCompOff ? "Comp Off Date" : "Leave Duration")
                         .padding(.top, 16)
-                    applyField(icon: "calendar", value: durationLabel, action: { showDurationSheet = true })
+                    applyField(icon: "calendar", value: durationLabel, action: { showDurationPicker() })
 
                     if selectedLeaveCategory.backendCode == "half_day" {
                         halfDaySessionPicker
                             .padding(.top, 14)
                     }
 
-                    fieldLabel("Leave Description")
-                        .padding(.top, 16)
-                    TextField("Enter Leave Description", text: $reason, axis: .vertical)
-                        .font(.system(size: 14))
-                        .foregroundStyle(Color(hex: 0x101828))
-                        .lineLimit(4...6)
-                        .focused($isReasonFocused)
-                        .padding(.horizontal, 14)
-                        .padding(.vertical, 10)
-                        .frame(minHeight: 90, alignment: .topLeading)
-                        .background(Color(hex: 0xF8FAFC), in: RoundedRectangle(cornerRadius: 10, style: .continuous))
-                        .overlay {
-                            RoundedRectangle(cornerRadius: 10, style: .continuous)
-                                .stroke(Color(hex: 0xEAECF0), lineWidth: 1)
-                        }
+                    if !isCompOff {
+                        fieldLabel("Leave Description")
+                            .padding(.top, 16)
+                        TextField("Enter Leave Description", text: $reason, axis: .vertical)
+                            .font(.system(size: 14))
+                            .foregroundStyle(Color(hex: 0x101828))
+                            .lineLimit(4...6)
+                            .focused($isReasonFocused)
+                            .padding(.horizontal, 14)
+                            .padding(.vertical, 10)
+                            .frame(minHeight: 90, alignment: .topLeading)
+                            .background(Color(hex: 0xF8FAFC), in: RoundedRectangle(cornerRadius: 10, style: .continuous))
+                            .overlay {
+                                RoundedRectangle(cornerRadius: 10, style: .continuous)
+                                    .stroke(Color(hex: 0xEAECF0), lineWidth: 1)
+                            }
+                    }
 
                     if let errorMessage {
                         Text(errorMessage)
@@ -187,29 +219,47 @@ struct ApplyLeaveView: View {
                 selectedType: selectedLeaveCategory,
                 onClose: { showCategorySheet = false },
                 onSubmit: { category in
-                    selectedLeaveCategory = category
-                    if category.backendCode == "half_day", let fromDate {
-                        toDate = fromDate
-                    }
+                    applySelectedCategory(category)
                     showCategorySheet = false
                 }
             )
-            .presentationDetents([.height(categorySheetHeight)])
-            .presentationDragIndicator(.hidden)
+            .appLibraryNativeSheet([.height(categorySheetHeight)])
+        }
+        .sheet(isPresented: $showCompOffCreditSheet) {
+            CompOffCreditSheet(
+                credits: compOffCredits,
+                selectedCredit: selectedCompOffCredit,
+                onClose: { showCompOffCreditSheet = false },
+                onSubmit: { credit in
+                    let changed = credit.id != selectedCompOffCredit?.id
+                    selectedCompOffCredit = credit
+                    if changed {
+                        fromDate = nil
+                        toDate = nil
+                    }
+                    errorMessage = nil
+                    showCompOffCreditSheet = false
+                }
+            )
+            .appLibraryNativeSheet([.height(compOffSheetHeight)])
         }
         .sheet(isPresented: $showDurationSheet) {
             LeaveDurationSheet(
+                title: isCompOff ? "Comp Off Date" : "Leave Duration",
+                subtitle: isCompOff ? "Select the day to take" : "Select Leave Duration",
                 initialFromDate: fromDate,
                 initialToDate: toDate,
+                singleSelection: selectedLeaveCategory.backendCode == "half_day" || isCompOff,
+                lockedMonthDate: isCompOff ? selectedCompOffCredit?.earnedDate.flatMap { Self.apiDateFormatter.date(from: $0) } : nil,
+                disabledDate: isCompOff ? selectedCompOffCredit?.earnedDate.flatMap { Self.apiDateFormatter.date(from: $0) } : nil,
                 onClose: { showDurationSheet = false },
                 onSubmit: { pickedFrom, pickedTo in
                     fromDate = min(pickedFrom, pickedTo)
-                    toDate = selectedLeaveCategory.backendCode == "half_day" ? min(pickedFrom, pickedTo) : max(pickedFrom, pickedTo)
+                    toDate = (selectedLeaveCategory.backendCode == "half_day" || isCompOff) ? min(pickedFrom, pickedTo) : max(pickedFrom, pickedTo)
                     showDurationSheet = false
                 }
             )
-            .presentationDetents([.height(430)])
-            .presentationDragIndicator(.hidden)
+            .appLibraryNativeSheet([.height(430)])
         }
         .sheet(isPresented: $showSubmitConfirmation) {
             SubmitLeaveConfirmSheet(
@@ -217,8 +267,7 @@ struct ApplyLeaveView: View {
                 onCancel: { showSubmitConfirmation = false },
                 onSubmit: { submit() }
             )
-            .presentationDetents([.height(248)])
-            .presentationDragIndicator(.hidden)
+            .appLibraryNativeSheet([.height(248)])
         }
     }
 
@@ -286,6 +335,10 @@ struct ApplyLeaveView: View {
         CGFloat(168 + max(leaveTypes.count, 1) * 54)
     }
 
+    private var compOffSheetHeight: CGFloat {
+        CGFloat(min(560, 168 + max(compOffCredits.count, 1) * 64))
+    }
+
     private func fieldLabel(_ title: String) -> some View {
         Text(title)
             .font(.system(size: 13, weight: .medium))
@@ -322,6 +375,19 @@ struct ApplyLeaveView: View {
 
     private func promptSubmitConfirmation() {
         dismissKeyboard()
+        if isCompOff {
+            guard selectedCompOffCredit != nil else {
+                errorMessage = "Select a comp-off credit"
+                return
+            }
+            guard fromDate != nil else {
+                errorMessage = "Select the day to take"
+                return
+            }
+            errorMessage = nil
+            showSubmitConfirmation = true
+            return
+        }
         guard let fromDate, let toDate else {
             errorMessage = "Select leave duration"
             return
@@ -345,16 +411,25 @@ struct ApplyLeaveView: View {
         Task {
             defer { isSubmitting = false }
             do {
-                _ = try await HRConvexAPIService.applyLeave(
-                    token: token,
-                    leaveType: selectedLeaveCategory.submitCode,
-                    fromDate: Self.apiDateFormatter.string(from: min(fromDate, toDate)),
-                    toDate: Self.apiDateFormatter.string(from: max(fromDate, toDate)),
-                    reason: submitReason,
-                    isHalfDay: selectedLeaveCategory.backendCode == "half_day" ? true : nil,
-                    halfDaySession: selectedLeaveCategory.backendCode == "half_day" ? selectedHalfDaySession.lowercased() : nil,
-                    halfDayType: selectedLeaveCategory.backendCode == "half_day" ? selectedHalfDaySession.lowercased() : nil
-                )
+                if isCompOff {
+                    guard let selectedCompOffCredit else { return }
+                    _ = try await HRConvexAPIService.applyCompOff(
+                        token: token,
+                        creditId: selectedCompOffCredit.id,
+                        date: Self.apiDateFormatter.string(from: fromDate)
+                    )
+                } else {
+                    _ = try await HRConvexAPIService.applyLeave(
+                        token: token,
+                        leaveType: selectedLeaveCategory.submitCode,
+                        fromDate: Self.apiDateFormatter.string(from: min(fromDate, toDate)),
+                        toDate: Self.apiDateFormatter.string(from: max(fromDate, toDate)),
+                        reason: submitReason,
+                        isHalfDay: selectedLeaveCategory.backendCode == "half_day" ? true : nil,
+                        halfDaySession: selectedLeaveCategory.backendCode == "half_day" ? selectedHalfDaySession.lowercased() : nil,
+                        halfDayType: selectedLeaveCategory.backendCode == "half_day" ? selectedHalfDaySession.lowercased() : nil
+                    )
+                }
                 onApplied?()
                 dismiss()
             } catch {
@@ -377,6 +452,9 @@ struct ApplyLeaveView: View {
             if !types.contains("half_day") {
                 types.append("half_day")
             }
+            if !types.contains("compensatory") {
+                types.append("compensatory")
+            }
             if !types.isEmpty {
                 leaveTypes = LeaveCategoryOption.options(from: types)
                 selectedLeaveCategory = leaveTypes.first ?? selectedLeaveCategory
@@ -384,6 +462,73 @@ struct ApplyLeaveView: View {
         } catch {
             leaveTypes = LeaveCategoryOption.fallbackOptions
             selectedLeaveCategory = leaveTypes.first ?? selectedLeaveCategory
+        }
+    }
+
+    private func applySelectedCategory(_ category: LeaveCategoryOption) {
+        let previousCode = selectedLeaveCategory.backendCode
+        selectedLeaveCategory = category
+        errorMessage = nil
+
+        if category.backendCode == "half_day", let fromDate {
+            toDate = fromDate
+        }
+
+        if category.backendCode == "compensatory" {
+            if previousCode != "compensatory" {
+                fromDate = nil
+                toDate = nil
+                reason = ""
+            }
+            Task { await loadCompOffCreditsIfNeeded() }
+        }
+    }
+
+    private func showCompOffCreditPicker() {
+        guard compOffCreditsLoaded else {
+            Task { await loadCompOffCreditsIfNeeded(openWhenLoaded: true) }
+            return
+        }
+        guard !compOffCredits.isEmpty else {
+            errorMessage = "No comp-off credits available"
+            return
+        }
+        showCompOffCreditSheet = true
+    }
+
+    private func showDurationPicker() {
+        if isCompOff && selectedCompOffCredit == nil {
+            errorMessage = "Select a comp-off credit first"
+            return
+        }
+        errorMessage = nil
+        showDurationSheet = true
+    }
+
+    @MainActor
+    private func loadCompOffCreditsIfNeeded(openWhenLoaded: Bool = false) async {
+        guard !compOffCreditsLoaded else {
+            if openWhenLoaded, !compOffCredits.isEmpty { showCompOffCreditSheet = true }
+            return
+        }
+        guard let token = authStore.currentSession?.token else { return }
+        isLoadingCompOffCredits = true
+        defer {
+            isLoadingCompOffCredits = false
+            compOffCreditsLoaded = true
+        }
+        do {
+            compOffCredits = try await HRConvexAPIService.getCompOffCredits(token: token)
+            if openWhenLoaded, !compOffCredits.isEmpty {
+                showCompOffCreditSheet = true
+            } else if openWhenLoaded {
+                errorMessage = "No comp-off credits available"
+            }
+        } catch {
+            compOffCredits = []
+            if openWhenLoaded {
+                errorMessage = error.localizedDescription
+            }
         }
     }
 
@@ -398,19 +543,32 @@ struct ApplyLeaveView: View {
         return "[\(selectedHalfDaySession)] \(trimmed)".trimmingCharacters(in: .whitespacesAndNewlines)
     }
 
-    private static let apiDateFormatter: DateFormatter = {
+    fileprivate static let apiDateFormatter: DateFormatter = {
         let formatter = DateFormatter()
         formatter.locale = Locale(identifier: "en_US_POSIX")
         formatter.dateFormat = "yyyy-MM-dd"
         return formatter
     }()
 
-    private static let labelDateFormatter: DateFormatter = {
+    fileprivate static let labelDateFormatter: DateFormatter = {
         let formatter = DateFormatter()
         formatter.locale = Locale(identifier: "en_US_POSIX")
         formatter.dateFormat = "dd MMM yyyy"
         return formatter
     }()
+
+    fileprivate static func compOffCreditLabel(_ credit: ConvexCompOffCredit) -> String {
+        let earned = credit.earnedDate
+            .flatMap(apiDateFormatter.date(from:))
+            .map(labelDateFormatter.string(from:)) ?? "Credit"
+        let expires = credit.expiresAt
+            .flatMap(apiDateFormatter.date(from:))
+            .map(labelDateFormatter.string(from:))
+        if let expires {
+            return "Earned \(earned) · valid till \(expires)"
+        }
+        return "Earned \(earned)"
+    }
 }
 
 private struct LeaveCategorySheet: View {
@@ -483,17 +641,142 @@ private struct LeaveCategorySheet: View {
     }
 
     private var sheetHandle: some View {
-        Capsule()
-            .fill(Color(hex: 0xD0D5DD))
-            .frame(width: 40, height: 4)
-            .frame(maxWidth: .infinity)
-            .padding(.bottom, 14)
+        EmptyView()
+    }
+}
+
+private struct CompOffCreditSheet: View {
+    let credits: [ConvexCompOffCredit]
+    let selectedCredit: ConvexCompOffCredit?
+    let onClose: () -> Void
+    let onSubmit: (ConvexCompOffCredit) -> Void
+
+    @State private var draftCredit: ConvexCompOffCredit?
+
+    init(
+        credits: [ConvexCompOffCredit],
+        selectedCredit: ConvexCompOffCredit?,
+        onClose: @escaping () -> Void,
+        onSubmit: @escaping (ConvexCompOffCredit) -> Void
+    ) {
+        self.credits = credits
+        self.selectedCredit = selectedCredit
+        self.onClose = onClose
+        self.onSubmit = onSubmit
+        _draftCredit = State(initialValue: selectedCredit ?? credits.first)
+    }
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 0) {
+            sheetHandle
+
+            Text("Comp Off Credit")
+                .font(.system(size: 18, weight: .bold))
+                .foregroundStyle(Color(hex: 0x101828))
+            Text("Select a credit to spend")
+                .font(.system(size: 12, weight: .medium))
+                .foregroundStyle(Color(hex: 0x667085))
+                .padding(.top, 2)
+
+            ScrollView(showsIndicators: false) {
+                VStack(spacing: 8) {
+                    ForEach(credits) { credit in
+                        Button {
+                            draftCredit = credit
+                        } label: {
+                            HStack(spacing: 12) {
+                                ZStack {
+                                    Circle()
+                                        .fill(draftCredit?.id == credit.id ? Color(hex: 0xEAF8E8) : Color(hex: 0xF2F4F7))
+                                        .frame(width: 36, height: 36)
+                                    Image(systemName: "checkmark.seal")
+                                        .font(.system(size: 16, weight: .semibold))
+                                        .foregroundStyle(draftCredit?.id == credit.id ? Color(hex: 0x1BCA0B) : Color(hex: 0x667085))
+                                }
+
+                                VStack(alignment: .leading, spacing: 3) {
+                                    Text(Self.creditTitle(credit))
+                                        .font(.system(size: 14, weight: .semibold))
+                                        .foregroundStyle(Color(hex: 0x101828))
+                                        .lineLimit(1)
+
+                                    Text(Self.creditSubtitle(credit))
+                                        .font(.system(size: 11, weight: .medium))
+                                        .foregroundStyle(Color(hex: 0x667085))
+                                        .lineLimit(1)
+                                }
+
+                                Spacer()
+
+                                Image(systemName: draftCredit?.id == credit.id ? "largecircle.fill.circle" : "circle")
+                                    .font(.system(size: 18, weight: .semibold))
+                                    .foregroundStyle(draftCredit?.id == credit.id ? Color(hex: 0x1BCA0B) : Color(hex: 0x98A2B3))
+                            }
+                            .padding(.horizontal, 12)
+                            .frame(height: 58)
+                            .background(draftCredit?.id == credit.id ? Color(hex: 0xEAF8E8) : Color(hex: 0xF8FAFC), in: RoundedRectangle(cornerRadius: 10, style: .continuous))
+                            .overlay {
+                                RoundedRectangle(cornerRadius: 10, style: .continuous)
+                                    .stroke(draftCredit?.id == credit.id ? Color(hex: 0x1BCA0B).opacity(0.35) : Color(hex: 0xEAECF0), lineWidth: 1)
+                            }
+                        }
+                        .buttonStyle(.plain)
+                    }
+                }
+                .padding(.top, 16)
+            }
+
+            HStack(spacing: 12) {
+                outlineButton("Close Message", action: onClose)
+                filledButton("Submit") {
+                    if let draftCredit {
+                        onSubmit(draftCredit)
+                    }
+                }
+                .disabled(draftCredit == nil)
+            }
+            .padding(.top, 20)
+        }
+        .padding(.horizontal, 20)
+        .padding(.top, 20)
+        .padding(.bottom, 24)
+        .background(Color.white)
+    }
+
+    private var sheetHandle: some View {
+        EmptyView()
+    }
+
+    private static func creditTitle(_ credit: ConvexCompOffCredit) -> String {
+        guard let earnedDate = credit.earnedDate,
+              let date = ApplyLeaveView.apiDateFormatter.date(from: earnedDate)
+        else { return "Comp-off credit" }
+        return "Earned \(ApplyLeaveView.labelDateFormatter.string(from: date))"
+    }
+
+    private static func creditSubtitle(_ credit: ConvexCompOffCredit) -> String {
+        let source = credit.source?.trimmingCharacters(in: .whitespacesAndNewlines)
+        let expiry = credit.expiresAt
+            .flatMap { ApplyLeaveView.apiDateFormatter.date(from: $0) }
+            .map { "Valid till \(ApplyLeaveView.labelDateFormatter.string(from: $0))" }
+        let subtitle = [source, expiry]
+            .compactMap { value -> String? in
+                guard let value, !value.isEmpty else { return nil }
+                return value
+            }
+            .joined(separator: " · ")
+        return subtitle.isEmpty ? "Available credit" : subtitle
     }
 }
 
 private struct LeaveDurationSheet: View {
+    let title: String
+    let subtitle: String
     let initialFromDate: Date?
     let initialToDate: Date?
+    let singleSelection: Bool
+    let lockedMonthDate: Date?
+    let disabledDate: Date?
     let onClose: () -> Void
     let onSubmit: (Date, Date) -> Void
 
@@ -501,12 +784,27 @@ private struct LeaveDurationSheet: View {
     @State private var draftFromDate: Date?
     @State private var draftToDate: Date?
 
-    init(initialFromDate: Date?, initialToDate: Date?, onClose: @escaping () -> Void, onSubmit: @escaping (Date, Date) -> Void) {
+    init(
+        title: String,
+        subtitle: String,
+        initialFromDate: Date?,
+        initialToDate: Date?,
+        singleSelection: Bool = false,
+        lockedMonthDate: Date? = nil,
+        disabledDate: Date? = nil,
+        onClose: @escaping () -> Void,
+        onSubmit: @escaping (Date, Date) -> Void
+    ) {
+        self.title = title
+        self.subtitle = subtitle
         self.initialFromDate = initialFromDate
         self.initialToDate = initialToDate
+        self.singleSelection = singleSelection
+        self.lockedMonthDate = lockedMonthDate
+        self.disabledDate = disabledDate
         self.onClose = onClose
         self.onSubmit = onSubmit
-        let baseDate = initialFromDate ?? Date()
+        let baseDate = lockedMonthDate ?? initialFromDate ?? Date()
         _displayedMonth = State(initialValue: Calendar.current.date(from: Calendar.current.dateComponents([.year, .month], from: baseDate)) ?? baseDate)
         _draftFromDate = State(initialValue: initialFromDate)
         _draftToDate = State(initialValue: initialToDate)
@@ -516,34 +814,42 @@ private struct LeaveDurationSheet: View {
         VStack(alignment: .leading, spacing: 0) {
             sheetHandle
 
-            Text("Leave Duration")
+            Text(title)
                 .font(.system(size: 18, weight: .bold))
                 .foregroundStyle(Color(hex: 0x101828))
-            Text("Select Leave Duration")
+            Text(subtitle)
                 .font(.system(size: 12, weight: .medium))
                 .foregroundStyle(Color(hex: 0x667085))
                 .padding(.top, 2)
 
             HStack {
-                Button { changeMonth(-1) } label: {
-                    Image(systemName: "chevron.left")
-                        .font(.system(size: 17, weight: .bold))
-                        .foregroundStyle(Color(hex: 0x101828))
-                        .frame(width: 28, height: 28)
+                if lockedMonthDate == nil {
+                    Button { changeMonth(-1) } label: {
+                        Image(systemName: "chevron.left")
+                            .font(.system(size: 17, weight: .bold))
+                            .foregroundStyle(Color(hex: 0x101828))
+                            .frame(width: 28, height: 28)
+                    }
+                    .buttonStyle(.plain)
+                } else {
+                    Color.clear.frame(width: 28, height: 28)
                 }
-                .buttonStyle(.plain)
                 Spacer()
                 Text(Self.monthFormatter.string(from: displayedMonth))
                     .font(.system(size: 16, weight: .semibold))
                     .foregroundStyle(Color(hex: 0x101828))
                 Spacer()
-                Button { changeMonth(1) } label: {
-                    Image(systemName: "chevron.right")
-                        .font(.system(size: 17, weight: .bold))
-                        .foregroundStyle(Color(hex: 0x101828))
-                        .frame(width: 28, height: 28)
+                if lockedMonthDate == nil {
+                    Button { changeMonth(1) } label: {
+                        Image(systemName: "chevron.right")
+                            .font(.system(size: 17, weight: .bold))
+                            .foregroundStyle(Color(hex: 0x101828))
+                            .frame(width: 28, height: 28)
+                    }
+                    .buttonStyle(.plain)
+                } else {
+                    Color.clear.frame(width: 28, height: 28)
                 }
-                .buttonStyle(.plain)
             }
             .padding(.top, 12)
 
@@ -583,11 +889,7 @@ private struct LeaveDurationSheet: View {
     }
 
     private var sheetHandle: some View {
-        Capsule()
-            .fill(Color(hex: 0xD0D5DD))
-            .frame(width: 40, height: 4)
-            .frame(maxWidth: .infinity)
-            .padding(.bottom, 14)
+        EmptyView()
     }
 
     private var monthGridDays: [Date] {
@@ -605,14 +907,16 @@ private struct LeaveDurationSheet: View {
         let selectedStart = draftFromDate.map { calendar.isDate(date, inSameDayAs: $0) } ?? false
         let selectedEnd = draftToDate.map { calendar.isDate(date, inSameDayAs: $0) } ?? false
         let inRange = isInRange(date)
+        let isDisabledDate = disabledDate.map { calendar.isDate(date, inSameDayAs: $0) } ?? false
+        let selectable = inCurrentMonth && !isDisabledDate
 
         return Button {
-            guard inCurrentMonth else { return }
+            guard selectable else { return }
             select(date)
         } label: {
             Text("\(calendar.component(.day, from: date))")
                 .font(.system(size: 12, weight: selectedStart || selectedEnd ? .bold : .regular))
-                .foregroundStyle(dayTextColor(inCurrentMonth: inCurrentMonth, selected: selectedStart || selectedEnd))
+                .foregroundStyle(dayTextColor(inCurrentMonth: selectable, selected: selectedStart || selectedEnd))
                 .frame(maxWidth: .infinity)
                 .frame(height: 30)
                 .background {
@@ -625,7 +929,7 @@ private struct LeaveDurationSheet: View {
                 }
         }
         .buttonStyle(.plain)
-        .disabled(!inCurrentMonth)
+        .disabled(!selectable)
     }
 
     private func dayTextColor(inCurrentMonth: Bool, selected: Bool) -> Color {
@@ -642,6 +946,11 @@ private struct LeaveDurationSheet: View {
 
     private func select(_ date: Date) {
         let normalized = Calendar.current.startOfDay(for: date)
+        if singleSelection {
+            draftFromDate = normalized
+            draftToDate = normalized
+            return
+        }
         if draftFromDate == nil || draftToDate != nil {
             draftFromDate = normalized
             draftToDate = nil

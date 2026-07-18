@@ -53,6 +53,19 @@ struct ConvexLeaveBalance: Decodable, Equatable, Sendable {
     var earnedRemaining: Double { (earned ?? 0) - (earnedUsed ?? 0) }
 }
 
+struct ConvexCompOffCredit: Decodable, Identifiable, Equatable, Sendable {
+    let id: String
+    let earnedDate: String?
+    let expiresAt: String?
+    let source: String?
+    let status: String?
+
+    enum CodingKeys: String, CodingKey {
+        case id = "_id"
+        case earnedDate, expiresAt, source, status
+    }
+}
+
 // MARK: - Permissions
 
 struct ConvexPermission: Decodable, Identifiable, Equatable, Sendable {

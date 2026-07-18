@@ -3,45 +3,63 @@ import SwiftUI
 struct NotificationsListView: View {
     @Environment(AuthStore.self) private var authStore
     @State private var notifications: [AppNotification] = []
+    @State private var selectedFilter: NotificationListFilter = .all
     @State private var isLoading = false
     @State private var errorMessage: String?
 
+    private var filteredNotifications: [AppNotification] {
+        notifications.filter { selectedFilter.includes($0) }
+    }
+
     var body: some View {
         NavigationStack {
-            List {
-                if let errorMessage {
-                    Section {
-                        HStack(spacing: 10) {
-                            Image(systemName: "exclamationmark.triangle.fill")
-                                .foregroundStyle(.red)
-                            Text(errorMessage)
-                                .font(.subheadline)
-                                .foregroundStyle(.red)
+            VStack(spacing: 0) {
+                filterTabs
+
+                List {
+                    if let errorMessage {
+                        Section {
+                            HStack(spacing: 10) {
+                                Image(systemName: "exclamationmark.triangle.fill")
+                                    .foregroundStyle(.red)
+                                Text(errorMessage)
+                                    .font(.subheadline)
+                                    .foregroundStyle(.red)
+                            }
                         }
                     }
-                }
 
-                if notifications.isEmpty && !isLoading {
-                    ContentUnavailableView("No Notifications", systemImage: "bell.slash", description: Text("You're all caught up!"))
-                }
-
-                ForEach(notifications) { notification in
-                    Button {
-                        open(notification)
-                    } label: {
-                        notificationRow(notification)
-                            .contentShape(Rectangle())
+                    if filteredNotifications.isEmpty && !isLoading {
+                        ContentUnavailableView(
+                            selectedFilter.emptyTitle,
+                            systemImage: selectedFilter.emptyIcon,
+                            description: Text(selectedFilter.emptyMessage)
+                        )
                     }
-                    .buttonStyle(.plain)
-                    .swipeActions(edge: .trailing, allowsFullSwipe: true) {
+
+                    ForEach(filteredNotifications) { notification in
                         Button {
-                            markRead(notification)
+                            open(notification)
                         } label: {
-                            Label("Read", systemImage: "checkmark")
+                            notificationRow(notification)
+                                .contentShape(Rectangle())
                         }
-                        .tint(.blue)
-                        .disabled(!notification.isUnread)
+                        .buttonStyle(.plain)
+                        .swipeActions(edge: .trailing, allowsFullSwipe: true) {
+                            Button {
+                                markRead(notification)
+                            } label: {
+                                Label("Read", systemImage: "checkmark")
+                            }
+                            .tint(.blue)
+                            .disabled(!notification.isUnread)
+                        }
                     }
+                }
+                .listStyle(.plain)
+                .refreshable { loadData() }
+                .overlay {
+                    if isLoading && notifications.isEmpty { ProgressView() }
                 }
             }
             .navigationTitle("Notifications")
@@ -53,12 +71,21 @@ struct NotificationsListView: View {
                     .disabled(notifications.allSatisfy { !$0.isUnread })
                 }
             }
-            .refreshable { loadData() }
-            .overlay {
-                if isLoading && notifications.isEmpty { ProgressView() }
-            }
             .task { loadData() }
         }
+        .toolbar(.hidden, for: .tabBar)
+    }
+
+    private var filterTabs: some View {
+        Picker("Notification filter", selection: $selectedFilter) {
+            ForEach(NotificationListFilter.allCases) { filter in
+                Text(filter.title).tag(filter)
+            }
+        }
+        .pickerStyle(.segmented)
+        .padding(.horizontal, 16)
+        .padding(.vertical, 12)
+        .background(Color(.systemBackground))
     }
 
     private func notificationRow(_ notification: AppNotification) -> some View {
@@ -146,6 +173,57 @@ struct NotificationsListView: View {
         Task {
             try? await authStore.markAllNotificationsRead()
             loadData()
+        }
+    }
+}
+
+private enum NotificationListFilter: String, CaseIterable, Identifiable {
+    case all
+    case unread
+    case read
+
+    var id: String { rawValue }
+
+    var title: String {
+        switch self {
+        case .all: return "All"
+        case .unread: return "Unread"
+        case .read: return "Read"
+        }
+    }
+
+    var emptyTitle: String {
+        switch self {
+        case .all: return "No Notifications"
+        case .unread: return "No Unread Notifications"
+        case .read: return "No Read Notifications"
+        }
+    }
+
+    var emptyMessage: String {
+        switch self {
+        case .all: return "You're all caught up!"
+        case .unread: return "Everything has been read."
+        case .read: return "Read notifications will appear here."
+        }
+    }
+
+    var emptyIcon: String {
+        switch self {
+        case .all: return "bell.slash"
+        case .unread: return "checkmark.circle"
+        case .read: return "tray"
+        }
+    }
+
+    func includes(_ notification: AppNotification) -> Bool {
+        switch self {
+        case .all:
+            return true
+        case .unread:
+            return notification.isUnread
+        case .read:
+            return !notification.isUnread
         }
     }
 }

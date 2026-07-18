@@ -33,6 +33,7 @@ struct HRDashboardView: View {
     @AppStorage("attendance.onDuty.tripId") private var onDutyTripId = ""
 
     private let timer = Timer.publish(every: 1, on: .main, in: .common).autoconnect()
+    private let externalPunchRefreshTimer = Timer.publish(every: 45, on: .main, in: .common).autoconnect()
     private let attendancePanelTopOffset: CGFloat = 116
 
     init(openRoute: HRDashboardRoute? = nil, onOpenRouteHandled: @escaping () -> Void = {}) {
@@ -49,6 +50,10 @@ struct HRDashboardView: View {
             return true
         }
         return firstPunchIn(for: todayHistoryRecord) != nil && resolvedPunchOut(for: todayHistoryRecord) == nil
+    }
+
+    private var isClockedOut: Bool {
+        hasPunchedIn && !isOpen
     }
 
     private var availableShortcuts: [HRDashboardShortcut] {
@@ -119,6 +124,9 @@ struct HRDashboardView: View {
                 onOpenRouteHandled()
             }
             .onReceive(timer) { nowTick = $0 }
+            .onReceive(externalPunchRefreshTimer) { _ in
+                Task { await refreshAttendanceForExternalPunches() }
+            }
             .sheet(isPresented: $showPunchIn) {
                 PunchFlowView(mode: .punchIn) { Task { await reloadAll() } }
             }
@@ -133,7 +141,7 @@ struct HRDashboardView: View {
                 OnDutyStartSheet { request in
                     await startOnDuty(request)
                 }
-                .presentationDetents([.large])
+                .appLibraryNativeSheet([.large])
             }
             .sheet(isPresented: $showClockOutConfirm) {
                 ClockOutConfirmSheet(
@@ -145,9 +153,7 @@ struct HRDashboardView: View {
                 } onCancel: {
                     showClockOutConfirm = false
                 }
-                .presentationDetents([.height(430)])
-                .presentationBackground(Color.clear)
-                .presentationDragIndicator(.hidden)
+                .appLibraryNativeSheet([.height(430)])
             }
             .alert("You are at Home!", isPresented: $showHomeFenceWarning) {
                 Button("Got it", role: .cancel) {}
@@ -272,7 +278,7 @@ struct HRDashboardView: View {
 
     @ViewBuilder
     private var actionButtons: some View {
-        if hasPunchedIn {
+        if isOpen {
             HStack(spacing: 10) {
                 Button {
                     if isOnDuty {
@@ -302,6 +308,21 @@ struct HRDashboardView: View {
                 .tint(androidGreen)
                 .sensoryFeedback(.impact, trigger: showPunchOut)
             }
+        } else if isClockedOut {
+            Text("Clocked Out")
+                .font(.system(size: 16, weight: .semibold))
+                .foregroundStyle(.white)
+                .frame(maxWidth: .infinity)
+                .frame(height: 54)
+                .background(
+                    LinearGradient(
+                        colors: [Color(hex: 0xA4E999), Color(hex: 0x9BDB8C)],
+                        startPoint: .leading,
+                        endPoint: .trailing
+                    ),
+                    in: Capsule()
+                )
+                .accessibilityLabel("Clocked out")
         } else {
             Button {
                 Task { await openClockInRespectingHomeFence() }
@@ -471,7 +492,7 @@ struct HRDashboardView: View {
 
     private var heroSubtitle: String {
         if isOpen { return "Have a productive day ahead" }
-        if hasPunchedIn { return "Tap Clock Out again to update — final time locks at midnight" }
+        if isClockedOut { return "Attendance completed for today" }
         return "Don't miss your clock in schedule"
     }
 
@@ -783,6 +804,18 @@ struct HRDashboardView: View {
     }
 
     @MainActor
+    private func refreshAttendanceForExternalPunches() async {
+        guard authStore.currentSession?.token != nil else { return }
+        let wasOpen = isOpen
+        let wasClockedOut = isClockedOut
+        await loadToday()
+
+        if wasOpen != isOpen || wasClockedOut != isClockedOut || isOpen {
+            await loadMonthHistory(showLoader: false)
+        }
+    }
+
+    @MainActor
     private func loadToday() async {
         guard let token = authStore.currentSession?.token else { return }
         do {
@@ -794,10 +827,10 @@ struct HRDashboardView: View {
     }
 
     @MainActor
-    private func loadMonthHistory() async {
+    private func loadMonthHistory(showLoader: Bool = true) async {
         guard let token = authStore.currentSession?.token else { return }
-        isLoading = true
-        defer { isLoading = false }
+        if showLoader { isLoading = true }
+        defer { if showLoader { isLoading = false } }
 
         let calendar = Calendar.current
         let now = Date()
@@ -1205,12 +1238,6 @@ private struct OnDutyStartSheet: View {
 
     var body: some View {
         VStack(spacing: 0) {
-            Capsule()
-                .fill(Color(hex: 0xD0D5DD))
-                .frame(width: 40, height: 4)
-                .padding(.top, 16)
-                .padding(.bottom, 14)
-
             VStack(alignment: .leading, spacing: 2) {
                 Text(title)
                     .font(.system(size: 20, weight: .bold))

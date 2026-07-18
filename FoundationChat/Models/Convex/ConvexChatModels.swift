@@ -18,6 +18,46 @@ struct DirectoryUser: Decodable, Identifiable, Equatable, Hashable {
     let candidate = (name?.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty == false) ? name : email
     return candidate ?? _id
   }
+
+  init(_id: String, name: String? = nil, email: String? = nil, profilePhoto: String? = nil) {
+    self._id = _id
+    self.name = name
+    self.email = email
+    self.profilePhoto = profilePhoto
+  }
+
+  private enum CodingKeys: String, CodingKey {
+    case _id
+    case id
+    case staffId
+    case stackUserId
+    case name
+    case displayName
+    case email
+    case profilePhoto
+    case profilePhotoUrl
+    case photo
+    case photoUrl
+    case avatarUrl
+    case imageUrl
+    case profileImage
+    case profileImageUrl
+  }
+
+  init(from decoder: Decoder) throws {
+    let container = try decoder.container(keyedBy: CodingKeys.self)
+    _id = try container.decodeIfPresent(String.self, forKey: ._id)
+      ?? container.decodeIfPresent(String.self, forKey: .id)
+      ?? container.decodeIfPresent(String.self, forKey: .staffId)
+      ?? container.decodeIfPresent(String.self, forKey: .stackUserId)
+      ?? ""
+    name = try container.decodeIfPresent(String.self, forKey: .name)
+      ?? container.decodeIfPresent(String.self, forKey: .displayName)
+    email = try container.decodeIfPresent(String.self, forKey: .email)
+    profilePhoto = try container.decodeFirstPresentString(forKeys: [
+      .profilePhoto, .profilePhotoUrl, .photo, .photoUrl, .avatarUrl, .imageUrl, .profileImage, .profileImageUrl
+    ])
+  }
 }
 
 // MARK: - Conversations
@@ -44,7 +84,13 @@ struct ConvexConversationParticipant: Decodable, Equatable, Sendable {
     case name
     case displayName
     case profilePhoto
+    case profilePhotoUrl
+    case photo
+    case photoUrl
+    case avatarUrl
     case imageUrl
+    case profileImage
+    case profileImageUrl
   }
 
   init(_id: String, name: String? = nil, profilePhoto: String? = nil) {
@@ -62,8 +108,22 @@ struct ConvexConversationParticipant: Decodable, Equatable, Sendable {
       ?? ""
     name = try container.decodeIfPresent(String.self, forKey: .name)
       ?? container.decodeIfPresent(String.self, forKey: .displayName)
-    profilePhoto = try container.decodeIfPresent(String.self, forKey: .profilePhoto)
-      ?? container.decodeIfPresent(String.self, forKey: .imageUrl)
+    profilePhoto = try container.decodeFirstPresentString(forKeys: [
+      .profilePhoto, .profilePhotoUrl, .photo, .photoUrl, .avatarUrl, .imageUrl, .profileImage, .profileImageUrl
+    ])
+  }
+}
+
+private extension KeyedDecodingContainer {
+  func decodeFirstPresentString(forKeys keys: [Key]) throws -> String? {
+    for key in keys {
+      if let value = try decodeIfPresent(String.self, forKey: key),
+        !value.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
+      {
+        return value
+      }
+    }
+    return nil
   }
 }
 
@@ -481,6 +541,7 @@ struct ChannelSummary: Decodable, Identifiable, Equatable, Sendable {
   let description: String?
   let type: String?
   let createdBy: String?
+  let avatarUrl: String?
   let isArchived: Bool?
   let memberCount: Int?
   let role: String?
@@ -498,7 +559,10 @@ struct ChannelSummary: Decodable, Identifiable, Equatable, Sendable {
   var lastMessageAt: Double { lastMessageAtRaw ?? 0 }
   var createdByStackUserId: String { createdBy ?? "" }
   var myRole: String { role ?? "member" }
-  var canManage: Bool { role == "admin" || role == "owner" }
+  var canManage: Bool {
+    let normalizedRole = role?.lowercased()
+    return normalizedRole == "admin" || normalizedRole == "owner"
+  }
   var unreadCountValue: Int { unreadCount ?? 0 }
   var createdAt: Double { 0 }
   var updatedAt: Double { 0 }
@@ -511,6 +575,7 @@ struct ChannelSummary: Decodable, Identifiable, Equatable, Sendable {
     case description
     case type
     case createdBy
+    case avatarUrl
     case isArchived
     case memberCount
     case role
@@ -530,6 +595,7 @@ struct ChannelSummary: Decodable, Identifiable, Equatable, Sendable {
     description: String? = nil,
     type: String? = nil,
     createdBy: String? = nil,
+    avatarUrl: String? = nil,
     isArchived: Bool? = nil,
     memberCount: Int? = nil,
     role: String? = nil,
@@ -547,6 +613,7 @@ struct ChannelSummary: Decodable, Identifiable, Equatable, Sendable {
     self.description = description
     self.type = type
     self.createdBy = createdBy
+    self.avatarUrl = avatarUrl
     self.isArchived = isArchived
     self.memberCount = memberCount
     self.role = role
@@ -569,13 +636,14 @@ struct ChannelMember: Decodable, Identifiable, Equatable, Sendable {
   let staffName: String?
   let staffRole: String?
   let staffDesignation: String?
+  let profilePhoto: String?
 
   var id: String { _id }
   var stackUserId: String { staffId ?? _id }
   var invitedByStackUserId: String? { nil }
 
   var user: DirectoryUser {
-    DirectoryUser(_id: staffId ?? _id, name: staffName, email: nil, profilePhoto: nil)
+    DirectoryUser(_id: staffId ?? _id, name: staffName, email: nil, profilePhoto: profilePhoto)
   }
 }
 

@@ -6,7 +6,6 @@ struct TaskDetailView: View {
     let onChange: () async -> Void
 
     @Environment(AuthStore.self) private var authStore
-    @Environment(\.dismiss) private var dismiss
 
     @State private var task: ConvexTask?
     @State private var resources: [TaskResourceEntry] = []
@@ -21,8 +20,6 @@ struct TaskDetailView: View {
             Color(hex: 0xF9FAFB).ignoresSafeArea()
 
             VStack(spacing: 0) {
-                topBar
-
                 if let task {
                     ScrollView(showsIndicators: false) {
                         VStack(alignment: .leading, spacing: 24) {
@@ -61,9 +58,21 @@ struct TaskDetailView: View {
                 .padding(.bottom, 10)
             }
         }
-        .navigationBarBackButtonHidden(true)
-        .toolbar(.hidden, for: .navigationBar)
+        .navigationTitle("Task Overview")
+        .navigationBarTitleDisplayMode(.inline)
+        .toolbarBackground(Color.white, for: .navigationBar)
+        .toolbarBackground(.visible, for: .navigationBar)
         .toolbar(.hidden, for: .tabBar)
+        .toolbar {
+            ToolbarItem(placement: .topBarTrailing) {
+                Button {
+                    showTimelineSheet = true
+                } label: {
+                    Image(systemName: "clock.arrow.circlepath")
+                }
+                .accessibilityLabel("Task Timeline")
+            }
+        }
         .task {
             if task == nil { task = initial }
             await refresh()
@@ -74,57 +83,20 @@ struct TaskDetailView: View {
                     await refresh()
                     await onChange()
                 }
-                .presentationDetents([.large])
-                .presentationDragIndicator(.hidden)
+                .appLibraryNativeSheet([.height(720), .large])
+                .presentationBackground(Color.white)
             }
         }
         .sheet(isPresented: $showTimelineSheet) {
             TaskTimelineSheet(taskId: taskId)
-                .presentationDetents([.large])
-                .presentationDragIndicator(.hidden)
+                .appLibraryNativeSheet([.height(720), .large])
+                .presentationBackground(Color.white)
         }
         .alert("Error", isPresented: errorAlertBinding) {
             Button("OK", role: .cancel) { errorMessage = nil }
         } message: {
             Text(errorMessage ?? "")
         }
-    }
-
-    private var topBar: some View {
-        HStack {
-            Button {
-                dismiss()
-            } label: {
-                Image(systemName: "chevron.left")
-                    .font(.system(size: 22, weight: .semibold))
-                    .foregroundStyle(Color(hex: 0x101828))
-                    .frame(width: 36, height: 36)
-            }
-            .buttonStyle(.plain)
-            .accessibilityLabel("Back")
-
-            Spacer()
-
-            Text("Task Overview")
-                .font(.system(size: 18, weight: .bold))
-                .foregroundStyle(Color(hex: 0x101828))
-
-            Spacer()
-
-            Button {
-                showTimelineSheet = true
-            } label: {
-                Image(systemName: "clock.arrow.circlepath")
-                    .font(.system(size: 24, weight: .semibold))
-                    .foregroundStyle(Color(hex: 0x0B61CA))
-                    .frame(width: 36, height: 36)
-            }
-            .buttonStyle(.plain)
-            .accessibilityLabel("Task Timeline")
-        }
-        .padding(.horizontal, 16)
-        .frame(height: 64)
-        .background(Color.white)
     }
 
     private func overview(_ task: ConvexTask) -> some View {
@@ -435,21 +407,12 @@ private struct TaskTimelineSheet: View {
     @State private var updates: [ConvexTaskUpdate] = []
     @State private var errorMessage: String?
     @State private var isLoading = true
+    @State private var selectedImagePreview: TaskTimelineImagePreviewItem?
 
     var body: some View {
         ScrollView(showsIndicators: false) {
             VStack(alignment: .leading, spacing: 0) {
-                VStack(spacing: 8) {
-                    Text("Time Line")
-                        .font(.system(size: 24, weight: .bold))
-                        .foregroundStyle(Color(hex: 0x101828))
-                    Text("Here you can able to history of time line")
-                        .font(.system(size: 14, weight: .medium))
-                        .foregroundStyle(Color(hex: 0x667085))
-                }
-                .frame(maxWidth: .infinity)
-                .padding(.top, 24)
-                .padding(.bottom, 24)
+                timelineHeader
 
                 if isLoading {
                     ProgressView()
@@ -464,17 +427,43 @@ private struct TaskTimelineSheet: View {
                 } else {
                     LazyVStack(alignment: .leading, spacing: 0) {
                         ForEach(Array(updates.enumerated()), id: \.element.id) { index, update in
-                            TimelineEntryView(update: update, showsDate: index == 0 || updates[index - 1].date != update.date)
+                            TimelineEntryView(
+                                update: update,
+                                showsDate: index == 0 || updates[index - 1].date != update.date
+                            ) { url in
+                                selectedImagePreview = TaskTimelineImagePreviewItem(url: url)
+                            }
                         }
                     }
                 }
             }
             .padding(.horizontal, 24)
+            .padding(.top, 16)
             .padding(.bottom, 28)
         }
+        .scrollBounceBehavior(.basedOnSize)
         .background(Color.white)
         .task { await loadTimeline() }
         .refreshable { await loadTimeline() }
+        .sheet(item: $selectedImagePreview) { item in
+            TaskTimelineImagePreview(url: item.url)
+                .appLibraryNativeSheet([.height(720), .large])
+                .presentationBackground(Color.white)
+        }
+    }
+
+    private var timelineHeader: some View {
+        VStack(spacing: 8) {
+            Text("Time Line")
+                .font(.system(size: 24, weight: .bold))
+                .foregroundStyle(Color(hex: 0x101828))
+            Text("Here you can able to history of time line")
+                .font(.system(size: 14, weight: .medium))
+                .foregroundStyle(Color(hex: 0x667085))
+        }
+        .frame(maxWidth: .infinity)
+        .padding(.top, 6)
+        .padding(.bottom, 24)
     }
 
     private func loadTimeline() async {
@@ -492,6 +481,7 @@ private struct TaskTimelineSheet: View {
 private struct TimelineEntryView: View {
     let update: ConvexTaskUpdate
     let showsDate: Bool
+    let onImageTap: (URL) -> Void
 
     var body: some View {
         VStack(alignment: .leading, spacing: 12) {
@@ -542,14 +532,7 @@ private struct TimelineEntryView: View {
                         ScrollView(.horizontal, showsIndicators: false) {
                             HStack(spacing: 8) {
                                 ForEach(Array(images.enumerated()), id: \.offset) { _, image in
-                                    AsyncImage(url: image.url.flatMap(URL.init(string:))) { phase in
-                                        switch phase {
-                                        case .success(let img): img.resizable().scaledToFill()
-                                        default: Color(hex: 0xF2F4F7)
-                                        }
-                                    }
-                                    .frame(width: 64, height: 64)
-                                    .clipShape(RoundedRectangle(cornerRadius: 12, style: .continuous))
+                                    TaskTimelineImageThumbnail(image: image, onTap: onImageTap)
                                 }
                             }
                         }
@@ -596,6 +579,196 @@ private struct TimelineEntryView: View {
             return out.string(from: date)
         }
         return ""
+    }
+}
+
+private struct TaskTimelineImagePreviewItem: Identifiable {
+    let url: URL
+
+    var id: String { url.absoluteString }
+}
+
+private struct TaskTimelineImageThumbnail: View {
+    let image: TaskUpdateImage
+    let onTap: (URL) -> Void
+
+    @Environment(AuthStore.self) private var authStore
+    @State private var resolvedURL: URL?
+    @State private var isResolving = false
+
+    var body: some View {
+        Button {
+            if let resolvedURL {
+                onTap(resolvedURL)
+            }
+        } label: {
+            thumbnail
+        }
+        .buttonStyle(.plain)
+        .disabled(resolvedURL == nil)
+        .task(id: image.resolutionKey) {
+            await resolveURL()
+        }
+    }
+
+    @ViewBuilder
+    private var thumbnail: some View {
+        Group {
+            if let resolvedURL {
+                AsyncImage(url: resolvedURL) { phase in
+                    switch phase {
+                    case .success(let image):
+                        image
+                            .resizable()
+                            .scaledToFill()
+                    case .failure:
+                        placeholder(systemImage: "photo")
+                    case .empty:
+                        placeholder(systemImage: nil)
+                    @unknown default:
+                        placeholder(systemImage: "photo")
+                    }
+                }
+            } else {
+                placeholder(systemImage: isResolving ? nil : "photo")
+            }
+        }
+        .frame(width: 76, height: 76)
+        .clipShape(RoundedRectangle(cornerRadius: 14, style: .continuous))
+        .overlay {
+            RoundedRectangle(cornerRadius: 14, style: .continuous)
+                .stroke(Color(hex: 0xE5E7EB), lineWidth: 1)
+        }
+        .overlay(alignment: .bottomTrailing) {
+            if resolvedURL != nil {
+                Image(systemName: "arrow.up.left.and.arrow.down.right")
+                    .font(.system(size: 9, weight: .bold))
+                    .foregroundStyle(.white)
+                    .frame(width: 22, height: 22)
+                    .background(Color.black.opacity(0.55), in: Circle())
+                    .padding(5)
+            }
+        }
+        .contentShape(RoundedRectangle(cornerRadius: 14, style: .continuous))
+    }
+
+    @ViewBuilder
+    private func placeholder(systemImage: String?) -> some View {
+        ZStack {
+            Color(hex: 0xF2F4F7)
+            if isResolving {
+                ProgressView()
+            } else if let systemImage {
+                Image(systemName: systemImage)
+                    .font(.system(size: 19, weight: .semibold))
+                    .foregroundStyle(Color(hex: 0x98A2B3))
+            }
+        }
+    }
+
+    @MainActor
+    private func resolveURL() async {
+        guard !isResolving else { return }
+        isResolving = true
+        defer { isResolving = false }
+
+        if let raw = image.url?.taskNilIfBlank {
+            if raw.hasPrefix("http://") || raw.hasPrefix("https://"), let url = URL(string: raw) {
+                resolvedURL = url
+                return
+            }
+
+            if raw.hasPrefix("/"), let url = URL(string: AppConfig.baseURL.trimmingCharacters(in: CharacterSet(charactersIn: "/")) + raw) {
+                resolvedURL = url
+                return
+            }
+
+            if let signedURL = try? await authStore.resolveStorageURL(storageId: raw) {
+                resolvedURL = signedURL
+                return
+            }
+        }
+
+        guard let storageId = image.storageId.taskNilIfBlank else {
+            resolvedURL = nil
+            return
+        }
+
+        if let signedURL = try? await authStore.resolveStorageURL(storageId: storageId) {
+            resolvedURL = signedURL
+            return
+        }
+
+        var components = URLComponents(string: "\(AppConfig.baseURL)/api/storage/serve")
+        components?.queryItems = [URLQueryItem(name: "storageId", value: storageId)]
+        resolvedURL = components?.url
+    }
+}
+
+private struct TaskTimelineImagePreview: View {
+    let url: URL
+
+    @Environment(\.dismiss) private var dismiss
+
+    var body: some View {
+        VStack(spacing: 16) {
+            HStack {
+                Text("Photo")
+                    .font(.system(size: 20, weight: .bold))
+                    .foregroundStyle(Color(hex: 0x101828))
+
+                Spacer()
+
+                Button {
+                    dismiss()
+                } label: {
+                    Image(systemName: "xmark")
+                        .font(.system(size: 15, weight: .bold))
+                        .foregroundStyle(Color(hex: 0x101828))
+                        .frame(width: 38, height: 38)
+                        .background(Color(hex: 0xF2F4F7), in: Circle())
+                }
+                .buttonStyle(.plain)
+            }
+
+            ZStack {
+                Color(hex: 0xF8FAFC)
+                    .clipShape(RoundedRectangle(cornerRadius: 18, style: .continuous))
+
+                AsyncImage(url: url) { phase in
+                    switch phase {
+                    case .success(let image):
+                        image
+                            .resizable()
+                            .scaledToFit()
+                    case .failure:
+                        VStack(spacing: 8) {
+                            Image(systemName: "photo")
+                                .font(.system(size: 28, weight: .semibold))
+                            Text("Unable to load photo")
+                                .font(.system(size: 14, weight: .medium))
+                        }
+                        .foregroundStyle(Color(hex: 0x667085))
+                    case .empty:
+                        ProgressView()
+                    @unknown default:
+                        Color.clear
+                    }
+                }
+                .padding(12)
+            }
+            .frame(maxWidth: .infinity, maxHeight: .infinity)
+        }
+        .padding(.horizontal, 20)
+        .padding(.top, 22)
+        .padding(.bottom, 28)
+        .background(Color.white)
+    }
+}
+
+private extension TaskUpdateImage {
+    var resolutionKey: String {
+        "\(storageId)|\(url ?? "")"
     }
 }
 

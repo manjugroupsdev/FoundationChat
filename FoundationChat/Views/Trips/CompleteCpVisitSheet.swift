@@ -74,12 +74,6 @@ struct CompleteCpVisitSheet: View {
             VStack(spacing: 0) {
                 ScrollView {
                     VStack(alignment: .leading, spacing: 14) {
-                        Capsule()
-                            .fill(Color(hex: 0xE4E7EC))
-                            .frame(width: 40, height: 4)
-                            .frame(maxWidth: .infinity)
-                            .padding(.bottom, 2)
-
                         HStack(alignment: .center, spacing: 12) {
                             VStack(alignment: .leading, spacing: 2) {
                                 Text("Outcome Information")
@@ -175,8 +169,7 @@ struct CompleteCpVisitSheet: View {
                         await submitLockedRejection(reason: reason)
                     }
                 )
-                .presentationDetents([.medium, .large])
-                .presentationDragIndicator(.hidden)
+                .appLibraryNativeSheet([.medium, .large])
             }
         }
     }
@@ -2049,7 +2042,7 @@ private struct BookingDateTextField: View {
                         }
                     }
             }
-            .presentationDetents([.medium])
+            .appLibraryNativeSheet([.medium])
         }
     }
 

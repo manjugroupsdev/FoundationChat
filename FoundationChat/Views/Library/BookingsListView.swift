@@ -66,11 +66,9 @@ struct BookingsListView: View {
         .sheet(isPresented: $showCreate, onDismiss: {
             Task { await load() }
         }) {
-            NavigationStack {
-                BookingCreateView()
-            }
-            .presentationDetents([.large])
-            .presentationDragIndicator(.hidden)
+            BookingCreateView()
+            .appLibraryNativeSheet([.height(720), .large])
+            .presentationBackground(Color.white)
         }
         .sheet(item: $selectedBooking, onDismiss: {
             Task { await load() }
@@ -78,8 +76,7 @@ struct BookingsListView: View {
             BookingDetailView(bookingId: booking.id) {
                 Task { await load() }
             }
-            .presentationDetents([.medium, .large])
-            .presentationDragIndicator(.hidden)
+            .appLibraryNativeSheet([.medium, .large])
         }
         .task { if !hasLoaded { await load() } }
         .onChange(of: selectedStatus) { _, _ in
@@ -477,15 +474,10 @@ private struct BookingDetailView: View {
             } else if let booking {
                 VStack(spacing: 0) {
                     VStack(alignment: .leading, spacing: 12) {
-                        Capsule()
-                            .fill(Color(hex: 0xD0D5DD))
-                            .frame(width: 38, height: 4)
-                            .frame(maxWidth: .infinity)
-                            .padding(.top, 8)
-
                         bookingDrawerHeader(booking)
                         bookingDrawerTabs
                     }
+                    .padding(.top, 26)
                     .padding(.horizontal, 16)
                     .padding(.bottom, 14)
                     .background(Color.white)

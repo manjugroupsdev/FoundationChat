@@ -65,22 +65,21 @@ struct LandInspectionView: View {
                 useDateFilter = true
                 showingDateFilter = false
             }
-            .presentationDetents([.large])
-            .presentationDragIndicator(.hidden)
+            .appLibraryNativeSheet([.height(470)])
+            .presentationBackground(Color.white)
         }
         .sheet(item: $editingInspection) { inspection in
             LandInspectionSheet(inspection: inspection) {
                 await load()
             }
-            .presentationDetents([.large])
-            .presentationDragIndicator(.hidden)
+            .appLibraryNativeSheet([.height(720), .large])
+            .presentationBackground(Color(.systemGroupedBackground))
         }
         .sheet(item: $reschedulingInspection) { inspection in
             LandInspectionRescheduleSheet(inspection: inspection) {
                 await load()
             }
-            .presentationDetents([.medium])
-            .presentationDragIndicator(.hidden)
+            .appLibraryNativeSheet([.medium])
         }
         .alert("Land Inspection", isPresented: Binding(
             get: { (errorMessage != nil && hasLoaded && inspections.isEmpty) || actionMessage != nil },
@@ -562,54 +561,45 @@ private struct LandInspectionRow: View {
 }
 
 private struct LandInspectionDateFilterSheet: View {
+    @Environment(\.dismiss) private var dismiss
     @Binding var date: Date
     let onSelect: () -> Void
 
     var body: some View {
-        ZStack(alignment: .bottom) {
-            Color.white.ignoresSafeArea()
-
-            VStack(alignment: .leading, spacing: 0) {
-                Capsule()
-                    .fill(Color(hex: 0xD1D5DB))
-                    .frame(width: 52, height: 5)
-                    .frame(maxWidth: .infinity)
-                    .padding(.top, 10)
-                    .padding(.bottom, 18)
-
-                Text("Date Filter")
-                    .font(.system(size: 24, weight: .bold))
-                    .foregroundStyle(Color(hex: 0x101828))
+        NavigationStack {
+            VStack(spacing: 14) {
                 Text("Select Date Filter")
-                    .font(.system(size: 15, weight: .medium))
+                    .font(.system(size: 13, weight: .medium))
                     .foregroundStyle(Color(hex: 0x667085))
-                    .padding(.top, 5)
-                    .padding(.bottom, 10)
+                    .frame(maxWidth: .infinity, alignment: .leading)
+                    .padding(.horizontal, 18)
+                    .padding(.top, 10)
 
-                ScrollView(showsIndicators: false) {
-                    DatePicker("Inspection Date", selection: $date, displayedComponents: .date)
-                        .datePickerStyle(.graphical)
-                        .labelsHidden()
-                        .padding(.top, 2)
-                        .padding(.bottom, 96)
-                }
+                DatePicker("Inspection Date", selection: $date, displayedComponents: .date)
+                    .datePickerStyle(.graphical)
+                    .labelsHidden()
+                    .tint(Color(hex: 0x0B61CA))
+                    .padding(.horizontal, 12)
+
+                Spacer(minLength: 0)
             }
-            .padding(.horizontal, 22)
-
-            VStack(spacing: 0) {
-                Divider()
-                    .overlay(Color(hex: 0xEAECF0))
-
-                Button(action: onSelect) {
-                    Text("Select")
-                        .font(.system(size: 17, weight: .bold))
-                        .foregroundStyle(.white)
-                        .frame(maxWidth: .infinity, minHeight: 54)
-                        .background(Color(hex: 0x08BE00), in: Capsule())
+            .background(Color.white)
+            .navigationTitle("Date Filter")
+            .navigationBarTitleDisplayMode(.inline)
+            .toolbar {
+                ToolbarItem(placement: .cancellationAction) {
+                    Button("Cancel") {
+                        dismiss()
+                    }
                 }
-                .padding(.horizontal, 22)
-                .padding(.vertical, 14)
-                .background(Color.white)
+                ToolbarItem(placement: .confirmationAction) {
+                    Button("Select") {
+                        onSelect()
+                        dismiss()
+                    }
+                    .font(.system(size: 15, weight: .semibold))
+                    .foregroundStyle(Color(hex: 0x0B61CA))
+                }
             }
         }
     }
@@ -726,12 +716,6 @@ private struct LandInspectionSheet: View {
     var body: some View {
         ScrollView {
             VStack(alignment: .leading, spacing: 10) {
-                Capsule()
-                    .fill(Color.secondary.opacity(0.25))
-                    .frame(width: 44, height: 4)
-                    .frame(maxWidth: .infinity)
-                    .padding(.top, 7)
-
                 header
                 if isViewOnly {
                     viewOnlyBanner
@@ -783,19 +767,24 @@ private struct LandInspectionSheet: View {
                 }
             }
             .padding(.horizontal, 16)
+            .padding(.top, 8)
             .padding(.bottom, 22)
         }
         .background(Color(.systemGroupedBackground))
     }
 
     private var header: some View {
-        VStack(alignment: .leading, spacing: 4) {
+        VStack(spacing: 8) {
             Text("Site Inspection")
-                .font(.system(size: 16, weight: .bold))
-                .foregroundStyle(Color(hex: 0x111827))
+                .font(.system(size: 18, weight: .bold))
+                .foregroundStyle(Color(hex: 0x0F172A))
+                .frame(maxWidth: .infinity)
+                .padding(.top, 12)
+                .padding(.bottom, 4)
             Text("Information about Land Procurement")
-                .font(.system(size: 12, weight: .regular))
+                .font(.system(size: 13, weight: .medium))
                 .foregroundStyle(.secondary)
+                .frame(maxWidth: .infinity, alignment: .leading)
         }
     }
 
@@ -1362,16 +1351,16 @@ struct LandQueriesView: View {
                 useDateFilter = true
                 showingDateFilter = false
             }
-            .presentationDetents([.large])
-            .presentationDragIndicator(.hidden)
+            .appLibraryNativeSheet([.height(470)])
+            .presentationBackground(Color.white)
         }
         .sheet(item: $selectedQuery) { query in
             LandQueryDetailSheet(query: query) {
                 await load()
                 selectedQuery = nil
             }
-            .presentationDetents([.medium, .large])
-            .presentationDragIndicator(.hidden)
+            .appLibraryNativeSheet([.height(520), .large])
+            .presentationBackground(Color.white)
         }
     }
 
@@ -1683,14 +1672,15 @@ private struct LandQueryDetailSheet: View {
 
     var body: some View {
         VStack(spacing: 0) {
-            Capsule()
-                .fill(Color(hex: 0xD0D5DD))
-                .frame(width: 40, height: 4)
-                .padding(.top, 12)
-                .padding(.bottom, 14)
-
             ScrollView(showsIndicators: false) {
                 VStack(alignment: .leading, spacing: 14) {
+                    Text("Query Details")
+                        .font(.system(size: 18, weight: .bold))
+                        .foregroundStyle(Color(hex: 0x0F172A))
+                        .frame(maxWidth: .infinity)
+                        .padding(.top, 12)
+                        .padding(.bottom, 4)
+
                     HStack(spacing: 8) {
                         Image(systemName: "doc.text")
                             .font(.system(size: 20, weight: .semibold))
@@ -1714,6 +1704,7 @@ private struct LandQueryDetailSheet: View {
                     .padding(.top, 2)
                 }
                 .padding(.horizontal, 20)
+                .padding(.top, 8)
                 .padding(.bottom, 20)
             }
 

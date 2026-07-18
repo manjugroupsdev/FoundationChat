@@ -157,6 +157,10 @@ struct DailyTask: Decodable, Identifiable, Equatable, Sendable {
     let assignedBy: String?
     let assignedToName: String?
     let assignedByName: String?
+    let assignedByRole: String?
+    let assignedByDesignation: String?
+    let creatorRole: String?
+    let creatorDesignation: String?
     let taskCategory: String?
     let status: String?
     let module: String?
@@ -169,9 +173,37 @@ struct DailyTask: Decodable, Identifiable, Equatable, Sendable {
     enum CodingKeys: String, CodingKey {
         case _id, title, taskName, label, priority, description, deadline
         case assignedTo, assignedBy, assignedToName, assignedByName
+        case assignedByRole, assignedByDesignation, creatorRole, creatorDesignation
         case taskCategory, status, module, pendingExtensionRequest
         case sourceReferenceType, sourceReferenceId, actionUrl
         case creationTime = "_creationTime"
+    }
+
+    init(from decoder: Decoder) throws {
+        let container = try decoder.container(keyedBy: CodingKeys.self)
+        _id = try container.decode(String.self, forKey: ._id)
+        title = try container.decodeIfPresent(String.self, forKey: .title)
+        taskName = try container.decodeIfPresent(String.self, forKey: .taskName)
+        label = try container.decodeIfPresent(String.self, forKey: .label)
+        priority = try container.decodeIfPresent(String.self, forKey: .priority)
+        description = try container.decodeIfPresent(String.self, forKey: .description)
+        deadline = try container.decodeIfPresent(String.self, forKey: .deadline)
+        assignedTo = try container.decodeIfPresent(String.self, forKey: .assignedTo)
+        assignedBy = try container.decodeIfPresent(String.self, forKey: .assignedBy)
+        assignedToName = try container.decodeIfPresent(String.self, forKey: .assignedToName)
+        assignedByName = try container.decodeIfPresent(String.self, forKey: .assignedByName)
+        assignedByRole = try container.decodeIfPresent(String.self, forKey: .assignedByRole)
+        assignedByDesignation = try container.decodeIfPresent(String.self, forKey: .assignedByDesignation)
+        creatorRole = try container.decodeIfPresent(String.self, forKey: .creatorRole)
+        creatorDesignation = try container.decodeIfPresent(String.self, forKey: .creatorDesignation)
+        taskCategory = try container.decodeIfPresent(String.self, forKey: .taskCategory)
+        status = try container.decodeIfPresent(String.self, forKey: .status)
+        module = try container.decodeIfPresent(String.self, forKey: .module)
+        pendingExtensionRequest = container.decodePendingExtensionRequest(forKey: .pendingExtensionRequest)
+        sourceReferenceType = try container.decodeIfPresent(String.self, forKey: .sourceReferenceType)
+        sourceReferenceId = try container.decodeIfPresent(String.self, forKey: .sourceReferenceId)
+        actionUrl = try container.decodeIfPresent(String.self, forKey: .actionUrl)
+        creationTime = try container.decodeIfPresent(Double.self, forKey: .creationTime)
     }
 
     var id: String { _id }
@@ -189,6 +221,23 @@ struct DailyTask: Decodable, Identifiable, Equatable, Sendable {
 
     var displayAssignedTo: String {
         assignedToName?.taskNilIfBlank ?? assignedTo?.taskNilIfBlank ?? "-"
+    }
+}
+
+private extension KeyedDecodingContainer where Key == DailyTask.CodingKeys {
+    func decodePendingExtensionRequest(forKey key: Key) -> Bool? {
+        guard contains(key), (try? decodeNil(forKey: key)) != true else { return nil }
+        if let value = try? decode(Bool.self, forKey: key) { return value }
+        if let value = try? decode(Int.self, forKey: key) { return value != 0 }
+        if let value = try? decode(Double.self, forKey: key) { return value != 0 }
+        if let value = try? decode(String.self, forKey: key) {
+            let normalized = value.trimmingCharacters(in: .whitespacesAndNewlines).lowercased()
+            return !["", "false", "0", "no", "null", "none"].contains(normalized)
+        }
+
+        // Newer Android/web payloads send the full extension request object.
+        // Any non-null object means an extension request is pending.
+        return true
     }
 }
 

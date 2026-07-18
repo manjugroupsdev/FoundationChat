@@ -2562,12 +2562,7 @@ extension ConversationDetailView {
     try? modelContext.save()
 
     do {
-      let uploadURL = try await authStore.generateAttachmentUploadURL()
-      let storageId = try await authStore.uploadAttachmentData(
-        data,
-        uploadURL: uploadURL,
-        mimeType: mimeType
-      )
+      let storageId = try await authStore.uploadChatAttachmentData(data, mimeType: mimeType)
       let savedMessage = try await authStore.sendMessage(
         conversationID: remoteConversationID,
         role: .user,
@@ -2631,10 +2626,8 @@ extension ConversationDetailView {
           let fileName = message.attachementFileName,
           let mimeType = message.attachementMimeType ?? message.attachementType
         {
-          let uploadURL = try await authStore.generateAttachmentUploadURL()
-          let storageId = try await authStore.uploadAttachmentData(
+          let storageId = try await authStore.uploadChatAttachmentData(
             attachmentData,
-            uploadURL: uploadURL,
             mimeType: mimeType
           )
           let savedMessage = try await authStore.sendMessage(
@@ -2951,10 +2944,8 @@ extension ConversationDetailView {
         let attachmentType = message.attachementType,
         let mimeType = message.attachementMimeType ?? message.attachementType
       {
-        let uploadURL = try await authStore.generateAttachmentUploadURL()
-        let storageId = try await authStore.uploadAttachmentData(
+        let storageId = try await authStore.uploadChatAttachmentData(
           attachmentData,
-          uploadURL: uploadURL,
           mimeType: mimeType
         )
         let savedMessage = try await authStore.sendMessage(
