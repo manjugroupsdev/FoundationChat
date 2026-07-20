@@ -60,7 +60,7 @@ struct MainTabView: View {
                 }
                 .tag(AppTab.home)
 
-            HRDashboardView(openRoute: openHRRouteFromPush) {
+            HRDashboardView(isActive: selectedTab == .hr, openRoute: openHRRouteFromPush) {
                 openHRRouteFromPush = nil
             }
                 .tabItem {

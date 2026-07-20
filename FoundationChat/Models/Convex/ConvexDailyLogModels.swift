@@ -27,6 +27,7 @@ struct DailyLogAttachment: Codable, Identifiable, Hashable, Sendable {
 struct DailyLogEntry: Decodable, Identifiable, Hashable, Sendable {
     let id: String
     let date: String?
+    let creationTime: Double?
     let weather: String?
     let siteConditions: String?
     let workSummary: String?
@@ -39,13 +40,15 @@ struct DailyLogEntry: Decodable, Identifiable, Hashable, Sendable {
     let supervisorName: String?
     let createdBy: String?
     let projectId: String?
-    let projectName: String?
+    var projectName: String?
     let attachments: [DailyLogAttachment]?
 
     private enum CodingKeys: String, CodingKey {
         case _id
         case plainId = "id"
-        case date, weather, siteConditions, workSummary, labourCount, labourHours
+        case date
+        case creationTime = "_creationTime"
+        case weather, siteConditions, workSummary, labourCount, labourHours
         case issuesEncountered, safetyObservations, materialsUsed, equipmentUsed
         case supervisorName, createdBy, projectId, projectName, attachments
     }
@@ -56,6 +59,7 @@ struct DailyLogEntry: Decodable, Identifiable, Hashable, Sendable {
             ?? container.decodeIfPresent(String.self, forKey: .plainId)
             ?? UUID().uuidString
         date = try container.decodeIfPresent(String.self, forKey: .date)
+        creationTime = try container.decodeIfPresent(Double.self, forKey: .creationTime)
         weather = try container.decodeIfPresent(String.self, forKey: .weather)
         siteConditions = try container.decodeIfPresent(String.self, forKey: .siteConditions)
         workSummary = try container.decodeIfPresent(String.self, forKey: .workSummary)
@@ -118,7 +122,7 @@ struct DprRecipient: Decodable, Identifiable, Hashable, Sendable {
     let isActive: Bool
     let staffId: String?
     let projectId: String?
-    let projectName: String?
+    var projectName: String?
 
     private enum CodingKeys: String, CodingKey {
         case _id
@@ -150,7 +154,7 @@ struct DprReport: Decodable, Identifiable, Hashable, Sendable {
     let taskUpdateCount: Int?
     let pdfUrl: String?
     let projectId: String?
-    let projectName: String?
+    var projectName: String?
 
     private enum CodingKeys: String, CodingKey {
         case _id

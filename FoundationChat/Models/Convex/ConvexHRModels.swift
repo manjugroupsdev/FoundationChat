@@ -5,7 +5,11 @@ import Foundation
 struct ConvexLeave: Decodable, Identifiable, Equatable, Sendable {
     let _id: String
     let leaveId: String?
+    let staffId: String?
     let staffName: String?
+    let reportingToId: String?
+    let pendingWithStaffId: String?
+    let currentApproverId: String?
     let leaveType: String?
     let fromDate: String?
     let toDate: String?
@@ -71,7 +75,11 @@ struct ConvexCompOffCredit: Decodable, Identifiable, Equatable, Sendable {
 struct ConvexPermission: Decodable, Identifiable, Equatable, Sendable {
     let _id: String
     let permissionId: String?
+    let staffId: String?
     let staffName: String?
+    let reportingToId: String?
+    let pendingWithStaffId: String?
+    let currentApproverId: String?
     let date: String?
     let fromTime: String?
     let toTime: String?
@@ -162,6 +170,7 @@ struct ConvexFineDeduction: Decodable, Identifiable, Equatable, Sendable {
 struct ConvexAttendanceSession: Decodable, Equatable, Sendable {
     let punchInTime: String?
     let punchOutTime: String?
+    let punchOutSource: String?
     let punchInLatitude: Double?
     let punchInLongitude: Double?
     let punchInPhoto: String?
@@ -205,6 +214,7 @@ struct ConvexAttendanceRecord: Decodable, Identifiable, Equatable, Sendable {
     let requestedPunchIn: String?
     let requestedPunchOut: String?
     let requestReason: String?
+    let requestStage: String?
     let source: String?
     let status: String?
     let approvedAttendance: String?
@@ -298,6 +308,7 @@ struct ConvexAttendanceRecord: Decodable, Identifiable, Equatable, Sendable {
             requestedPunchIn: nil,
             requestedPunchOut: nil,
             requestReason: nil,
+            requestStage: nil,
             source: nil,
             status: nil,
             approvedAttendance: nil,
@@ -340,6 +351,7 @@ struct ConvexTodayAttendance: Decodable, Equatable, Sendable {
     let totalMinutes: Int?
     let cumulativeMinutes: Int?
     let sessionCount: Int?
+    let sessions: [ConvexAttendanceSession]?
     let source: String?
     let status: String?
     let remarks: String?
@@ -377,6 +389,7 @@ struct ConvexDaySession: Decodable, Identifiable, Equatable, Sendable {
     let punchOutAddress: String?
     let punchOutPhoto: String?
     let source: String?
+    let punchOutSource: String?
 
     var id: String { _id ?? UUID().uuidString }
 }

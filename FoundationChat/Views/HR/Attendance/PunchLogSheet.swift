@@ -311,6 +311,7 @@ private extension String {
             requestedPunchIn: nil,
             requestedPunchOut: nil,
             requestReason: nil,
+            requestStage: nil,
             source: "mobile",
             status: "present",
             approvedAttendance: nil,

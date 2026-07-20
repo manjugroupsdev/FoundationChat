@@ -122,9 +122,10 @@ struct PermissionApprovalsView: View {
             errorMessage = nil
             defer { isLoading = false }
             do {
-                pendingPermissions = try await HRConvexAPIService.listPermissions(
+                pendingPermissions = try await HRConvexAPIService.getPendingPermissionApprovals(
                     token: token,
-                    status: "pending"
+                    scope: "direct",
+                    viewerStaffId: authStore.currentSession?.user._id
                 )
             } catch {
                 errorMessage = error.localizedDescription

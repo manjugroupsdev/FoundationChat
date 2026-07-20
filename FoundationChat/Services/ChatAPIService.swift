@@ -4,12 +4,12 @@ import Foundation
 enum ChatAPIService {
   private static let baseURL = AppConfig.chatBaseURL
 
-  private struct EmptySuccessResponse: Decodable {
+  private struct EmptySuccessResponse: Decodable, Sendable {
     let success: Bool?
     let error: String?
   }
 
-  private struct BooleanFlagResponse: Decodable {
+  private struct BooleanFlagResponse: Decodable, Sendable {
     let success: Bool?
     let saved: Bool?
     let added: Bool?
@@ -19,7 +19,7 @@ enum ChatAPIService {
     let error: String?
   }
 
-  private struct StorageUploadResponse: Decodable {
+  private struct StorageUploadResponse: Decodable, Sendable {
     let success: Bool
     let storageId: String?
     let error: String?
@@ -92,7 +92,7 @@ enum ChatAPIService {
     }
   }
 
-  private struct StaffListResponse: Decodable {
+  private struct StaffListResponse: Decodable, Sendable {
     let success: Bool?
     let staff: [StaffMember]?
     let total: Int?
@@ -101,7 +101,7 @@ enum ChatAPIService {
   /// Fetch active staff directory (requires auth).
   static func listActiveStaff(token: String) async throws -> [StaffMember] {
     let data = try await get(path: "/api/hr/staff/active", token: token)
-    let wrapper = try decode(StaffListResponse.self, from: data)
+    let wrapper = try await decode(StaffListResponse.self, from: data)
     return wrapper.staff ?? []
   }
 
@@ -109,13 +109,13 @@ enum ChatAPIService {
 
   static func listMyChannels(token: String) async throws -> [ChannelSummary] {
     let data = try await get(path: "/api/chat/channels", token: token)
-    let wrapper = try decode(ChannelsListResponse.self, from: data)
+    let wrapper = try await decode(ChannelsListResponse.self, from: data)
     return wrapper.channels ?? []
   }
 
   static func listPublicChannels(token: String) async throws -> [ChannelSummary] {
     let data = try await get(path: "/api/chat/channels/public", token: token)
-    let wrapper = try decode(ChannelsListResponse.self, from: data)
+    let wrapper = try await decode(ChannelsListResponse.self, from: data)
     return wrapper.channels ?? []
   }
 
@@ -127,20 +127,20 @@ enum ChatAPIService {
       ]),
       token: token
     )
-    let wrapper = try decode(ChannelsListResponse.self, from: data)
+    let wrapper = try await decode(ChannelsListResponse.self, from: data)
     return wrapper.channels ?? []
   }
 
   static func getChannel(token: String, channelId: String) async throws -> ChannelSummary {
     let data = try await get(path: path("/api/chat/channels/get", [URLQueryItem(name: "channelId", value: channelId)]), token: token)
-    let wrapper = try decode(ChannelDetailResponse.self, from: data)
+    let wrapper = try await decode(ChannelDetailResponse.self, from: data)
     guard let channel = wrapper.channel else { throw ChatAPIError.notFound("Channel not found") }
     return channel
   }
 
   static func getChannelMembers(token: String, channelId: String) async throws -> [ChannelMember] {
     let data = try await get(path: path("/api/chat/channels/members", [URLQueryItem(name: "channelId", value: channelId)]), token: token)
-    let wrapper = try decode(ChannelMembersResponse.self, from: data)
+    let wrapper = try await decode(ChannelMembersResponse.self, from: data)
     return wrapper.members ?? []
   }
 
@@ -153,7 +153,7 @@ enum ChatAPIService {
     if let projectId { body["projectId"] = projectId }
     if let memberIds { body["memberIds"] = memberIds }
     let data = try await post(path: "/api/chat/channels/create", token: token, jsonBody: body)
-    let wrapper = try decode(CreateChannelResponse.self, from: data)
+    let wrapper = try await decode(CreateChannelResponse.self, from: data)
     guard let id = wrapper.channelId else { throw ChatAPIError.unexpected("Missing channelId") }
     return id
   }
@@ -228,13 +228,13 @@ enum ChatAPIService {
 
   static func listConversations(token: String) async throws -> [ConvexConversationSummary] {
     let data = try await get(path: "/api/chat/conversations", token: token)
-    let wrapper = try decode(ConversationsListResponse.self, from: data)
+    let wrapper = try await decode(ConversationsListResponse.self, from: data)
     return wrapper.conversations ?? []
   }
 
   static func getConversation(token: String, conversationId: String) async throws -> ConvexConversationSummary {
     let data = try await get(path: path("/api/chat/conversations/get", [URLQueryItem(name: "conversationId", value: conversationId)]), token: token)
-    let wrapper = try decode(ConversationDetailResponse.self, from: data)
+    let wrapper = try await decode(ConversationDetailResponse.self, from: data)
     guard let conv = wrapper.conversation else { throw ChatAPIError.notFound("Conversation not found") }
     return conv
   }
@@ -242,7 +242,7 @@ enum ChatAPIService {
   static func startOrFindDM(token: String, otherStaffId: String) async throws -> String {
     let body: [String: Any] = ["otherStaffId": otherStaffId]
     let data = try await post(path: "/api/chat/conversations/dm", token: token, jsonBody: body)
-    let wrapper = try decode(StartDMResponse.self, from: data)
+    let wrapper = try await decode(StartDMResponse.self, from: data)
     guard let id = wrapper.conversationId else { throw ChatAPIError.unexpected("Missing conversationId") }
     return id
   }
@@ -251,7 +251,7 @@ enum ChatAPIService {
     var body: [String: Any] = ["memberIds": memberIds]
     if let name { body["name"] = name }
     let data = try await post(path: "/api/chat/conversations/group-dm", token: token, jsonBody: body)
-    let wrapper = try decode(StartDMResponse.self, from: data)
+    let wrapper = try await decode(StartDMResponse.self, from: data)
     guard let id = wrapper.conversationId else { throw ChatAPIError.unexpected("Missing conversationId") }
     return id
   }
@@ -291,7 +291,7 @@ enum ChatAPIService {
     ]
     if let cursor { items.append(URLQueryItem(name: "cursor", value: cursor)) }
     let data = try await get(path: path("/api/chat/messages/channel", items), token: token)
-    return try decode(PaginatedMessages.self, from: data)
+    return try await decode(PaginatedMessages.self, from: data)
   }
 
   static func listConversationMessages(token: String, conversationId: String, numItems: Int = 25, cursor: String? = nil) async throws -> PaginatedMessages {
@@ -301,25 +301,25 @@ enum ChatAPIService {
     ]
     if let cursor { items.append(URLQueryItem(name: "cursor", value: cursor)) }
     let data = try await get(path: path("/api/chat/messages/conversation", items), token: token)
-    return try decode(PaginatedMessages.self, from: data)
+    return try await decode(PaginatedMessages.self, from: data)
   }
 
   static func listReplies(token: String, parentMessageId: String) async throws -> [ConvexChatMessage] {
     let data = try await get(path: path("/api/chat/messages/replies", [URLQueryItem(name: "parentMessageId", value: parentMessageId)]), token: token)
-    let wrapper = try decode(RepliesResponse.self, from: data)
+    let wrapper = try await decode(RepliesResponse.self, from: data)
     return wrapper.replies ?? []
   }
 
   static func getMessage(token: String, messageId: String) async throws -> ConvexChatMessage {
     let data = try await get(path: path("/api/chat/messages/get", [URLQueryItem(name: "messageId", value: messageId)]), token: token)
-    let wrapper = try decode(MessageDetailResponse.self, from: data)
+    let wrapper = try await decode(MessageDetailResponse.self, from: data)
     guard let msg = wrapper.message else { throw ChatAPIError.notFound("Message not found") }
     return msg
   }
 
   static func getUnreadSummary(token: String) async throws -> UnreadSummary {
     let data = try await get(path: "/api/chat/messages/unread-summary", token: token)
-    let wrapper = try decode(UnreadSummaryResponse.self, from: data)
+    let wrapper = try await decode(UnreadSummaryResponse.self, from: data)
     return wrapper.summary
       ?? UnreadSummary(
         channels: wrapper.channels ?? wrapper.unreadChannels ?? 0,
@@ -350,7 +350,7 @@ enum ChatAPIService {
     if let channelMentionType { json["channelMentionType"] = channelMentionType }
     if let attachments, !attachments.isEmpty { json["attachments"] = attachments }
     let data = try await post(path: "/api/chat/messages/send", token: token, jsonBody: json)
-    let wrapper = try decode(SendMessageResponse.self, from: data)
+    let wrapper = try await decode(SendMessageResponse.self, from: data)
     guard let id = wrapper.messageId else { throw ChatAPIError.unexpected("Missing messageId") }
     return id
   }
@@ -381,7 +381,7 @@ enum ChatAPIService {
     let (responseData, response) = try await session.upload(for: request, from: fileData)
     try checkHTTPError(data: responseData, response: response)
 
-    let wrapper = try decode(StorageUploadResponse.self, from: responseData)
+    let wrapper = try await decode(StorageUploadResponse.self, from: responseData)
     guard wrapper.success, let storageId = wrapper.storageId, !storageId.isEmpty else {
       throw ChatAPIError.unexpected(
         wrapper.error ?? "The attachment upload did not return a storage ID"
@@ -430,7 +430,7 @@ enum ChatAPIService {
     components.queryItems = items
     let path = (components.path) + "?" + (components.percentEncodedQuery ?? "")
     let data = try await get(path: path, token: token)
-    let wrapper = try decode(SearchMessagesResponse.self, from: data)
+    let wrapper = try await decode(SearchMessagesResponse.self, from: data)
     return wrapper.messages ?? wrapper.results ?? []
   }
 
@@ -450,7 +450,7 @@ enum ChatAPIService {
     components.queryItems = items
     let path = (components.path) + "?" + (components.percentEncodedQuery ?? "")
     let data = try await get(path: path, token: token)
-    let wrapper = try decode(AttachmentsResponse.self, from: data)
+    let wrapper = try await decode(AttachmentsResponse.self, from: data)
     return wrapper.messages ?? wrapper.attachments ?? []
   }
 
@@ -468,7 +468,7 @@ enum ChatAPIService {
     if let channelId { items.append(URLQueryItem(name: "channelId", value: channelId)) }
     if let conversationId { items.append(URLQueryItem(name: "conversationId", value: conversationId)) }
     let data = try await get(path: path("/api/chat/typing", items), token: token)
-    let wrapper = try decode(TypingResponse.self, from: data)
+    let wrapper = try await decode(TypingResponse.self, from: data)
     return wrapper.typing ?? []
   }
 
@@ -476,28 +476,28 @@ enum ChatAPIService {
 
   static func getReactions(token: String, messageId: String, messageSource: String) async throws -> [MessageReactionInfo] {
     let data = try await get(path: path("/api/chat/reactions", [URLQueryItem(name: "messageId", value: messageId)]), token: token)
-    let wrapper = try decode(ReactionsResponse.self, from: data)
+    let wrapper = try await decode(ReactionsResponse.self, from: data)
     return wrapper.reactions ?? []
   }
 
   static func addReaction(token: String, messageId: String, messageSource: String, emoji: String) async throws -> MessageReactionResult {
     let body: [String: Any] = ["messageId": messageId, "messageSource": messageSource, "emoji": emoji]
     let data = try await post(path: "/api/chat/reactions/add", token: token, jsonBody: body)
-    let wrapper = try decode(ReactionMutationResponse.self, from: data)
+    let wrapper = try await decode(ReactionMutationResponse.self, from: data)
     return MessageReactionResult(added: wrapper.added ?? wrapper.success ?? true, removed: false)
   }
 
   static func removeReaction(token: String, messageId: String, messageSource: String, emoji: String) async throws -> MessageReactionResult {
     let body: [String: Any] = ["messageId": messageId, "messageSource": messageSource, "emoji": emoji]
     let data = try await post(path: "/api/chat/reactions/remove", token: token, jsonBody: body)
-    let wrapper = try decode(ReactionMutationResponse.self, from: data)
+    let wrapper = try await decode(ReactionMutationResponse.self, from: data)
     return MessageReactionResult(added: false, removed: wrapper.removed ?? wrapper.success ?? true)
   }
 
   static func toggleReaction(token: String, messageId: String, messageSource: String, emoji: String) async throws -> MessageReactionResult {
     let body: [String: Any] = ["messageId": messageId, "messageSource": messageSource, "emoji": emoji]
     let data = try await post(path: "/api/chat/reactions/toggle", token: token, jsonBody: body)
-    let wrapper = try decode(ReactionMutationResponse.self, from: data)
+    let wrapper = try await decode(ReactionMutationResponse.self, from: data)
     return MessageReactionResult(
       added: wrapper.added ?? (wrapper.state == "added" ? true : nil),
       removed: wrapper.removed ?? (wrapper.state == "removed" ? true : nil)
@@ -507,7 +507,7 @@ enum ChatAPIService {
   static func getBulkReactions(token: String, messageIds: [String]) async throws -> [String: [MessageReactionInfo]] {
     let body: [String: Any] = ["messageIds": messageIds]
     let data = try await post(path: "/api/chat/reactions/bulk", token: token, jsonBody: body)
-    let wrapper = try decode(BulkReactionsResponse.self, from: data)
+    let wrapper = try await decode(BulkReactionsResponse.self, from: data)
     return wrapper.reactions ?? [:]
   }
 
@@ -523,13 +523,13 @@ enum ChatAPIService {
     }
     let path = components.path + (components.percentEncodedQuery.map { "?\($0)" } ?? "")
     let data = try await get(path: path, token: token)
-    let wrapper = try decode(PresenceResponse.self, from: data)
+    let wrapper = try await decode(PresenceResponse.self, from: data)
     return wrapper.presence ?? wrapper.users ?? []
   }
 
   static func getOnlinePresence(token: String) async throws -> [UserPresenceInfo] {
     let data = try await get(path: path("/api/chat/presence/online", [URLQueryItem(name: "limit", value: "100")]), token: token)
-    let wrapper = try decode(PresenceResponse.self, from: data)
+    let wrapper = try await decode(PresenceResponse.self, from: data)
     return wrapper.presence ?? wrapper.users ?? []
   }
 
@@ -542,7 +542,7 @@ enum ChatAPIService {
     var body: [String: Any] = [:]
     if let status { body["status"] = status.rawValue }
     let data = try await post(path: "/api/chat/presence/heartbeat", token: token, jsonBody: body)
-    return try decode(PresenceHeartbeatResponse.self, from: data)
+    return try await decode(PresenceHeartbeatResponse.self, from: data)
   }
 
   // MARK: - Push Notifications
@@ -550,7 +550,7 @@ enum ChatAPIService {
   static func registerPushToken(token: String, deviceToken: String, platform: String = "ios", bundleId: String = "com.manju.chat") async throws -> String {
     let body: [String: Any] = ["token": deviceToken, "platform": platform, "bundleId": bundleId]
     let data = try await post(path: "/api/push/register", token: token, jsonBody: body)
-    let wrapper = try decode(RegisterPushResponse.self, from: data)
+    let wrapper = try await decode(RegisterPushResponse.self, from: data)
     guard wrapper.success else { throw ChatAPIError.unexpected(wrapper.error ?? "Push registration failed") }
     return wrapper.deviceTokenId ?? ""
   }
@@ -567,7 +567,7 @@ enum ChatAPIService {
     if let conversationId { items.append(URLQueryItem(name: "conversationId", value: conversationId)) }
     if let channelId { items.append(URLQueryItem(name: "channelId", value: channelId)) }
     let data = try await get(path: path("/api/chat/messages/poll", items), token: token)
-    let wrapper = try decode(PollMessagesResponse.self, from: data)
+    let wrapper = try await decode(PollMessagesResponse.self, from: data)
     return wrapper.messages ?? []
   }
 
@@ -575,13 +575,13 @@ enum ChatAPIService {
 
   static func getNotifications(token: String) async throws -> [AppNotification] {
     let data = try await get(path: "/api/notifications", token: token)
-    let wrapper = try decode(NotificationsListResponse.self, from: data)
+    let wrapper = try await decode(NotificationsListResponse.self, from: data)
     return wrapper.notifications ?? []
   }
 
   static func getUnreadNotificationCount(token: String) async throws -> Int {
     let data = try await get(path: "/api/notifications/unread-count", token: token)
-    let wrapper = try decode(UnreadCountResponse.self, from: data)
+    let wrapper = try await decode(UnreadCountResponse.self, from: data)
     return wrapper.unreadCount ?? 0
   }
 
@@ -596,37 +596,37 @@ enum ChatAPIService {
 
   // MARK: - Internal response wrappers
 
-  private struct ChannelsListResponse: Decodable {
+  private struct ChannelsListResponse: Decodable, Sendable {
     let success: Bool; let channels: [ChannelSummary]?; let error: String?
   }
-  private struct ChannelDetailResponse: Decodable {
+  private struct ChannelDetailResponse: Decodable, Sendable {
     let success: Bool; let channel: ChannelSummary?; let error: String?
   }
-  private struct ChannelMembersResponse: Decodable {
+  private struct ChannelMembersResponse: Decodable, Sendable {
     let success: Bool; let members: [ChannelMember]?; let error: String?
   }
-  private struct CreateChannelResponse: Decodable {
+  private struct CreateChannelResponse: Decodable, Sendable {
     let success: Bool; let channelId: String?; let error: String?
   }
-  private struct ConversationsListResponse: Decodable {
+  private struct ConversationsListResponse: Decodable, Sendable {
     let success: Bool; let conversations: [ConvexConversationSummary]?; let error: String?
   }
-  private struct ConversationDetailResponse: Decodable {
+  private struct ConversationDetailResponse: Decodable, Sendable {
     let success: Bool; let conversation: ConvexConversationSummary?; let error: String?
   }
-  private struct StartDMResponse: Decodable {
+  private struct StartDMResponse: Decodable, Sendable {
     let success: Bool; let conversationId: String?; let error: String?
   }
-  private struct RepliesResponse: Decodable {
+  private struct RepliesResponse: Decodable, Sendable {
     let success: Bool; let replies: [ConvexChatMessage]?; let error: String?
   }
-  private struct MessageDetailResponse: Decodable {
+  private struct MessageDetailResponse: Decodable, Sendable {
     let success: Bool; let message: ConvexChatMessage?; let error: String?
   }
-  private struct SendMessageResponse: Decodable {
+  private struct SendMessageResponse: Decodable, Sendable {
     let success: Bool; let messageId: String?; let error: String?
   }
-  private struct UnreadSummaryResponse: Decodable {
+  private struct UnreadSummaryResponse: Decodable, Sendable {
     let success: Bool?
     let summary: UnreadSummary?
     let channels: Int?
@@ -638,27 +638,27 @@ enum ChatAPIService {
     let unreadConversations: Int?
     let error: String?
   }
-  private struct TypingResponse: Decodable {
+  private struct TypingResponse: Decodable, Sendable {
     let success: Bool; let typing: [TypingUser]?; let error: String?
   }
-  private struct ReactionsResponse: Decodable {
+  private struct ReactionsResponse: Decodable, Sendable {
     let success: Bool?
     let reactions: [MessageReactionInfo]?
     let error: String?
   }
-  private struct ReactionMutationResponse: Decodable {
+  private struct ReactionMutationResponse: Decodable, Sendable {
     let success: Bool?
     let added: Bool?
     let removed: Bool?
     let state: String?
     let error: String?
   }
-  private struct BulkReactionsResponse: Decodable {
+  private struct BulkReactionsResponse: Decodable, Sendable {
     let success: Bool?
     let reactions: [String: [MessageReactionInfo]]?
     let error: String?
   }
-  private struct PresenceResponse: Decodable {
+  private struct PresenceResponse: Decodable, Sendable {
     let success: Bool?
     let presence: [UserPresenceInfo]?
     let users: [UserPresenceInfo]?
@@ -670,23 +670,23 @@ enum ChatAPIService {
     let cleared: Bool?
     let error: String?
   }
-  private struct SearchMessagesResponse: Decodable {
+  private struct SearchMessagesResponse: Decodable, Sendable {
     let success: Bool?; let messages: [ConvexChatMessage]?; let results: [ConvexChatMessage]?; let total: Int?; let error: String?
   }
-  private struct AttachmentsResponse: Decodable {
+  private struct AttachmentsResponse: Decodable, Sendable {
     let success: Bool?; let messages: [ConvexChatMessage]?; let attachments: [ConvexChatMessage]?; let total: Int?; let error: String?
   }
 
-  private struct RegisterPushResponse: Decodable {
+  private struct RegisterPushResponse: Decodable, Sendable {
     let success: Bool; let deviceTokenId: String?; let error: String?
   }
-  private struct PollMessagesResponse: Decodable {
+  private struct PollMessagesResponse: Decodable, Sendable {
     let success: Bool; let count: Int?; let messages: [ConvexChatMessage]?; let error: String?
   }
-  private struct NotificationsListResponse: Decodable {
+  private struct NotificationsListResponse: Decodable, Sendable {
     let success: Bool; let total: Int?; let notifications: [AppNotification]?; let error: String?
   }
-  private struct UnreadCountResponse: Decodable {
+  private struct UnreadCountResponse: Decodable, Sendable {
     let success: Bool; let unreadCount: Int?; let error: String?
   }
 
@@ -741,8 +741,8 @@ enum ChatAPIService {
     return data
   }
 
-  private static func decode<T: Decodable>(_ type: T.Type, from data: Data) throws -> T {
-    try JSONDecoder().decode(T.self, from: data)
+  private static func decode<T: Decodable>(_ type: T.Type, from data: Data) async throws -> T {
+    try await BackgroundJSONDecoder.decode(type, from: data)
   }
 
   private static func checkHTTPError(data: Data, response: URLResponse) throws {

@@ -5,6 +5,7 @@ struct ConvexPermissionListView: View {
 
     @State private var permissions: [ConvexPermission] = []
     @State private var pendingPermissions: [ConvexPermission] = []
+    @State private var allPermissions: [ConvexPermission] = []
     @State private var usage: ConvexPermissionUsage?
     @State private var isLoading = false
     @State private var errorMessage: String?
@@ -15,20 +16,31 @@ struct ConvexPermissionListView: View {
     @State private var cancelingPermission: ConvexPermission?
     @State private var rejectReason = ""
     @State private var actionInFlightId: String?
+    @State private var isReportingManager = false
 
-    private var canReviewPermissions: Bool {
-        authStore.hasPermission("permissions.approve") || authStore.hasPermission("permissions.viewAll")
+    private var canManageTeamPermissions: Bool {
+        isReportingManager || authStore.hasPermission("permissions.approve")
+    }
+
+    private var canViewAllPermissions: Bool {
+        authStore.hasPermission("permissions.viewAll")
+    }
+
+    private var availableScopes: [PermissionScope] {
+        var scopes: [PermissionScope] = [.my]
+        if canManageTeamPermissions { scopes.append(.team) }
+        if canViewAllPermissions { scopes.append(.all) }
+        return scopes
     }
 
     private var scopedPermissions: [ConvexPermission] {
-        let combined = (permissions + pendingPermissions).uniquedById()
         switch activeScope {
         case .my:
             return permissions
         case .team:
             return pendingPermissions
         case .all:
-            return combined
+            return allPermissions
         }
     }
 
@@ -37,7 +49,14 @@ struct ConvexPermissionListView: View {
     }
 
     private var shouldShowApprovalActions: Bool {
-        canReviewPermissions && activeScope != .my
+        switch activeScope {
+        case .my:
+            return false
+        case .team:
+            return canManageTeamPermissions
+        case .all:
+            return canViewAllPermissions
+        }
     }
 
     var body: some View {
@@ -142,7 +161,10 @@ struct ConvexPermissionListView: View {
         }
         .navigationBarBackButtonHidden(true)
         .toolbar(.hidden, for: .navigationBar)
-        .task { loadData() }
+        .task {
+            await resolveReportingScope()
+            loadData()
+        }
     }
 
     private var permissionHeader: some View {
@@ -193,9 +215,9 @@ struct ConvexPermissionListView: View {
 
                 Spacer(minLength: 12)
 
-                if canReviewPermissions {
+                if availableScopes.count > 1 {
                     Menu {
-                        ForEach(PermissionScope.allCases) { scope in
+                        ForEach(availableScopes) { scope in
                             Button {
                                 withAnimation(.snappy(duration: 0.2)) {
                                     activeScope = scope
@@ -212,17 +234,6 @@ struct ConvexPermissionListView: View {
                     } label: {
                         scopeChip
                     }
-                } else {
-                    Text(PermissionScope.my.title)
-                        .font(.system(size: 15, weight: .medium))
-                        .foregroundStyle(Color(hex: 0x061D3D))
-                        .frame(width: 156, height: 48)
-                        .background(Color.white, in: RoundedRectangle(cornerRadius: 12, style: .continuous))
-                        .overlay {
-                            RoundedRectangle(cornerRadius: 12, style: .continuous)
-                                .stroke(Color(hex: 0xE5E7EB), lineWidth: 2)
-                        }
-                        .shadow(color: Color.black.opacity(0.02), radius: 4, y: 1)
                 }
             }
 
@@ -389,7 +400,7 @@ struct ConvexPermissionListView: View {
 
     private var permissionsSection: some View {
         LazyVStack(spacing: 8) {
-            if isLoading && permissions.isEmpty && pendingPermissions.isEmpty {
+            if isLoading && permissions.isEmpty && pendingPermissions.isEmpty && allPermissions.isEmpty {
                 permissionSkeleton
                 permissionSkeleton
             } else if filteredPermissions.isEmpty {
@@ -623,14 +634,30 @@ struct ConvexPermissionListView: View {
                 let month = Calendar.current.component(.month, from: now)
                 async let permsReq = HRConvexAPIService.listPermissions(token: token)
                 async let usageReq = HRConvexAPIService.getMonthlyPermissionUsage(token: token, year: year, month: month)
-                async let pendingReq: [ConvexPermission] = canReviewPermissions ? HRConvexAPIService.listPermissions(token: token, status: "pending") : []
+                async let pendingReq: [ConvexPermission] = canManageTeamPermissions
+                    ? HRConvexAPIService.getPendingPermissionApprovals(
+                        token: token,
+                        scope: "direct",
+                        viewerStaffId: authStore.currentSession?.user._id
+                    )
+                    : []
+                async let allReq: [ConvexPermission] = canViewAllPermissions
+                    ? HRConvexAPIService.getPendingPermissionApprovals(token: token, all: true)
+                    : []
                 permissions = try await permsReq
                 usage = try? await usageReq
                 pendingPermissions = (try? await pendingReq) ?? []
+                allPermissions = (try? await allReq) ?? []
             } catch {
                 errorMessage = error.localizedDescription
             }
         }
+    }
+
+    @MainActor
+    private func resolveReportingScope() async {
+        guard let token = authStore.currentSession?.token else { return }
+        isReportingManager = (try? await HRConvexAPIService.hasReportingTeam(token: token)) ?? false
     }
 
     private func approvePermission(_ permission: ConvexPermission) {

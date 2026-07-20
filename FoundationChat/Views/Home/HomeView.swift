@@ -267,6 +267,9 @@ struct HomeView: View {
                 headerFloating = true
                 Task { await reload() }
             }
+            .onDisappear {
+                headerFloating = false
+            }
             .onChange(of: canViewManagementDashboard) { oldValue, newValue in
                 guard oldValue != newValue, appeared else { return }
                 Task { await reload() }
@@ -568,10 +571,8 @@ struct HomeView: View {
                 managementDashboardSection
                     .padding(.top, 18)
             } else {
-                homeOverviewSection
-                    .padding(.top, 18)
-
                 tripSection
+                    .padding(.top, 18)
             }
         }
         .padding(.horizontal, canViewManagementDashboard ? 16 : 12)
@@ -651,11 +652,9 @@ struct HomeView: View {
                             time: formatVisitTimeOrDate(visit),
                             distance: visit.hasMappedLocation ? "Open route" : "Not mapped",
                             state: tripState(for: visit),
-                            etaText: etaText(for: visit),
-                            canOpen: canOpen(visit)
+                            etaText: etaText(for: visit)
                         ) {
-                            guard canOpen(visit) else { return }
-                            visitToOpen = visit
+                            handleTripTap(visit)
                         }
                     }
                 }
@@ -1465,9 +1464,12 @@ struct HomeView: View {
         return .ready
     }
 
-    private func canOpen(_ visit: GeoTrackTodayVisit) -> Bool {
-        let state = tripState(for: visit)
-        return state != .clockInFirst
+    private func handleTripTap(_ visit: GeoTrackTodayVisit) {
+        if tripState(for: visit) == .clockInFirst {
+            showPunchIn = true
+            return
+        }
+        visitToOpen = visit
     }
 
     private func etaText(for visit: GeoTrackTodayVisit) -> String {
@@ -2143,14 +2145,10 @@ private struct HomeTripCard: View {
     let distance: String
     let state: HomeTripState
     let etaText: String
-    let canOpen: Bool
     let action: () -> Void
 
     var body: some View {
-        Button {
-            guard canOpen else { return }
-            action()
-        } label: {
+        Button(action: action) {
             VStack(spacing: 0) {
                 header
                 statsGrid
@@ -2170,6 +2168,7 @@ private struct HomeTripCard: View {
         }
         .buttonStyle(.plain)
         .contentShape(RoundedRectangle(cornerRadius: 12))
+        .accessibilityHint(state == .clockInFirst ? "Opens clock in" : "Opens trip details")
     }
 
     private var header: some View {

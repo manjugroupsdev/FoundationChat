@@ -54,14 +54,26 @@ struct AuthUser: Codable, Sendable, Equatable {
 }
 
 extension AuthUser {
-  var isFleetDriverMode: Bool {
-    let isFleetAdminDriver = designation?
+  var isFleetAdminDriver: Bool {
+    designation?
       .trimmingCharacters(in: .whitespacesAndNewlines)
       .localizedCaseInsensitiveCompare("Driver") == .orderedSame
       && department?
         .trimmingCharacters(in: .whitespacesAndNewlines)
         .localizedCaseInsensitiveCompare("Administration") == .orderedSame
+  }
 
+  var isExternalFleetPrincipal: Bool {
+    designation?
+      .trimmingCharacters(in: .whitespacesAndNewlines)
+      .localizedCaseInsensitiveCompare("External Fleet") == .orderedSame
+  }
+
+  var isFleetPortalMode: Bool {
+    isExternalFleetPrincipal || isFleetAdminDriver
+  }
+
+  var isFleetDriverMode: Bool {
     return !isFleetAdminDriver && designation?
       .trimmingCharacters(in: .whitespacesAndNewlines)
       .localizedCaseInsensitiveCompare("Driver") == .orderedSame

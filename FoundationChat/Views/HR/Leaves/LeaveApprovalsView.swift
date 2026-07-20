@@ -113,7 +113,12 @@ struct LeaveApprovalsView: View {
             isLoading = true
             defer { isLoading = false }
             do {
-                pendingLeaves = try await HRConvexAPIService.getPendingLeaveApprovals(token: token)
+                pendingLeaves = try await HRConvexAPIService.getPendingLeaveApprovals(
+                    token: token,
+                    teamOnly: true,
+                    scope: "direct",
+                    viewerStaffId: authStore.currentSession?.user._id
+                )
             } catch {
                 if Self.isCancellation(error) { return }
                 errorMessage = error.localizedDescription

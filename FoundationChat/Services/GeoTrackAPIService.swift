@@ -51,11 +51,6 @@ final class GeoTrackAPIService {
         return e
     }()
 
-    private let decoder: JSONDecoder = {
-        let d = JSONDecoder()
-        return d
-    }()
-
     init(
         baseURL: String? = nil,
         tokenProvider: (() -> String?)? = nil,
@@ -124,7 +119,7 @@ final class GeoTrackAPIService {
             throw GeoTrackAPIError.badStatus(http.statusCode)
         }
         do {
-            let decoded = try decoder.decode(T.self, from: data)
+            let decoded = try await BackgroundJSONDecoder.decode(T.self, from: data)
             return decoded
         } catch {
             throw GeoTrackAPIError.decodingFailed(error)

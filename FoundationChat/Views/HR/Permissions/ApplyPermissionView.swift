@@ -94,62 +94,26 @@ struct ApplyPermissionView: View {
             .padding(.bottom, 20)
             .background(Color.white.opacity(0.98).ignoresSafeArea(edges: .bottom))
 
-            pickerOverlay
         }
         .navigationBarBackButtonHidden(true)
         .toolbar(.hidden, for: .navigationBar)
-        .interactiveDismissDisabled(showDatePicker || showDurationPicker)
-    }
-
-    @ViewBuilder
-    private var pickerOverlay: some View {
-        if showDatePicker {
-            Color.black.opacity(0.18)
-                .ignoresSafeArea()
-                .onTapGesture {
-                    closePickerOverlay()
-                }
-                .transition(.opacity)
-                .zIndex(10)
-
-            pickerSheet(title: "Permission Date", subtitle: "Select Date") {
-                DatePicker("Permission Date", selection: $draftDate, displayedComponents: .date)
-                    .datePickerStyle(.graphical)
-                    .labelsHidden()
-                    .padding(.horizontal, 8)
-            } onDone: {
+        .sheet(isPresented: $showDatePicker) {
+            PermissionDatePickerSheet(selection: $draftDate) {
                 selectedDate = draftDate
             }
-            .frame(height: 500)
-            .transition(.move(edge: .bottom).combined(with: .opacity))
-            .zIndex(11)
-        } else if showDurationPicker {
-            Color.black.opacity(0.18)
-                .ignoresSafeArea()
-                .onTapGesture {
-                    closePickerOverlay()
-                }
-                .transition(.opacity)
-                .zIndex(10)
-
-            pickerSheet(title: "Fill Permission Summary", subtitle: "Information about Permission details") {
-                VStack(spacing: 16) {
-                    timePickerRow(title: "From Time", selection: $draftFromTime)
-                    timePickerRow(title: "To Time", selection: $draftToTime)
-                    Text(draftDurationLabel)
-                        .font(.system(size: 13, weight: .medium))
-                        .foregroundStyle(isDraftDurationValid ? Color(hex: 0x667085) : Color(hex: 0xB42318))
-                        .frame(maxWidth: .infinity, alignment: .leading)
-                        .padding(.top, 2)
-                }
-                .padding(.horizontal, 20)
-            } onDone: {
+            .presentationDetents([.height(470)])
+            .presentationDragIndicator(.visible)
+        }
+        .sheet(isPresented: $showDurationPicker) {
+            PermissionDurationPickerSheet(
+                fromTime: $draftFromTime,
+                toTime: $draftToTime
+            ) {
                 selectedFromTime = draftFromTime
                 selectedToTime = draftToTime
             }
-            .frame(height: 560)
-            .transition(.move(edge: .bottom).combined(with: .opacity))
-            .zIndex(11)
+            .presentationDetents([.height(430)])
+            .presentationDragIndicator(.visible)
         }
     }
 
@@ -214,89 +178,6 @@ struct ApplyPermissionView: View {
         .padding(.top, topPadding)
     }
 
-    private func pickerSheet<Content: View>(
-        title: String,
-        subtitle: String,
-        @ViewBuilder content: () -> Content,
-        onDone: @escaping () -> Void
-    ) -> some View {
-        VStack(alignment: .leading, spacing: 0) {
-            Text(title)
-                .font(.system(size: 22, weight: .bold))
-                .foregroundStyle(Color(hex: 0x101828))
-                .padding(.horizontal, 20)
-            Text(subtitle)
-                .font(.system(size: 14, weight: .medium))
-                .foregroundStyle(Color(hex: 0x667085))
-                .padding(.horizontal, 20)
-                .padding(.top, 3)
-
-            content()
-                .padding(.top, 16)
-
-            Spacer(minLength: 12)
-
-            Button {
-                onDone()
-                showDatePicker = false
-                showDurationPicker = false
-            } label: {
-                Text("Select")
-                    .font(.system(size: 15, weight: .semibold))
-                .foregroundStyle(.white)
-                .frame(maxWidth: .infinity)
-                .frame(height: 46)
-                .background(selectButtonFill(title: title), in: Capsule())
-            }
-            .buttonStyle(.plain)
-            .disabled(title != "Permission Date" && !isDraftDurationValid)
-            .padding(.horizontal, 20)
-            .padding(.bottom, 18)
-        }
-        .frame(maxWidth: .infinity)
-        .simultaneousGesture(
-            DragGesture(minimumDistance: 24)
-                .onEnded { value in
-                    let mostlyVertical = abs(value.translation.height) > abs(value.translation.width)
-                    if mostlyVertical && value.translation.height > 64 {
-                        closePickerOverlay()
-                    }
-                }
-        )
-        .background {
-            UnevenRoundedRectangle(
-                cornerRadii: .init(topLeading: 28, bottomLeading: 0, bottomTrailing: 0, topTrailing: 28),
-                style: .continuous
-            )
-            .fill(Color.white)
-            .ignoresSafeArea(edges: .bottom)
-        }
-    }
-
-    private func timePickerRow(title: String, selection: Binding<Date>) -> some View {
-        VStack(alignment: .leading, spacing: 6) {
-            Text(title)
-                .font(.system(size: 15, weight: .medium))
-                .foregroundStyle(Color(hex: 0x344054))
-            DatePicker(title, selection: selection, displayedComponents: .hourAndMinute)
-                .datePickerStyle(.wheel)
-                .labelsHidden()
-                .frame(maxWidth: .infinity)
-                .frame(height: 112)
-                .clipped()
-                .background(Color(hex: 0xF8FAFC), in: RoundedRectangle(cornerRadius: 12, style: .continuous))
-                .clipShape(RoundedRectangle(cornerRadius: 12, style: .continuous))
-        }
-        .clipped()
-    }
-
-    private func closePickerOverlay() {
-        withAnimation(.snappy(duration: 0.2)) {
-            showDatePicker = false
-            showDurationPicker = false
-        }
-    }
-
     private var submitEnabled: Bool {
         selectedDate != nil && selectedFromTime != nil && selectedToTime != nil && isValidTimeRange
     }
@@ -306,19 +187,9 @@ struct ApplyPermissionView: View {
         return minutesBetween(from: selectedFromTime, to: selectedToTime) > 0
     }
 
-    private var isDraftDurationValid: Bool {
-        minutesBetween(from: draftFromTime, to: draftToTime) > 0
-    }
-
     private var durationValue: String {
         guard let selectedFromTime, let selectedToTime else { return "Select Duration" }
         return "\(timeLabel(selectedFromTime)) - \(timeLabel(selectedToTime))"
-    }
-
-    private var draftDurationLabel: String {
-        let minutes = minutesBetween(from: draftFromTime, to: draftToTime)
-        guard minutes > 0 else { return "Invalid time range" }
-        return "Total \(durationLabel(minutes: minutes))"
     }
 
     private func submit() {
@@ -362,14 +233,6 @@ struct ApplyPermissionView: View {
         return toMinutes - fromMinutes
     }
 
-    private func durationLabel(minutes: Int) -> String {
-        let h = minutes / 60
-        let m = minutes % 60
-        if h == 0 { return "\(m) min" }
-        if m == 0 { return "\(h)h" }
-        return "\(h)h \(m)m"
-    }
-
     private func dateLabel(_ date: Date) -> String {
         let formatter = DateFormatter()
         formatter.dateFormat = "dd MMM yyyy"
@@ -408,7 +271,115 @@ struct ApplyPermissionView: View {
         )
     }
 
-    private func selectButtonFill(title: String) -> LinearGradient {
-        title != "Permission Date" && !isDraftDurationValid ? disabledButtonFill : enabledButtonFill
+}
+
+private struct PermissionDatePickerSheet: View {
+    @Environment(\.dismiss) private var dismiss
+    @Binding var selection: Date
+
+    let onSelect: () -> Void
+
+    var body: some View {
+        NavigationStack {
+            DatePicker(
+                "Permission Date",
+                selection: $selection,
+                displayedComponents: .date
+            )
+            .datePickerStyle(.graphical)
+            .labelsHidden()
+            .padding(.horizontal, 12)
+            .frame(maxHeight: .infinity, alignment: .top)
+            .navigationTitle("Permission Date")
+            .navigationBarTitleDisplayMode(.inline)
+            .toolbar {
+                ToolbarItem(placement: .cancellationAction) {
+                    Button("Cancel") {
+                        dismiss()
+                    }
+                }
+                ToolbarItem(placement: .confirmationAction) {
+                    Button("Done") {
+                        onSelect()
+                        dismiss()
+                    }
+                }
+            }
+        }
+    }
+}
+
+private struct PermissionDurationPickerSheet: View {
+    @Environment(\.dismiss) private var dismiss
+    @Binding var fromTime: Date
+    @Binding var toTime: Date
+
+    let onSelect: () -> Void
+
+    var body: some View {
+        NavigationStack {
+            VStack(spacing: 12) {
+                timePickerRow(title: "From Time", selection: $fromTime)
+                timePickerRow(title: "To Time", selection: $toTime)
+
+                Text(durationSummary)
+                    .font(.footnote.weight(.medium))
+                    .foregroundStyle(isValidDuration ? .secondary : Color(hex: 0xB42318))
+                    .frame(maxWidth: .infinity, alignment: .leading)
+                    .padding(.horizontal, 20)
+
+                Spacer(minLength: 0)
+            }
+            .padding(.top, 8)
+            .navigationTitle("Permission Duration")
+            .navigationBarTitleDisplayMode(.inline)
+            .toolbar {
+                ToolbarItem(placement: .cancellationAction) {
+                    Button("Cancel") {
+                        dismiss()
+                    }
+                }
+                ToolbarItem(placement: .confirmationAction) {
+                    Button("Done") {
+                        onSelect()
+                        dismiss()
+                    }
+                    .disabled(!isValidDuration)
+                }
+            }
+        }
+    }
+
+    private func timePickerRow(title: String, selection: Binding<Date>) -> some View {
+        HStack {
+            Text(title)
+            Spacer()
+            DatePicker(title, selection: selection, displayedComponents: .hourAndMinute)
+                .labelsHidden()
+        }
+        .padding(.horizontal, 20)
+        .frame(height: 56)
+    }
+
+    private var isValidDuration: Bool {
+        durationMinutes > 0
+    }
+
+    private var durationSummary: String {
+        guard durationMinutes > 0 else { return "To time must be after from time." }
+        let hours = durationMinutes / 60
+        let minutes = durationMinutes % 60
+        if hours == 0 { return "Total \(minutes) min" }
+        if minutes == 0 { return "Total \(hours)h" }
+        return "Total \(hours)h \(minutes)m"
+    }
+
+    private var durationMinutes: Int {
+        let calendar = Calendar.current
+        let fromComponents = calendar.dateComponents([.hour, .minute], from: fromTime)
+        let toComponents = calendar.dateComponents([.hour, .minute], from: toTime)
+        let fromMinutes = (fromComponents.hour ?? 0) * 60 + (fromComponents.minute ?? 0)
+        let toMinutes = (toComponents.hour ?? 0) * 60 + (toComponents.minute ?? 0)
+        return toMinutes - fromMinutes
     }
 }

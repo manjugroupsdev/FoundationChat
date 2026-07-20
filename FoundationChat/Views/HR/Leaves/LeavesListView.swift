@@ -4,6 +4,7 @@ struct LeavesListView: View {
     @Environment(AuthStore.self) private var authStore
     @State private var leaves: [ConvexLeave] = []
     @State private var pendingLeaves: [ConvexLeave] = []
+    @State private var allLeaves: [ConvexLeave] = []
     @State private var balance: ConvexLeaveBalance?
     @State private var isLoading = false
     @State private var errorMessage: String?
@@ -14,9 +15,14 @@ struct LeavesListView: View {
     @State private var cancelingLeave: ConvexLeave?
     @State private var rejectReason = ""
     @State private var actionInFlightId: String?
+    @State private var isReportingManager = false
 
-    private var canReviewLeaves: Bool {
-        authStore.hasPermission("leaves.approve") || authStore.hasPermission("leaves.viewAll")
+    private var canManageTeamLeaves: Bool {
+        isReportingManager || authStore.hasPermission("leaves.approve")
+    }
+
+    private var canViewAllLeaves: Bool {
+        authStore.hasPermission("leaves.viewAll")
     }
 
     var body: some View {
@@ -121,7 +127,10 @@ struct LeavesListView: View {
         }
         .navigationBarBackButtonHidden(true)
         .toolbar(.hidden, for: .navigationBar)
-        .task { loadData() }
+        .task {
+            await resolveReportingScope()
+            loadData()
+        }
     }
 
     private var leaveHeader: some View {
@@ -300,7 +309,7 @@ struct LeavesListView: View {
                     }
                     .shadow(color: Color.black.opacity(0.02), radius: 4, y: 1)
                 }
-                .disabled(!canReviewLeaves)
+                .disabled(availableScopes.count <= 1)
             }
 
             HStack(spacing: 12) {
@@ -449,7 +458,10 @@ struct LeavesListView: View {
     }
 
     private var availableScopes: [LeaveScope] {
-        canReviewLeaves ? LeaveScope.allCases : [.my]
+        var scopes: [LeaveScope] = [.my]
+        if canManageTeamLeaves { scopes.append(.team) }
+        if canViewAllLeaves { scopes.append(.all) }
+        return scopes
     }
 
     private var totalLeaveAvailable: Double {
@@ -477,12 +489,19 @@ struct LeavesListView: View {
         case .team:
             return pendingLeaves
         case .all:
-            return leaves
+            return allLeaves
         }
     }
 
     private var isApprovalScope: Bool {
-        canReviewLeaves && activeScope == .team
+        switch activeScope {
+        case .my:
+            return false
+        case .team:
+            return canManageTeamLeaves
+        case .all:
+            return canViewAllLeaves
+        }
     }
 
     private var emptyTitle: String {
@@ -962,15 +981,32 @@ struct LeavesListView: View {
                 let year = Calendar.current.component(.year, from: Date())
                 async let leavesReq = HRConvexAPIService.getMyLeaves(token: token)
                 async let balanceReq = HRConvexAPIService.getLeaveBalance(token: token, year: year)
-                async let pendingReq: [ConvexLeave] = canReviewLeaves ? HRConvexAPIService.getPendingLeaveApprovals(token: token) : []
+                async let pendingReq: [ConvexLeave] = canManageTeamLeaves
+                    ? HRConvexAPIService.getPendingLeaveApprovals(
+                        token: token,
+                        teamOnly: true,
+                        scope: "direct",
+                        viewerStaffId: authStore.currentSession?.user._id
+                    )
+                    : []
+                async let allReq: [ConvexLeave] = canViewAllLeaves
+                    ? HRConvexAPIService.getPendingLeaveApprovals(token: token)
+                    : []
                 leaves = try await leavesReq
                 balance = try? await balanceReq
                 pendingLeaves = (try? await pendingReq) ?? []
+                allLeaves = (try? await allReq) ?? []
             } catch {
                 if Self.isCancellation(error) { return }
                 errorMessage = error.localizedDescription
             }
         }
+    }
+
+    @MainActor
+    private func resolveReportingScope() async {
+        guard let token = authStore.currentSession?.token else { return }
+        isReportingManager = (try? await HRConvexAPIService.hasReportingTeam(token: token)) ?? false
     }
 
     private func cancelLeave(_ leave: ConvexLeave) {

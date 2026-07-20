@@ -160,13 +160,27 @@ enum DailyLogAPIService {
             return mine.sortedByDateDescending()
         }
 
-        var aggregated: [DailyLogEntry] = []
-        for project in projects.prefix(40) {
-            if let logs = try? await listDailyLogs(token: token, projectId: project.id) {
-                aggregated.append(contentsOf: logs)
+        let aggregated = await withTaskGroup(of: [DailyLogEntry].self) { group in
+            for project in projects.prefix(30) {
+                group.addTask {
+                    let logs = (try? await listDailyLogs(token: token, projectId: project.id)) ?? []
+                    return logs.map { log in
+                        var resolved = log
+                        if resolved.projectName?.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty != false {
+                            resolved.projectName = project.name
+                        }
+                        return resolved
+                    }
+                }
             }
+
+            var rows: [DailyLogEntry] = []
+            for await projectLogs in group {
+                rows.append(contentsOf: projectLogs)
+            }
+            return rows
         }
-        return Array(aggregated.sortedByDateDescending().prefix(100))
+        return aggregated.sortedByDateDescending()
     }
 
     static func listMaterials(token: String) async throws -> [DailyLogMaterialCatalogItem] {
@@ -183,17 +197,38 @@ enum DailyLogAPIService {
             return mine
         }
 
-        var recipients: [DprRecipient] = []
-        var reports: [DprReport] = []
-        for project in projects.prefix(40) {
-            if let projectRecipients = try? await listDprRecipients(token: token, projectId: project.id) {
-                recipients.append(contentsOf: projectRecipients)
+        let aggregate = await withTaskGroup(of: ([DprRecipient], [DprReport]).self) { group in
+            for project in projects.prefix(30) {
+                group.addTask {
+                    async let recipients = try? listDprRecipients(token: token, projectId: project.id)
+                    async let reports = try? listDprReports(token: token, projectId: project.id)
+                    let resolvedRecipients = (await recipients ?? []).map { recipient in
+                        var resolved = recipient
+                        if resolved.projectName?.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty != false {
+                            resolved.projectName = project.name
+                        }
+                        return resolved
+                    }
+                    let resolvedReports = (await reports ?? []).map { report in
+                        var resolved = report
+                        if resolved.projectName?.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty != false {
+                            resolved.projectName = project.name
+                        }
+                        return resolved
+                    }
+                    return (resolvedRecipients, resolvedReports)
+                }
             }
-            if let projectReports = try? await listDprReports(token: token, projectId: project.id) {
+
+            var recipients: [DprRecipient] = []
+            var reports: [DprReport] = []
+            for await (projectRecipients, projectReports) in group {
+                recipients.append(contentsOf: projectRecipients)
                 reports.append(contentsOf: projectReports)
             }
+            return (recipients, reports)
         }
-        return (recipients, Array(reports.sortedByDateDescending().prefix(30)))
+        return (aggregate.0, aggregate.1.sortedByDateDescending())
     }
 
     private static func getMyDprAggregate(token: String) async throws -> ([DprRecipient], [DprReport]) {

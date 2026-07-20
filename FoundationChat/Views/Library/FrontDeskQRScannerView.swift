@@ -3,10 +3,18 @@ import Foundation
 import SwiftUI
 
 struct FrontDeskQRScannerView: View {
+    @Environment(AuthStore.self) private var authStore
     @Environment(\.dismiss) private var dismiss
     @State private var scannedValue: String?
     @State private var cameraAccessDenied = false
     @State private var scanLineAnimating = false
+    @State private var showScanResult = false
+    @State private var isResolvingInvitation = false
+    @State private var invitation: FrontDeskInvitation?
+    @State private var scanError: String?
+    @State private var visitorActionError: String?
+    @State private var isVisitorActionRunning = false
+    @State private var lookupTask: Task<Void, Never>?
     let showsCloseButton: Bool
 
     init(showsCloseButton: Bool = false) {
@@ -27,10 +35,6 @@ struct FrontDeskQRScannerView: View {
                 cameraDeniedCard
             }
 
-            if let scannedValue {
-                scannedResultCard(value: scannedValue)
-                    .transition(.move(edge: .bottom).combined(with: .opacity))
-            }
         }
         .navigationBarBackButtonHidden(true)
         .toolbar(.hidden, for: .navigationBar)
@@ -39,8 +43,37 @@ struct FrontDeskQRScannerView: View {
         .animation(.spring(response: 0.34, dampingFraction: 0.88), value: scannedValue)
         .onChange(of: scannedValue) { _, value in
             guard let value, !value.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else { return }
-            FrontDeskQRHistoryStore.add(value)
+            scanLineAnimating = false
+            beginInvitationLookup(value)
         }
+        .onDisappear {
+            lookupTask?.cancel()
+        }
+        .sheet(isPresented: $showScanResult, onDismiss: resetScanner) {
+            FrontDeskInvitationSheet(
+                invitation: invitation,
+                rawValue: scannedValue,
+                isLoading: isResolvingInvitation,
+                errorMessage: scanError,
+                actionError: visitorActionError,
+                isActionRunning: isVisitorActionRunning,
+                canCheckIn: authStore.hasPermission("frontdesk.checkin"),
+                canCheckOut: authStore.hasPermission("frontdesk.checkout"),
+                onCheckIn: checkInInvitation,
+                onCheckOut: checkOutInvitation,
+                onScanAnother: {
+                    showScanResult = false
+                }
+            )
+            .presentationDetents([.fraction(0.62), .large])
+            .presentationDragIndicator(.visible)
+            .presentationBackground(Color.white)
+            .interactiveDismissDisabled(isVisitorActionRunning)
+        }
+    }
+
+    private var canViewHistory: Bool {
+        authStore.hasPermission("frontdesk.view")
     }
 
     private var scannerHeader: some View {
@@ -64,20 +97,22 @@ struct FrontDeskQRScannerView: View {
                     .shadow(color: .black.opacity(0.28), radius: 8, y: 2)
 
                 HStack(spacing: 10) {
-                    NavigationLink {
-                        FrontDeskQRHistoryView()
-                    } label: {
-                        Image(systemName: "clock.arrow.circlepath")
-                            .font(.system(size: 18, weight: .bold))
-                            .foregroundStyle(.white)
-                            .frame(width: 50, height: 50)
-                            .background(.black.opacity(0.28), in: Circle())
+                    if canViewHistory {
+                        NavigationLink {
+                            FrontDeskQRHistoryView()
+                        } label: {
+                            Image(systemName: "clock.arrow.circlepath")
+                                .font(.system(size: 18, weight: .bold))
+                                .foregroundStyle(.white)
+                                .frame(width: 50, height: 50)
+                                .background(.black.opacity(0.28), in: Circle())
+                        }
+                        .accessibilityLabel("Open scan history")
                     }
-                    .accessibilityLabel("Open scan history")
 
                     if scannedValue != nil {
                         Button {
-                            scannedValue = nil
+                            showScanResult = false
                         } label: {
                             Image(systemName: "arrow.clockwise")
                                 .font(.system(size: 17, weight: .bold))
@@ -124,12 +159,7 @@ struct FrontDeskQRScannerView: View {
                     .ignoresSafeArea()
             )
             .onAppear {
-                scanLineAnimating = false
-                DispatchQueue.main.async {
-                    withAnimation(.linear(duration: 1.55).repeatForever(autoreverses: true)) {
-                        scanLineAnimating = true
-                    }
-                }
+                restartScanLine()
             }
         }
     }
@@ -154,57 +184,6 @@ struct FrontDeskQRScannerView: View {
         .background(.white, in: RoundedRectangle(cornerRadius: 24, style: .continuous))
     }
 
-    private func scannedResultCard(value: String) -> some View {
-        VStack(alignment: .leading, spacing: 14) {
-            HStack(alignment: .top, spacing: 12) {
-                Image(systemName: "qrcode.viewfinder")
-                    .font(.system(size: 22, weight: .semibold))
-                    .foregroundStyle(Color(hex: 0x0B61CA))
-                    .frame(width: 48, height: 48)
-                    .background(Color(hex: 0xEAF4FF), in: RoundedRectangle(cornerRadius: 14, style: .continuous))
-
-                VStack(alignment: .leading, spacing: 4) {
-                    Text("QR Scanned")
-                        .font(.system(size: 18, weight: .semibold))
-                        .foregroundStyle(Color(hex: 0x111827))
-
-                    Text(Self.inviteToken(from: value) ?? value)
-                        .font(.system(size: 13, weight: .medium))
-                        .foregroundStyle(Color(hex: 0x667085))
-                        .lineLimit(3)
-                }
-            }
-
-            Button {
-                scannedValue = nil
-            } label: {
-                Text("Scan Another")
-                    .font(.system(size: 15, weight: .semibold))
-                    .foregroundStyle(.white)
-                    .frame(maxWidth: .infinity)
-                    .frame(height: 48)
-                    .background(Color(hex: 0x0B61CA), in: Capsule())
-            }
-            .buttonStyle(.plain)
-        }
-        .padding(18)
-        .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .bottom)
-        .background(alignment: .bottom) {
-            Rectangle()
-                .fill(.clear)
-        }
-        .padding(.horizontal, 16)
-        .padding(.bottom, 24)
-        .background(alignment: .bottom) {
-            RoundedRectangle(cornerRadius: 28, style: .continuous)
-                .fill(.white)
-                .padding(.horizontal, 16)
-                .padding(.bottom, 24)
-                .frame(height: 214)
-                .frame(maxHeight: .infinity, alignment: .bottom)
-        }
-    }
-
     fileprivate static func inviteToken(from value: String) -> String? {
         let marker = "/frontdesk/invite/"
         guard let range = value.range(of: marker) else { return nil }
@@ -215,6 +194,457 @@ struct FrontDeskQRScannerView: View {
             .first
             .map(String.init)?
             .trimmingCharacters(in: CharacterSet(charactersIn: "/ "))
+    }
+
+    private func beginInvitationLookup(_ value: String) {
+        lookupTask?.cancel()
+        invitation = nil
+        scanError = nil
+        visitorActionError = nil
+        isResolvingInvitation = true
+        showScanResult = true
+
+        lookupTask = Task {
+            guard let inviteToken = Self.inviteToken(from: value) else {
+                isResolvingInvitation = false
+                scanError = "This QR code is not a Front Desk invitation."
+                FrontDeskQRHistoryStore.add(value)
+                return
+            }
+            guard let token = authStore.currentSession?.token else {
+                isResolvingInvitation = false
+                scanError = "Please sign in again to view this invitation."
+                return
+            }
+
+            do {
+                let resolved = try await FrontDeskAPIService.invitation(
+                    token: token,
+                    inviteToken: inviteToken
+                )
+                guard !Task.isCancelled else { return }
+                invitation = resolved
+                isResolvingInvitation = false
+            } catch {
+                guard !Task.isCancelled else { return }
+                scanError = error.localizedDescription
+                isResolvingInvitation = false
+            }
+        }
+    }
+
+    private func checkInInvitation() async {
+        guard let token = authStore.currentSession?.token,
+              var invitation,
+              let invitationID = invitation.invitationID else { return }
+
+        isVisitorActionRunning = true
+        visitorActionError = nil
+        defer { isVisitorActionRunning = false }
+        do {
+            let result = try await FrontDeskAPIService.checkIn(
+                token: token,
+                invitationID: invitationID
+            )
+            invitation.status = "checked_in"
+            invitation.checkinState = "in"
+            invitation.checkinAt = Int64(Date().timeIntervalSince1970 * 1_000)
+            invitation.passNumber = result.passNumber
+            self.invitation = invitation
+            FrontDeskQRHistoryStore.add(
+                invitation: invitation,
+                status: "checked_in",
+                passNumber: result.passNumber
+            )
+        } catch {
+            visitorActionError = error.localizedDescription
+        }
+    }
+
+    private func checkOutInvitation() async {
+        guard let token = authStore.currentSession?.token,
+              var invitation,
+              let invitationID = invitation.invitationID else { return }
+
+        isVisitorActionRunning = true
+        visitorActionError = nil
+        defer { isVisitorActionRunning = false }
+        do {
+            let result = try await FrontDeskAPIService.checkOut(
+                token: token,
+                invitationID: invitationID
+            )
+            invitation.checkinState = "out"
+            invitation.checkoutAt = result.checkoutAt ?? Int64(Date().timeIntervalSince1970 * 1_000)
+            self.invitation = invitation
+            FrontDeskQRHistoryStore.updateStatus(
+                invitationID: invitationID,
+                status: "checked_out"
+            )
+        } catch {
+            visitorActionError = error.localizedDescription
+        }
+    }
+
+    private func resetScanner() {
+        lookupTask?.cancel()
+        lookupTask = nil
+        scannedValue = nil
+        invitation = nil
+        scanError = nil
+        visitorActionError = nil
+        isResolvingInvitation = false
+        isVisitorActionRunning = false
+        restartScanLine()
+    }
+
+    private func restartScanLine() {
+        scanLineAnimating = false
+        DispatchQueue.main.async {
+            withAnimation(.linear(duration: 1.55).repeatForever(autoreverses: true)) {
+                scanLineAnimating = true
+            }
+        }
+    }
+}
+
+private struct FrontDeskInvitationSheet: View {
+    let invitation: FrontDeskInvitation?
+    let rawValue: String?
+    let isLoading: Bool
+    let errorMessage: String?
+    let actionError: String?
+    let isActionRunning: Bool
+    let canCheckIn: Bool
+    let canCheckOut: Bool
+    let onCheckIn: () async -> Void
+    let onCheckOut: () async -> Void
+    let onScanAnother: () -> Void
+
+    var body: some View {
+        VStack(spacing: 0) {
+            HStack(spacing: 12) {
+                Image(systemName: "person.crop.rectangle.stack.fill")
+                    .font(.system(size: 20, weight: .semibold))
+                    .foregroundStyle(Color(hex: 0x0B61CA))
+                    .frame(width: 42, height: 42)
+                    .background(Color(hex: 0xEAF4FF), in: RoundedRectangle(cornerRadius: 10, style: .continuous))
+
+                VStack(alignment: .leading, spacing: 2) {
+                    Text("Visitor Invitation")
+                        .font(.system(size: 19, weight: .bold))
+                        .foregroundStyle(Color(hex: 0x101828))
+                    Text(invitation.map(statusSubtitle) ?? "Front Desk verification")
+                        .font(.system(size: 12, weight: .medium))
+                        .foregroundStyle(Color(hex: 0x667085))
+                }
+
+                Spacer()
+
+                if let invitation {
+                    statusBadge(invitation)
+                }
+            }
+            .padding(.horizontal, 20)
+            .padding(.top, 12)
+            .padding(.bottom, 14)
+
+            Divider()
+
+            Group {
+                if isLoading {
+                    VStack(spacing: 12) {
+                        ProgressView()
+                            .controlSize(.large)
+                        Text("Loading invitation...")
+                            .font(.system(size: 14, weight: .medium))
+                            .foregroundStyle(Color(hex: 0x667085))
+                    }
+                    .frame(maxWidth: .infinity, maxHeight: .infinity)
+                } else if let errorMessage {
+                    ContentUnavailableView {
+                        Label("Invitation Unavailable", systemImage: "qrcode")
+                    } description: {
+                        Text(errorMessage)
+                    }
+                    .frame(maxWidth: .infinity, maxHeight: .infinity)
+                } else if let invitation {
+                    invitationDetails(invitation)
+                }
+            }
+
+            actionBar
+        }
+        .background(Color.white)
+        .preferredColorScheme(.light)
+    }
+
+    private func invitationDetails(_ invitation: FrontDeskInvitation) -> some View {
+        ScrollView(showsIndicators: false) {
+            VStack(alignment: .leading, spacing: 18) {
+                VStack(alignment: .leading, spacing: 10) {
+                    Text("Invited People (\(1 + (invitation.additionalVisitors?.count ?? 0)))")
+                        .font(.system(size: 15, weight: .bold))
+                        .foregroundStyle(Color(hex: 0x101828))
+
+                    visitorCard(
+                        name: invitation.visitorName ?? "Visitor",
+                        company: invitation.visitorCompany,
+                        phone: invitation.visitorPhone,
+                        email: invitation.visitorEmail,
+                        age: invitation.visitorAge,
+                        isPrimary: true
+                    )
+
+                    ForEach(Array((invitation.additionalVisitors ?? []).enumerated()), id: \.offset) { _, visitor in
+                        visitorCard(
+                            name: visitor.name ?? "Guest",
+                            company: invitation.visitorCompany,
+                            phone: visitor.phone,
+                            email: visitor.email,
+                            age: visitor.age,
+                            isPrimary: false
+                        )
+                    }
+                }
+
+                VStack(alignment: .leading, spacing: 12) {
+                    Text("Visit Information")
+                        .font(.system(size: 15, weight: .bold))
+                        .foregroundStyle(Color(hex: 0x101828))
+
+                    detailRow(icon: "person.fill", title: "Host", value: hostLabel(invitation))
+                    detailRow(icon: "tag.fill", title: "Category", value: categoryLabel(invitation))
+                    detailRow(icon: "calendar", title: "Expected", value: expectedWindow(invitation))
+                    if let passNumber = invitation.passNumber?.nilIfBlank {
+                        detailRow(icon: "number", title: "Pass Number", value: passNumber)
+                    }
+                    if let notes = invitation.meetingNotes?.nilIfBlank {
+                        detailRow(icon: "doc.text.fill", title: "Notes", value: notes)
+                    }
+                }
+
+                if let actionError {
+                    Label(actionError, systemImage: "exclamationmark.triangle.fill")
+                        .font(.system(size: 12, weight: .medium))
+                        .foregroundStyle(Color(hex: 0xB42318))
+                        .frame(maxWidth: .infinity, alignment: .leading)
+                        .padding(12)
+                        .background(Color(hex: 0xFEF3F2), in: RoundedRectangle(cornerRadius: 8, style: .continuous))
+                }
+            }
+            .padding(.horizontal, 20)
+            .padding(.vertical, 16)
+        }
+    }
+
+    private func visitorCard(
+        name: String,
+        company: String?,
+        phone: String?,
+        email: String?,
+        age: Int?,
+        isPrimary: Bool
+    ) -> some View {
+        HStack(alignment: .top, spacing: 12) {
+            Text(initials(name))
+                .font(.system(size: 14, weight: .bold))
+                .foregroundStyle(Color(hex: 0x0B61CA))
+                .frame(width: 44, height: 44)
+                .background(Color(hex: 0xEAF4FF), in: Circle())
+
+            VStack(alignment: .leading, spacing: 4) {
+                HStack(spacing: 7) {
+                    Text(name)
+                        .font(.system(size: 15, weight: .bold))
+                        .foregroundStyle(Color(hex: 0x101828))
+                    if isPrimary {
+                        Text("Primary")
+                            .font(.system(size: 9, weight: .bold))
+                            .foregroundStyle(Color(hex: 0x0B61CA))
+                            .padding(.horizontal, 6)
+                            .frame(height: 19)
+                            .background(Color(hex: 0xEAF4FF), in: Capsule())
+                    }
+                }
+
+                if let company = company?.nilIfBlank {
+                    Text(company)
+                        .font(.system(size: 12, weight: .medium))
+                        .foregroundStyle(Color(hex: 0x667085))
+                }
+
+                let contact = [phone?.nilIfBlank, email?.nilIfBlank, age.map { "Age \($0)" }]
+                    .compactMap { $0 }
+                    .joined(separator: "  •  ")
+                if !contact.isEmpty {
+                    Text(contact)
+                        .font(.system(size: 11, weight: .medium))
+                        .foregroundStyle(Color(hex: 0x667085))
+                        .fixedSize(horizontal: false, vertical: true)
+                }
+            }
+            .frame(maxWidth: .infinity, alignment: .leading)
+        }
+        .padding(12)
+        .background(Color(hex: 0xF8FAFC), in: RoundedRectangle(cornerRadius: 8, style: .continuous))
+        .overlay {
+            RoundedRectangle(cornerRadius: 8, style: .continuous)
+                .stroke(Color(hex: 0xEAECF0), lineWidth: 1)
+        }
+    }
+
+    private func detailRow(icon: String, title: String, value: String) -> some View {
+        HStack(alignment: .top, spacing: 12) {
+            Image(systemName: icon)
+                .font(.system(size: 14, weight: .semibold))
+                .foregroundStyle(Color(hex: 0x0B61CA))
+                .frame(width: 30, height: 30)
+                .background(Color(hex: 0xEAF4FF), in: RoundedRectangle(cornerRadius: 7, style: .continuous))
+
+            VStack(alignment: .leading, spacing: 2) {
+                Text(title)
+                    .font(.system(size: 10, weight: .bold))
+                    .foregroundStyle(Color(hex: 0x98A2B3))
+                Text(value)
+                    .font(.system(size: 13, weight: .semibold))
+                    .foregroundStyle(Color(hex: 0x344054))
+                    .fixedSize(horizontal: false, vertical: true)
+            }
+        }
+    }
+
+    private var actionBar: some View {
+        VStack(spacing: 10) {
+            if let invitation, showsCheckOut(invitation) {
+                actionButton(title: "Check Out", color: Color(hex: 0xE85D04), action: onCheckOut)
+            } else if let invitation, showsCheckIn(invitation) {
+                actionButton(title: "Check In", color: Color(hex: 0x16A34A), action: onCheckIn)
+            }
+
+            Button(action: onScanAnother) {
+                Label("Scan Another", systemImage: "qrcode.viewfinder")
+                    .font(.system(size: 15, weight: .semibold))
+                    .foregroundStyle(Color(hex: 0x0B61CA))
+                    .frame(maxWidth: .infinity)
+                    .frame(height: 46)
+                    .background(Color(hex: 0xEAF4FF), in: RoundedRectangle(cornerRadius: 8, style: .continuous))
+            }
+            .buttonStyle(.plain)
+            .disabled(isActionRunning)
+        }
+        .padding(.horizontal, 20)
+        .padding(.top, 12)
+        .padding(.bottom, 16)
+        .background(Color.white)
+        .overlay(alignment: .top) { Divider() }
+    }
+
+    private func actionButton(
+        title: String,
+        color: Color,
+        action: @escaping () async -> Void
+    ) -> some View {
+        Button {
+            Task { await action() }
+        } label: {
+            ZStack {
+                Text(title)
+                    .opacity(isActionRunning ? 0 : 1)
+                if isActionRunning {
+                    ProgressView().tint(.white)
+                }
+            }
+            .font(.system(size: 15, weight: .semibold))
+            .foregroundStyle(.white)
+            .frame(maxWidth: .infinity)
+            .frame(height: 46)
+            .background(color, in: RoundedRectangle(cornerRadius: 8, style: .continuous))
+        }
+        .buttonStyle(.plain)
+        .disabled(isActionRunning)
+    }
+
+    private func statusBadge(_ invitation: FrontDeskInvitation) -> some View {
+        let checkedOut = isCheckedOut(invitation)
+        let checkedIn = isCheckedIn(invitation)
+        let title = checkedOut ? "Checked Out" : (checkedIn ? "Checked In" : "Invited")
+        let foreground = checkedOut ? Color(hex: 0x475467) : (checkedIn ? Color(hex: 0x15803D) : Color(hex: 0x0B61CA))
+        let background = checkedOut ? Color(hex: 0xF2F4F7) : (checkedIn ? Color(hex: 0xDCFCE7) : Color(hex: 0xEAF4FF))
+        return Text(title)
+            .font(.system(size: 10, weight: .bold))
+            .foregroundStyle(foreground)
+            .padding(.horizontal, 8)
+            .frame(height: 24)
+            .background(background, in: Capsule())
+    }
+
+    private func statusSubtitle(_ invitation: FrontDeskInvitation) -> String {
+        if isCheckedOut(invitation) {
+            return [timestampLabel("In", value: invitation.checkinAt), timestampLabel("Out", value: invitation.checkoutAt)]
+                .compactMap { $0 }
+                .joined(separator: "  •  ")
+        }
+        if isCheckedIn(invitation), let label = timestampLabel("Checked in", value: invitation.checkinAt) {
+            return label
+        }
+        return "Verify visitor details"
+    }
+
+    private func showsCheckIn(_ invitation: FrontDeskInvitation) -> Bool {
+        canCheckIn && !isCheckedIn(invitation) && !isCheckedOut(invitation)
+    }
+
+    private func showsCheckOut(_ invitation: FrontDeskInvitation) -> Bool {
+        canCheckOut && isCheckedIn(invitation) && !isCheckedOut(invitation)
+    }
+
+    private func isCheckedIn(_ invitation: FrontDeskInvitation) -> Bool {
+        invitation.checkinState?.lowercased() == "in"
+            || invitation.status?.lowercased() == "checked_in"
+    }
+
+    private func isCheckedOut(_ invitation: FrontDeskInvitation) -> Bool {
+        invitation.checkinState?.lowercased() == "out"
+            || invitation.status?.lowercased() == "checked_out"
+    }
+
+    private func hostLabel(_ invitation: FrontDeskInvitation) -> String {
+        [invitation.hostName?.nilIfBlank, invitation.hostDepartment?.nilIfBlank]
+            .compactMap { $0 }
+            .joined(separator: "  •  ")
+            .nilIfBlank ?? "Not specified"
+    }
+
+    private func categoryLabel(_ invitation: FrontDeskInvitation) -> String {
+        [invitation.categoryName?.nilIfBlank, invitation.purposeName?.nilIfBlank]
+            .compactMap { $0 }
+            .joined(separator: "  •  ")
+            .nilIfBlank ?? "Visitor"
+    }
+
+    private func expectedWindow(_ invitation: FrontDeskInvitation) -> String {
+        let time = [invitation.expectedTimeFrom?.nilIfBlank, invitation.expectedTimeTo?.nilIfBlank]
+            .compactMap { $0 }
+            .joined(separator: " - ")
+        return [invitation.expectedDate?.nilIfBlank, time.nilIfBlank]
+            .compactMap { $0 }
+            .joined(separator: ", ")
+            .nilIfBlank ?? "Not specified"
+    }
+
+    private func initials(_ name: String) -> String {
+        let value = name.split(separator: " ").prefix(2).compactMap(\.first)
+        let initials = String(value).uppercased()
+        return initials.isEmpty ? "V" : initials
+    }
+
+    private func timestampLabel(_ prefix: String, value: Int64?) -> String? {
+        guard let value, value > 0 else { return nil }
+        let seconds = value > 10_000_000_000 ? Double(value) / 1_000 : Double(value)
+        let formatter = DateFormatter()
+        formatter.dateFormat = "d MMM, h:mm a"
+        return "\(prefix) \(formatter.string(from: Date(timeIntervalSince1970: seconds)))"
     }
 }
 
@@ -501,6 +931,62 @@ private enum FrontDeskQRHistoryStore {
         save(items)
     }
 
+    static func add(
+        invitation: FrontDeskInvitation,
+        status: String,
+        passNumber: String?
+    ) {
+        var payload: [String: Any] = [
+            "isStructured": true,
+            "invitationId": invitation.invitationID ?? "",
+            "status": status,
+            "primaryName": invitation.visitorName ?? "",
+            "primaryCompany": invitation.visitorCompany ?? "",
+            "primaryPhone": invitation.visitorPhone ?? "",
+            "primaryEmail": invitation.visitorEmail ?? "",
+            "primaryAge": invitation.visitorAge.map(String.init) ?? "",
+            "visitorType": invitation.categoryName ?? "",
+            "purpose": invitation.purposeName ?? "",
+            "hostPerson": invitation.hostName ?? "",
+            "expectedTime": expectedWindow(invitation),
+            "meetingNotes": invitation.meetingNotes ?? ""
+        ]
+        payload["secondaryList"] = (invitation.additionalVisitors ?? []).map { visitor in
+            [
+                "name": visitor.name ?? "",
+                "phone": visitor.phone ?? "",
+                "email": visitor.email ?? "",
+                "age": visitor.age.map(String.init) ?? ""
+            ]
+        }
+        if let passNumber = passNumber?.nilIfBlank {
+            payload["passNumber"] = passNumber
+        }
+        guard let data = try? JSONSerialization.data(withJSONObject: payload),
+              let value = String(data: data, encoding: .utf8) else { return }
+        add(value)
+    }
+
+    static func updateStatus(invitationID: String, status: String) {
+        var items = load()
+        guard let index = items.firstIndex(where: { item in
+            guard let data = item.value.data(using: .utf8),
+                  let payload = try? JSONSerialization.jsonObject(with: data) as? [String: Any] else {
+                return false
+            }
+            return payload["invitationId"] as? String == invitationID
+        }) else { return }
+
+        let item = items[index]
+        guard let data = item.value.data(using: .utf8),
+              var payload = try? JSONSerialization.jsonObject(with: data) as? [String: Any] else { return }
+        payload["status"] = status
+        guard let updatedData = try? JSONSerialization.data(withJSONObject: payload),
+              let value = String(data: updatedData, encoding: .utf8) else { return }
+        items[index] = FrontDeskQRHistoryItem(id: item.id, value: value, timestamp: item.timestamp)
+        save(items)
+    }
+
     static func clear() {
         UserDefaults.standard.removeObject(forKey: key)
     }
@@ -508,6 +994,15 @@ private enum FrontDeskQRHistoryStore {
     private static func save(_ items: [FrontDeskQRHistoryItem]) {
         guard let data = try? JSONEncoder().encode(items) else { return }
         UserDefaults.standard.set(data, forKey: key)
+    }
+
+    private static func expectedWindow(_ invitation: FrontDeskInvitation) -> String {
+        let time = [invitation.expectedTimeFrom?.nilIfBlank, invitation.expectedTimeTo?.nilIfBlank]
+            .compactMap { $0 }
+            .joined(separator: " - ")
+        return [invitation.expectedDate?.nilIfBlank, time.nilIfBlank]
+            .compactMap { $0 }
+            .joined(separator: ", ")
     }
 
     private static let displayFormatter: DateFormatter = {
@@ -687,17 +1182,15 @@ private final class QRScannerViewController: UIViewController, AVCaptureMetadata
     var onDenied: (() -> Void)?
     var isPaused = false {
         didSet {
-            if isPaused {
-                session.stopRunning()
-            } else if isViewLoaded, !session.isRunning {
-                DispatchQueue.global(qos: .userInitiated).async { [session] in
-                    session.startRunning()
-                }
-            }
+            updateSessionRunningState()
         }
     }
 
     private let session = AVCaptureSession()
+    private let sessionQueue = DispatchQueue(
+        label: "com.manju.chat.frontdesk.camera",
+        qos: .userInitiated
+    )
     private var previewLayer: AVCaptureVideoPreviewLayer?
 
     override func viewDidLoad() {
@@ -709,6 +1202,20 @@ private final class QRScannerViewController: UIViewController, AVCaptureMetadata
     override func viewDidLayoutSubviews() {
         super.viewDidLayoutSubviews()
         previewLayer?.frame = view.bounds
+    }
+
+    override func viewDidAppear(_ animated: Bool) {
+        super.viewDidAppear(animated)
+        updateSessionRunningState()
+    }
+
+    override func viewWillDisappear(_ animated: Bool) {
+        super.viewWillDisappear(animated)
+        sessionQueue.async { [session] in
+            if session.isRunning {
+                session.stopRunning()
+            }
+        }
     }
 
     private func configureCamera() {
@@ -752,8 +1259,17 @@ private final class QRScannerViewController: UIViewController, AVCaptureMetadata
         view.layer.insertSublayer(preview, at: 0)
         previewLayer = preview
 
-        DispatchQueue.global(qos: .userInitiated).async { [session] in
-            session.startRunning()
+        updateSessionRunningState()
+    }
+
+    private func updateSessionRunningState() {
+        let shouldRun = isViewLoaded && view.window != nil && !isPaused && previewLayer != nil
+        sessionQueue.async { [session] in
+            if shouldRun, !session.isRunning {
+                session.startRunning()
+            } else if !shouldRun, session.isRunning {
+                session.stopRunning()
+            }
         }
     }
 

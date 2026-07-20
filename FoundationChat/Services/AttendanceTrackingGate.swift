@@ -17,6 +17,27 @@ enum AttendanceTrackingGate {
         return firstPunchIn.nilIfBlank != nil && lastPunchOut.nilIfBlank == nil
     }
 
+    /// Matches Android's attendance UI rule: only the latest explicit mobile
+    /// punch-out completes the day. Biometric/gate activity keeps Clock Out available.
+    static func isClockedOutOnMobile(
+        daySessions: [ConvexDaySession]?,
+        attendanceSessions: [ConvexAttendanceSession]?
+    ) -> Bool {
+        if let daySessions {
+            return computeClockedOutOnMobile(
+                daySessions.map {
+                    ($0.punchInTime, $0.punchOutTime, $0.punchOutSource)
+                }
+            )
+        }
+
+        return computeClockedOutOnMobile(
+            (attendanceSessions ?? []).map {
+                ($0.punchInTime, $0.punchOutTime, $0.punchOutSource)
+            }
+        )
+    }
+
     static func isClockedInForToday(token: String, date: Date = Date()) async -> Bool {
         let formatter = DateFormatter()
         formatter.dateFormat = "yyyy-MM-dd"
@@ -68,6 +89,45 @@ enum AttendanceTrackingGate {
             lastPunchOut: lastPunchOut,
             hasOpenSession: hasOpenSession
         )
+    }
+
+    private static func computeClockedOutOnMobile(
+        _ sessions: [(punchInTime: String?, punchOutTime: String?, punchOutSource: String?)]
+    ) -> Bool {
+        var latestMobilePunchOut: Date?
+        var latestOtherActivity: Date?
+
+        for session in sessions {
+            if let punchIn = attendanceTimestamp(session.punchInTime),
+               latestOtherActivity == nil || punchIn > latestOtherActivity! {
+                latestOtherActivity = punchIn
+            }
+
+            guard let punchOut = attendanceTimestamp(session.punchOutTime) else { continue }
+            if session.punchOutSource?.trimmingCharacters(in: .whitespacesAndNewlines)
+                .caseInsensitiveCompare("mobile") == .orderedSame {
+                if latestMobilePunchOut == nil || punchOut > latestMobilePunchOut! {
+                    latestMobilePunchOut = punchOut
+                }
+            } else if latestOtherActivity == nil || punchOut > latestOtherActivity! {
+                latestOtherActivity = punchOut
+            }
+        }
+
+        guard let latestMobilePunchOut else { return false }
+        guard let latestOtherActivity else { return true }
+        return latestMobilePunchOut >= latestOtherActivity
+    }
+
+    private static func attendanceTimestamp(_ raw: String?) -> Date? {
+        guard let raw = raw.nilIfBlank else { return nil }
+
+        let formatter = ISO8601DateFormatter()
+        formatter.formatOptions = [.withInternetDateTime, .withFractionalSeconds]
+        if let date = formatter.date(from: raw) { return date }
+
+        formatter.formatOptions = [.withInternetDateTime]
+        return formatter.date(from: raw)
     }
 }
 

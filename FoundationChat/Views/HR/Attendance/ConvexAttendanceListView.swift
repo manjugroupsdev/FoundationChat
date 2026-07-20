@@ -29,7 +29,7 @@ private enum AttendanceListTab: String, CaseIterable, Identifiable {
     }
 }
 
-private enum HRReviewSubTab: String, CaseIterable, Identifiable {
+private enum AttendanceApprovalSubTab: String, CaseIterable, Identifiable {
     case attendance
     case request
 
@@ -59,7 +59,8 @@ struct ConvexAttendanceListView: View {
     @State private var errorMessage: String?
     @State private var filter: AttendanceFilter = .currentMonth()
     @State private var selectedTab: AttendanceListTab = .my
-    @State private var hrReviewSubTab: HRReviewSubTab = .attendance
+    @State private var isReportingOfficer = false
+    @State private var approvalSubTab: AttendanceApprovalSubTab = .attendance
     @State private var showFilter = false
     @State private var showSearch = false
     @State private var searchText = ""
@@ -68,6 +69,29 @@ struct ConvexAttendanceListView: View {
     @State private var requestReviewRecord: ConvexAttendanceRecord?
     @State private var editRecord: ConvexAttendanceRecord?
     @State private var submittedRequestDates: Set<String> = []
+
+    private var visibleTabs: [AttendanceListTab] {
+        var tabs: [AttendanceListTab] = [.my]
+        let canApproveTeam = authStore.hasPermission("attendance.teamApprove")
+            || authStore.hasPermission("attendance.approve")
+        let canViewAllApprovals = authStore.hasPermission("attendance.viewAllApprovals")
+        let canReviewForHR = authStore.hasPermission("attendance.hrReview")
+            || authStore.hasPermission("attendance.viewAllApprovals")
+
+        if canApproveTeam || isReportingOfficer {
+            tabs.append(contentsOf: [.team, .approval])
+        }
+        if canViewAllApprovals {
+            tabs.append(.allApproval)
+        }
+        if canReviewForHR {
+            tabs.append(.hrReview)
+        }
+        if authStore.hasPermission("attendance.viewAll") {
+            tabs.append(.all)
+        }
+        return tabs
+    }
 
     private var filteredRecords: [ConvexAttendanceRecord] {
         myAttendanceRows.filter { filter.matches(status: $0.approvedAttendance ?? $0.status) }
@@ -78,18 +102,29 @@ struct ConvexAttendanceListView: View {
     }
 
     private var filteredApprovalRecords: [ConvexAttendanceRecord] {
-        approvalRecords.filter { filter.matches(status: $0.approvedAttendance ?? $0.status) }
+        approvalRecords
+            .filter { record in
+                let isRequest = isAttendanceRequest(record)
+                return approvalSubTab == .request
+                    ? isRequest
+                    : !isRequest && !isRequestLinkedAttendance(record)
+            }
+            .filter { filter.matches(status: $0.approvedAttendance ?? $0.status) }
     }
 
     private var filteredAllApprovalRecords: [ConvexAttendanceRecord] {
-        allApprovalRecords.filter { filter.matches(status: $0.approvedAttendance ?? $0.status) }
+        allApprovalRecords
+            .filter { !isAttendanceRequest($0) && !isRequestLinkedAttendance($0) }
+            .filter { filter.matches(status: $0.approvedAttendance ?? $0.status) }
     }
 
     private var filteredHrReviewRecords: [ConvexAttendanceRecord] {
         hrReviewRecords
             .filter { record in
-                let isRequest = isHrReviewRequest(record)
-                return hrReviewSubTab == .request ? isRequest : !isRequest
+                let isRequest = isAttendanceRequest(record)
+                return approvalSubTab == .request
+                    ? isRequest
+                    : !isRequest && !isRequestLinkedAttendance(record)
             }
             .filter { filter.matches(status: $0.approvedAttendance ?? $0.status) }
     }
@@ -124,6 +159,11 @@ struct ConvexAttendanceListView: View {
         searchText.trimmingCharacters(in: .whitespacesAndNewlines).lowercased()
     }
 
+    private var allServerQueryKey: String {
+        let range = filter.apiRange
+        return "\(selectedTab.rawValue)|\(range.from)|\(range.to)|\(normalizedSearchText)"
+    }
+
     private var presentDays: Int {
         let today = Self.dateKeyFormatter.string(from: Date())
         return records.filter { record in
@@ -156,9 +196,11 @@ struct ConvexAttendanceListView: View {
                 attendanceSearchBar
                     .transition(.move(edge: .top).combined(with: .opacity))
             }
-            attendanceTabStrip
-            if selectedTab == .hrReview {
-                hrReviewSubTabStrip
+            if visibleTabs.count > 1 {
+                attendanceTabStrip
+            }
+            if selectedTab == .approval || selectedTab == .hrReview {
+                approvalSubTabStrip
             }
             content
         }
@@ -226,7 +268,7 @@ struct ConvexAttendanceListView: View {
             AttendanceRequestReviewSheet(record: record) {
                 await loadDataAsync()
             }
-            .appLibraryNativeSheet([.height(690), .large])
+            .appLibraryNativeSheet([.medium, .large])
         }
         .sheet(item: $editRecord) { record in
             AttendanceRequestSheet(record: record) {
@@ -238,8 +280,30 @@ struct ConvexAttendanceListView: View {
         .task(id: filter.apiRange.from + "_" + filter.apiRange.to) {
             await loadDataAsync()
         }
+        .task(id: allServerQueryKey) {
+            guard selectedTab == .all else { return }
+            do {
+                try await Task.sleep(for: .milliseconds(400))
+            } catch {
+                return
+            }
+            await loadAllAttendance()
+        }
+        .task {
+            await authStore.refreshIAMPermissions()
+            await resolveAttendanceTeamScope()
+        }
         .onChange(of: selectedTab) { _, tab in
-            loadTabIfNeeded(tab)
+            if tab == .approval || tab == .hrReview {
+                approvalSubTab = .attendance
+            }
+            if tab != .all {
+                loadTabIfNeeded(tab)
+            }
+        }
+        .onChange(of: visibleTabs) { _, tabs in
+            guard !tabs.contains(selectedTab) else { return }
+            selectedTab = .my
         }
     }
 
@@ -385,7 +449,7 @@ struct ConvexAttendanceListView: View {
     private var attendanceTabStrip: some View {
         ScrollView(.horizontal, showsIndicators: false) {
             HStack(spacing: 8) {
-                ForEach(AttendanceListTab.allCases) { tab in
+                ForEach(visibleTabs) { tab in
                     Button {
                         selectedTab = tab
                         loadTabIfNeeded(tab)
@@ -401,28 +465,28 @@ struct ConvexAttendanceListView: View {
         .background(Color(hex: 0xF0F3F8))
     }
 
-    private var hrReviewSubTabStrip: some View {
+    private var approvalSubTabStrip: some View {
         HStack(spacing: 0) {
-            ForEach(HRReviewSubTab.allCases) { tab in
+            ForEach(AttendanceApprovalSubTab.allCases) { tab in
                 Button {
-                    hrReviewSubTab = tab
+                    approvalSubTab = tab
                 } label: {
                     HStack(spacing: 5) {
                         Text(tab.title)
                             .font(.system(size: 13, weight: .medium))
                             .lineLimit(1)
-                        Text("\(hrReviewCount(for: tab))")
+                        Text("\(approvalSubTabCount(for: tab))")
                             .font(.system(size: 9, weight: .bold))
-                            .foregroundStyle(hrReviewSubTab == tab ? Color(hex: 0x0B61CA) : .white)
+                            .foregroundStyle(approvalSubTab == tab ? Color(hex: 0x0B61CA) : .white)
                             .padding(.horizontal, 5)
                             .frame(height: 15)
-                            .background(hrReviewSubTab == tab ? Color.white : Color(hex: 0x0B61CA), in: Capsule())
+                            .background(approvalSubTab == tab ? Color.white : Color(hex: 0x0B61CA), in: Capsule())
                     }
-                    .foregroundStyle(hrReviewSubTab == tab ? .white : Color(hex: 0x344054))
+                    .foregroundStyle(approvalSubTab == tab ? .white : Color(hex: 0x344054))
                     .frame(maxWidth: .infinity)
                     .frame(height: 34)
                     .background(
-                        hrReviewSubTab == tab ? Color(hex: 0x0B61CA) : Color.white,
+                        approvalSubTab == tab ? Color(hex: 0x0B61CA) : Color.white,
                         in: RoundedRectangle(cornerRadius: 8, style: .continuous)
                     )
                 }
@@ -436,14 +500,25 @@ struct ConvexAttendanceListView: View {
         .background(Color(hex: 0xF0F3F8))
     }
 
-    private func hrReviewCount(for tab: HRReviewSubTab) -> Int {
-        hrReviewRecords.filter { record in
-            let isRequest = isHrReviewRequest(record)
-            return tab == .request ? isRequest : !isRequest
+    private func approvalSubTabCount(for tab: AttendanceApprovalSubTab) -> Int {
+        let source = selectedTab == .approval ? approvalRecords : hrReviewRecords
+        return source.filter { record in
+            let isRequest = isAttendanceRequest(record)
+            return tab == .request
+                ? isRequest
+                : !isRequest && !isRequestLinkedAttendance(record)
         }.count
     }
 
-    private func isHrReviewRequest(_ record: ConvexAttendanceRecord) -> Bool {
+    private func isAttendanceRequest(_ record: ConvexAttendanceRecord) -> Bool {
+        // HR review also contains attendance rows linked to a request. Only
+        // real attendanceRequests documents carry requestStage and can be
+        // sent through the request approval/rejection mutations.
+        record.requestStage?.nilIfBlank != nil
+    }
+
+    private func isRequestLinkedAttendance(_ record: ConvexAttendanceRecord) -> Bool {
+        guard !isAttendanceRequest(record) else { return false }
         let type = record.requestType?.lowercased().trimmingCharacters(in: .whitespacesAndNewlines)
         return type == "remarks" || type == "correction"
     }
@@ -539,23 +614,26 @@ struct ConvexAttendanceListView: View {
                                 .onTapGesture {
                                     selectedRecord = record
                                 }
-                        case .approval, .allApproval:
-                            TeamAttendanceCard(
-                                record: record,
-                                actionStyle: .reviewReject,
-                                onPrimary: {
-                                    approvalReviewRecord = record
-                                },
-                                onSecondary: {
-                                    approvalReviewRecord = record
+                        case .approval:
+                            if approvalSubTab == .request {
+                                TeamAttendanceCard(
+                                    record: record,
+                                    actionStyle: .hrReview,
+                                    onPrimary: {
+                                        requestReviewRecord = record
+                                    }
+                                )
+                                .contentShape(Rectangle())
+                                .onTapGesture {
+                                    requestReviewRecord = record
                                 }
-                            )
-                            .contentShape(Rectangle())
-                            .onTapGesture {
-                                approvalReviewRecord = record
+                            } else {
+                                approvalCard(record)
                             }
+                        case .allApproval:
+                            approvalCard(record)
                         case .hrReview:
-                            if hrReviewSubTab == .request {
+                            if approvalSubTab == .request {
                                 TeamAttendanceCard(
                                     record: record,
                                     actionStyle: .hrReview,
@@ -591,6 +669,23 @@ struct ConvexAttendanceListView: View {
                 .padding(.bottom, 24)
             }
             .refreshable { await loadDataAsync() }
+        }
+    }
+
+    private func approvalCard(_ record: ConvexAttendanceRecord) -> some View {
+        TeamAttendanceCard(
+            record: record,
+            actionStyle: .reviewReject,
+            onPrimary: {
+                approvalReviewRecord = record
+            },
+            onSecondary: {
+                approvalReviewRecord = record
+            }
+        )
+        .contentShape(Rectangle())
+        .onTapGesture {
+            approvalReviewRecord = record
         }
     }
 
@@ -652,7 +747,19 @@ struct ConvexAttendanceListView: View {
             errorMessage = error.localizedDescription
         }
         isLoading = false
-        loadTabIfNeeded(selectedTab)
+        if selectedTab != .all {
+            loadTabIfNeeded(selectedTab)
+        }
+    }
+
+    @MainActor
+    private func resolveAttendanceTeamScope() async {
+        guard let token = authStore.currentSession?.token else { return }
+        do {
+            isReportingOfficer = try await HRConvexAPIService.hasAttendanceTeamScope(token: token)
+        } catch {
+            isReportingOfficer = false
+        }
     }
 
     private func isTabLoading(_ tab: AttendanceListTab) -> Bool {
@@ -660,7 +767,8 @@ struct ConvexAttendanceListView: View {
     }
 
     private func loadTabIfNeeded(_ tab: AttendanceListTab) {
-        guard tab != .my,
+        guard visibleTabs.contains(tab),
+              tab != .my,
               !loadedTabs.contains(tab),
               !loadingTabs.contains(tab),
               let token = authStore.currentSession?.token
@@ -679,7 +787,11 @@ struct ConvexAttendanceListView: View {
                 }
             case .approval:
                 loadedRecords = await Self.optionalAttendanceLoad {
-                    try await HRConvexAPIService.getPendingAttendanceApprovals(token: token)
+                    try await HRConvexAPIService.getPendingAttendanceApprovals(
+                        token: token,
+                        scope: "direct",
+                        includeRequests: true
+                    )
                 }
             case .allApproval:
                 loadedRecords = await Self.optionalAttendanceLoad {
@@ -697,8 +809,9 @@ struct ConvexAttendanceListView: View {
                 loadedRecords = await Self.optionalAttendanceLoad {
                     try await HRConvexAPIService.getAllAttendance(
                         token: token,
-                        fromDate: Self.allTimeReviewRange.from,
-                        toDate: Self.allTimeReviewRange.to
+                        fromDate: from,
+                        toDate: to,
+                        search: normalizedSearchText.nilIfBlank
                     )
                 }
             }
@@ -722,6 +835,35 @@ struct ConvexAttendanceListView: View {
                 loadedTabs.insert(tab)
             }
         }
+    }
+
+    @MainActor
+    private func loadAllAttendance() async {
+        guard selectedTab == .all,
+              let token = authStore.currentSession?.token
+        else { return }
+
+        let range = filter.apiRange
+        let query = normalizedSearchText.nilIfBlank
+        loadingTabs.insert(.all)
+        do {
+            let loadedRecords = try await HRConvexAPIService.getAllAttendance(
+                token: token,
+                fromDate: range.from,
+                toDate: range.to,
+                search: query
+            )
+            guard !Task.isCancelled else { return }
+            allRecords = loadedRecords
+            loadedTabs.insert(.all)
+            errorMessage = nil
+        } catch {
+            guard !(error is CancellationError),
+                  (error as NSError).code != NSURLErrorCancelled
+            else { return }
+            errorMessage = error.localizedDescription
+        }
+        loadingTabs.remove(.all)
     }
 
     private static func optionalAttendanceLoad(_ loader: @escaping () async throws -> [ConvexAttendanceRecord]) async -> [ConvexAttendanceRecord] {
@@ -1358,59 +1500,62 @@ private struct AttendanceApprovalReviewSheet: View {
     @State private var replayTask: Task<Void, Never>?
 
     var body: some View {
-        VStack(spacing: 0) {
-            ScrollViewReader { proxy in
-                ScrollView {
-                    VStack(alignment: .leading, spacing: 18) {
-                        header
-                        reviewTabs(proxy: proxy)
-                        punchSummary
-                            .id("summary")
-                        travelSummary
-                        routePreview
-                            .id("route")
-                        punchTimeline
-                            .id("timeline")
+        NavigationStack {
+            VStack(spacing: 0) {
+                ScrollViewReader { proxy in
+                    ScrollView {
+                        VStack(alignment: .leading, spacing: 18) {
+                            header
+                            reviewTabs(proxy: proxy)
+                            punchSummary
+                                .id("summary")
+                            travelSummary
+                            routePreview
+                                .id("route")
+                            punchTimeline
+                                .id("timeline")
 
-                        if showRejectReason {
-                            rejectionEditor
-                        }
+                            if showRejectReason {
+                                rejectionEditor
+                            }
 
-                        if let errorMessage {
-                            Label(errorMessage, systemImage: "exclamationmark.triangle.fill")
-                                .font(.system(size: 12, weight: .medium))
-                                .foregroundStyle(Color(hex: 0xB42318))
+                            if let errorMessage {
+                                Label(errorMessage, systemImage: "exclamationmark.triangle.fill")
+                                    .font(.system(size: 12, weight: .medium))
+                                    .foregroundStyle(Color(hex: 0xB42318))
+                            }
                         }
-                    }
-                    .padding(.horizontal, 20)
-                    .padding(.bottom, 12)
-                    .onChange(of: selectedTab) { _, tab in
-                        let target = tab == 0 ? "summary" : (tab == 1 ? "route" : "timeline")
-                        withAnimation(.snappy(duration: 0.35)) {
-                            proxy.scrollTo(target, anchor: .top)
+                        .padding(.horizontal, 20)
+                        .padding(.top, 12)
+                        .padding(.bottom, 12)
+                        .onChange(of: selectedTab) { _, tab in
+                            let target = tab == 0 ? "summary" : (tab == 1 ? "route" : "timeline")
+                            withAnimation(.snappy(duration: 0.35)) {
+                                proxy.scrollTo(target, anchor: .top)
+                            }
                         }
                     }
                 }
-            }
 
-            decisionButtons
-            .padding(.horizontal, 20)
-            .padding(.top, 8)
-            .padding(.bottom, 10)
-            .background {
-                Color.white.ignoresSafeArea(.container, edges: .bottom)
+                decisionButtons
+                    .padding(.horizontal, 20)
+                    .padding(.top, 8)
+                    .padding(.bottom, 10)
+                    .background {
+                        Color.white.ignoresSafeArea(.container, edges: .bottom)
+                    }
+            }
+            .background(Color.white)
+            .navigationTitle("Attendance Review")
+            .navigationBarTitleDisplayMode(.inline)
+            .toolbar {
+                ToolbarItem(placement: .cancellationAction) {
+                    Button("Cancel") { dismiss() }
+                        .disabled(isSubmitting)
+                }
             }
         }
-        .background(Color.white)
-        .clipShape(
-            UnevenRoundedRectangle(
-                topLeadingRadius: 28,
-                bottomLeadingRadius: 0,
-                bottomTrailingRadius: 0,
-                topTrailingRadius: 28,
-                style: .continuous
-            )
-        )
+        .interactiveDismissDisabled(isSubmitting)
         .task(id: "\(record.staffId ?? "")-\(record.date ?? "")") {
             await loadRouteData()
         }
@@ -1420,15 +1565,10 @@ private struct AttendanceApprovalReviewSheet: View {
     }
 
     private var header: some View {
-        HStack(alignment: .top) {
-            VStack(alignment: .leading, spacing: 4) {
-                Text("Attendance Review")
-                    .font(.system(size: 20, weight: .bold))
-                    .foregroundStyle(Color(hex: 0x101828))
-                Text(AttendanceSheetFormat.displayDate(record.date, style: .reviewSubtitle))
-                    .font(.system(size: 13, weight: .medium))
-                    .foregroundStyle(Color(hex: 0x667085))
-            }
+        HStack {
+            Text(AttendanceSheetFormat.displayDate(record.date, style: .reviewSubtitle))
+                .font(.system(size: 14, weight: .medium))
+                .foregroundStyle(Color(hex: 0x667085))
             Spacer()
             statusPill
         }
@@ -1973,299 +2113,196 @@ private struct AttendanceRequestReviewSheet: View {
     let onCompleted: () async -> Void
 
     @State private var showRejectReason = false
+    @State private var showApprovalOptions = false
     @State private var rejectionReason = ""
     @State private var isSubmitting = false
     @State private var errorMessage: String?
 
     var body: some View {
-        VStack(spacing: 0) {
-            ScrollView {
-                VStack(alignment: .leading, spacing: 18) {
-                    HStack(alignment: .top) {
-                        Text("Review Attendance Request")
-                            .font(.system(size: 20, weight: .bold))
-                            .foregroundStyle(Color(hex: 0x101828))
-                        Spacer()
-                        Button { dismiss() } label: {
-                            Image(systemName: "xmark")
-                                .font(.system(size: 18, weight: .medium))
-                                .foregroundStyle(Color(hex: 0x344054))
-                        }
-                        .buttonStyle(.plain)
-                    }
-
+        NavigationStack {
+            List {
+                Section {
                     staffHeader
-                    recordedActual
 
-                    if showRejectReason {
-                        requestRejectionEditor
-                    } else {
-                        requestDetails
-                    }
-
-                    if let errorMessage {
-                        Label(errorMessage, systemImage: "exclamationmark.triangle.fill")
-                            .font(.system(size: 12, weight: .medium))
-                            .foregroundStyle(Color(hex: 0xB42318))
-                    }
+                    LabeledContent("Request type", value: requestTypeLabel)
+                    LabeledContent("Submitted", value: submittedValue)
                 }
-                .padding(.horizontal, 22)
-                .padding(.bottom, 12)
+
+                Section("Recorded (Actual)") {
+                    attendanceTimes(
+                        leftTitle: "Punch In",
+                        leftValue: AttendanceSheetFormat.time(actualPunchIn) ?? "--",
+                        rightTitle: "Punch Out",
+                        rightValue: AttendanceSheetFormat.time(actualPunchOut) ?? "--"
+                    )
+                }
+
+                requestDetails
             }
-
-            VStack(spacing: 10) {
-                HStack(spacing: 10) {
-                    requestActionButton("Cancel", tint: Color(hex: 0x101828), fill: .white, stroke: Color(hex: 0xE4E7EC)) {
-                        dismiss()
-                    }
-                    requestActionButton("Reject", icon: "xmark.circle", tint: Color(hex: 0xF04438), fill: .white, stroke: Color(hex: 0xFECACA)) {
-                        if showRejectReason {
-                            reject()
-                        } else {
-                            showRejectReason = true
-                        }
-                    }
-                }
-
-                requestActionButton("Time Correction", icon: "clock.arrow.circlepath", tint: Color(hex: 0x0B61CA), fill: Color(hex: 0xEFF6FF), stroke: Color(hex: 0xBFDBFE)) {
-                    approve("time-correction")
-                }
-
-                HStack(spacing: 10) {
-                    requestActionButton("Absent", tint: Color(hex: 0x101828), fill: .white, stroke: Color(hex: 0xE4E7EC)) {
-                        approve("absent")
-                    }
-                    requestActionButton("Present", icon: "checkmark", tint: .white, fill: Color(hex: 0x118A12), stroke: Color(hex: 0x118A12)) {
-                        approve("present")
-                    }
+            .listStyle(.insetGrouped)
+            .navigationTitle("Review Request")
+            .navigationBarTitleDisplayMode(.inline)
+            .toolbar {
+                ToolbarItem(placement: .cancellationAction) {
+                    Button("Cancel") { dismiss() }
+                        .disabled(isSubmitting)
                 }
             }
-            .padding(.horizontal, 22)
-            .padding(.top, 10)
-            .padding(.bottom, 18)
-            .background(Color.white)
+            .safeAreaInset(edge: .bottom, spacing: 0) {
+                actionBar
+            }
         }
-        .background(Color.white)
-        .clipShape(
-            UnevenRoundedRectangle(
-                topLeadingRadius: 28,
-                bottomLeadingRadius: 0,
-                bottomTrailingRadius: 0,
-                topTrailingRadius: 28,
-                style: .continuous
-            )
-        )
+        .interactiveDismissDisabled(isSubmitting)
+        .alert("Reject Attendance Request", isPresented: $showRejectReason) {
+            TextField("Reason", text: $rejectionReason)
+            Button("Cancel", role: .cancel) {}
+            Button("Reject", role: .destructive) {
+                reject()
+            }
+            .disabled(rejectionReason.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty)
+        } message: {
+            Text("Enter a reason. It will be visible in the attendance request history.")
+        }
+        .sheet(isPresented: $showApprovalOptions) {
+            AttendanceApprovalStatusSheet { status in
+                showApprovalOptions = false
+                approve(status)
+            }
+            .appLibraryNativeSheet([.height(330)])
+        }
+        .onChange(of: rejectionReason) { _, value in
+            if value.count > 200 {
+                rejectionReason = String(value.prefix(200))
+            }
+        }
     }
 
     private var staffHeader: some View {
-        VStack(alignment: .leading, spacing: 14) {
-            HStack(spacing: 12) {
-                Text(staffInitial)
-                    .font(.system(size: 16, weight: .bold))
-                    .foregroundStyle(Color(hex: 0x0B61CA))
-                    .frame(width: 48, height: 48)
-                    .background(Color(hex: 0xEFF8FF), in: Circle())
-                VStack(alignment: .leading, spacing: 4) {
-                    Text(record.staffName?.nilIfBlank ?? "Staff")
-                        .font(.system(size: 17, weight: .bold))
-                    Text(AttendanceSheetFormat.displayDate(record.date, style: .weekdayDate))
-                        .font(.system(size: 13, weight: .medium))
-                        .foregroundStyle(Color(hex: 0x667085))
-                }
-                Spacer()
-                HStack(spacing: 5) {
-                    Circle()
-                        .fill(Color(hex: 0x12B76A))
-                        .frame(width: 7, height: 7)
-                    Text("Present")
-                        .font(.system(size: 12, weight: .semibold))
-                }
-                .foregroundStyle(Color(hex: 0x169B2F))
-                .padding(.horizontal, 11)
-                .frame(height: 32)
-                .background(Color(hex: 0xECFDF3), in: Capsule())
-            }
+        HStack(spacing: 12) {
+            Text(staffInitial)
+                .font(.system(size: 17, weight: .bold))
+                .foregroundStyle(Color.accentColor)
+                .frame(width: 44, height: 44)
+                .background(Color.accentColor.opacity(0.1), in: Circle())
 
-            HStack(spacing: 14) {
-                Text(AttendanceSheetFormat.source(record.source))
-                    .font(.system(size: 13, weight: .semibold))
-                    .foregroundStyle(Color(hex: 0x169B2F))
-                    .padding(.horizontal, 12)
-                    .frame(height: 34)
-                    .background(Color(hex: 0xF6FEF9), in: RoundedRectangle(cornerRadius: 8))
-                    .overlay(RoundedRectangle(cornerRadius: 8).stroke(Color(hex: 0xD1FADF), lineWidth: 1))
-                Text(submittedLabel)
-                    .font(.system(size: 12, weight: .medium))
-                    .foregroundStyle(Color(hex: 0x667085))
+            VStack(alignment: .leading, spacing: 3) {
+                Text(record.staffName?.nilIfBlank ?? "Staff")
+                    .font(.headline)
                     .lineLimit(1)
-                    .minimumScaleFactor(0.75)
+                Text(AttendanceSheetFormat.displayDate(record.date, style: .weekdayDate))
+                    .font(.subheadline)
+                    .foregroundStyle(.secondary)
             }
-        }
-    }
 
-    private var recordedActual: some View {
-        timeBox(
-            title: "Recorded (Actual)",
-            leftTitle: "Punch In",
-            leftValue: AttendanceSheetFormat.time(actualPunchIn) ?? "--",
-            rightTitle: "Punch Out",
-            rightValue: AttendanceSheetFormat.time(actualPunchOut) ?? "--"
-        )
+            Spacer(minLength: 8)
+
+            Label("Present", systemImage: "circle.fill")
+                .font(.caption.weight(.semibold))
+                .foregroundStyle(.green)
+                .labelStyle(.titleAndIcon)
+        }
     }
 
     @ViewBuilder
     private var requestDetails: some View {
         if hasCorrectionDetails {
-            requestedCorrection
+            Section("Requested Correction") {
+                attendanceTimes(
+                    leftTitle: "Punch In",
+                    leftValue: AttendanceSheetFormat.time(record.requestedPunchIn) ?? "--",
+                    rightTitle: "Punch Out",
+                    rightValue: AttendanceSheetFormat.time(record.requestedPunchOut) ?? "--"
+                )
+
+                VStack(alignment: .leading, spacing: 5) {
+                    Text("Reason")
+                        .font(.caption)
+                        .foregroundStyle(.secondary)
+                    Text(requestReasonText)
+                        .font(.body)
+                        .fixedSize(horizontal: false, vertical: true)
+                        .textSelection(.enabled)
+                }
+                .padding(.vertical, 2)
+            }
         } else {
-            submittedRemark
-        }
-    }
-
-    private var requestedCorrection: some View {
-        VStack(alignment: .leading, spacing: 12) {
-            Text("Requested Correction")
-                .font(.system(size: 15, weight: .bold))
-                .foregroundStyle(Color(hex: 0x169B2F))
-            HStack(spacing: 12) {
-                correctionField(title: "Requested Punch In", value: AttendanceSheetFormat.time(record.requestedPunchIn) ?? "--")
-                correctionField(title: "Requested Punch Out", value: AttendanceSheetFormat.time(record.requestedPunchOut) ?? "--")
-            }
-            VStack(alignment: .leading, spacing: 5) {
-                Text("Reason")
-                    .font(.system(size: 12, weight: .medium))
-                    .foregroundStyle(Color(hex: 0x475467))
+            Section("Submitted Remark") {
                 Text(requestReasonText)
-                    .font(.system(size: 14, weight: .medium))
-                    .foregroundStyle(Color(hex: 0x101828))
+                    .font(.body)
                     .fixedSize(horizontal: false, vertical: true)
+                    .textSelection(.enabled)
             }
         }
-        .padding(14)
-        .background(Color(hex: 0xF6FEF9), in: RoundedRectangle(cornerRadius: 10, style: .continuous))
-        .overlay(RoundedRectangle(cornerRadius: 10).stroke(Color(hex: 0xD1FADF), lineWidth: 1))
     }
 
-    private var submittedRemark: some View {
-        VStack(alignment: .leading, spacing: 10) {
-            Text("Submitted Remark")
-                .font(.system(size: 15, weight: .bold))
-                .foregroundStyle(Color(hex: 0x0B61CA))
-            Text(requestReasonText)
-                .font(.system(size: 14, weight: .medium))
-                .foregroundStyle(Color(hex: 0x101828))
-                .fixedSize(horizontal: false, vertical: true)
-        }
-        .frame(maxWidth: .infinity, alignment: .leading)
-        .padding(14)
-        .background(Color(hex: 0xEFF6FF), in: RoundedRectangle(cornerRadius: 10, style: .continuous))
-        .overlay(RoundedRectangle(cornerRadius: 10).stroke(Color(hex: 0xBFDBFE), lineWidth: 1))
-    }
+    private var actionBar: some View {
+        VStack(spacing: 8) {
+            if let errorMessage {
+                Label(errorMessage, systemImage: "exclamationmark.triangle.fill")
+                    .font(.footnote)
+                    .foregroundStyle(.red)
+                    .frame(maxWidth: .infinity, alignment: .leading)
+            }
 
-    private var requestRejectionEditor: some View {
-        VStack(alignment: .leading, spacing: 10) {
-            Text("Rejection Reason (If rejecting)")
-                .font(.system(size: 15, weight: .semibold))
-                .foregroundStyle(Color(hex: 0x101828))
-            ZStack(alignment: .topLeading) {
-                if rejectionReason.isEmpty {
-                    Text("Enter reason for rejection...")
-                        .font(.system(size: 14, weight: .medium))
-                        .foregroundStyle(Color(hex: 0x98A2B3))
-                        .padding(.horizontal, 14)
-                        .padding(.top, 14)
+            HStack(spacing: 12) {
+                Button(role: .destructive) {
+                    showRejectReason = true
+                } label: {
+                    Label("Reject", systemImage: "xmark.circle")
+                        .frame(maxWidth: .infinity)
                 }
-                TextEditor(text: $rejectionReason)
-                    .font(.system(size: 14))
-                    .scrollContentBackground(.hidden)
-                    .frame(height: 170)
-                    .padding(8)
-                Text("\(rejectionReason.count)/200")
-                    .font(.system(size: 11, weight: .medium))
-                    .foregroundStyle(Color(hex: 0x98A2B3))
-                    .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .bottomTrailing)
-                    .padding(12)
-            }
-            .background(Color.white, in: RoundedRectangle(cornerRadius: 10))
-            .overlay(RoundedRectangle(cornerRadius: 10).stroke(Color(hex: 0xE4E7EC), lineWidth: 1))
-            .onChange(of: rejectionReason) { _, value in
-                if value.count > 200 {
-                    rejectionReason = String(value.prefix(200))
+                .buttonStyle(.bordered)
+
+                Button {
+                    showApprovalOptions = true
+                } label: {
+                    HStack(spacing: 6) {
+                        if isSubmitting {
+                            ProgressView()
+                                .tint(.white)
+                        } else {
+                            Image(systemName: "checkmark.circle")
+                        }
+                        Text(isSubmitting ? "Saving" : "Approve")
+                    }
+                    .frame(maxWidth: .infinity)
                 }
+                .buttonStyle(.borderedProminent)
+                .tint(.green)
             }
+            .controlSize(.large)
         }
-    }
-
-    private func timeBox(title: String, leftTitle: String, leftValue: String, rightTitle: String, rightValue: String) -> some View {
-        VStack(alignment: .leading, spacing: 14) {
-            Text(title)
-                .font(.system(size: 14, weight: .semibold))
-                .foregroundStyle(Color(hex: 0x344054))
-            HStack(spacing: 20) {
-                correctionMetric(title: leftTitle, value: leftValue)
-                correctionMetric(title: rightTitle, value: rightValue)
-            }
-        }
-        .padding(14)
-        .background(Color.white, in: RoundedRectangle(cornerRadius: 10))
-        .overlay(RoundedRectangle(cornerRadius: 10).stroke(Color(hex: 0xE4E7EC), lineWidth: 1))
-    }
-
-    private func correctionMetric(title: String, value: String) -> some View {
-        VStack(alignment: .leading, spacing: 8) {
-            Text(title)
-                .font(.system(size: 13, weight: .medium))
-                .foregroundStyle(Color(hex: 0x475467))
-            HStack(spacing: 8) {
-                Text(value)
-                    .font(.system(size: 17, weight: .semibold))
-                Image(systemName: "clock")
-                    .font(.system(size: 13, weight: .medium))
-            }
-        }
-        .frame(maxWidth: .infinity, alignment: .leading)
-    }
-
-    private func correctionField(title: String, value: String) -> some View {
-        VStack(alignment: .leading, spacing: 8) {
-            Text(title)
-                .font(.system(size: 12, weight: .medium))
-                .foregroundStyle(Color(hex: 0x475467))
-            HStack {
-                Text(value)
-                    .font(.system(size: 16, weight: .semibold))
-                Spacer()
-                Image(systemName: "clock")
-                    .font(.system(size: 13, weight: .medium))
-            }
-            .padding(.horizontal, 12)
-            .frame(height: 48)
-            .background(Color.white, in: RoundedRectangle(cornerRadius: 8))
-            .overlay(RoundedRectangle(cornerRadius: 8).stroke(Color(hex: 0xE4E7EC), lineWidth: 1))
-        }
-    }
-
-    private func requestActionButton(_ title: String, icon: String? = nil, tint: Color, fill: Color, stroke: Color, action: @escaping () -> Void) -> some View {
-        Button(action: action) {
-            HStack(spacing: 7) {
-                if let icon {
-                    Image(systemName: icon)
-                        .font(.system(size: 14, weight: .semibold))
-                }
-                Text(title)
-                    .font(.system(size: 14, weight: .semibold))
-                    .lineLimit(1)
-                    .minimumScaleFactor(0.72)
-            }
-            .foregroundStyle(tint)
-            .frame(maxWidth: .infinity)
-            .frame(height: 48)
-            .background(fill, in: RoundedRectangle(cornerRadius: 8, style: .continuous))
-            .overlay(RoundedRectangle(cornerRadius: 8).stroke(stroke, lineWidth: 1))
-        }
-        .buttonStyle(.plain)
+        .padding(.horizontal, 16)
+        .padding(.top, 10)
+        .padding(.bottom, 8)
+        .background(.bar)
         .disabled(isSubmitting)
-        .opacity(isSubmitting ? 0.7 : 1)
+    }
+
+    private func attendanceTimes(leftTitle: String, leftValue: String, rightTitle: String, rightValue: String) -> some View {
+        HStack(spacing: 16) {
+            timeMetric(title: leftTitle, value: leftValue)
+            Divider()
+            timeMetric(title: rightTitle, value: rightValue)
+        }
+        .padding(.vertical, 2)
+    }
+
+    private func timeMetric(title: String, value: String) -> some View {
+        VStack(alignment: .leading, spacing: 4) {
+            Text(title)
+                .font(.caption)
+                .foregroundStyle(.secondary)
+            Label {
+                Text(value)
+                    .font(.headline)
+            } icon: {
+                Image(systemName: "clock")
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+            }
+        }
+        .frame(maxWidth: .infinity, alignment: .leading)
     }
 
     private var staffInitial: String {
@@ -2294,11 +2331,22 @@ private struct AttendanceRequestReviewSheet: View {
         record.requestReason?.nilIfBlank ?? "—"
     }
 
-    private var submittedLabel: String {
-        if let created = record._creationTime {
-            return "Submitted on \(Self.formatCreationTime(created))"
+    private var requestTypeLabel: String {
+        switch requestType {
+        case "correction":
+            return "Correction"
+        case "remark", "remarks":
+            return "Remark"
+        default:
+            return AttendanceSheetFormat.source(record.source)
         }
-        return "Submitted on \(AttendanceSheetFormat.displayDate(record.date, style: .numeric))"
+    }
+
+    private var submittedValue: String {
+        if let created = record._creationTime {
+            return Self.formatCreationTime(created)
+        }
+        return AttendanceSheetFormat.displayDate(record.date, style: .numeric)
     }
 
     private static func formatCreationTime(_ value: Double) -> String {
@@ -2311,11 +2359,16 @@ private struct AttendanceRequestReviewSheet: View {
     }
 
     private func approve(_ status: String) {
-        guard let token = authStore.currentSession?.token else { return }
+        guard let token = authStore.currentSession?.token,
+              let requestID = attendanceRequestID
+        else {
+            errorMessage = "This attendance request could not be identified. Refresh and try again."
+            return
+        }
         isSubmitting = true
         Task {
             do {
-                try await HRConvexAPIService.approveAttendance(token: token, id: record.id, approvedAttendance: status, isRequest: true)
+                try await HRConvexAPIService.approveAttendance(token: token, id: requestID, approvedAttendance: status, isRequest: true)
                 await onCompleted()
                 await MainActor.run { dismiss() }
             } catch {
@@ -2328,7 +2381,12 @@ private struct AttendanceRequestReviewSheet: View {
     }
 
     private func reject() {
-        guard let token = authStore.currentSession?.token else { return }
+        guard let token = authStore.currentSession?.token,
+              let requestID = attendanceRequestID
+        else {
+            errorMessage = "This attendance request could not be identified. Refresh and try again."
+            return
+        }
         let reason = rejectionReason.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !reason.isEmpty else {
             errorMessage = "Enter rejection reason."
@@ -2337,7 +2395,7 @@ private struct AttendanceRequestReviewSheet: View {
         isSubmitting = true
         Task {
             do {
-                try await HRConvexAPIService.rejectAttendance(token: token, id: record.id, reason: reason, isRequest: true)
+                try await HRConvexAPIService.rejectAttendance(token: token, id: requestID, reason: reason, isRequest: true)
                 await onCompleted()
                 await MainActor.run { dismiss() }
             } catch {
@@ -2347,6 +2405,92 @@ private struct AttendanceRequestReviewSheet: View {
                 }
             }
         }
+    }
+
+    private var attendanceRequestID: String? {
+        guard record.requestStage?.nilIfBlank != nil else { return nil }
+        return record._id?.nilIfBlank
+    }
+}
+
+private struct AttendanceApprovalStatusSheet: View {
+    @Environment(\.dismiss) private var dismiss
+
+    let onSelect: (String) -> Void
+
+    var body: some View {
+        NavigationStack {
+            List {
+                Section("Choose the final attendance status") {
+                    statusRow(
+                        title: "Present",
+                        subtitle: "Approve the request as a full working day",
+                        icon: "checkmark.circle.fill",
+                        tint: .green,
+                        status: "present"
+                    )
+                    statusRow(
+                        title: "Absent",
+                        subtitle: "Mark this attendance record as absent",
+                        icon: "person.crop.circle.badge.xmark",
+                        tint: .red,
+                        status: "absent"
+                    )
+                    statusRow(
+                        title: "Time Correction",
+                        subtitle: "Apply the requested punch-time correction",
+                        icon: "clock.arrow.circlepath",
+                        tint: .blue,
+                        status: "time-correction"
+                    )
+                }
+            }
+            .listStyle(.insetGrouped)
+            .navigationTitle("Approve Request")
+            .navigationBarTitleDisplayMode(.inline)
+            .toolbar {
+                ToolbarItem(placement: .cancellationAction) {
+                    Button("Cancel") { dismiss() }
+                }
+            }
+        }
+    }
+
+    private func statusRow(
+        title: String,
+        subtitle: String,
+        icon: String,
+        tint: Color,
+        status: String
+    ) -> some View {
+        Button {
+            dismiss()
+            onSelect(status)
+        } label: {
+            HStack(spacing: 12) {
+                Image(systemName: icon)
+                    .font(.title3)
+                    .foregroundStyle(tint)
+                    .frame(width: 28)
+
+                VStack(alignment: .leading, spacing: 2) {
+                    Text(title)
+                        .font(.body.weight(.semibold))
+                        .foregroundStyle(.primary)
+                    Text(subtitle)
+                        .font(.caption)
+                        .foregroundStyle(.secondary)
+                }
+
+                Spacer(minLength: 8)
+
+                Image(systemName: "chevron.right")
+                    .font(.caption.weight(.semibold))
+                    .foregroundStyle(.tertiary)
+            }
+            .contentShape(Rectangle())
+        }
+        .buttonStyle(.plain)
     }
 }
 

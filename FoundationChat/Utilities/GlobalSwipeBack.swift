@@ -5,8 +5,6 @@ import UIKit
 /// Keeps the native iOS edge-swipe back gesture available across SwiftUI
 /// NavigationStack screens, including pages that customize or hide nav chrome.
 private var globalSwipeBackDelegateKey: UInt8 = 0
-private var globalKeyboardDismissPanKey: UInt8 = 0
-private var globalKeyboardDismissWindowPanKey: UInt8 = 0
 private var globalEdgePopWindowPanKey: UInt8 = 0
 
 private final class GlobalSwipeBackDelegate: NSObject, UIGestureRecognizerDelegate {
@@ -20,18 +18,6 @@ private final class GlobalSwipeBackDelegate: NSObject, UIGestureRecognizerDelega
         UIApplication.shared.fc_dismissKeyboard()
         guard let navigationController else { return false }
         return navigationController.viewControllers.count > 1 && navigationController.transitionCoordinator == nil
-    }
-}
-
-private final class GlobalKeyboardDismissPanHandler: NSObject, UIGestureRecognizerDelegate {
-    @objc func handlePan(_ gestureRecognizer: UIPanGestureRecognizer) {
-        if gestureRecognizer.state == .began {
-            UIApplication.shared.fc_dismissKeyboard()
-        }
-    }
-
-    func gestureRecognizer(_ gestureRecognizer: UIGestureRecognizer, shouldRecognizeSimultaneouslyWith otherGestureRecognizer: UIGestureRecognizer) -> Bool {
-        true
     }
 }
 
@@ -91,21 +77,13 @@ private final class GlobalSwipeBackInstallerController: UIViewController {
         }
     }
 
-    override func viewDidLayoutSubviews() {
-        super.viewDidLayoutSubviews()
-        installSwipeBackIfPossible()
-    }
-
     private func installSwipeBackIfPossible() {
         guard let rootViewController = view.window?.rootViewController else { return }
-        view.window?.fc_installKeyboardDismissPan()
         view.window?.fc_installEdgePopPan()
         installSwipeBack(in: rootViewController)
     }
 
     private func installSwipeBack(in viewController: UIViewController) {
-        viewController.fc_installKeyboardDismissPan()
-
         if let navigationController = viewController as? UINavigationController {
             navigationController.fc_installSwipeBackDelegate()
         }
@@ -124,7 +102,8 @@ struct GlobalSwipeBackInstaller: UIViewControllerRepresentable {
     }
 
     func updateUIViewController(_ uiViewController: UIViewController, context: Context) {
-        uiViewController.view.setNeedsLayout()
+        // Installation is event-driven from viewDidAppear. Forcing layout here
+        // made every SwiftUI state update recursively walk the controller tree.
     }
 }
 
@@ -154,51 +133,7 @@ extension UINavigationController {
     }
 }
 
-private extension UIViewController {
-    func fc_installKeyboardDismissPan() {
-        if objc_getAssociatedObject(self, &globalKeyboardDismissPanKey) != nil {
-            return
-        }
-
-        let handler = GlobalKeyboardDismissPanHandler()
-        let panGesture = UIPanGestureRecognizer(target: handler, action: #selector(GlobalKeyboardDismissPanHandler.handlePan(_:)))
-        panGesture.cancelsTouchesInView = false
-        panGesture.delaysTouchesBegan = false
-        panGesture.delaysTouchesEnded = false
-        panGesture.delegate = handler
-        view.addGestureRecognizer(panGesture)
-
-        objc_setAssociatedObject(
-            self,
-            &globalKeyboardDismissPanKey,
-            handler,
-            .OBJC_ASSOCIATION_RETAIN_NONATOMIC
-        )
-    }
-}
-
 private extension UIWindow {
-    func fc_installKeyboardDismissPan() {
-        if objc_getAssociatedObject(self, &globalKeyboardDismissWindowPanKey) != nil {
-            return
-        }
-
-        let handler = GlobalKeyboardDismissPanHandler()
-        let panGesture = UIPanGestureRecognizer(target: handler, action: #selector(GlobalKeyboardDismissPanHandler.handlePan(_:)))
-        panGesture.cancelsTouchesInView = false
-        panGesture.delaysTouchesBegan = false
-        panGesture.delaysTouchesEnded = false
-        panGesture.delegate = handler
-        addGestureRecognizer(panGesture)
-
-        objc_setAssociatedObject(
-            self,
-            &globalKeyboardDismissWindowPanKey,
-            handler,
-            .OBJC_ASSOCIATION_RETAIN_NONATOMIC
-        )
-    }
-
     func fc_installEdgePopPan() {
         if objc_getAssociatedObject(self, &globalEdgePopWindowPanKey) != nil {
             return
@@ -238,7 +173,6 @@ private extension UIApplication {
             .compactMap { $0 as? UIWindowScene }
             .flatMap(\.windows)
             .forEach { window in
-                window.fc_installKeyboardDismissPan()
                 window.fc_installEdgePopPan()
                 if let rootViewController = window.rootViewController {
                     fc_installSwipeBack(in: rootViewController)
@@ -247,8 +181,6 @@ private extension UIApplication {
     }
 
     func fc_installSwipeBack(in viewController: UIViewController) {
-        viewController.fc_installKeyboardDismissPan()
-
         if let navigationController = viewController as? UINavigationController {
             navigationController.fc_installSwipeBackDelegate()
         }

@@ -2,6 +2,8 @@ import SwiftUI
 
 struct NotificationsListView: View {
     @Environment(AuthStore.self) private var authStore
+    var onClose: (() -> Void)? = nil
+
     @State private var notifications: [AppNotification] = []
     @State private var selectedFilter: NotificationListFilter = .all
     @State private var isLoading = false
@@ -64,6 +66,14 @@ struct NotificationsListView: View {
             }
             .navigationTitle("Notifications")
             .toolbar {
+                if let onClose {
+                    ToolbarItem(placement: .cancellationAction) {
+                        Button(action: onClose) {
+                            Image(systemName: "chevron.backward")
+                        }
+                        .accessibilityLabel("Back")
+                    }
+                }
                 ToolbarItem(placement: .primaryAction) {
                     Button("Read All") {
                         markAllRead()

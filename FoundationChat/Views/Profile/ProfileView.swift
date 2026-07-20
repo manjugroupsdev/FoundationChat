@@ -165,7 +165,7 @@ struct ProfileView: View {
   }
 }
 
-private struct LogoutConfirmationSheet: View {
+struct LogoutConfirmationSheet: View {
   let onCancel: () -> Void
   let onLogout: () -> Void
 

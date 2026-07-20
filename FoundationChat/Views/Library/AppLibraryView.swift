@@ -9,9 +9,19 @@ struct AppLibraryView: View {
     @State private var navDidAppear = false
     @State private var isRefreshingPermissions = false
 
-    private var visibleSections: [AppLibrarySection] {
+    private var sections: [AppLibrarySection] {
         AppLibrarySection.makeSections(authStore: authStore)
-        .filter { selectedFilter == .all || $0.filter == selectedFilter }
+    }
+
+    private var availableFilters: [AppLibraryFilter] {
+        let representedFilters = Set(sections.map(\.filter))
+        return [.all] + AppLibraryFilter.allCases.filter {
+            $0 != .all && representedFilters.contains($0)
+        }
+    }
+
+    private var visibleSections: [AppLibrarySection] {
+        sections.filter { selectedFilter == .all || $0.filter == selectedFilter }
     }
 
     var body: some View {
@@ -49,6 +59,11 @@ struct AppLibraryView: View {
                 listDidAppear = false
                 withAnimation(.easeOut(duration: 0.18)) {
                     listDidAppear = true
+                }
+            }
+            .onChange(of: availableFilters) { _, filters in
+                if !filters.contains(selectedFilter) {
+                    selectedFilter = .all
                 }
             }
         }
@@ -99,6 +114,9 @@ struct AppLibraryView: View {
         isRefreshingPermissions = true
         defer { isRefreshingPermissions = false }
         await authStore.refreshIAMPermissions()
+        if !availableFilters.contains(selectedFilter) {
+            selectedFilter = .all
+        }
     }
 
     private var headerHero: some View {
@@ -141,7 +159,10 @@ struct AppLibraryView: View {
 
     private var scrollingPanel: some View {
         VStack(spacing: 0) {
-            AppLibraryFilterStrip(selectedFilter: $selectedFilter)
+            AppLibraryFilterStrip(
+                selectedFilter: $selectedFilter,
+                filters: availableFilters
+            )
                 .opacity(navDidAppear ? 1 : 0)
                 .offset(y: navDidAppear ? 0 : 18)
                 .animation(.spring(response: 0.38, dampingFraction: 0.86).delay(0.06), value: navDidAppear)
@@ -382,6 +403,12 @@ private struct AppLibrarySection: Identifiable {
             permissions.isEmpty || permissions.contains { authStore.hasPermission($0) }
         }
 
+        let normalizedDesignation = authStore.currentSession?.user.designation?
+            .trimmingCharacters(in: .whitespacesAndNewlines)
+            .lowercased() ?? ""
+        let isTelesalesRestricted = normalizedDesignation.contains("lead management executive")
+            || normalizedDesignation.contains("telesales")
+
         let hrItems: [AppLibraryItem] = [
             canAny(["attendance.view", "attendance.viewAll"])
                 ? .init(title: "Attendance", icon: "AppLibraryIconAppsAttendance", destination: .attendance)
@@ -408,7 +435,7 @@ private struct AppLibrarySection: Identifiable {
         ].compactMap(\.self)
 
         let taskManagerItems: [AppLibraryItem] = [
-            canAny(["tasks.view", "tasks.viewAll", "tasks.create"])
+            canAny(["dailyTasks.view", "dailyTasks.viewAll", "dailyTasks.create"])
                 ? .init(
                     title: "Task Manager",
                     icon: "AppLibraryIconAppsTasks",
@@ -455,7 +482,7 @@ private struct AppLibrarySection: Identifiable {
                     iconBackground: Color(hex: 0xDCFCE7)
                 )
                 : nil,
-            canAny(["tasks.view", "tasks.viewAll", "tasks.create"])
+            canAny(["projects.view"])
                 ? .init(
                     title: "Issues",
                     icon: "sf:questionmark.bubble",
@@ -501,34 +528,40 @@ private struct AppLibrarySection: Identifiable {
         ].compactMap(\.self)
 
         let salesItems: [AppLibraryItem] = [
-            .init(
-                title: "Collections",
-                icon: "AppLibraryIconAppsLoans",
-                destination: .collections,
-                systemIcon: "creditcard",
-                iconTint: Color(hex: 0xD01784),
-                iconBackground: Color(hex: 0xFCE7F3)
-            ),
-            .init(
-                title: "Loan Desk",
-                icon: "AppLibraryIconAppsLoans",
-                destination: .loanDesk,
-                systemIcon: "indianrupeesign.circle",
-                iconTint: Color(hex: 0xD01784),
-                iconBackground: Color(hex: 0xFCE7F3)
-            )
-        ]
+            canAny(["postSales.collections.create"])
+                ? .init(
+                    title: "Collections",
+                    icon: "AppLibraryIconAppsLoans",
+                    destination: .collections,
+                    systemIcon: "creditcard",
+                    iconTint: Color(hex: 0xD01784),
+                    iconBackground: Color(hex: 0xFCE7F3)
+                )
+                : nil,
+            canAny(["postSales.loanDesk.manage"])
+                ? .init(
+                    title: "Loan Desk",
+                    icon: "AppLibraryIconAppsLoans",
+                    destination: .loanDesk,
+                    systemIcon: "indianrupeesign.circle",
+                    iconTint: Color(hex: 0xD01784),
+                    iconBackground: Color(hex: 0xFCE7F3)
+                )
+                : nil
+        ].compactMap(\.self)
 
         let accountsItems: [AppLibraryItem] = [
-            .init(
-                title: "Post Sales Verification",
-                icon: "AppLibraryIconAppsSettingsCard",
-                destination: .postSalesVerification,
-                systemIcon: "checkmark.seal",
-                iconTint: Color(hex: 0x1F2937),
-                iconBackground: Color(hex: 0xE2E8F0)
-            )
-        ]
+            !isTelesalesRestricted && canAny(["accounts.requests.view", "postSales.accounts.verify"])
+                ? .init(
+                    title: "Post Sales Verification",
+                    icon: "AppLibraryIconAppsSettingsCard",
+                    destination: .postSalesVerification,
+                    systemIcon: "checkmark.seal",
+                    iconTint: Color(hex: 0x1F2937),
+                    iconBackground: Color(hex: 0xE2E8F0)
+                )
+                : nil
+        ].compactMap(\.self)
 
         let frontDeskItems: [AppLibraryItem] = [
             canAny(["frontdesk.view", "frontdesk.checkin", "frontdesk.invite"])
@@ -740,29 +773,37 @@ private enum AppLibraryDestination: String {
 
 private struct AppLibraryFilterStrip: View {
     @Binding var selectedFilter: AppLibraryFilter
+    let filters: [AppLibraryFilter]
 
     var body: some View {
-        ScrollView(.horizontal, showsIndicators: false) {
-            ScrollViewReader { proxy in
-                HStack(spacing: 0) {
-                    ForEach(AppLibraryFilter.allCases) { filter in
-                        Button {
-                            withAnimation(.interactiveSpring(response: 0.34, dampingFraction: 0.82, blendDuration: 0.08)) {
-                                selectedFilter = filter
-                                proxy.scrollTo(filter.id, anchor: .center)
+        GeometryReader { geometry in
+            let tabWidth = max(
+                78,
+                (geometry.size.width - 12) / CGFloat(max(min(filters.count, 5), 1))
+            )
+
+            ScrollView(.horizontal, showsIndicators: false) {
+                ScrollViewReader { proxy in
+                    HStack(spacing: 0) {
+                        ForEach(filters) { filter in
+                            Button {
+                                withAnimation(.interactiveSpring(response: 0.34, dampingFraction: 0.82, blendDuration: 0.08)) {
+                                    selectedFilter = filter
+                                    proxy.scrollTo(filter.id, anchor: .center)
+                                }
+                            } label: {
+                                AppLibraryFilterTab(filter: filter, isSelected: selectedFilter == filter)
+                                    .frame(width: tabWidth, height: 76)
+                                    .contentShape(Rectangle())
                             }
-                        } label: {
-                            AppLibraryFilterTab(filter: filter, isSelected: selectedFilter == filter)
-                                .frame(width: 78, height: 76)
-                                .contentShape(Rectangle())
+                            .buttonStyle(AppLibraryTabButtonStyle())
+                            .accessibilityLabel(filter.title)
+                            .accessibilityAddTraits(selectedFilter == filter ? .isSelected : [])
+                            .id(filter.id)
                         }
-                        .buttonStyle(AppLibraryTabButtonStyle())
-                        .accessibilityLabel(filter.title)
-                        .accessibilityAddTraits(selectedFilter == filter ? .isSelected : [])
-                        .id(filter.id)
                     }
+                    .padding(.horizontal, 6)
                 }
-                .padding(.horizontal, 6)
             }
         }
         .frame(height: 84)

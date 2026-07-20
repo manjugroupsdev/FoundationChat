@@ -45,7 +45,6 @@ struct ConversationInfoView: View {
   @State private var selectedPhotoItem: PhotosPickerItem?
   @State private var isUploadingPhoto = false
   @State private var selectedMemberForActions: ChannelMember?
-  @State private var showMemberActions = false
   @State private var memberToRemove: ChannelMember?
   @State private var showRemoveMemberConfirm = false
   @State private var memberActionID: String?
@@ -302,27 +301,20 @@ struct ConversationInfoView: View {
     } message: { member in
       Text("\(memberDisplayName(member)) will no longer see this group's messages.")
     }
-    .confirmationDialog(
-      memberDisplayName(selectedMemberForActions),
-      isPresented: $showMemberActions,
-      titleVisibility: .visible
-    ) {
-      if let member = selectedMemberForActions {
-        if normalizedRole(member.role) == "admin" {
-          Button("Dismiss as Admin") {
-            Task { await setRole("member", for: member) }
-          }
-        } else {
-          Button("Make Group Admin") {
-            Task { await setRole("admin", for: member) }
-          }
-        }
-
-        Button("Remove from Group", role: .destructive) {
+    .sheet(item: $selectedMemberForActions) { member in
+      GroupMemberActionsSheet(
+        memberName: memberDisplayName(member),
+        isAdmin: normalizedRole(member.role) == "admin",
+        onRoleChange: {
+          await setRole(normalizedRole(member.role) == "admin" ? "member" : "admin", for: member)
+        },
+        onRemove: {
           memberToRemove = member
           showRemoveMemberConfirm = true
         }
-      }
+      )
+      .presentationDetents([.height(250)])
+      .presentationDragIndicator(.visible)
     }
     .sheet(isPresented: $showSearchSheet) {
       NavigationStack {
@@ -514,14 +506,9 @@ struct ConversationInfoView: View {
             isCurrentUser: isCurrentChannelMember(member),
             isCreator: isChannelCreator(member),
             canManage: canManageMember(member),
-            isBusy: memberActionID == member.id
+            isBusy: memberActionID == member.id,
+            onManage: { selectedMemberForActions = member }
           )
-          .contentShape(Rectangle())
-          .onTapGesture {
-            guard canManageMember(member) else { return }
-            selectedMemberForActions = member
-            showMemberActions = true
-          }
           .contextMenu {
             if canManageMember(member) {
               memberManagementButtons(for: member)
@@ -885,6 +872,7 @@ private struct ChannelMemberInfoRow: View {
   let isCreator: Bool
   let canManage: Bool
   let isBusy: Bool
+  let onManage: () -> Void
 
   private var displayName: String {
     if isCurrentUser { return "You" }
@@ -943,12 +931,79 @@ private struct ChannelMemberInfoRow: View {
       if isBusy {
         ProgressView()
       } else if canManage {
-        Image(systemName: "ellipsis")
-          .font(.subheadline.weight(.semibold))
-          .foregroundStyle(.secondary)
+        Button(action: onManage) {
+          Image(systemName: "ellipsis")
+            .font(.subheadline.weight(.semibold))
+            .foregroundStyle(.secondary)
+            .frame(width: 36, height: 36)
+            .contentShape(Circle())
+        }
+        .buttonStyle(.plain)
+        .accessibilityLabel("Manage \(displayName)")
       }
     }
     .padding(.vertical, 4)
+  }
+}
+
+private struct GroupMemberActionsSheet: View {
+  @Environment(\.dismiss) private var dismiss
+
+  let memberName: String
+  let isAdmin: Bool
+  let onRoleChange: () async -> Void
+  let onRemove: () -> Void
+
+  @State private var isWorking = false
+
+  var body: some View {
+    NavigationStack {
+      List {
+        Button {
+          Task {
+            isWorking = true
+            await onRoleChange()
+            isWorking = false
+            dismiss()
+          }
+        } label: {
+          Label(
+            isAdmin ? "Dismiss as Admin" : "Make Group Admin",
+            systemImage: isAdmin ? "person.badge.minus" : "person.badge.key"
+          )
+        }
+        .disabled(isWorking)
+
+        Button(role: .destructive) {
+          dismiss()
+          DispatchQueue.main.asyncAfter(deadline: .now() + 0.25) {
+            onRemove()
+          }
+        } label: {
+          Label("Remove from Group", systemImage: "person.crop.circle.badge.minus")
+        }
+        .disabled(isWorking)
+      }
+      .listStyle(.insetGrouped)
+      .navigationTitle(memberName)
+      .navigationBarTitleDisplayMode(.inline)
+      .toolbar {
+        ToolbarItem(placement: .cancellationAction) {
+          Button {
+            dismiss()
+          } label: {
+            Image(systemName: "xmark")
+          }
+          .disabled(isWorking)
+          .accessibilityLabel("Close")
+        }
+      }
+      .overlay {
+        if isWorking {
+          ProgressView()
+        }
+      }
+    }
   }
 }
 

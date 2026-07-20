@@ -194,13 +194,6 @@ struct ApplyLeaveView: View {
                 .padding(.bottom, 18)
             }
             .scrollDismissesKeyboard(.interactively)
-            .simultaneousGesture(
-                DragGesture().onChanged { _ in
-                    if isReasonFocused {
-                        dismissKeyboard()
-                    }
-                }
-            )
 
             submitButton
                 .padding(.horizontal, 20)

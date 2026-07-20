@@ -18,11 +18,25 @@ struct ProjectDailyLogView: View {
     @State private var showAddRecipient = false
     @State private var showSendProjectPicker = false
     @State private var selectedLog: DailyLogEntry?
+    @State private var expandedLogProjects: Set<String> = []
+    @State private var expandedDprProjects: Set<String> = []
     @State private var errorMessage: String?
     @State private var toastMessage: String?
 
     private var activeRecipientCount: Int {
         recipients.filter(\.isActive).count
+    }
+
+    private var selectableProjects: [ProjectSummary] {
+        projects.filter { $0.status?.localizedCaseInsensitiveCompare("completed") != .orderedSame }
+    }
+
+    private var logGroups: [DailyLogProjectGroup] {
+        DailyLogProjectGroup.make(from: logs)
+    }
+
+    private var reportGroups: [DprProjectGroup] {
+        DprProjectGroup.make(from: reports)
     }
 
     private let heroHeight: CGFloat = 220
@@ -80,14 +94,14 @@ struct ProjectDailyLogView: View {
             Text(errorMessage ?? "")
         }
         .sheet(isPresented: $showCreateLog) {
-            CreateDailyLogSheet(projects: projects) {
+            CreateDailyLogSheet(projects: selectableProjects) {
                 await loadLogs()
             }
             .appLibraryNativeSheet([.height(720), .large])
             .presentationBackground(Color.white)
         }
         .sheet(isPresented: $showAddRecipient) {
-            DprAddRecipientSheet(projects: projects) {
+            DprAddRecipientSheet(projects: selectableProjects) {
                 await loadDpr()
             }
             .appLibraryNativeSheet([.height(520), .large])
@@ -231,13 +245,14 @@ struct ProjectDailyLogView: View {
                 .padding(.top, 26)
             } else {
                 LazyVStack(spacing: 10) {
-                    ForEach(logs) { log in
-                        Button {
-                            selectedLog = log
-                        } label: {
-                            DailyLogCard(log: log)
-                        }
-                        .buttonStyle(.plain)
+                    ForEach(Array(logGroups.enumerated()), id: \.element.id) { index, group in
+                        DailyLogProjectCard(
+                            group: group,
+                            isRecent: index == 0,
+                            isExpanded: expandedLogProjects.contains(group.id),
+                            onToggle: { toggleLogGroup(group.id) },
+                            onOpenLog: { selectedLog = $0 }
+                        )
                     }
                 }
                 .padding(.horizontal, 16)
@@ -287,36 +302,42 @@ struct ProjectDailyLogView: View {
                 Button {
                     showSendProjectPicker = true
                 } label: {
-                    Text("Send today's DPR now")
+                    Label("Send today's DPR now", systemImage: "paperplane.fill")
                         .font(.system(size: 15, weight: .bold))
                         .foregroundStyle(.white)
                         .frame(maxWidth: .infinity)
-                        .frame(height: 54)
-                        .background(Color(hex: 0x16A34A), in: Capsule())
+                        .frame(height: 52)
                 }
-                .buttonStyle(.plain)
+                .buttonStyle(.borderedProminent)
+                .buttonBorderShape(.capsule)
+                .tint(Color(hex: 0x16A34A))
                 .padding(.horizontal, 16)
                 .padding(.top, 6)
+            }
 
-                Text("Recent DPR History")
-                    .font(.system(size: 16, weight: .semibold))
-                    .foregroundStyle(Color(hex: 0x101828))
+            Text("Recent DPR History")
+                .font(.system(size: 16, weight: .semibold))
+                .foregroundStyle(Color(hex: 0x101828))
+                .padding(.horizontal, 16)
+                .padding(.top, 10)
+
+            if reports.isEmpty {
+                Text("No DPR send history yet.")
+                    .font(.system(size: 13, weight: .regular))
+                    .foregroundStyle(Color(hex: 0x98A2B3))
                     .padding(.horizontal, 16)
-                    .padding(.top, 10)
-
-                if reports.isEmpty {
-                    Text("No DPR send history yet.")
-                        .font(.system(size: 13, weight: .regular))
-                        .foregroundStyle(Color(hex: 0x98A2B3))
-                        .padding(.horizontal, 16)
-                } else {
-                    LazyVStack(spacing: 8) {
-                        ForEach(reports) { report in
-                            DprReportRow(report: report)
-                        }
+            } else {
+                LazyVStack(spacing: 10) {
+                    ForEach(Array(reportGroups.enumerated()), id: \.element.id) { index, group in
+                        DprProjectCard(
+                            group: group,
+                            isRecent: index == 0,
+                            isExpanded: expandedDprProjects.contains(group.id),
+                            onToggle: { toggleDprGroup(group.id) }
+                        )
                     }
-                    .padding(.horizontal, 16)
                 }
+                .padding(.horizontal, 16)
             }
         }
     }
@@ -348,10 +369,7 @@ struct ProjectDailyLogView: View {
     private func loadProjects() async {
         guard let token = authStore.currentSession?.token else { return }
         do {
-            let loaded = try await MarketingConvexAPIService.getMarketingProjects(token: token)
-            projects = loaded.map {
-                ProjectSummary(id: $0.id, name: $0.name, status: $0.status, location: $0.location)
-            }
+            projects = try await ProjectConvexAPIService.getMyProjects(token: token)
         } catch {
             errorMessage = error.localizedDescription
         }
@@ -433,6 +451,22 @@ struct ProjectDailyLogView: View {
             }
         }
     }
+
+    private func toggleLogGroup(_ id: String) {
+        withAnimation(.snappy(duration: 0.2)) {
+            if !expandedLogProjects.insert(id).inserted {
+                expandedLogProjects.remove(id)
+            }
+        }
+    }
+
+    private func toggleDprGroup(_ id: String) {
+        withAnimation(.snappy(duration: 0.2)) {
+            if !expandedDprProjects.insert(id).inserted {
+                expandedDprProjects.remove(id)
+            }
+        }
+    }
 }
 
 private enum DailyLogTab {
@@ -465,7 +499,113 @@ private struct DailyLogSegmentButton: View {
     }
 }
 
-private struct DailyLogCard: View {
+private struct DailyLogProjectGroup: Identifiable {
+    let id: String
+    let projectName: String
+    let logs: [DailyLogEntry]
+
+    var latestLog: DailyLogEntry? { logs.first }
+
+    static func make(from logs: [DailyLogEntry]) -> [DailyLogProjectGroup] {
+        Dictionary(grouping: logs) { log in
+            log.projectName?.nonBlank ?? "Other"
+        }
+        .map { name, entries in
+            DailyLogProjectGroup(
+                id: name,
+                projectName: name,
+                logs: entries.sorted(by: isLogNewer)
+            )
+        }
+        .sorted {
+            guard let lhs = $0.latestLog else { return false }
+            guard let rhs = $1.latestLog else { return true }
+            return isLogNewer(lhs, rhs)
+        }
+    }
+
+    private static func isLogNewer(_ lhs: DailyLogEntry, _ rhs: DailyLogEntry) -> Bool {
+        if lhs.date != rhs.date {
+            return (lhs.date ?? "") > (rhs.date ?? "")
+        }
+        return (lhs.creationTime ?? 0) > (rhs.creationTime ?? 0)
+    }
+}
+
+private struct DailyLogProjectCard: View {
+    let group: DailyLogProjectGroup
+    let isRecent: Bool
+    let isExpanded: Bool
+    let onToggle: () -> Void
+    let onOpenLog: (DailyLogEntry) -> Void
+
+    var body: some View {
+        VStack(spacing: 0) {
+            Button(action: onToggle) {
+                HStack(spacing: 12) {
+                    VStack(alignment: .leading, spacing: 4) {
+                        HStack(spacing: 8) {
+                            Text(group.projectName)
+                                .font(.system(size: 17, weight: .bold))
+                                .foregroundStyle(Color(hex: 0x101828))
+                                .lineLimit(2)
+
+                            if isRecent {
+                                Text("Recent")
+                                    .font(.system(size: 10, weight: .bold))
+                                    .foregroundStyle(Color(hex: 0x067647))
+                                    .padding(.horizontal, 8)
+                                    .frame(height: 22)
+                                    .background(Color(hex: 0xECFDF3), in: Capsule())
+                                    .overlay(Capsule().stroke(Color(hex: 0xABEFC6), lineWidth: 1))
+                            }
+                        }
+
+                        Text(group.logs.count == 1 ? "1 entry" : "\(group.logs.count) entries")
+                            .font(.system(size: 13, weight: .bold))
+                            .foregroundStyle(Color(hex: 0x0B61CA))
+
+                        if let latest = group.latestLog {
+                            Text(lastActivityLabel(for: latest))
+                                .font(.system(size: 12, weight: .regular))
+                                .foregroundStyle(Color(hex: 0x667085))
+                        }
+                    }
+
+                    Spacer(minLength: 8)
+
+                    Image(systemName: "chevron.down")
+                        .font(.system(size: 14, weight: .bold))
+                        .foregroundStyle(Color(hex: 0x98A2B3))
+                        .rotationEffect(.degrees(isExpanded ? 180 : 0))
+                }
+                .contentShape(Rectangle())
+            }
+            .buttonStyle(.plain)
+
+            if isExpanded {
+                LazyVStack(spacing: 10) {
+                    ForEach(group.logs) { log in
+                        Button {
+                            onOpenLog(log)
+                        } label: {
+                            DailyLogEntryCard(log: log)
+                        }
+                        .buttonStyle(.plain)
+                    }
+                }
+                .padding(.top, 12)
+                .transition(.opacity.combined(with: .move(edge: .top)))
+            }
+        }
+        .padding(16)
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .background(Color.white, in: RoundedRectangle(cornerRadius: 18, style: .continuous))
+        .shadow(color: Color.black.opacity(0.06), radius: 8, y: 3)
+    }
+}
+
+private struct DailyLogEntryCard: View {
     let log: DailyLogEntry
 
     var body: some View {
@@ -482,15 +622,9 @@ private struct DailyLogCard: View {
 
                 Spacer()
 
-                if let projectName = log.projectName?.nonBlank {
-                    Text(projectName)
-                        .font(.system(size: 11, weight: .semibold))
-                        .foregroundStyle(Color(hex: 0x0B61CA))
-                        .lineLimit(1)
-                        .padding(.horizontal, 9)
-                        .frame(height: 24)
-                        .background(Color(hex: 0xEAF2FE), in: Capsule())
-                }
+                Image(systemName: "chevron.right")
+                    .font(.system(size: 11, weight: .bold))
+                    .foregroundStyle(Color(hex: 0x98A2B3))
             }
 
             Text(log.workSummary?.nonBlank ?? "-")
@@ -513,12 +647,12 @@ private struct DailyLogCard: View {
                 }
             }
         }
-        .padding(14)
+        .padding(12)
         .frame(maxWidth: .infinity, alignment: .leading)
-        .background(Color.white, in: RoundedRectangle(cornerRadius: 16, style: .continuous))
+        .background(Color(hex: 0xF8F9FC), in: RoundedRectangle(cornerRadius: 12, style: .continuous))
         .overlay(
-            RoundedRectangle(cornerRadius: 16, style: .continuous)
-                .stroke(Color(hex: 0xEAECF0), lineWidth: 1)
+            RoundedRectangle(cornerRadius: 12, style: .continuous)
+                .stroke(Color(hex: 0xEEF0F4), lineWidth: 1)
         )
     }
 
@@ -603,22 +737,115 @@ private struct DprRecipientRow: View {
     }
 }
 
+private struct DprProjectGroup: Identifiable {
+    let id: String
+    let projectName: String
+    let reports: [DprReport]
+
+    static func make(from reports: [DprReport]) -> [DprProjectGroup] {
+        Dictionary(grouping: reports) { report in
+            report.projectName?.nonBlank ?? "Other"
+        }
+        .map { name, entries in
+            DprProjectGroup(
+                id: name,
+                projectName: name,
+                reports: entries.sorted { ($0.date ?? "") > ($1.date ?? "") }
+            )
+        }
+        .sorted { ($0.reports.first?.date ?? "") > ($1.reports.first?.date ?? "") }
+    }
+}
+
+private struct DprProjectCard: View {
+    let group: DprProjectGroup
+    let isRecent: Bool
+    let isExpanded: Bool
+    let onToggle: () -> Void
+
+    var body: some View {
+        VStack(spacing: 0) {
+            Button(action: onToggle) {
+                HStack(spacing: 12) {
+                    VStack(alignment: .leading, spacing: 4) {
+                        HStack(spacing: 8) {
+                            Text(group.projectName)
+                                .font(.system(size: 17, weight: .bold))
+                                .foregroundStyle(Color(hex: 0x101828))
+                                .lineLimit(2)
+
+                            if isRecent {
+                                Text("Recent")
+                                    .font(.system(size: 10, weight: .bold))
+                                    .foregroundStyle(Color(hex: 0x067647))
+                                    .padding(.horizontal, 8)
+                                    .frame(height: 22)
+                                    .background(Color(hex: 0xECFDF3), in: Capsule())
+                                    .overlay(Capsule().stroke(Color(hex: 0xABEFC6), lineWidth: 1))
+                            }
+                        }
+
+                        Text(group.reports.count == 1 ? "1 report" : "\(group.reports.count) reports")
+                            .font(.system(size: 13, weight: .bold))
+                            .foregroundStyle(Color(hex: 0x0B61CA))
+
+                        if let date = group.reports.first?.date {
+                            Text("Last sent: \(displayDate(date))")
+                                .font(.system(size: 12))
+                                .foregroundStyle(Color(hex: 0x667085))
+                        }
+                    }
+
+                    Spacer(minLength: 8)
+
+                    Image(systemName: "chevron.down")
+                        .font(.system(size: 14, weight: .bold))
+                        .foregroundStyle(Color(hex: 0x98A2B3))
+                        .rotationEffect(.degrees(isExpanded ? 180 : 0))
+                }
+                .contentShape(Rectangle())
+            }
+            .buttonStyle(.plain)
+
+            if isExpanded {
+                LazyVStack(spacing: 8) {
+                    ForEach(group.reports) { report in
+                        DprReportRow(report: report)
+                    }
+                }
+                .padding(.top, 12)
+                .transition(.opacity.combined(with: .move(edge: .top)))
+            }
+        }
+        .padding(16)
+        .background(Color.white, in: RoundedRectangle(cornerRadius: 18, style: .continuous))
+        .shadow(color: Color.black.opacity(0.06), radius: 8, y: 3)
+    }
+}
+
 private struct DprReportRow: View {
     let report: DprReport
 
     var body: some View {
-        Text([
-            displayDate(report.date),
-            report.projectName?.nonBlank,
-            "\(report.sentCount ?? 0) sent / \(report.failedCount ?? 0) failed"
-        ].compactMap { $0 }.joined(separator: "  ·  "))
-        .font(.system(size: 12, weight: .medium))
-        .foregroundStyle(Color(hex: 0x475467))
-        .padding(.horizontal, 12)
-        .frame(maxWidth: .infinity, alignment: .leading)
-        .frame(minHeight: 42)
-        .background(Color.white, in: RoundedRectangle(cornerRadius: 12, style: .continuous))
-        .overlay(RoundedRectangle(cornerRadius: 12).stroke(Color(hex: 0xEAECF0), lineWidth: 1))
+        HStack(spacing: 10) {
+            Text(displayDate(report.date))
+                .font(.system(size: 13, weight: .bold))
+                .foregroundStyle(Color(hex: 0x101828))
+                .frame(maxWidth: .infinity, alignment: .leading)
+
+            Text("\(report.sentCount ?? 0) sent / \(report.failedCount ?? 0) failed")
+                .font(.system(size: 11, weight: .bold))
+                .foregroundStyle((report.failedCount ?? 0) > 0 ? Color(hex: 0xB54708) : Color(hex: 0x067647))
+                .padding(.horizontal, 9)
+                .frame(height: 26)
+                .background(
+                    (report.failedCount ?? 0) > 0 ? Color(hex: 0xFFFAEB) : Color(hex: 0xECFDF3),
+                    in: Capsule()
+                )
+        }
+        .padding(12)
+        .background(Color(hex: 0xF8F9FC), in: RoundedRectangle(cornerRadius: 12, style: .continuous))
+        .overlay(RoundedRectangle(cornerRadius: 12).stroke(Color(hex: 0xEEF0F4), lineWidth: 1))
     }
 }
 
@@ -1617,6 +1844,14 @@ private func displayDate(_ iso: String?) -> String {
         return AppModuleFormatters.day.string(from: date)
     }
     return iso
+}
+
+private func lastActivityLabel(for log: DailyLogEntry) -> String {
+    let day = displayDate(log.date)
+    guard let creationTime = log.creationTime else { return "Last: \(day)" }
+    let time = Date(timeIntervalSince1970: creationTime / 1_000)
+        .formatted(date: .omitted, time: .shortened)
+    return "Last: \(day) - \(time)"
 }
 
 private func trimNumber(_ value: Double) -> String {

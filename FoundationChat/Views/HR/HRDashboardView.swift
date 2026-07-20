@@ -12,11 +12,13 @@ enum HRDashboardRoute: Hashable {
 struct HRDashboardView: View {
     @Environment(AuthStore.self) private var authStore
 
+    let isActive: Bool
     let openRoute: HRDashboardRoute?
     var onOpenRouteHandled: () -> Void
 
     @State private var path = NavigationPath()
     @State private var todayAttendance: ConvexTodayAttendance?
+    @State private var todayDaySessions: ConvexDaySessionsResponse?
     @State private var historyRecords: [ConvexAttendanceRecord] = []
     @State private var isLoading = false
     @State private var nowTick = Date()
@@ -36,20 +38,29 @@ struct HRDashboardView: View {
     private let externalPunchRefreshTimer = Timer.publish(every: 45, on: .main, in: .common).autoconnect()
     private let attendancePanelTopOffset: CGFloat = 116
 
-    init(openRoute: HRDashboardRoute? = nil, onOpenRouteHandled: @escaping () -> Void = {}) {
+    init(
+        isActive: Bool = true,
+        openRoute: HRDashboardRoute? = nil,
+        onOpenRouteHandled: @escaping () -> Void = {}
+    ) {
+        self.isActive = isActive
         self.openRoute = openRoute
         self.onOpenRouteHandled = onOpenRouteHandled
     }
 
     private var hasPunchedIn: Bool {
-        todayAttendance?.hasPunchedIn == true || firstPunchIn(for: todayHistoryRecord) != nil
+        AttendanceTrackingGate.isClockedInForToday(
+            firstPunchIn: todayFirstPunchIn,
+            hasOpenSession: todayAttendance?.hasOpenSession == true
+                || todayDaySessions?.hasOpenSession == true
+        )
     }
 
     private var isOpen: Bool {
-        if todayAttendance?.isOpen == true {
-            return true
-        }
-        return firstPunchIn(for: todayHistoryRecord) != nil && resolvedPunchOut(for: todayHistoryRecord) == nil
+        hasPunchedIn && !AttendanceTrackingGate.isClockedOutOnMobile(
+            daySessions: todayDaySessions?.sessions,
+            attendanceSessions: todayAttendance?.sessions
+        )
     }
 
     private var isClockedOut: Bool {
@@ -116,15 +127,22 @@ struct HRDashboardView: View {
                 }
                 .toolbar(.hidden, for: .tabBar)
             }
-            .task { await reloadAll() }
+            .task(id: isActive) {
+                guard isActive else { return }
+                await reloadAll()
+            }
             .task(id: openRoute) {
                 guard let openRoute else { return }
                 path = NavigationPath()
                 path.append(openRoute)
                 onOpenRouteHandled()
             }
-            .onReceive(timer) { nowTick = $0 }
+            .onReceive(timer) { date in
+                guard isActive else { return }
+                nowTick = date
+            }
             .onReceive(externalPunchRefreshTimer) { _ in
+                guard isActive else { return }
                 Task { await refreshAttendanceForExternalPunches() }
             }
             .sheet(isPresented: $showPunchIn) {
@@ -138,10 +156,13 @@ struct HRDashboardView: View {
                 }
             }
             .sheet(isPresented: $showOnDutySheet) {
-                OnDutyStartSheet { request in
-                    await startOnDuty(request)
+                NavigationStack {
+                    OnDutyStartSheet { request in
+                        await startOnDuty(request)
+                    }
                 }
-                .appLibraryNativeSheet([.large])
+                .appLibraryNativeSheet([.fraction(0.72), .large])
+                .presentationBackground(Color(hex: 0xF8FAFC))
             }
             .sheet(isPresented: $showClockOutConfirm) {
                 ClockOutConfirmSheet(
@@ -534,9 +555,17 @@ struct HRDashboardView: View {
         historyRecords.first { $0.date == todayDateKey }
     }
 
+    private var todayFirstPunchIn: String? {
+        nonBlank(todayDaySessions?.firstPunchIn)
+            ?? nonBlank(todayAttendance?.firstPunchIn)
+            ?? nonBlank(todayAttendance?.punchInTime)
+            ?? todayDaySessions?.sessions?.compactMap { nonBlank($0.punchInTime) }.first
+            ?? todayAttendance?.sessions?.compactMap { nonBlank($0.punchInTime) }.first
+            ?? nonBlank(firstPunchIn(for: todayHistoryRecord))
+    }
+
     private var firstPunchInDate: Date? {
-        if let raw = firstPunchIn(for: todayHistoryRecord), let date = parseAttendanceDate(raw) { return date }
-        return parseAttendanceDate(todayAttendance?.punchInTime)
+        parseAttendanceDate(todayFirstPunchIn)
     }
 
     private var lastPunchOutDate: Date? {
@@ -610,11 +639,19 @@ struct HRDashboardView: View {
 
     private func resolvedPunchOut(for record: ConvexAttendanceRecord?) -> String? {
         guard let record else { return nil }
+        if record.date == todayDateKey, isOpen { return nil }
         guard record.hasOpenSession != true else { return nil }
         let firstIn = firstPunchIn(for: record)
         let candidate = record.lastPunchOut ?? record.sessions?.last?.punchOutTime
         guard let candidate, candidate != firstIn else { return nil }
         return candidate
+    }
+
+    private func nonBlank(_ value: String?) -> String? {
+        guard let value = value?.trimmingCharacters(in: .whitespacesAndNewlines), !value.isEmpty else {
+            return nil
+        }
+        return value
     }
 
     private func formatHM(seconds: Int) -> String {
@@ -819,7 +856,14 @@ struct HRDashboardView: View {
     private func loadToday() async {
         guard let token = authStore.currentSession?.token else { return }
         do {
-            todayAttendance = try await HRConvexAPIService.getTodayAttendance(token: token)
+            async let attendanceRequest = HRConvexAPIService.getTodayAttendance(token: token)
+            async let sessionsRequest = try? HRConvexAPIService.getDaySessions(
+                token: token,
+                date: todayDateKey
+            )
+
+            todayDaySessions = await sessionsRequest
+            todayAttendance = try await attendanceRequest
         } catch {
             guard !Self.isCancellation(error) else { return }
             errorMessage = error.localizedDescription
@@ -1238,17 +1282,13 @@ private struct OnDutyStartSheet: View {
 
     var body: some View {
         VStack(spacing: 0) {
-            VStack(alignment: .leading, spacing: 2) {
-                Text(title)
-                    .font(.system(size: 20, weight: .bold))
-                    .foregroundStyle(Color(hex: 0x101828))
-                Text(subtitle)
-                    .font(.system(size: 13, weight: .medium))
-                    .foregroundStyle(Color(hex: 0x667085))
-            }
-            .frame(maxWidth: .infinity, alignment: .leading)
-            .padding(.horizontal, 20)
-            .padding(.bottom, 16)
+            Text(subtitle)
+                .font(.system(size: 13, weight: .medium))
+                .foregroundStyle(Color(hex: 0x667085))
+                .frame(maxWidth: .infinity, alignment: .leading)
+                .padding(.horizontal, 20)
+                .padding(.top, 8)
+                .padding(.bottom, 16)
 
             ScrollView {
                 VStack(spacing: 10) {
@@ -1272,6 +1312,21 @@ private struct OnDutyStartSheet: View {
                 .background(Color(hex: 0xF8FAFC))
         }
         .background(Color(hex: 0xF8FAFC).ignoresSafeArea())
+        .navigationTitle(title)
+        .navigationBarTitleDisplayMode(.inline)
+        .toolbar {
+            ToolbarItem(placement: .cancellationAction) {
+                Button {
+                    navigateBackOrDismiss()
+                } label: {
+                    if step == .category {
+                        Text("Cancel")
+                    } else {
+                        Label("Back", systemImage: "chevron.left")
+                    }
+                }
+            }
+        }
         .task { await loadMasterData() }
         .interactiveDismissDisabled(isSubmitting)
         .alert("On Duty", isPresented: Binding(
@@ -1281,6 +1336,27 @@ private struct OnDutyStartSheet: View {
             Button("OK", role: .cancel) {}
         } message: {
             Text(errorMessage ?? "")
+        }
+    }
+
+    private func navigateBackOrDismiss() {
+        switch step {
+        case .category:
+            dismiss()
+        case .target:
+            withAnimation(.easeOut(duration: 0.18)) {
+                selectedCategory = nil
+                selectedTarget = nil
+                searchText = ""
+                remarks = ""
+                step = .category
+            }
+        case .vehicle:
+            withAnimation(.easeOut(duration: 0.18)) {
+                selectedVehicleOwnership = nil
+                selectedVehicleType = nil
+                step = .target
+            }
         }
     }
 

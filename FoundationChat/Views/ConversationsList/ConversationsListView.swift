@@ -89,6 +89,7 @@ struct ConversationsListView: View {
   @State private var longPressSelectionGuards: Set<String> = []
   @State private var conversationsSubscription: AnyCancellable?
   @State private var conversationsRefreshTask: Task<Void, Never>?
+  @State private var latestMessagesRefreshTask: Task<Void, Never>?
 
   private var filteredConversations: [Conversation] {
     let remoteBackedConversations = conversations.filter {
@@ -301,6 +302,8 @@ struct ConversationsListView: View {
         conversationsSubscription = nil
         conversationsRefreshTask?.cancel()
         conversationsRefreshTask = nil
+        latestMessagesRefreshTask?.cancel()
+        latestMessagesRefreshTask = nil
       }
       .toolbar {
         if isSelectionMode {
@@ -445,9 +448,7 @@ struct ConversationsListView: View {
           receiveValue: { remoteConversations in
             let conversations = remoteConversations ?? []
             applyRemoteConversations(conversations)
-            Task { @MainActor in
-              await refreshLatestMessagesForList(remoteConversations: conversations)
-            }
+            scheduleLatestMessagesRefresh(remoteConversations: conversations)
           }
         )
     } catch {
@@ -467,12 +468,22 @@ struct ConversationsListView: View {
         do {
           let remoteConversations = try await authStore.fetchConversations()
           applyRemoteConversations(remoteConversations)
-          await refreshLatestMessagesForList(remoteConversations: remoteConversations)
+          scheduleLatestMessagesRefresh(remoteConversations: remoteConversations)
         } catch {
           // Keep the cached list visible during transient network failures.
         }
-        try? await Task.sleep(for: .seconds(5))
+        try? await Task.sleep(for: .seconds(30))
       }
+    }
+  }
+
+  @MainActor
+  private func scheduleLatestMessagesRefresh(remoteConversations: [ConvexConversationSummary]) {
+    latestMessagesRefreshTask?.cancel()
+    latestMessagesRefreshTask = Task { @MainActor in
+      try? await Task.sleep(for: .milliseconds(350))
+      guard !Task.isCancelled else { return }
+      await refreshLatestMessagesForList(remoteConversations: remoteConversations)
     }
   }
 
@@ -480,7 +491,7 @@ struct ConversationsListView: View {
   private func refreshLatestMessagesForList(remoteConversations: [ConvexConversationSummary]) async {
     let recentConversationIDs = remoteConversations
       .sorted { $0.createdAt > $1.createdAt }
-      .prefix(20)
+      .prefix(12)
       .map(\.id)
 
     for conversationID in recentConversationIDs {
