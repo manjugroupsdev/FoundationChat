@@ -461,6 +461,11 @@ struct LeadLocationProfile: Decodable, Hashable, Sendable {
     let pincode: String?
 }
 
+struct BookingPaymentScheduleItem: Codable, Equatable, Sendable {
+    let amount: Double
+    let dueDate: String
+}
+
 struct CreateBookingRequest: Encodable, Sendable {
     let clientName: String
     let mobileNumber: String
@@ -474,15 +479,41 @@ struct CreateBookingRequest: Encodable, Sendable {
     let anniversaryDate: String?
     let alternateNumbers: String?
     let whatsappNumber: String?
+    let lat: Double?
+    let lng: Double?
+    let googleMapsLink: String?
     let projectId: String?
     let plotId: String?
     let plotNo: String?
     let bookingType: String?
+    let conversionManualEntry: Bool?
+    let manualConversionProjectName: String?
+    let manualConversionPlotNo: String?
+    let manualConversionCredit: Double?
+    let conversionNotes: String?
+    let sourceExchangeBookingId: String?
+    let exchangeManualEntry: Bool?
+    let exchangeLookupProjectId: String?
+    let exchangeLookupPlotNo: String?
+    let exchangeConnectedMobileNumber: String?
+    let manualExchangeProjectName: String?
+    let manualExchangePlotNo: String?
+    let manualExchangeExtentSqft: Double?
+    let exchangeOldRegisteredValue: Double?
+    let exchangeNewValue: Double?
+    let exchangeBalancePayable: Double?
+    let exchangeNotes: String?
     let cefNo: String?
     let isDuplicateBooking: Bool?
     let isAgainstSV: Bool?
+    let svName: String?
+    let svMobileNo: String?
     let propertyType: String?
     let bookingMode: String?
+    let clientSource: String?
+    let clientSourceName: String?
+    let clientSourceMobile: String?
+    let referralBenefit: String?
     let bookingCost: Double?
     let guidelineValue: Double?
     let specialConsideration: Double?
@@ -504,6 +535,13 @@ struct CreateBookingRequest: Encodable, Sendable {
     let advanceAmount: Double?
     let balanceAmount: Double?
     let paymentMode: String?
+    let advanceTransactionId: String?
+    let advancePaymentProofStorageId: String?
+    let advancePaymentProofFileName: String?
+    let advanceInstrumentNo: String?
+    let advanceBankName: String?
+    let advanceBankBranch: String?
+    let advanceInstrumentDate: String?
     let customerPaymentCategory: String?
     let loanAmountRequested: Double?
     let paymentPlan: String?
@@ -516,6 +554,7 @@ struct CreateBookingRequest: Encodable, Sendable {
     let thirdPaymentDate: String?
     let fourthPaymentAmount: Double?
     let fourthPaymentDate: String?
+    let flexiPaymentSchedule: [BookingPaymentScheduleItem]?
     let preferredRegistrationDate: String?
     let originalAvpStaffId: String?
     let originalGmStaffId: String?
@@ -523,7 +562,11 @@ struct CreateBookingRequest: Encodable, Sendable {
     let originalBdoStaffId: String?
     let originalTelecallerStaffId: String?
     let aadhaar: String?
+    let aadhaarDocumentStorageId: String?
+    let aadhaarDocumentFileName: String?
     let pan: String?
+    let panDocumentStorageId: String?
+    let panDocumentFileName: String?
     let referenceName1: String?
     let referenceMobile1: String?
     let referenceProfession1: String?
@@ -536,9 +579,12 @@ struct CreateBookingRequest: Encodable, Sendable {
     let homeAddress: String?
     let profession: String?
     let designation: String?
+    let department: String?
     let incomePerAnnum: String?
     let officeName: String?
     let officeAddress: String?
+    let officeArea: String?
+    let officePincode: String?
     let state: String?
     let district: String?
     let location: String?
@@ -568,15 +614,41 @@ struct CreateBookingRequest: Encodable, Sendable {
         anniversaryDate: String? = nil,
         alternateNumbers: String? = nil,
         whatsappNumber: String? = nil,
+        lat: Double? = nil,
+        lng: Double? = nil,
+        googleMapsLink: String? = nil,
         projectId: String? = nil,
         plotId: String? = nil,
         plotNo: String? = nil,
         bookingType: String? = nil,
+        conversionManualEntry: Bool? = nil,
+        manualConversionProjectName: String? = nil,
+        manualConversionPlotNo: String? = nil,
+        manualConversionCredit: Double? = nil,
+        conversionNotes: String? = nil,
+        sourceExchangeBookingId: String? = nil,
+        exchangeManualEntry: Bool? = nil,
+        exchangeLookupProjectId: String? = nil,
+        exchangeLookupPlotNo: String? = nil,
+        exchangeConnectedMobileNumber: String? = nil,
+        manualExchangeProjectName: String? = nil,
+        manualExchangePlotNo: String? = nil,
+        manualExchangeExtentSqft: Double? = nil,
+        exchangeOldRegisteredValue: Double? = nil,
+        exchangeNewValue: Double? = nil,
+        exchangeBalancePayable: Double? = nil,
+        exchangeNotes: String? = nil,
         cefNo: String? = nil,
         isDuplicateBooking: Bool? = nil,
         isAgainstSV: Bool? = nil,
+        svName: String? = nil,
+        svMobileNo: String? = nil,
         propertyType: String? = nil,
         bookingMode: String? = nil,
+        clientSource: String? = nil,
+        clientSourceName: String? = nil,
+        clientSourceMobile: String? = nil,
+        referralBenefit: String? = nil,
         bookingCost: Double? = nil,
         guidelineValue: Double? = nil,
         specialConsideration: Double? = nil,
@@ -598,6 +670,13 @@ struct CreateBookingRequest: Encodable, Sendable {
         advanceAmount: Double? = nil,
         balanceAmount: Double? = nil,
         paymentMode: String? = nil,
+        advanceTransactionId: String? = nil,
+        advancePaymentProofStorageId: String? = nil,
+        advancePaymentProofFileName: String? = nil,
+        advanceInstrumentNo: String? = nil,
+        advanceBankName: String? = nil,
+        advanceBankBranch: String? = nil,
+        advanceInstrumentDate: String? = nil,
         customerPaymentCategory: String? = nil,
         loanAmountRequested: Double? = nil,
         paymentPlan: String? = nil,
@@ -610,6 +689,7 @@ struct CreateBookingRequest: Encodable, Sendable {
         thirdPaymentDate: String? = nil,
         fourthPaymentAmount: Double? = nil,
         fourthPaymentDate: String? = nil,
+        flexiPaymentSchedule: [BookingPaymentScheduleItem]? = nil,
         preferredRegistrationDate: String? = nil,
         originalAvpStaffId: String? = nil,
         originalGmStaffId: String? = nil,
@@ -617,7 +697,11 @@ struct CreateBookingRequest: Encodable, Sendable {
         originalBdoStaffId: String? = nil,
         originalTelecallerStaffId: String? = nil,
         aadhaar: String? = nil,
+        aadhaarDocumentStorageId: String? = nil,
+        aadhaarDocumentFileName: String? = nil,
         pan: String? = nil,
+        panDocumentStorageId: String? = nil,
+        panDocumentFileName: String? = nil,
         referenceName1: String? = nil,
         referenceMobile1: String? = nil,
         referenceProfession1: String? = nil,
@@ -630,9 +714,12 @@ struct CreateBookingRequest: Encodable, Sendable {
         homeAddress: String? = nil,
         profession: String? = nil,
         designation: String? = nil,
+        department: String? = nil,
         incomePerAnnum: String? = nil,
         officeName: String? = nil,
         officeAddress: String? = nil,
+        officeArea: String? = nil,
+        officePincode: String? = nil,
         state: String? = nil,
         district: String? = nil,
         location: String? = nil,
@@ -661,15 +748,41 @@ struct CreateBookingRequest: Encodable, Sendable {
         self.anniversaryDate = anniversaryDate
         self.alternateNumbers = alternateNumbers
         self.whatsappNumber = whatsappNumber
+        self.lat = lat
+        self.lng = lng
+        self.googleMapsLink = googleMapsLink
         self.projectId = projectId
         self.plotId = plotId
         self.plotNo = plotNo
         self.bookingType = bookingType
+        self.conversionManualEntry = conversionManualEntry
+        self.manualConversionProjectName = manualConversionProjectName
+        self.manualConversionPlotNo = manualConversionPlotNo
+        self.manualConversionCredit = manualConversionCredit
+        self.conversionNotes = conversionNotes
+        self.sourceExchangeBookingId = sourceExchangeBookingId
+        self.exchangeManualEntry = exchangeManualEntry
+        self.exchangeLookupProjectId = exchangeLookupProjectId
+        self.exchangeLookupPlotNo = exchangeLookupPlotNo
+        self.exchangeConnectedMobileNumber = exchangeConnectedMobileNumber
+        self.manualExchangeProjectName = manualExchangeProjectName
+        self.manualExchangePlotNo = manualExchangePlotNo
+        self.manualExchangeExtentSqft = manualExchangeExtentSqft
+        self.exchangeOldRegisteredValue = exchangeOldRegisteredValue
+        self.exchangeNewValue = exchangeNewValue
+        self.exchangeBalancePayable = exchangeBalancePayable
+        self.exchangeNotes = exchangeNotes
         self.cefNo = cefNo
         self.isDuplicateBooking = isDuplicateBooking
         self.isAgainstSV = isAgainstSV
+        self.svName = svName
+        self.svMobileNo = svMobileNo
         self.propertyType = propertyType
         self.bookingMode = bookingMode
+        self.clientSource = clientSource
+        self.clientSourceName = clientSourceName
+        self.clientSourceMobile = clientSourceMobile
+        self.referralBenefit = referralBenefit
         self.bookingCost = bookingCost
         self.guidelineValue = guidelineValue
         self.specialConsideration = specialConsideration
@@ -691,6 +804,13 @@ struct CreateBookingRequest: Encodable, Sendable {
         self.advanceAmount = advanceAmount
         self.balanceAmount = balanceAmount
         self.paymentMode = paymentMode
+        self.advanceTransactionId = advanceTransactionId
+        self.advancePaymentProofStorageId = advancePaymentProofStorageId
+        self.advancePaymentProofFileName = advancePaymentProofFileName
+        self.advanceInstrumentNo = advanceInstrumentNo
+        self.advanceBankName = advanceBankName
+        self.advanceBankBranch = advanceBankBranch
+        self.advanceInstrumentDate = advanceInstrumentDate
         self.customerPaymentCategory = customerPaymentCategory
         self.loanAmountRequested = loanAmountRequested
         self.paymentPlan = paymentPlan
@@ -703,6 +823,7 @@ struct CreateBookingRequest: Encodable, Sendable {
         self.thirdPaymentDate = thirdPaymentDate
         self.fourthPaymentAmount = fourthPaymentAmount
         self.fourthPaymentDate = fourthPaymentDate
+        self.flexiPaymentSchedule = flexiPaymentSchedule
         self.preferredRegistrationDate = preferredRegistrationDate
         self.originalAvpStaffId = originalAvpStaffId
         self.originalGmStaffId = originalGmStaffId
@@ -710,7 +831,11 @@ struct CreateBookingRequest: Encodable, Sendable {
         self.originalBdoStaffId = originalBdoStaffId
         self.originalTelecallerStaffId = originalTelecallerStaffId
         self.aadhaar = aadhaar
+        self.aadhaarDocumentStorageId = aadhaarDocumentStorageId
+        self.aadhaarDocumentFileName = aadhaarDocumentFileName
         self.pan = pan
+        self.panDocumentStorageId = panDocumentStorageId
+        self.panDocumentFileName = panDocumentFileName
         self.referenceName1 = referenceName1
         self.referenceMobile1 = referenceMobile1
         self.referenceProfession1 = referenceProfession1
@@ -723,9 +848,12 @@ struct CreateBookingRequest: Encodable, Sendable {
         self.homeAddress = homeAddress
         self.profession = profession
         self.designation = designation
+        self.department = department
         self.incomePerAnnum = incomePerAnnum
         self.officeName = officeName
         self.officeAddress = officeAddress
+        self.officeArea = officeArea
+        self.officePincode = officePincode
         self.state = state
         self.district = district
         self.location = location

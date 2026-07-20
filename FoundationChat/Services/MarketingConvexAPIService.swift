@@ -350,11 +350,11 @@ enum MarketingConvexAPIService {
         _ = try await post(path: "/api/bookings/draft/save", token: token, body: payload)
     }
 
-    static func clearBookingDraft(token: String, source: String = "walk_in") async throws {
+    static func clearBookingDraft(token: String, sourceKey: String = "walk_in") async throws {
         struct ClearDraftRequest: Encodable {
-            let source: String
+            let sourceKey: String
         }
-        _ = try await post(path: "/api/bookings/draft/clear", token: token, body: ClearDraftRequest(source: source))
+        _ = try await post(path: "/api/bookings/draft/clear", token: token, body: ClearDraftRequest(sourceKey: sourceKey))
     }
 
     static func listBookings(token: String, status: String? = nil, query: String? = nil) async throws -> [AppBooking] {
