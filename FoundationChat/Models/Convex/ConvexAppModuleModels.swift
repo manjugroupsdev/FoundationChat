@@ -355,10 +355,11 @@ struct MarketingProject: Decodable, Identifiable, Hashable, Sendable {
     let status: String?
     let location: String?
     let specialPaymentEnabled: Bool?
+    let minimumAdvanceAmount: Double?
 
     enum CodingKeys: String, CodingKey {
         case id = "_id"
-        case name, scope, status, location, specialPaymentEnabled
+        case name, scope, status, location, specialPaymentEnabled, minimumAdvanceAmount
     }
 }
 
@@ -940,8 +941,8 @@ struct AppBooking: Decodable, Identifiable, Equatable, Sendable {
     let status: String?
     let approvalStatus: String?
     let notes: String?
-    let createdAt: String?
-    let updatedAt: String?
+    let createdAt: Double?
+    let updatedAt: Double?
 
     enum CodingKeys: String, CodingKey {
         case id = "_id"

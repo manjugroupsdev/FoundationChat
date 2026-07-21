@@ -63,6 +63,7 @@ struct TaskUpdateSheet: View {
         }
         .scrollBounceBehavior(.basedOnSize)
         .background(Color.white)
+        .appCompactSheetCTAContainer()
         .onChange(of: progress) { _, value in
             progressText = "\(Int(value.rounded()))%"
             updateStatusFromProgress()
@@ -99,7 +100,7 @@ struct TaskUpdateSheet: View {
             .buttonStyle(.plain)
             .disabled(isSubmitting)
             .padding(.horizontal, 24)
-            .padding(.bottom, 18)
+            .padding(.bottom, 20)
         }
         .background(Color.white.opacity(0.98))
     }
@@ -324,9 +325,10 @@ struct TaskUpdateSheet: View {
         }
         .padding(.horizontal, 24)
         .padding(.top, 26)
-        .padding(.bottom, 22)
+        .padding(.bottom, 20)
         .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .top)
         .background(Color.white)
+        .appCompactSheetCTAContainer()
     }
 
     private var photosBlock: some View {

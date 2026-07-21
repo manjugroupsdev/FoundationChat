@@ -1502,11 +1502,13 @@ private struct CreateCpVisitSheet: View {
                 }
                 .buttonStyle(.plain)
                 .padding(.horizontal, 24)
-                .padding(.vertical, 14)
+                .padding(.top, 14)
+                .padding(.bottom, 20)
                 .background(Color.white)
             }
         }
         .background(Color.white.ignoresSafeArea())
+        .appCompactSheetCTAContainer()
         .alert("CP Visit", isPresented: Binding(
             get: { errorMessage != nil },
             set: { if !$0 { errorMessage = nil } }

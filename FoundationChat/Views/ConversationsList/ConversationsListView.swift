@@ -83,6 +83,7 @@ struct ConversationsListView: View {
   @State private var selectedFilter: ChatFilter = .all
   @State private var isNewConversationSheetPresented = false
   @State private var newConversationMode: NewConversationSheet.SelectionMode = .direct
+  @State private var pendingCreatedChannel: ChannelSummary?
   @State private var channels: [ChannelSummary] = []
   @State private var favoriteChannelIDs: Set<String> = []
   @State private var selectedHomeItemIDs: Set<String> = []
@@ -225,9 +226,11 @@ struct ConversationsListView: View {
                 switch selectedFilter {
                 case .groups:
                   newConversationMode = .group
+                  pendingCreatedChannel = nil
                   isNewConversationSheetPresented = true
                 case .directChats:
                   newConversationMode = .direct
+                  pendingCreatedChannel = nil
                   isNewConversationSheetPresented = true
                 case .favoriteChats:
                   selectedFilter = .all
@@ -344,6 +347,7 @@ struct ConversationsListView: View {
               Menu {
                 Button {
                   newConversationMode = .direct
+                  pendingCreatedChannel = nil
                   isNewConversationSheetPresented = true
                 } label: {
                   Label("New Chat", systemImage: "message.fill")
@@ -351,6 +355,7 @@ struct ConversationsListView: View {
 
                 Button {
                   newConversationMode = .group
+                  pendingCreatedChannel = nil
                   isNewConversationSheetPresented = true
                 } label: {
                   Label("Create Group", systemImage: "person.3.fill")
@@ -370,7 +375,10 @@ struct ConversationsListView: View {
           }
         }
       }
-      .sheet(isPresented: $isNewConversationSheetPresented) {
+      .sheet(
+        isPresented: $isNewConversationSheetPresented,
+        onDismiss: openCreatedGroupIfNeeded
+      ) {
         NewConversationSheet(
           initialMode: newConversationMode,
           onSelectUser: { selectedUser in
@@ -758,11 +766,20 @@ struct ConversationsListView: View {
 
     selectedFilter = .groups
     searchText = ""
-    await loadChannels(search: "")
     if channels.first(where: { $0.id == result.channelId }) == nil {
       channels.insert(createdChannel, at: 0)
     }
-    path.append(result.channelId)
+    pendingCreatedChannel = createdChannel
+  }
+
+  @MainActor
+  private func openCreatedGroupIfNeeded() {
+    guard let channel = pendingCreatedChannel else { return }
+    pendingCreatedChannel = nil
+    if channels.first(where: { $0.id == channel.id }) == nil {
+      channels.insert(channel, at: 0)
+    }
+    path.append(channel.id)
   }
 
   @MainActor

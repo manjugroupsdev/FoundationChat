@@ -144,6 +144,7 @@ struct CompleteCpVisitSheet: View {
                 fixedSubmitFooter
             }
             .background(Color(.systemBackground))
+            .appCompactSheetCTAContainer()
             .scrollDismissesKeyboard(.interactively)
             .interactiveDismissDisabled(isSaving)
             .toolbar {
@@ -206,8 +207,8 @@ struct CompleteCpVisitSheet: View {
         }
         .padding(.horizontal, 20)
         .padding(.top, 12)
-        .padding(.bottom, 12)
-        .background(Color(.systemBackground).ignoresSafeArea(edges: .bottom))
+        .padding(.bottom, 20)
+        .background(Color(.systemBackground))
     }
 
     private var outcomeChips: some View {
@@ -1691,9 +1692,10 @@ private struct CpRejectReasonSheet: View {
             }
             .padding(.horizontal, 20)
             .padding(.top, 20)
-            .padding(.bottom, 24)
+            .padding(.bottom, 20)
         }
         .background(.white)
+        .appCompactSheetCTAContainer()
     }
 
     private var lockedOutcomeTabs: some View {

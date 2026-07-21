@@ -1308,10 +1308,11 @@ private struct OnDutyStartSheet: View {
             bottomButton
                 .padding(.horizontal, 20)
                 .padding(.top, 12)
-                .padding(.bottom, 24)
+                .padding(.bottom, 20)
                 .background(Color(hex: 0xF8FAFC))
         }
         .background(Color(hex: 0xF8FAFC).ignoresSafeArea())
+        .appCompactSheetCTAContainer()
         .navigationTitle(title)
         .navigationBarTitleDisplayMode(.inline)
         .toolbar {

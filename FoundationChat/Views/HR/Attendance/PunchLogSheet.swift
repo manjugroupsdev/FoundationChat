@@ -26,6 +26,29 @@ struct PunchLogSheet: View {
                     summaryRow
                 }
 
+                if let penaltyReason = record.resolvedPenaltyReason {
+                    Section("Attendance Penalty") {
+                        HStack(alignment: .top, spacing: 10) {
+                            Image(systemName: "lock.fill")
+                                .font(.system(size: 13, weight: .semibold))
+                                .foregroundStyle(Color(hex: 0xB42318))
+                                .frame(width: 24, height: 24)
+                                .background(Color(hex: 0xFEE4E2), in: Circle())
+
+                            VStack(alignment: .leading, spacing: 4) {
+                                Text("Absent · Penalty")
+                                    .font(.subheadline.weight(.semibold))
+                                    .foregroundStyle(Color(hex: 0xB42318))
+                                Text("Reason: \(penaltyReason)")
+                                    .font(.caption)
+                                    .foregroundStyle(Color(hex: 0x7A271A))
+                                    .fixedSize(horizontal: false, vertical: true)
+                            }
+                        }
+                        .padding(.vertical, 2)
+                    }
+                }
+
                 if let errorMessage {
                     Section {
                         Label(errorMessage, systemImage: "exclamationmark.triangle.fill")
@@ -69,7 +92,7 @@ struct PunchLogSheet: View {
                     Text(record.date ?? "--")
                         .font(.headline)
                     if let status = record.approvedAttendance ?? record.status {
-                        Text(status.capitalized)
+                        Text(record.hasAbsentPenalty ? "Absent · Penalty" : status.capitalized)
                             .font(.caption.weight(.medium))
                             .foregroundStyle(attendanceStatusColor(status))
                     }
@@ -318,6 +341,10 @@ private extension String {
             approvedBy: nil,
             approvedByName: nil,
             approvedOn: nil,
+            penaltyKind: nil,
+            penaltyReason: nil,
+            penaltyTaskId: nil,
+            penaltyTaskUrl: nil,
             lateMinutes: nil,
             fineAmount: nil,
             lateFineDeduction: nil,

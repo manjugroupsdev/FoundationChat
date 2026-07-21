@@ -401,11 +401,12 @@ private struct CreateIssueSheet: View {
                 .disabled(!canSubmit)
                 .padding(.horizontal, 20)
                 .padding(.top, 12)
-                .padding(.bottom, 18)
+                .padding(.bottom, 20)
             }
             .background(Color.white)
         }
         .background(Color.white)
+        .appCompactSheetCTAContainer()
         .task {
             await loadProjects()
         }

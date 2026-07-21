@@ -58,7 +58,7 @@ struct ClockOutConfirmSheet: View {
                     .buttonStyle(.plain)
                     .padding(.top, 12)
                     .padding(.horizontal, 20)
-                    .padding(.bottom, 24)
+                    .padding(.bottom, 20)
                 }
                 .background(Color.white, in: UnevenRoundedRectangle(
                     topLeadingRadius: 28,
@@ -80,6 +80,7 @@ struct ClockOutConfirmSheet: View {
             }
         }
         .background(Color.clear)
+        .appCompactSheetCTAContainer()
     }
 
     private func statTile(title: String, value: String) -> some View {

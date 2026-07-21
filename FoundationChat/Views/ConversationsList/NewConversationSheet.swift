@@ -6,9 +6,15 @@ struct NewConversationSheet: View {
     case group
   }
 
+  private enum FocusedField: Hashable {
+    case groupName
+    case peopleSearch
+  }
+
   @Environment(AuthStore.self) private var authStore
   @Environment(\.dismiss) private var dismiss
 
+  let mode: SelectionMode
   let onSelectUser: (DirectoryUser) async throws -> Void
   let onCreateGroup: ([DirectoryUser], String?) async throws -> Void
 
@@ -17,19 +23,26 @@ struct NewConversationSheet: View {
     onSelectUser: @escaping (DirectoryUser) async throws -> Void,
     onCreateGroup: @escaping ([DirectoryUser], String?) async throws -> Void = { _, _ in }
   ) {
+    mode = initialMode
     self.onSelectUser = onSelectUser
     self.onCreateGroup = onCreateGroup
-    _isGroupMode = State(initialValue: initialMode == .group)
   }
 
   @State private var searchText = ""
   @State private var groupName = ""
   @State private var users: [DirectoryUser] = []
   @State private var selectedUsers: [DirectoryUser] = []
-  @State private var isGroupMode = false
   @State private var isLoading = false
   @State private var errorMessage: String?
   @State private var isSubmitting = false
+  @FocusState private var focusedField: FocusedField?
+
+  private var isGroupMode: Bool {
+    switch mode {
+    case .direct: false
+    case .group: true
+    }
+  }
 
   private var trimmedGroupName: String {
     groupName.trimmingCharacters(in: .whitespacesAndNewlines)
@@ -48,7 +61,7 @@ struct NewConversationSheet: View {
     }
 
     if isGroupMode {
-      return "Create Group"
+      return "Create"
     }
 
     return "Start Conversation"
@@ -60,31 +73,9 @@ struct NewConversationSheet: View {
         VStack(spacing: 12) {
           if isGroupMode {
             groupModeHeader
-          } else {
-            createGroupEntry
           }
 
-          HStack(spacing: 8) {
-            Image(systemName: "magnifyingglass")
-              .foregroundStyle(.secondary)
-
-            TextField("Search people", text: $searchText)
-              .textInputAutocapitalization(.never)
-              .autocorrectionDisabled()
-
-            if !searchText.isEmpty {
-              Button {
-                searchText = ""
-              } label: {
-                Image(systemName: "xmark.circle.fill")
-                  .foregroundStyle(.secondary)
-              }
-              .buttonStyle(.plain)
-            }
-          }
-          .padding(.horizontal, 12)
-          .frame(height: 46)
-          .background(Color(.systemGray6), in: RoundedRectangle(cornerRadius: 12, style: .continuous))
+          peopleSearchField
 
           if isGroupMode, !selectedUsers.isEmpty {
             selectedPeopleStrip
@@ -126,73 +117,119 @@ struct NewConversationSheet: View {
   }
 
   private var groupModeHeader: some View {
-    VStack(spacing: 10) {
+    VStack(alignment: .leading, spacing: 16) {
       HStack(spacing: 12) {
         Image(systemName: "person.3.fill")
-          .font(.system(size: 16, weight: .semibold))
+          .font(.system(size: 17, weight: .semibold))
           .foregroundStyle(.white)
-          .frame(width: 36, height: 36)
-          .background(FoundationChatTheme.outgoingBubble, in: Circle())
+          .frame(width: 42, height: 42)
+          .background(
+            LinearGradient(
+              colors: [FoundationChatTheme.headerAccent, FoundationChatTheme.outgoingBubble],
+              startPoint: .topLeading,
+              endPoint: .bottomTrailing
+            ),
+            in: Circle()
+          )
 
-        VStack(alignment: .leading, spacing: 2) {
-          Text(selectedUsers.count <= 1 ? "Select people" : "\(selectedUsers.count) selected")
-            .font(.system(size: 15, weight: .semibold))
-          Text(selectedUsers.count < 2 ? "Select at least 2 members" : "Add or remove people below")
-            .font(.system(size: 12))
+        VStack(alignment: .leading, spacing: 3) {
+          Text("Group details")
+            .font(.system(size: 16, weight: .bold))
+            .foregroundStyle(FoundationChatTheme.ink)
+          Text(selectedUsers.count < 2 ? "Name the group and select at least 2 people" : "\(selectedUsers.count) people selected")
+            .font(.system(size: 12, weight: .medium))
             .foregroundStyle(.secondary)
         }
 
         Spacer()
       }
 
-      TextField("Group name", text: $groupName)
-        .font(.system(size: 15, weight: .regular))
-        .textInputAutocapitalization(.words)
-        .padding(.horizontal, 12)
-        .frame(height: 44)
-        .background(Color(.systemGray6), in: RoundedRectangle(cornerRadius: 12, style: .continuous))
+      VStack(alignment: .leading, spacing: 7) {
+        Text("Group name")
+          .font(.system(size: 13, weight: .semibold))
+          .foregroundStyle(Color.secondary)
 
-      if selectedUsers.count < 2 || trimmedGroupName.isEmpty {
-        Text(selectedUsers.count < 2 ? "Select at least 2 members" : "Give the group a name")
-          .font(.system(size: 12, weight: .medium))
-          .foregroundStyle(.secondary)
-          .frame(maxWidth: .infinity, alignment: .leading)
+        HStack(spacing: 10) {
+          Image(systemName: "person.3")
+            .font(.system(size: 16, weight: .semibold))
+            .foregroundStyle(FoundationChatTheme.outgoingBubble)
+
+          TextField("Enter group name", text: $groupName)
+            .font(.system(size: 15, weight: .medium))
+            .foregroundStyle(FoundationChatTheme.ink)
+            .textInputAutocapitalization(.words)
+            .submitLabel(.next)
+            .focused($focusedField, equals: .groupName)
+            .onSubmit { focusedField = .peopleSearch }
+
+          if !groupName.isEmpty {
+            Button {
+              groupName = ""
+            } label: {
+              Image(systemName: "xmark.circle.fill")
+                .font(.system(size: 16))
+                .foregroundStyle(Color.secondary.opacity(0.65))
+            }
+            .buttonStyle(.plain)
+          }
+        }
+        .padding(.horizontal, 14)
+        .frame(height: 52)
+        .background(Color.white, in: RoundedRectangle(cornerRadius: 13, style: .continuous))
+        .overlay {
+          RoundedRectangle(cornerRadius: 13, style: .continuous)
+            .stroke(
+              focusedField == .groupName ? FoundationChatTheme.outgoingBubble : Color.black.opacity(0.10),
+              lineWidth: focusedField == .groupName ? 1.5 : 1
+            )
+        }
+        .shadow(color: Color.black.opacity(0.035), radius: 5, y: 2)
       }
     }
   }
 
-  private var createGroupEntry: some View {
-    Button {
-      withAnimation(.snappy) {
-        isGroupMode = true
-        selectedUsers.removeAll()
-      }
-    } label: {
-      HStack(spacing: 12) {
-        Image(systemName: "person.3.fill")
+  private var peopleSearchField: some View {
+    VStack(alignment: .leading, spacing: 7) {
+      Text(isGroupMode ? "Add people" : "Search people")
+        .font(.system(size: 13, weight: .semibold))
+        .foregroundStyle(Color.secondary)
+
+      HStack(spacing: 10) {
+        Image(systemName: "magnifyingglass")
           .font(.system(size: 16, weight: .semibold))
-          .foregroundStyle(.white)
-          .frame(width: 38, height: 38)
-          .background(FoundationChatTheme.outgoingBubble, in: Circle())
+          .foregroundStyle(FoundationChatTheme.outgoingBubble)
 
-        VStack(alignment: .leading, spacing: 2) {
-          Text("Create Group")
-            .font(.system(size: 15, weight: .semibold))
-          Text("Select multiple people")
-            .font(.system(size: 12))
-            .foregroundStyle(.secondary)
+        TextField("Search by name or email", text: $searchText)
+          .font(.system(size: 15, weight: .medium))
+          .foregroundStyle(FoundationChatTheme.ink)
+          .textInputAutocapitalization(.never)
+          .autocorrectionDisabled()
+          .submitLabel(.search)
+          .focused($focusedField, equals: .peopleSearch)
+
+        if !searchText.isEmpty {
+          Button {
+            searchText = ""
+          } label: {
+            Image(systemName: "xmark.circle.fill")
+              .font(.system(size: 16))
+              .foregroundStyle(Color.secondary.opacity(0.65))
+          }
+          .buttonStyle(.plain)
         }
-
-        Spacer()
-
-        Image(systemName: "chevron.right")
-          .font(.system(size: 13, weight: .semibold))
-          .foregroundStyle(.secondary)
       }
-      .foregroundStyle(.primary)
-      .padding(.vertical, 2)
+      .padding(.horizontal, 14)
+      .frame(height: 52)
+      .background(Color.white, in: RoundedRectangle(cornerRadius: 13, style: .continuous))
+      .overlay {
+        RoundedRectangle(cornerRadius: 13, style: .continuous)
+          .stroke(
+            focusedField == .peopleSearch ? FoundationChatTheme.outgoingBubble : Color.black.opacity(0.10),
+            lineWidth: focusedField == .peopleSearch ? 1.5 : 1
+          )
+      }
+      .shadow(color: Color.black.opacity(0.035), radius: 5, y: 2)
     }
-    .buttonStyle(.plain)
   }
 
   @ViewBuilder

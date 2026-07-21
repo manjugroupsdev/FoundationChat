@@ -11,8 +11,7 @@ private struct LeaveCategoryOption: Identifiable, Equatable, Sendable {
         backendCode == "half_day" ? "casual" : backendCode
     }
 
-    static let defaultOptions = options(from: ["casual", "sick", "earned", "unpaid", "compensatory", "half_day"])
-    static let fallbackOptions = options(from: ["casual", "sick", "earned", "unpaid", "half_day", "compensatory"])
+    static let defaultOptions = options(from: ["unpaid", "compensatory", "half_day"])
 
     static func options(from backendTypes: [String]) -> [LeaveCategoryOption] {
         let normalizedTypes = backendTypes
@@ -52,8 +51,8 @@ private struct LeaveCategoryOption: Identifiable, Equatable, Sendable {
         case "sick": return "Sick Leave"
         case "earned": return "Earned Leave"
         case "unpaid": return "Unpaid Leave"
-        case "compensatory": return "Compensatory Off"
-        case "half_day": return "Half Day"
+        case "compensatory": return "Compensatory Leave"
+        case "half_day": return "Half Day Leave"
         default:
             let base = value
                 .replacingOccurrences(of: "_", with: " ")
@@ -198,10 +197,11 @@ struct ApplyLeaveView: View {
             submitButton
                 .padding(.horizontal, 20)
                 .padding(.top, 10)
-                .padding(.bottom, 12)
+                .padding(.bottom, 20)
                 .background(Color.white)
         }
         .background(Color.white)
+        .appCompactSheetCTAContainer()
         .task { await loadLeaveTypes() }
         .onDisappear {
             dismissKeyboard()
@@ -436,25 +436,10 @@ struct ApplyLeaveView: View {
     }
 
     private func loadLeaveTypes() async {
-        guard let token = authStore.currentSession?.token else { return }
-        do {
-            let policy = try await HRConvexAPIService.getLeavePolicy(token: token)
-            var types = policy?.types?
-                .map { $0.trimmingCharacters(in: .whitespacesAndNewlines) }
-                .filter { !$0.isEmpty } ?? []
-            if !types.contains("half_day") {
-                types.append("half_day")
-            }
-            if !types.contains("compensatory") {
-                types.append("compensatory")
-            }
-            if !types.isEmpty {
-                leaveTypes = LeaveCategoryOption.options(from: types)
-                selectedLeaveCategory = leaveTypes.first ?? selectedLeaveCategory
-            }
-        } catch {
-            leaveTypes = LeaveCategoryOption.fallbackOptions
-            selectedLeaveCategory = leaveTypes.first ?? selectedLeaveCategory
+        leaveTypes = LeaveCategoryOption.defaultOptions
+        guard leaveTypes.contains(selectedLeaveCategory) else {
+            selectedLeaveCategory = leaveTypes[0]
+            return
         }
     }
 
@@ -629,8 +614,9 @@ private struct LeaveCategorySheet: View {
         }
         .padding(.horizontal, 20)
         .padding(.top, 20)
-        .padding(.bottom, 24)
+        .padding(.bottom, 20)
         .background(Color.white)
+        .appCompactSheetCTAContainer()
     }
 
     private var sheetHandle: some View {
@@ -732,8 +718,9 @@ private struct CompOffCreditSheet: View {
         }
         .padding(.horizontal, 20)
         .padding(.top, 20)
-        .padding(.bottom, 24)
+        .padding(.bottom, 20)
         .background(Color.white)
+        .appCompactSheetCTAContainer()
     }
 
     private var sheetHandle: some View {
@@ -877,8 +864,9 @@ private struct LeaveDurationSheet: View {
         }
         .padding(.horizontal, 20)
         .padding(.top, 20)
-        .padding(.bottom, 24)
+        .padding(.bottom, 20)
         .background(Color.white)
+        .appCompactSheetCTAContainer()
     }
 
     private var sheetHandle: some View {
@@ -1010,6 +998,7 @@ private struct SubmitLeaveConfirmSheet: View {
             .padding(.bottom, 20)
         }
         .background(Color.white)
+        .appCompactSheetCTAContainer()
     }
 }
 

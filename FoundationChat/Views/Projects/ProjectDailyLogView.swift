@@ -1053,6 +1053,7 @@ private struct CreateDailyLogSheet: View {
             .background(Color.white)
         }
         .background(Color.white)
+        .appCompactSheetCTAContainer()
         .onAppear {
             if supervisorName.isEmpty {
                 supervisorName = authStore.currentSession?.user.name?.nonBlank ?? ""
@@ -1291,6 +1292,7 @@ private struct DprAddRecipientSheet: View {
             .background(Color.white)
         }
         .background(Color.white)
+        .appCompactSheetCTAContainer()
         .sheet(isPresented: $showProjectPicker) {
             NativeSearchableSelectionSheet(
                 title: "Select project",

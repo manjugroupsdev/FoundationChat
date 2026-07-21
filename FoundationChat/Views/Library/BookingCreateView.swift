@@ -1,3 +1,4 @@
+import MapKit
 import PhotosUI
 import SwiftUI
 import UniformTypeIdentifiers
@@ -25,9 +26,8 @@ struct BookingCreateView: View {
     @State private var activeStaffPicker: DirectBookingStaffField?
     @State private var clientImagePickerItem: PhotosPickerItem?
     @State private var isUploadingClientImage = false
-    @State private var showAdvanceProofImporter = false
-    @State private var showAadhaarImporter = false
-    @State private var showPanImporter = false
+    @State private var showDocumentImporter = false
+    @State private var pendingDocumentUploadKind: DirectBookingUploadKind?
     @State private var isUploadingDocument = false
     @State private var isSubmitting = false
     @State private var isSearchingLead = false
@@ -35,6 +35,8 @@ struct BookingCreateView: View {
     @State private var successMessage: String?
     @State private var draftMessage: String?
     @State private var draftSaveTask: Task<Void, Never>?
+    @State private var homeGeocodeTask: Task<Void, Never>?
+    @State private var isGeocodingHomeAddress = false
     @State private var hasRestoredDraft = false
 
     init(initialProject: MarketingProject? = nil, initialUnit: InventoryUnit? = nil) {
@@ -50,6 +52,10 @@ struct BookingCreateView: View {
     }
 
     var body: some View {
+        bookingAlertView
+    }
+
+    private var bookingContent: some View {
         VStack(spacing: 0) {
             ScrollView {
                 VStack(alignment: .leading, spacing: 12) {
@@ -80,6 +86,11 @@ struct BookingCreateView: View {
             fixedFooterAction
         }
         .background(Color.white.ignoresSafeArea())
+        .appCompactSheetCTAContainer()
+    }
+
+    private var bookingLifecycleView: some View {
+        bookingContent
         .task {
             restoreDraftIfNeeded()
             await loadInitialData()
@@ -87,8 +98,10 @@ struct BookingCreateView: View {
         }
         .onDisappear {
             draftSaveTask?.cancel()
+            homeGeocodeTask?.cancel()
         }
         .onChange(of: booking) { _, _ in scheduleDraftAutosave() }
+        .onChange(of: booking.homeAddressSearchText) { _, _ in scheduleHomeAddressGeocode() }
         .onChange(of: booking.customerPaymentCategory) { _, value in
             if value != "B" { booking.loanAmountRequested = "" }
         }
@@ -104,6 +117,10 @@ struct BookingCreateView: View {
         .onChange(of: clientImagePickerItem) { _, item in
             Task { await uploadClientImage(item) }
         }
+    }
+
+    private var bookingPickerView: some View {
+        bookingLifecycleView
         .sheet(isPresented: $showProjectPicker) { projectPickerSheet }
         .sheet(isPresented: $showUnitPicker) { unitPickerSheet }
         .sheet(isPresented: $showLeadPicker) { leadPickerSheet }
@@ -130,31 +147,24 @@ struct BookingCreateView: View {
             )
             .appLibraryNativeSheet([.medium, .large])
         }
+    }
+
+    private var bookingImporterView: some View {
+        bookingPickerView
         .fileImporter(
-            isPresented: $showAdvanceProofImporter,
+            isPresented: $showDocumentImporter,
             allowedContentTypes: [.image, .pdf, .data],
             allowsMultipleSelection: false
         ) { result in
-            Task { await importDocument(result, kind: .advanceProof) }
+            guard let kind = pendingDocumentUploadKind else { return }
+            pendingDocumentUploadKind = nil
+            Task { await importDocument(result, kind: kind) }
         }
-        .fileImporter(
-            isPresented: $showAadhaarImporter,
-            allowedContentTypes: [.image, .pdf, .data],
-            allowsMultipleSelection: false
-        ) { result in
-            Task { await importDocument(result, kind: .aadhaar) }
-        }
-        .fileImporter(
-            isPresented: $showPanImporter,
-            allowedContentTypes: [.image, .pdf, .data],
-            allowsMultipleSelection: false
-        ) { result in
-            Task { await importDocument(result, kind: .pan) }
-        }
-        .alert("Booking", isPresented: Binding(
-            get: { errorMessage != nil || successMessage != nil },
-            set: { if !$0 { errorMessage = nil; successMessage = nil } }
-        )) {
+    }
+
+    private var bookingAlertView: some View {
+        bookingImporterView
+        .alert("Booking", isPresented: bookingAlertBinding) {
             Button("OK", role: .cancel) {
                 let shouldDismiss = successMessage != nil
                 errorMessage = nil
@@ -166,6 +176,17 @@ struct BookingCreateView: View {
         }
     }
 
+    private var bookingAlertBinding: Binding<Bool> {
+        Binding(
+            get: { errorMessage != nil || successMessage != nil },
+            set: { isPresented in
+                guard !isPresented else { return }
+                errorMessage = nil
+                successMessage = nil
+            }
+        )
+    }
+
     private var fixedFooterAction: some View {
         VStack(spacing: 0) {
             Divider()
@@ -173,9 +194,9 @@ struct BookingCreateView: View {
             footerAction
                 .padding(.horizontal, 16)
                 .padding(.top, 12)
-                .padding(.bottom, 12)
+                .padding(.bottom, 20)
         }
-        .background(Color.white.ignoresSafeArea(edges: .bottom))
+        .background(Color.white)
     }
 
     private var header: some View {
@@ -298,29 +319,83 @@ struct BookingCreateView: View {
                     Task { await lookupLeadIfNeeded(phone: AppModuleFormatters.normalizePhone(value)) }
                 }
             leadLookupStatus
-            DirectBookingPicker("Title", value: $booking.title, placeholder: "Select Title", icon: "person", options: ["Mr", "Mrs", "Ms", "Dr", "Prof"])
+            DirectBookingPicker("Title *", value: $booking.title, placeholder: "Select Title", icon: "person", options: ["Mr", "Mrs", "Ms", "Dr", "Prof"])
             DirectBookingTextField("Client Name *", text: $booking.name, placeholder: "Enter Client Name", icon: "person")
             clientImageUploadCard
-            DirectBookingTextField("Father/Spouse Name", text: $booking.fatherSpouseName, placeholder: "Enter Name", icon: "person")
-            DirectBookingDateField("Date of Birth", text: $booking.dateOfBirth)
+            DirectBookingTextField("Father/Spouse Name *", text: $booking.fatherSpouseName, placeholder: "Enter Name", icon: "person")
+            DirectBookingDateField("Date of Birth *", text: $booking.dateOfBirth)
             DirectBookingDateField("Anniversary Date", text: $booking.anniversaryDate)
-            DirectBookingTextField("Alternate Numbers", text: $booking.alternateNumbers, placeholder: "Enter Number", icon: "phone", keyboard: .phonePad)
-            DirectBookingTextField("WhatsApp Number", text: $booking.whatsappNumber, placeholder: "Enter Number", icon: "phone", keyboard: .phonePad)
+            DirectBookingTextField("Alternate Numbers *", text: $booking.alternateNumbers, placeholder: "Enter Number", icon: "phone", keyboard: .phonePad)
+            DirectBookingTextField("WhatsApp Number *", text: $booking.whatsappNumber, placeholder: "Enter Number", icon: "phone", keyboard: .phonePad)
             androidCheckRow("WhatsApp Number", isOn: $booking.whatsappSameAsMobile, onText: "Same as personal mobile")
                 .onChange(of: booking.whatsappSameAsMobile) { _, same in
                     if same { booking.whatsappNumber = booking.phone }
                 }
-            DirectBookingTextField("Email", text: $booking.email, placeholder: "Enter Email Id", icon: "envelope", keyboard: .emailAddress)
-            DirectBookingPicker("Nationality", value: $booking.nationality, placeholder: "Select Nationality", icon: "globe", options: ["Indian", "NRI", "Foreign"])
-            DirectBookingTextField("Home Address", text: $booking.homeAddress, placeholder: "Enter Address", icon: "mappin", axis: .vertical)
-            DirectBookingTextField("Pincode", text: $booking.pincode, placeholder: "Enter Pincode", icon: "mappin", keyboard: .numberPad)
-            DirectBookingTextField("State", text: $booking.state, placeholder: "Enter State", icon: "mappin")
-            DirectBookingTextField("District", text: $booking.district, placeholder: "Enter District", icon: "mappin")
-            DirectBookingTextField("Location", text: $booking.location, placeholder: "Enter Location", icon: "mappin")
-            DirectBookingTextField("Latitude", text: $booking.latitude, placeholder: "Optional map latitude", icon: "location", keyboard: .decimalPad)
-            DirectBookingTextField("Longitude", text: $booking.longitude, placeholder: "Optional map longitude", icon: "location", keyboard: .decimalPad)
-            DirectBookingTextField("Google Maps Link", text: $booking.googleMapsLink, placeholder: "Paste map link", icon: "link", keyboard: .URL)
+            DirectBookingTextField("Email *", text: $booking.email, placeholder: "Enter Email Id", icon: "envelope", keyboard: .emailAddress)
+            DirectBookingPicker("Nationality *", value: $booking.nationality, placeholder: "Select Nationality", icon: "globe", options: ["Indian", "NRI", "Foreign"])
+            sectionTitle("Home Address")
+            DirectBookingTextField("Door No *", text: $booking.homeDoorNo, placeholder: "Enter door number", icon: "door.left.hand.open")
+            DirectBookingTextField("Street Name *", text: $booking.homeStreetName, placeholder: "Enter street name", icon: "road.lanes")
+            DirectBookingTextField("Pincode *", text: $booking.pincode, placeholder: "6-digit pincode", icon: "mappin", keyboard: .numberPad)
+                .onChange(of: booking.pincode) { _, value in
+                    booking.pincode = String(value.filter(\.isNumber).prefix(6))
+                }
+            DirectBookingTextField("District *", text: $booking.district, placeholder: "Enter District", icon: "mappin")
+            DirectBookingTextField("Address Line 1 *", text: $booking.homeAddressLine1, placeholder: "Enter address line 1", icon: "mappin")
+            DirectBookingTextField("Address Line 2", text: $booking.homeAddressLine2, placeholder: "Enter address line 2", icon: "mappin")
+            homeAddressMapPreview
         }
+    }
+
+    private var homeAddressMapPreview: AnyView {
+        AnyView(
+            VStack(alignment: .leading, spacing: 8) {
+                Label("Location on map", systemImage: "mappin.and.ellipse")
+                    .font(.system(size: 13, weight: .semibold))
+                    .foregroundStyle(Color(hex: 0x475467))
+
+                if let coordinate = homeAddressCoordinate {
+                    Map(initialPosition: .region(MKCoordinateRegion(
+                        center: coordinate,
+                        span: MKCoordinateSpan(latitudeDelta: 0.012, longitudeDelta: 0.012)
+                    ))) {
+                        Marker("Home", coordinate: coordinate)
+                    }
+                    .mapStyle(.standard)
+                    .frame(height: 180)
+                    .clipShape(RoundedRectangle(cornerRadius: 12))
+                    .overlay(RoundedRectangle(cornerRadius: 12).stroke(Color(hex: 0xE4E7EC), lineWidth: 1))
+                } else {
+                    HStack(spacing: 8) {
+                        if isGeocodingHomeAddress {
+                            ProgressView().controlSize(.small)
+                            Text("Finding this address on the map...")
+                        } else {
+                            Image(systemName: "map")
+                            Text("Fill the address — the map will preview the location once it geocodes.")
+                        }
+                    }
+                    .font(.system(size: 12, weight: .medium))
+                    .foregroundStyle(Color(hex: 0x667085))
+                    .frame(maxWidth: .infinity, minHeight: 76)
+                    .padding(.horizontal, 12)
+                    .background(Color(hex: 0xF8FAFC), in: RoundedRectangle(cornerRadius: 12))
+                    .overlay(
+                        RoundedRectangle(cornerRadius: 12)
+                            .stroke(style: StrokeStyle(lineWidth: 1, dash: [5, 4]))
+                            .foregroundStyle(Color(hex: 0xD0D5DD))
+                    )
+                }
+            }
+        )
+    }
+
+    private var homeAddressCoordinate: CLLocationCoordinate2D? {
+        guard let latitude = Double(booking.latitude),
+              let longitude = Double(booking.longitude),
+              (-90...90).contains(latitude),
+              (-180...180).contains(longitude) else { return nil }
+        return CLLocationCoordinate2D(latitude: latitude, longitude: longitude)
     }
 
     private var clientImageUploadCard: some View {
@@ -380,9 +455,7 @@ struct BookingCreateView: View {
         onRemove: @escaping () -> Void
     ) -> some View {
         VStack(alignment: .leading, spacing: 6) {
-            Text(title)
-                .font(.system(size: 13, weight: .semibold))
-                .foregroundStyle(Color(hex: 0x475467))
+            DirectBookingFieldLabel(title)
             HStack(spacing: 10) {
                 Image(systemName: isUploaded ? "checkmark.circle.fill" : "doc.badge.plus")
                     .foregroundStyle(isUploaded ? Color(hex: 0x18B400) : Color(hex: 0x0B61CA))
@@ -413,28 +486,28 @@ struct BookingCreateView: View {
 
     private var professionalDetails: some View {
         VStack(alignment: .leading, spacing: 10) {
-            DirectBookingPicker("Profession", value: $booking.profession, placeholder: "Select Profession", icon: "briefcase", options: ["Business", "Salaried", "Pension"])
-            DirectBookingTextField("Designation", text: $booking.designation, placeholder: "Enter Designation", icon: "person")
+            DirectBookingPicker("Profession *", value: $booking.profession, placeholder: "Select Profession", icon: "briefcase", options: ["Business", "Salaried", "Pension"])
+            DirectBookingTextField("Designation *", text: $booking.designation, placeholder: "Enter Designation", icon: "person")
             if booking.profession == "Salaried" {
-                DirectBookingPicker("Department", value: $booking.department, placeholder: "Select Department", icon: "building.2", options: ["Admin", "Sales", "HR", "Software Developer", "Other"])
+                DirectBookingPicker("Department *", value: $booking.department, placeholder: "Select Department", icon: "building.2", options: ["Admin", "Sales", "HR", "Software Developer", "Other"])
                 if booking.department == "Other" {
-                    DirectBookingTextField("Other Department", text: $booking.otherDepartment, placeholder: "Enter Department", icon: "building.2")
+                    DirectBookingTextField("Other Department *", text: $booking.otherDepartment, placeholder: "Enter Department", icon: "building.2")
                 }
             }
-            DirectBookingTextField("Income Per Annum", text: $booking.incomePerAnnum, placeholder: "Enter Income", icon: "indianrupeesign", keyboard: .decimalPad)
+            DirectBookingTextField("Income Per Annum *", text: $booking.incomePerAnnum, placeholder: "Enter Income", icon: "indianrupeesign", keyboard: .decimalPad)
         }
     }
 
     private var officeDetails: some View {
         VStack(alignment: .leading, spacing: 10) {
-            DirectBookingTextField("Office Name", text: $booking.officeName, placeholder: "Enter Name", icon: "building.2")
+            DirectBookingTextField("Office Name *", text: $booking.officeName, placeholder: "Enter Name", icon: "building.2")
             DirectBookingTextField("Office Email", text: $booking.officeEmail, placeholder: "Enter Email", icon: "envelope", keyboard: .emailAddress)
             DirectBookingTextField("Office Mobile", text: $booking.officeMobile, placeholder: "Enter Number", icon: "phone", keyboard: .phonePad)
             DirectBookingTextField("Office Phone", text: $booking.officePhone, placeholder: "Enter Number", icon: "phone", keyboard: .phonePad)
             sectionTitle("Office Address")
-            DirectBookingTextField("Door No", text: $booking.officeDoorNo, placeholder: "Enter door / floor number", icon: "door.left.hand.open")
-            DirectBookingTextField("Street Name", text: $booking.officeStreetName, placeholder: "Enter street name", icon: "road.lanes")
-            DirectBookingTextField("Address Line 1", text: $booking.officeAddressLine1, placeholder: "Enter address line 1", icon: "mappin")
+            DirectBookingTextField("Door No *", text: $booking.officeDoorNo, placeholder: "Enter door / floor number", icon: "door.left.hand.open")
+            DirectBookingTextField("Street Name *", text: $booking.officeStreetName, placeholder: "Enter street name", icon: "road.lanes")
+            DirectBookingTextField("Address Line 1 *", text: $booking.officeAddressLine1, placeholder: "Enter address line 1", icon: "mappin")
             DirectBookingTextField("Address Line 2", text: $booking.officeAddressLine2, placeholder: "Enter address line 2", icon: "mappin")
             DirectBookingTextField("Office Area", text: $booking.officeArea, placeholder: "Enter Area", icon: "mappin")
             DirectBookingTextField("Office Pincode", text: $booking.officePincode, placeholder: "6-digit pincode", icon: "mappin", keyboard: .numberPad)
@@ -443,10 +516,10 @@ struct BookingCreateView: View {
 
     private var bookingDetails: some View {
         VStack(alignment: .leading, spacing: 10) {
-            DirectBookingPickerShell(title: "Booking Ref No", value: "Auto", icon: "number")
-            DirectBookingPicker("Booking Type", value: $booking.bookingType, placeholder: "Select Type", icon: "briefcase", options: ["NEW", "CONVERSION", "EXCHANGE", "INTERNAL EXCHANGE"])
+            DirectBookingPickerShell(title: "Booking Ref No *", value: "Auto", icon: "number")
+            DirectBookingPicker("Booking Type *", value: $booking.bookingType, placeholder: "Select Type", icon: "briefcase", options: ["NEW", "CONVERSION", "EXCHANGE", "INTERNAL EXCHANGE"])
             conversionAndExchangeDetails
-            DirectBookingTextField("CEF No", text: $booking.cefNo, placeholder: "Enter Number", icon: "doc")
+            DirectBookingTextField("CEF No *", text: $booking.cefNo, placeholder: "Enter Number", icon: "doc")
             DirectBookingDateField("Booking Date *", text: $booking.bookingDate, defaultsToToday: true)
             DirectBookingPickerButton(title: "Project *", value: selectedProject?.name ?? booking.projectName, placeholder: "Select Project", icon: "briefcase") {
                 Task { await loadProjectsThenShowPicker() }
@@ -454,7 +527,7 @@ struct BookingCreateView: View {
             DirectBookingPickerButton(title: "Plot (available only) *", value: selectedUnit?.unitNumber ?? booking.plotNo, placeholder: "Select Project First", icon: "square") {
                 Task { await loadUnitsThenShowPicker() }
             }
-            DirectBookingPicker("Property Type", value: $booking.propertyType, placeholder: "Select Type", icon: "building.2", options: ["Plot", "Apartment", "Villa", "Commercial"])
+            DirectBookingPicker("Property Type *", value: $booking.propertyType, placeholder: "Select Type", icon: "building.2", options: ["Plot", "Apartment", "Villa", "Commercial"])
             androidCheckRow("Duplicate Bookings", isOn: $booking.isDuplicateBooking, onText: "Yes")
         }
     }
@@ -467,7 +540,7 @@ struct BookingCreateView: View {
                 DirectBookingTextField("Source / Reference Name", text: $booking.clientSourceName, placeholder: "Name, CP, or campaign", icon: "person")
                 DirectBookingTextField("Source / Reference Mobile", text: $booking.clientSourceMobile, placeholder: "Mobile number", icon: "phone", keyboard: .phonePad)
                 DirectBookingTextField("Referral Benefit", text: $booking.referralBenefit, placeholder: "If any", icon: "gift")
-                androidCheckRow("Is Against Site Visit?", isOn: $booking.isAgainstSV, onText: "Yes", offText: "No (Online Sales)")
+                androidCheckRow("Is Against Site Visit? *", isOn: $booking.isAgainstSV, onText: "Yes", offText: "No (Online Sales)")
                 siteVisitDetails
             }
         )
@@ -477,8 +550,8 @@ struct BookingCreateView: View {
         guard booking.isAgainstSV else { return AnyView(EmptyView()) }
         return AnyView(
             VStack(alignment: .leading, spacing: 10) {
-                DirectBookingTextField("SV Name", text: $booking.svName, placeholder: "Enter Site Visit Name", icon: "person")
-                DirectBookingTextField("SV Mobile No.", text: $booking.svMobileNo, placeholder: "Enter Mobile Number", icon: "phone", keyboard: .phonePad)
+                DirectBookingTextField("SV Name *", text: $booking.svName, placeholder: "Enter Site Visit Name", icon: "person")
+                DirectBookingTextField("SV Mobile No. *", text: $booking.svMobileNo, placeholder: "Enter Mobile Number", icon: "phone", keyboard: .phonePad)
             }
         )
     }
@@ -502,9 +575,9 @@ struct BookingCreateView: View {
             return AnyView(
                 VStack(alignment: .leading, spacing: 10) {
                     androidCheckRow("Conversion Source", isOn: $booking.conversionManualEntry, onText: "Manual previous booking entry", offText: "Linked previous booking")
-                    DirectBookingTextField("Previous Project", text: $booking.manualConversionProjectName, placeholder: "Enter previous project name", icon: "building.2")
-                    DirectBookingTextField("Previous Plot", text: $booking.manualConversionPlotNo, placeholder: "Enter previous plot number", icon: "square")
-                    DirectBookingTextField("Conversion Credit", text: $booking.manualConversionCredit, placeholder: "Amount paid on previous booking", icon: "indianrupeesign", keyboard: .decimalPad)
+                    DirectBookingTextField("Previous Project *", text: $booking.manualConversionProjectName, placeholder: "Enter previous project name", icon: "building.2")
+                    DirectBookingTextField("Previous Plot *", text: $booking.manualConversionPlotNo, placeholder: "Enter previous plot number", icon: "square")
+                    DirectBookingTextField("Conversion Credit *", text: $booking.manualConversionCredit, placeholder: "Amount paid on previous booking", icon: "indianrupeesign", keyboard: .decimalPad)
                     DirectBookingTextField("Conversion Notes", text: $booking.conversionNotes, placeholder: "Details about the previous booking", icon: "doc", axis: .vertical)
                 }
             )
@@ -522,7 +595,7 @@ struct BookingCreateView: View {
             VStack(alignment: .leading, spacing: 10) {
                 androidCheckRow("Exchange Source", isOn: $booking.exchangeManualEntry, onText: "Manual old property entry", offText: "Linked old property")
                 exchangeSourceDetails
-                DirectBookingTextField("Exchange Value", text: $booking.exchangeOldRegisteredValue, placeholder: "Old property value", icon: "indianrupeesign", keyboard: .decimalPad)
+                DirectBookingTextField(booking.bookingType == "EXCHANGE" ? "Exchange Value *" : "Exchange Value", text: $booking.exchangeOldRegisteredValue, placeholder: "Old property value", icon: "indianrupeesign", keyboard: .decimalPad)
                 if booking.bookingType == "EXCHANGE" {
                     DirectBookingPickerShell(title: "Balance Payable", value: AppModuleFormatters.rupees(booking.exchangeBalancePayable), icon: "indianrupeesign")
                 }
@@ -535,8 +608,8 @@ struct BookingCreateView: View {
         if booking.exchangeManualEntry {
             return AnyView(
                 VStack(alignment: .leading, spacing: 10) {
-                    DirectBookingTextField("Old Project Name", text: $booking.manualExchangeProjectName, placeholder: "Enter old project name", icon: "building.2")
-                    DirectBookingTextField("Old Plot Number", text: $booking.manualExchangePlotNo, placeholder: "Enter old plot number", icon: "square")
+                    DirectBookingTextField("Old Project Name *", text: $booking.manualExchangeProjectName, placeholder: "Enter old project name", icon: "building.2")
+                    DirectBookingTextField("Old Plot Number *", text: $booking.manualExchangePlotNo, placeholder: "Enter old plot number", icon: "square")
                     DirectBookingTextField("Extent (Sq. Ft.)", text: $booking.manualExchangeExtentSqft, placeholder: "Old property extent", icon: "ruler", keyboard: .decimalPad)
                 }
             )
@@ -544,38 +617,39 @@ struct BookingCreateView: View {
         if booking.bookingType == "INTERNAL EXCHANGE" {
             return AnyView(
                 VStack(alignment: .leading, spacing: 10) {
-                    DirectBookingTextField("Old Project ID", text: $booking.exchangeLookupProjectId, placeholder: "Linked old project ID", icon: "building.2")
-                    DirectBookingTextField("Old Plot Number", text: $booking.exchangeLookupPlotNo, placeholder: "Old plot", icon: "square")
-                    DirectBookingTextField("Connected Mobile Number", text: $booking.exchangeConnectedMobileNumber, placeholder: "10-digit booked mobile", icon: "phone", keyboard: .phonePad)
-                    DirectBookingTextField("Source Booking ID", text: $booking.sourceExchangeBookingId, placeholder: "Matched booking ID", icon: "link")
+                    DirectBookingTextField("Old Project ID *", text: $booking.exchangeLookupProjectId, placeholder: "Linked old project ID", icon: "building.2")
+                    DirectBookingTextField("Old Plot Number *", text: $booking.exchangeLookupPlotNo, placeholder: "Old plot", icon: "square")
+                    DirectBookingTextField("Connected Mobile Number *", text: $booking.exchangeConnectedMobileNumber, placeholder: "10-digit booked mobile", icon: "phone", keyboard: .phonePad)
+                    DirectBookingTextField("Source Booking ID *", text: $booking.sourceExchangeBookingId, placeholder: "Matched booking ID", icon: "link")
                 }
             )
         }
         return AnyView(
-            DirectBookingTextField("Exchanged Property Booking ID", text: $booking.sourceExchangeBookingId, placeholder: "Linked confirmed booking ID", icon: "link")
+            DirectBookingTextField("Exchanged Property Booking ID *", text: $booking.sourceExchangeBookingId, placeholder: "Linked confirmed booking ID", icon: "link")
         )
     }
 
     private var chargesDetails: some View {
         VStack(alignment: .leading, spacing: 10) {
-            DirectBookingTextField("Booking Cost", text: $booking.bookingCost, placeholder: "Enter Cost", icon: "indianrupeesign", keyboard: .decimalPad)
-            DirectBookingTextField("Guideline Value", text: $booking.guidelineValue, placeholder: "Enter Value", icon: "indianrupeesign", keyboard: .decimalPad)
+            sectionTitle("Financial Details")
+            DirectBookingTextField("Booking Cost *", text: $booking.bookingCost, placeholder: "Enter Cost", icon: "indianrupeesign", keyboard: .decimalPad)
+            DirectBookingTextField("Guideline Value *", text: $booking.guidelineValue, placeholder: "Enter Value", icon: "indianrupeesign", keyboard: .decimalPad)
             DirectBookingTextField("Special Consideration", text: $booking.specialConsideration, placeholder: "Discount amount", icon: "indianrupeesign", keyboard: .decimalPad)
+            bookingHelperText("Enter the amount to deduct from the booking cost.")
             if (Double(booking.specialConsideration) ?? 0) > 0 {
-                DirectBookingTextField("Discount Approved By", text: $booking.discountApprovedBy, placeholder: "AVP or GM name", icon: "person")
-                DirectBookingTextField("SC Reason", text: $booking.specialConsiderationReason, placeholder: "Enter Details", icon: "doc", axis: .vertical)
-                DirectBookingTextField("SC Validity", text: $booking.specialConsiderationValidity, placeholder: "Enter Days", icon: "calendar", keyboard: .numberPad)
+                DirectBookingTextField("Discount Approved By *", text: $booking.discountApprovedBy, placeholder: "AVP or GM name", icon: "person")
+                DirectBookingTextField("SC Reason *", text: $booking.specialConsiderationReason, placeholder: "Enter Details", icon: "doc", axis: .vertical)
+                DirectBookingTextField("SC Validity *", text: $booking.specialConsiderationValidity, placeholder: "Enter Days", icon: "calendar", keyboard: .numberPad)
             }
             if let agreedAmount = booking.agreedAmount {
                 DirectBookingPickerShell(title: "Agreed Amount", value: AppModuleFormatters.rupees(agreedAmount), icon: "indianrupeesign")
             }
-            DirectBookingTextField("Promotional Offers", text: $booking.promotionalOffers, placeholder: "Enter Details", icon: "tag", axis: .vertical)
-            DirectBookingPicker("Promotional Offers T&C", value: $booking.promotionalOffersTnC, placeholder: "Select Timeline", icon: "doc", options: ["7days", "15days", "30days"])
+            DirectBookingTextField("Promotional Offer *", text: $booking.promotionalOffers, placeholder: "Enter promotional offer", icon: "tag")
+            DirectBookingTextField("Offer Value *", text: $booking.promotionalOfferValue, placeholder: "0.00", icon: "indianrupeesign", keyboard: .decimalPad)
+            DirectBookingOptionPicker("Terms & Conditions *", value: $booking.promotionalOffersTnC, placeholder: "Select timeline...", icon: "doc", options: Self.promotionalTermsOptions)
                 .onChange(of: booking.promotionalOffersTnC) { _, value in
                     booking.offerValidityPeriod = String(value.filter(\.isNumber))
                 }
-            DirectBookingTextField("Promotional Offer Value", text: $booking.promotionalOfferValue, placeholder: "Enter Value", icon: "indianrupeesign", keyboard: .decimalPad)
-            DirectBookingTextField("Offer Validity Period", text: $booking.offerValidityPeriod, placeholder: "Enter Days", icon: "calendar", keyboard: .numberPad)
         }
     }
 
@@ -583,28 +657,54 @@ struct BookingCreateView: View {
         AnyView(
             VStack(alignment: .leading, spacing: 10) {
                 sectionTitle("Charges & Advance")
-                DirectBookingTextField("Registration Charges", text: $booking.registrationCharges, placeholder: "Enter Cost", icon: "indianrupeesign", keyboard: .decimalPad)
-                DirectBookingTextField("GST Amount", text: $booking.gstAmount, placeholder: "Enter Value", icon: "indianrupeesign", keyboard: .decimalPad)
-                androidCheckRow("GST Applicable", isOn: $booking.gstApplicable, onText: "Applicable", offText: "Not Applicable")
-                DirectBookingTextField("Document Charges", text: $booking.documentCharges, placeholder: "Enter Cost", icon: "doc", keyboard: .decimalPad)
-                DirectBookingTextField("Patta Charges", text: $booking.pattaCharges, placeholder: "Enter Cost", icon: "doc", keyboard: .decimalPad)
-                DirectBookingTextField("Other Charges", text: $booking.otherCharges, placeholder: "Enter Value", icon: "indianrupeesign", keyboard: .decimalPad)
-                androidCheckRow("Other Charges Applicable", isOn: $booking.otherChargesApplicable, onText: "Applicable", offText: "Not Applicable")
+                DirectBookingTextField("Registration Charges *", text: $booking.registrationCharges, placeholder: "Enter Cost", icon: "indianrupeesign", keyboard: .decimalPad)
+                DirectBookingTextField("GST Amount *", text: $booking.gstAmount, placeholder: "Enter Value", icon: "indianrupeesign", keyboard: .decimalPad)
+                bookingApplicabilityControl(isOn: $booking.gstApplicable)
+                DirectBookingTextField("Document Charges *", text: $booking.documentCharges, placeholder: "Enter Cost", icon: "doc", keyboard: .decimalPad)
+                DirectBookingTextField("Patta Charges *", text: $booking.pattaCharges, placeholder: "Enter Cost", icon: "doc", keyboard: .decimalPad)
+                DirectBookingTextField("Other Charges *", text: $booking.otherCharges, placeholder: "Enter Value", icon: "indianrupeesign", keyboard: .decimalPad)
+                bookingApplicabilityControl(isOn: $booking.otherChargesApplicable)
 
                 sectionTitle("Customer Funding")
-                DirectBookingOptionPicker("Customer Payment Category", value: $booking.customerPaymentCategory, placeholder: "Select Category", icon: "creditcard", options: Self.customerPaymentCategoryOptions)
+                DirectBookingOptionPicker("Customer Payment Category *", value: $booking.customerPaymentCategory, placeholder: "Select category", icon: "creditcard", options: Self.customerPaymentCategoryOptions)
                 customerLoanDetails
-                DirectBookingPicker("Advance Booking Payment", value: $booking.bookingMode, placeholder: "Select Payment Method", icon: "creditcard", options: ["CASH", "UPI", "NEFT", "RTGS", "CHEQUE", "DD"])
-                DirectBookingTextField("Advance Amount", text: $booking.advanceAmount, placeholder: "Enter Amount", icon: "indianrupeesign", keyboard: .decimalPad)
+                DirectBookingPicker("Advance Booking Payment *", value: $booking.bookingMode, placeholder: "Select...", icon: "creditcard", options: ["CASH", "UPI", "NEFT", "RTGS", "CHEQUE", "DD"])
+                DirectBookingTextField("Advance Amount *", text: $booking.advanceAmount, placeholder: "Enter Amount", icon: "indianrupeesign", keyboard: .decimalPad)
+                bookingHelperText("Project minimum: \(AppModuleFormatters.rupees(selectedProject?.minimumAdvanceAmount ?? 0)). Higher advance is allowed.")
                 advancePaymentDetails
             }
         )
     }
 
+    private func bookingHelperText(_ text: String) -> some View {
+        Text(text)
+            .font(.system(size: 11, weight: .regular))
+            .foregroundStyle(Color(hex: 0x667085))
+            .fixedSize(horizontal: false, vertical: true)
+    }
+
+    private func bookingApplicabilityControl(isOn: Binding<Bool>) -> some View {
+        Button {
+            isOn.wrappedValue.toggle()
+        } label: {
+            HStack(spacing: 8) {
+                Image(systemName: isOn.wrappedValue ? "checkmark.square.fill" : "square")
+                    .font(.system(size: 20, weight: .semibold))
+                Text("Applicable")
+                    .font(.system(size: 14, weight: .medium))
+                Spacer()
+            }
+            .foregroundStyle(isOn.wrappedValue ? Color(hex: 0x218C54) : Color(hex: 0x667085))
+            .contentShape(Rectangle())
+        }
+        .buttonStyle(.plain)
+        .accessibilityValue(isOn.wrappedValue ? "On" : "Off")
+    }
+
     private var customerLoanDetails: AnyView {
         guard booking.customerPaymentCategory == "B" else { return AnyView(EmptyView()) }
         return AnyView(
-            DirectBookingTextField("Loan Amount Required", text: $booking.loanAmountRequested, placeholder: "Amount customer wants as loan", icon: "doc", keyboard: .decimalPad)
+            DirectBookingTextField("Bank Loan Amount *", text: $booking.loanAmountRequested, placeholder: "Enter approved/requested loan amount", icon: "doc", keyboard: .decimalPad)
         )
     }
 
@@ -612,12 +712,12 @@ struct BookingCreateView: View {
         if ["UPI", "NEFT", "RTGS"].contains(booking.bookingMode) {
             return AnyView(
                 VStack(alignment: .leading, spacing: 10) {
-                    DirectBookingTextField("Transaction ID", text: $booking.advanceTransactionId, placeholder: "UTR / Ref no", icon: "number")
+                    DirectBookingTextField("Transaction ID *", text: $booking.advanceTransactionId, placeholder: "UTR / Ref no", icon: "number")
                     bookingDocumentUploadCard(
-                        title: "Payment Proof",
+                        title: "Payment Proof *",
                         fileName: booking.advancePaymentProofFileName,
                         isUploaded: booking.advancePaymentProofStorageId.directBookingNilIfBlank != nil,
-                        onSelect: { showAdvanceProofImporter = true },
+                        onSelect: { presentDocumentImporter(for: .advanceProof) },
                         onRemove: {
                             booking.advancePaymentProofStorageId = ""
                             booking.advancePaymentProofFileName = ""
@@ -629,10 +729,10 @@ struct BookingCreateView: View {
         if ["CHEQUE", "DD"].contains(booking.bookingMode) {
             return AnyView(
                 VStack(alignment: .leading, spacing: 10) {
-                    DirectBookingTextField(booking.bookingMode == "DD" ? "DD No" : "Cheque No", text: $booking.advanceInstrumentNo, placeholder: "Enter instrument number", icon: "number")
-                    DirectBookingTextField("Bank", text: $booking.advanceBankName, placeholder: "Enter bank", icon: "building.columns")
-                    DirectBookingTextField("Branch", text: $booking.advanceBankBranch, placeholder: "Enter branch", icon: "building.2")
-                    DirectBookingDateField("Instrument Date", text: $booking.advanceInstrumentDate)
+                    DirectBookingTextField(booking.bookingMode == "DD" ? "DD No *" : "Cheque No *", text: $booking.advanceInstrumentNo, placeholder: "Enter instrument number", icon: "number")
+                    DirectBookingTextField("Bank *", text: $booking.advanceBankName, placeholder: "Enter bank", icon: "building.columns")
+                    DirectBookingTextField("Branch *", text: $booking.advanceBankBranch, placeholder: "Enter branch", icon: "building.2")
+                    DirectBookingDateField("Instrument Date *", text: $booking.advanceInstrumentDate)
                 }
             )
         }
@@ -642,9 +742,9 @@ struct BookingCreateView: View {
     private var paymentDetails: some View {
         VStack(alignment: .leading, spacing: 10) {
             sectionTitle("Payment Schedule")
-            DirectBookingOptionPicker("Payment Plan", value: $booking.paymentPlan, placeholder: "Select Plan", icon: "calendar", options: paymentPlanOptions)
-            DirectBookingTextField("Allotment Due Amount", text: $booking.allotmentDueAmount, placeholder: "Enter Cost", icon: "indianrupeesign", keyboard: .decimalPad)
-            DirectBookingDateField("Allotment Due Date", text: $booking.allotmentDueDate, maxDate: paymentDateLimit(days: 10))
+            DirectBookingOptionPicker("Payment Plan *", value: $booking.paymentPlan, placeholder: "Select Plan", icon: "calendar", options: paymentPlanOptions)
+            DirectBookingTextField("Allotment Due Amount *", text: $booking.allotmentDueAmount, placeholder: "Enter Cost", icon: "indianrupeesign", keyboard: .decimalPad)
+            DirectBookingDateField("Allotment Due Date *", text: $booking.allotmentDueDate, maxDate: paymentDateLimit(days: 10))
             if booking.freePayment {
                 HStack {
                     sectionTitle("Flexi Payment Schedule")
@@ -674,7 +774,7 @@ struct BookingCreateView: View {
                             .buttonStyle(.plain)
                         }
                         DirectBookingTextField(
-                            "\(ordinalPaymentLabel(index + 2)) Payment Amount",
+                            "\(ordinalPaymentLabel(index + 2)) Payment Amount *",
                             text: Binding(
                                 get: { booking.flexiPaymentRows[index].amount },
                                 set: { booking.flexiPaymentRows[index].amount = $0 }
@@ -684,7 +784,7 @@ struct BookingCreateView: View {
                             keyboard: .decimalPad
                         )
                         DirectBookingDateField(
-                            "\(ordinalPaymentLabel(index + 2)) Payment Date",
+                            "\(ordinalPaymentLabel(index + 2)) Payment Date *",
                             text: Binding(
                                 get: { booking.flexiPaymentRows[index].dueDate },
                                 set: { booking.flexiPaymentRows[index].dueDate = $0 }
@@ -696,14 +796,14 @@ struct BookingCreateView: View {
                     .background(Color(hex: 0xF8FAFC), in: RoundedRectangle(cornerRadius: 12))
                 }
             } else {
-                DirectBookingTextField("2nd Payment Amount", text: $booking.secondPaymentAmount, placeholder: "Enter Cost", icon: "indianrupeesign", keyboard: .decimalPad)
-                DirectBookingDateField("2nd Payment Date", text: $booking.secondPaymentDate, maxDate: paymentDateLimit(days: paymentPlanDays))
-                DirectBookingTextField("3rd Payment Amount", text: $booking.thirdPaymentAmount, placeholder: "Enter Cost", icon: "indianrupeesign", keyboard: .decimalPad)
-                DirectBookingDateField("3rd Payment Date", text: $booking.thirdPaymentDate, maxDate: paymentDateLimit(days: paymentPlanDays))
-                DirectBookingTextField("4th Payment Amount", text: $booking.fourthPaymentAmount, placeholder: "Enter Cost", icon: "indianrupeesign", keyboard: .decimalPad)
-                DirectBookingDateField("4th Payment Date", text: $booking.fourthPaymentDate, maxDate: paymentDateLimit(days: paymentPlanDays))
+                DirectBookingTextField("2nd Payment Amount *", text: $booking.secondPaymentAmount, placeholder: "Enter Cost", icon: "indianrupeesign", keyboard: .decimalPad)
+                DirectBookingDateField("2nd Payment Date *", text: $booking.secondPaymentDate, maxDate: paymentDateLimit(days: paymentPlanDays))
+                DirectBookingTextField("3rd Payment Amount *", text: $booking.thirdPaymentAmount, placeholder: "Enter Cost", icon: "indianrupeesign", keyboard: .decimalPad)
+                DirectBookingDateField("3rd Payment Date *", text: $booking.thirdPaymentDate, maxDate: paymentDateLimit(days: paymentPlanDays))
+                DirectBookingTextField("4th Payment Amount *", text: $booking.fourthPaymentAmount, placeholder: "Enter Cost", icon: "indianrupeesign", keyboard: .decimalPad)
+                DirectBookingDateField("4th Payment Date *", text: $booking.fourthPaymentDate, maxDate: paymentDateLimit(days: paymentPlanDays))
             }
-            DirectBookingDateField("Preferred Registration Date", text: $booking.preferredRegistrationDate)
+            DirectBookingDateField("Preferred Registration Date *", text: $booking.preferredRegistrationDate)
         }
     }
 
@@ -714,41 +814,41 @@ struct BookingCreateView: View {
             staffPicker(.seniorManager)
             staffPicker(.bdo)
             staffPicker(.telecaller)
-            DirectBookingTextField("Aadhar Details", text: $booking.aadhaar, placeholder: "Enter Details", icon: "doc", keyboard: .numberPad)
+            DirectBookingTextField("Aadhaar Details *", text: $booking.aadhaar, placeholder: "Enter Details", icon: "doc", keyboard: .numberPad)
                 .onChange(of: booking.aadhaar) { _, value in
                     booking.aadhaar = String(value.filter(\.isNumber).prefix(12))
                 }
             bookingDocumentUploadCard(
-                title: "Aadhaar Upload",
+                title: "Aadhaar Upload *",
                 fileName: booking.aadhaarDocumentFileName,
                 isUploaded: booking.aadhaarDocumentStorageId.directBookingNilIfBlank != nil,
-                onSelect: { showAadhaarImporter = true },
+                onSelect: { presentDocumentImporter(for: .aadhaar) },
                 onRemove: {
                     booking.aadhaarDocumentStorageId = ""
                     booking.aadhaarDocumentFileName = ""
                 }
             )
-            DirectBookingTextField("Pancard Details", text: $booking.pan, placeholder: "Enter Details", icon: "doc")
+            DirectBookingTextField("PAN Details *", text: $booking.pan, placeholder: "Enter Details", icon: "doc")
                 .onChange(of: booking.pan) { _, value in
                     booking.pan = String(value.uppercased().filter { $0.isLetter || $0.isNumber }.prefix(10))
                 }
             bookingDocumentUploadCard(
-                title: "PAN Upload",
+                title: "PAN Upload *",
                 fileName: booking.panDocumentFileName,
                 isUploaded: booking.panDocumentStorageId.directBookingNilIfBlank != nil,
-                onSelect: { showPanImporter = true },
+                onSelect: { presentDocumentImporter(for: .pan) },
                 onRemove: {
                     booking.panDocumentStorageId = ""
                     booking.panDocumentFileName = ""
                 }
             )
-            DirectBookingTextField("Reference Name 1", text: $booking.referenceName1, placeholder: "Enter Name", icon: "person")
-            DirectBookingTextField("Reference Mobile 1", text: $booking.referenceMobile1, placeholder: "Enter No", icon: "phone", keyboard: .phonePad)
-            DirectBookingPicker("Reference Relation 1", value: $booking.referenceProfession1, placeholder: "Select Relation", icon: "person.2", options: Self.referenceRelationOptions)
-            DirectBookingTextField("Reference Name 2", text: $booking.referenceName2, placeholder: "Enter Name", icon: "person")
-            DirectBookingTextField("Reference Mobile 2", text: $booking.referenceMobile2, placeholder: "Enter No", icon: "phone", keyboard: .phonePad)
-            DirectBookingPicker("Reference Relation 2", value: $booking.referenceProfession2, placeholder: "Select Relation", icon: "person.2", options: Self.referenceRelationOptions)
-            DirectBookingPicker("Document to be prepared in", value: $booking.docPreparedIn, placeholder: "Select", icon: "doc", options: ["English", "Kannada", "Tamil", "Telugu", "Hindi"])
+            DirectBookingTextField("Reference Name 1 *", text: $booking.referenceName1, placeholder: "Enter Name", icon: "person")
+            DirectBookingTextField("Reference Mobile 1 *", text: $booking.referenceMobile1, placeholder: "Enter No", icon: "phone", keyboard: .phonePad)
+            DirectBookingPicker("Reference Relation 1 *", value: $booking.referenceProfession1, placeholder: "Select Relation", icon: "person.2", options: Self.referenceRelationOptions)
+            DirectBookingTextField("Reference Name 2 *", text: $booking.referenceName2, placeholder: "Enter Name", icon: "person")
+            DirectBookingTextField("Reference Mobile 2 *", text: $booking.referenceMobile2, placeholder: "Enter No", icon: "phone", keyboard: .phonePad)
+            DirectBookingPicker("Reference Relation 2 *", value: $booking.referenceProfession2, placeholder: "Select Relation", icon: "person.2", options: Self.referenceRelationOptions)
+            DirectBookingPicker("Document to be prepared in *", value: $booking.docPreparedIn, placeholder: "Select", icon: "doc", options: ["English", "Kannada", "Tamil", "Telugu", "Hindi"])
             Picker("Save as", selection: $booking.saveAs) {
                 Text("Draft").tag(DirectBookingSaveAs.draft)
                 Text("Confirmed").tag(DirectBookingSaveAs.confirmed)
@@ -768,15 +868,18 @@ struct BookingCreateView: View {
             }
             .foregroundStyle(Color(hex: 0x667085))
         } else if let selectedLead {
-            Button {
-                if leadMatches.count > 1 { showLeadPicker = true }
-            } label: {
-                Label("Linked lead: \(selectedLead.displayName)", systemImage: "person.badge.checkmark")
-                    .font(.system(size: 12, weight: .medium))
-                    .frame(maxWidth: .infinity, alignment: .leading)
+            VStack(alignment: .leading, spacing: 6) {
+                DirectBookingFieldLabel("Linked Lead *")
+                Button {
+                    if leadMatches.count > 1 { showLeadPicker = true }
+                } label: {
+                    Label(selectedLead.displayName, systemImage: "person.badge.checkmark")
+                        .font(.system(size: 12, weight: .medium))
+                        .frame(maxWidth: .infinity, alignment: .leading)
+                }
+                .buttonStyle(.bordered)
+                .tint(Color(hex: 0x2DAE12))
             }
-            .buttonStyle(.bordered)
-            .tint(Color(hex: 0x2DAE12))
         }
     }
 
@@ -789,9 +892,7 @@ struct BookingCreateView: View {
 
     private func androidCheckRow(_ title: String, isOn: Binding<Bool>, onText: String, offText: String? = nil) -> some View {
         VStack(alignment: .leading, spacing: 8) {
-            Text(title)
-                .font(.system(size: 13, weight: .semibold))
-                .foregroundStyle(Color(hex: 0x475467))
+            DirectBookingFieldLabel(title)
             HStack(spacing: 12) {
                 Button {
                     isOn.wrappedValue.toggle()
@@ -817,7 +918,7 @@ struct BookingCreateView: View {
             activeStaffPicker = field
         } label: {
             DirectBookingPickerShell(
-                title: field.title,
+                title: "\(field.title) *",
                 value: staff.first { $0.id == staffSelection(for: field) }?.displayName ?? "Select",
                 icon: "person"
             )
@@ -896,7 +997,7 @@ struct BookingCreateView: View {
                 )
             },
             onSelect: { unit in
-                guard unit.status == "available" else {
+                guard isAvailableForBooking(unit) else {
                     errorMessage = "Unit is no longer available"
                     return
                 }
@@ -996,13 +1097,28 @@ struct BookingCreateView: View {
             return
         }
         do {
-            availableUnits = try await MarketingConvexAPIService.listInventoryUnits(token: token, projectId: project.id, status: "available")
-                .filter { $0.status == "available" }
+            availableUnits = try await MarketingConvexAPIService.listInventoryUnits(
+                token: token,
+                projectId: project.id,
+                status: "available"
+            )
+                .filter(isAvailableForBooking)
+                .sorted {
+                    ($0.unitNumber ?? $0.id).localizedStandardCompare($1.unitNumber ?? $1.id) == .orderedAscending
+                }
             showUnitPicker = !availableUnits.isEmpty
-            if availableUnits.isEmpty { errorMessage = "No available plots in this project" }
+            if availableUnits.isEmpty {
+                errorMessage = "No available plots found for \(project.name ?? "this project")."
+            }
         } catch {
-            errorMessage = error.localizedDescription
+            errorMessage = "Could not load plots for \(project.name ?? "this project"): \(error.localizedDescription)"
         }
+    }
+
+    private func isAvailableForBooking(_ unit: InventoryUnit) -> Bool {
+        let publicStatus = unit.status.trimmingCharacters(in: .whitespacesAndNewlines).lowercased()
+        let rawStatus = unit.rawStatus?.trimmingCharacters(in: .whitespacesAndNewlines).lowercased()
+        return publicStatus == "available" || rawStatus == "available"
     }
 
     @MainActor
@@ -1028,6 +1144,13 @@ struct BookingCreateView: View {
         } catch {
             errorMessage = error.localizedDescription
         }
+    }
+
+    @MainActor
+    private func presentDocumentImporter(for kind: DirectBookingUploadKind) {
+        guard !isUploadingDocument else { return }
+        pendingDocumentUploadKind = kind
+        showDocumentImporter = true
     }
 
     @MainActor
@@ -1102,7 +1225,20 @@ struct BookingCreateView: View {
         booking.phone = AppModuleFormatters.normalizePhone(lead.mobileNumber ?? booking.phone)
         booking.email = lead.emailId?.directBookingNilIfBlank ?? booking.email
         booking.alternateNumbers = lead.latestAnalysisProfile?.alternateMobileNumber?.directBookingNilIfBlank ?? booking.alternateNumbers
-        booking.homeAddress = lead.suggestedVisitAddress?.directBookingNilIfBlank ?? lead.latestAnalysisProfile?.address?.directBookingNilIfBlank ?? booking.homeAddress
+        booking.homeDoorNo = lead.latestAnalysisProfile?.doorNo?.directBookingNilIfBlank
+            ?? lead.clientPlaceProfile?.doorNo?.directBookingNilIfBlank
+            ?? lead.manualProfile?.doorNo?.directBookingNilIfBlank
+            ?? booking.homeDoorNo
+        booking.homeStreetName = lead.latestAnalysisProfile?.street?.directBookingNilIfBlank
+            ?? lead.clientPlaceProfile?.street?.directBookingNilIfBlank
+            ?? lead.manualProfile?.street?.directBookingNilIfBlank
+            ?? booking.homeStreetName
+        booking.homeAddressLine1 = lead.latestAnalysisProfile?.address?.directBookingNilIfBlank
+            ?? lead.clientPlaceProfile?.address?.directBookingNilIfBlank
+            ?? lead.manualProfile?.address?.directBookingNilIfBlank
+            ?? booking.homeAddressLine1
+        booking.homeAddress = lead.suggestedVisitAddress?.directBookingNilIfBlank ?? booking.homeAddress
+        booking.migrateLegacyHomeAddressIfNeeded()
         booking.pincode = lead.latestAnalysisProfile?.pincode?.directBookingNilIfBlank ?? booking.pincode
         booking.state = lead.latestAnalysisProfile?.state?.directBookingNilIfBlank ?? booking.state
         booking.district = lead.latestAnalysisProfile?.district?.directBookingNilIfBlank ?? booking.district
@@ -1114,6 +1250,50 @@ struct BookingCreateView: View {
         if booking.isAgainstSV {
             booking.svName = booking.svName.directBookingNilIfBlank ?? lead.displayName
             booking.svMobileNo = booking.svMobileNo.directBookingNilIfBlank ?? AppModuleFormatters.normalizePhone(lead.mobileNumber ?? "")
+        }
+    }
+
+    private func scheduleHomeAddressGeocode() {
+        homeGeocodeTask?.cancel()
+        guard booking.hasMinimumHomeAddressForGeocoding else {
+            isGeocodingHomeAddress = false
+            if booking.homeAddressSearchText.isEmpty {
+                booking.latitude = ""
+                booking.longitude = ""
+                booking.googleMapsLink = ""
+            }
+            return
+        }
+
+        let query = booking.homeAddressSearchText
+        booking.latitude = ""
+        booking.longitude = ""
+        booking.googleMapsLink = ""
+        homeGeocodeTask = Task {
+            try? await Task.sleep(for: .milliseconds(850))
+            guard !Task.isCancelled else { return }
+            await geocodeHomeAddress(query)
+        }
+    }
+
+    @MainActor
+    private func geocodeHomeAddress(_ query: String) async {
+        isGeocodingHomeAddress = true
+        defer { isGeocodingHomeAddress = false }
+
+        let request = MKLocalSearch.Request()
+        request.naturalLanguageQuery = query
+        request.resultTypes = .address
+        do {
+            let response = try await MKLocalSearch(request: request).start()
+            guard !Task.isCancelled,
+                  booking.homeAddressSearchText == query,
+                  let coordinate = response.mapItems.first?.placemark.coordinate else { return }
+            booking.latitude = String(coordinate.latitude)
+            booking.longitude = String(coordinate.longitude)
+            booking.googleMapsLink = "https://www.google.com/maps?q=\(coordinate.latitude),\(coordinate.longitude)"
+        } catch {
+            // Address entry remains valid even when MapKit cannot resolve it.
         }
     }
 
@@ -1146,69 +1326,137 @@ struct BookingCreateView: View {
         }
     }
 
-    private func bookingValidationError(mobile: String) -> (message: String, tab: DirectBookingTab)? {
-        let required: [(String, String, DirectBookingTab)] = [
-            ("Mobile Number", mobile, .client),
-            ("Title", booking.title, .client),
-            ("Client Name", booking.name, .client),
-            ("Father / Spouse Name", booking.fatherSpouseName, .client),
-            ("Date of Birth", booking.dateOfBirth, .client),
-            ("Alternate Numbers", booking.alternateNumbers, .client),
-            ("WhatsApp Number", booking.whatsappNumber, .client),
-            ("Email", booking.email, .client),
-            ("Nationality", booking.nationality, .client),
-            ("Home Address", booking.homeAddress, .client),
-            ("Pincode", booking.pincode, .client),
-            ("District", booking.district, .client),
-            ("Profession", booking.profession, .client),
-            ("Designation", booking.designation, .client),
-            ("Income Per Annum", booking.incomePerAnnum, .client),
-            ("Office Name", booking.officeName, .client),
-            ("Office Door No", booking.officeDoorNo, .client),
-            ("Office Street Name", booking.officeStreetName, .client),
-            ("Office Address Line 1", booking.officeAddressLine1, .client),
-            ("Booking Type", booking.bookingType, .bookingFinance),
-            ("CEF No", booking.cefNo, .bookingFinance),
-            ("Booking Date", booking.bookingDate, .bookingFinance),
-            ("Project", selectedProject?.id ?? booking.projectId, .bookingFinance),
-            ("Plot", selectedUnit?.id ?? booking.plotId, .bookingFinance),
-            ("Property Type", booking.propertyType, .bookingFinance),
-            ("Advance Booking Payment", booking.bookingMode, .bookingFinance),
-            ("Booking Cost", booking.bookingCost, .bookingFinance),
-            ("Guideline Value", booking.guidelineValue, .bookingFinance),
-            ("Promotional Offers", booking.promotionalOffers, .bookingFinance),
-            ("Promotional Offers T & C", booking.promotionalOffersTnC, .bookingFinance),
-            ("Promotional Offer Value", booking.promotionalOfferValue, .bookingFinance),
-            ("Registration Charges", booking.registrationCharges, .bookingFinance),
-            ("GST Amount", booking.gstAmount, .bookingFinance),
-            ("Document Charges", booking.documentCharges, .bookingFinance),
-            ("Patta Charges", booking.pattaCharges, .bookingFinance),
-            ("Other Charges", booking.otherCharges, .bookingFinance),
-            ("Advance Amount", booking.advanceAmount, .bookingFinance),
-            ("Customer Payment Category", booking.customerPaymentCategory, .bookingFinance),
-            ("Allotment Due Amount", booking.allotmentDueAmount, .paymentStaff),
-            ("Allotment Due Date", booking.allotmentDueDate, .paymentStaff),
-            ("Preferred Registration Date", booking.preferredRegistrationDate, .paymentStaff),
-            ("AVP", booking.originalAvpStaffId, .paymentStaff),
-            ("General Manager", booking.originalGmStaffId, .paymentStaff),
-            ("Senior Manager", booking.originalSeniorManagerStaffId, .paymentStaff),
-            ("BDO", booking.originalBdoStaffId, .paymentStaff),
-            ("Telecaller", booking.originalTelecallerStaffId, .paymentStaff),
-            ("Aadhaar Number", booking.aadhaar, .paymentStaff),
-            ("Aadhaar Upload", booking.aadhaarDocumentStorageId, .paymentStaff),
-            ("PAN Number", booking.pan, .paymentStaff),
-            ("PAN Upload", booking.panDocumentStorageId, .paymentStaff),
-            ("Reference 1 — Name", booking.referenceName1, .paymentStaff),
-            ("Reference 1 — Relation", booking.referenceProfession1, .paymentStaff),
-            ("Reference 1 — Mobile", booking.referenceMobile1, .paymentStaff),
-            ("Reference 2 — Name", booking.referenceName2, .paymentStaff),
-            ("Reference 2 — Relation", booking.referenceProfession2, .paymentStaff),
-            ("Reference 2 — Mobile", booking.referenceMobile2, .paymentStaff),
-            ("Document to be Prepared In", booking.docPreparedIn, .paymentStaff)
-        ]
-        if let missing = required.first(where: { $0.1.directBookingNilIfBlank == nil }) {
-            return ("\(missing.0) is required", missing.2)
+    private typealias BookingValidationIssue = (message: String, tab: DirectBookingTab)
+
+    private func bookingValidationError(mobile: String) -> BookingValidationIssue? {
+        // Keep these stages small. A single all-fields tuple made the Debug device build
+        // reserve more than the iOS main-thread stack before validation could begin.
+        if let issue = requiredClientIdentityValidation(mobile: mobile) { return issue }
+        if let issue = requiredClientAddressValidation() { return issue }
+        if let issue = requiredClientWorkValidation() { return issue }
+        if let issue = requiredBookingDetailsValidation() { return issue }
+        if let issue = requiredFinanceDetailsValidation() { return issue }
+        if let issue = requiredPaymentStaffValidation() { return issue }
+        if let issue = requiredIdentityDocumentsValidation() { return issue }
+        if let issue = requiredReferencesValidation() { return issue }
+
+        if let issue = clientConditionalValidation(mobile: mobile) { return issue }
+        if let issue = bookingTypeConditionalValidation() { return issue }
+        if let issue = financeConditionalValidation() { return issue }
+        if let issue = paymentAmountValidation() { return issue }
+        return paymentScheduleValidation()
+    }
+
+    private func firstMissingRequired(
+        _ fields: [(label: String, value: String)],
+        tab: DirectBookingTab
+    ) -> BookingValidationIssue? {
+        guard let missing = fields.first(where: { $0.value.directBookingNilIfBlank == nil }) else {
+            return nil
         }
+        return ("\(missing.label) is required", tab)
+    }
+
+    private func requiredClientIdentityValidation(mobile: String) -> BookingValidationIssue? {
+        firstMissingRequired([
+            ("Mobile Number", mobile),
+            ("Title", booking.title),
+            ("Client Name", booking.name),
+            ("Father / Spouse Name", booking.fatherSpouseName),
+            ("Date of Birth", booking.dateOfBirth),
+            ("Alternate Numbers", booking.alternateNumbers),
+            ("WhatsApp Number", booking.whatsappNumber),
+            ("Email", booking.email),
+            ("Nationality", booking.nationality)
+        ], tab: .client)
+    }
+
+    private func requiredClientAddressValidation() -> BookingValidationIssue? {
+        firstMissingRequired([
+            ("Home Address — Door No", booking.homeDoorNo),
+            ("Home Address — Street Name", booking.homeStreetName),
+            ("Pincode", booking.pincode),
+            ("District", booking.district),
+            ("Home Address — Address Line 1", booking.homeAddressLine1)
+        ], tab: .client)
+    }
+
+    private func requiredClientWorkValidation() -> BookingValidationIssue? {
+        firstMissingRequired([
+            ("Profession", booking.profession),
+            ("Designation", booking.designation),
+            ("Income Per Annum", booking.incomePerAnnum),
+            ("Office Name", booking.officeName),
+            ("Office Door No", booking.officeDoorNo),
+            ("Office Street Name", booking.officeStreetName),
+            ("Office Address Line 1", booking.officeAddressLine1)
+        ], tab: .client)
+    }
+
+    private func requiredBookingDetailsValidation() -> BookingValidationIssue? {
+        firstMissingRequired([
+            ("Booking Type", booking.bookingType),
+            ("CEF No", booking.cefNo),
+            ("Booking Date", booking.bookingDate),
+            ("Project", selectedProject?.id ?? booking.projectId),
+            ("Plot", selectedUnit?.id ?? booking.plotId),
+            ("Property Type", booking.propertyType),
+            ("Booking Cost", booking.bookingCost),
+            ("Guideline Value", booking.guidelineValue)
+        ], tab: .bookingFinance)
+    }
+
+    private func requiredFinanceDetailsValidation() -> BookingValidationIssue? {
+        firstMissingRequired([
+            ("Promotional Offer", booking.promotionalOffers),
+            ("Offer Value", booking.promotionalOfferValue),
+            ("Terms & Conditions", booking.promotionalOffersTnC),
+            ("Registration Charges", booking.registrationCharges),
+            ("GST Amount", booking.gstAmount),
+            ("Document Charges", booking.documentCharges),
+            ("Patta Charges", booking.pattaCharges),
+            ("Other Charges", booking.otherCharges),
+            ("Customer Payment Category", booking.customerPaymentCategory),
+            ("Advance Booking Payment", booking.bookingMode),
+            ("Advance Amount", booking.advanceAmount)
+        ], tab: .bookingFinance)
+    }
+
+    private func requiredPaymentStaffValidation() -> BookingValidationIssue? {
+        firstMissingRequired([
+            ("Allotment Due Amount", booking.allotmentDueAmount),
+            ("Allotment Due Date", booking.allotmentDueDate),
+            ("Preferred Registration Date", booking.preferredRegistrationDate),
+            ("AVP", booking.originalAvpStaffId),
+            ("General Manager", booking.originalGmStaffId),
+            ("Senior Manager", booking.originalSeniorManagerStaffId),
+            ("BDO", booking.originalBdoStaffId),
+            ("Telecaller", booking.originalTelecallerStaffId)
+        ], tab: .paymentStaff)
+    }
+
+    private func requiredIdentityDocumentsValidation() -> BookingValidationIssue? {
+        firstMissingRequired([
+            ("Aadhaar Number", booking.aadhaar),
+            ("Aadhaar Upload", booking.aadhaarDocumentStorageId),
+            ("PAN Number", booking.pan),
+            ("PAN Upload", booking.panDocumentStorageId)
+        ], tab: .paymentStaff)
+    }
+
+    private func requiredReferencesValidation() -> BookingValidationIssue? {
+        firstMissingRequired([
+            ("Reference 1 — Name", booking.referenceName1),
+            ("Reference 1 — Relation", booking.referenceProfession1),
+            ("Reference 1 — Mobile", booking.referenceMobile1),
+            ("Reference 2 — Name", booking.referenceName2),
+            ("Reference 2 — Relation", booking.referenceProfession2),
+            ("Reference 2 — Mobile", booking.referenceMobile2),
+            ("Document to be Prepared In", booking.docPreparedIn)
+        ], tab: .paymentStaff)
+    }
+
+    private func clientConditionalValidation(mobile: String) -> BookingValidationIssue? {
         if !leadMatches.isEmpty, selectedLead == nil {
             return ("Linked Lead is required", .client)
         }
@@ -1221,8 +1469,14 @@ struct BookingCreateView: View {
                 return ("\(label) must be exactly 10 digits", .client)
             }
         }
+        if booking.pincode.filter(\.isNumber).count != 6 {
+            return ("Pincode must be exactly 6 digits", .client)
+        }
         if booking.aadhaar.filter(\.isNumber).count != 12 { return ("Aadhaar Number must be exactly 12 digits", .paymentStaff) }
+        return nil
+    }
 
+    private func bookingTypeConditionalValidation() -> BookingValidationIssue? {
         if booking.bookingType == "CONVERSION", booking.conversionManualEntry {
             if booking.manualConversionProjectName.directBookingNilIfBlank == nil { return ("Manual Previous Project is required", .bookingFinance) }
             if booking.manualConversionPlotNo.directBookingNilIfBlank == nil { return ("Manual Previous Plot is required", .bookingFinance) }
@@ -1248,10 +1502,17 @@ struct BookingCreateView: View {
                 return ("Exchange Value is required", .bookingFinance)
             }
         }
+        return nil
+    }
+
+    private func financeConditionalValidation() -> BookingValidationIssue? {
         if (Double(booking.specialConsideration) ?? 0) > 0 {
             if booking.discountApprovedBy.directBookingNilIfBlank == nil { return ("Discount Approved By is required", .bookingFinance) }
             if booking.specialConsiderationReason.directBookingNilIfBlank == nil { return ("SC Reason is required", .bookingFinance) }
             if (Double(booking.specialConsiderationValidity) ?? 0) <= 0 { return ("SC Validity is required", .bookingFinance) }
+        }
+        if (Double(booking.specialConsideration) ?? 0) > (Double(booking.bookingCost) ?? 0) {
+            return ("Special Consideration cannot exceed the Booking Cost", .bookingFinance)
         }
         if booking.isAgainstSV {
             if booking.svName.directBookingNilIfBlank == nil { return ("SV Name is required", .bookingFinance) }
@@ -1270,6 +1531,34 @@ struct BookingCreateView: View {
         if booking.customerPaymentCategory == "B", (Double(booking.loanAmountRequested) ?? 0) <= 0 {
             return ("Bank Loan Amount is required", .bookingFinance)
         }
+        return nil
+    }
+
+    private func paymentAmountValidation() -> BookingValidationIssue? {
+        let advanceAmount = Double(booking.advanceAmount) ?? 0
+        if let minimumAdvanceAmount = selectedProject?.minimumAdvanceAmount,
+           advanceAmount < minimumAdvanceAmount {
+            return ("Advance must be at least \(AppModuleFormatters.rupees(minimumAdvanceAmount)) as set in Project Details", .bookingFinance)
+        }
+        let totalPayableAmount = booking.bookingType == "EXCHANGE"
+            ? booking.exchangeBalancePayable
+            : (booking.totalPayableAmount ?? 0)
+        if advanceAmount > totalPayableAmount {
+            return ("Advance cannot exceed the total payable amount", .bookingFinance)
+        }
+        if booking.customerPaymentCategory == "B" {
+            let bankLoanAmount = Double(booking.loanAmountRequested) ?? 0
+            if bankLoanAmount > totalPayableAmount {
+                return ("Bank Loan Amount cannot exceed the Total Property Cost", .bookingFinance)
+            }
+            if advanceAmount > max(totalPayableAmount - bankLoanAmount, 0) {
+                return ("Advance cannot exceed the Customer Payable Amount after excluding the bank loan", .bookingFinance)
+            }
+        }
+        return nil
+    }
+
+    private func paymentScheduleValidation() -> BookingValidationIssue? {
         if !booking.freePayment {
             let schedule = [
                 ("2nd Payment", booking.secondPaymentAmount, booking.secondPaymentDate),
@@ -1332,7 +1621,9 @@ struct BookingCreateView: View {
               let draft = decodeDraft(data),
               !draft.isEmpty else { return }
         booking = draft
+        booking.migrateLegacyHomeAddressIfNeeded()
         booking.migrateLegacyOfficeAddressIfNeeded()
+        scheduleHomeAddressGeocode()
         draftMessage = "Draft restored"
     }
 
@@ -1387,6 +1678,12 @@ struct BookingCreateView: View {
         DirectBookingOption(value: "A", label: "A - Self Finance / Hand Cash"),
         DirectBookingOption(value: "B", label: "B - Loan Customer"),
         DirectBookingOption(value: "C", label: "C - EMI")
+    ]
+
+    private static let promotionalTermsOptions = [
+        DirectBookingOption(value: "7days", label: "Registration within 7 days"),
+        DirectBookingOption(value: "15days", label: "Registration within 15 days"),
+        DirectBookingOption(value: "30days", label: "Registration within 30 days")
     ]
 
     private static let referenceRelationOptions = [
@@ -1509,6 +1806,26 @@ private struct DirectBookingPaymentDraft: Codable, Equatable, Sendable {
     var dueDate = ""
 }
 
+private struct DirectBookingFieldLabel: View {
+    let title: String
+
+    init(_ title: String) {
+        self.title = title
+    }
+
+    var body: some View {
+        HStack(spacing: 2) {
+            Text(title.directBookingFieldTitle)
+            if title.directBookingFieldIsRequired {
+                Text("*")
+                    .foregroundStyle(Color.red)
+            }
+        }
+        .font(.system(size: 13, weight: .semibold))
+        .foregroundStyle(Color(hex: 0x475467))
+    }
+}
+
 private struct DirectBookingDraft: Codable, Equatable, Sendable {
     var phone = ""
     var title = ""
@@ -1524,6 +1841,10 @@ private struct DirectBookingDraft: Codable, Equatable, Sendable {
     var email = ""
     var nationality = ""
     var homeAddress = ""
+    var homeDoorNo = ""
+    var homeStreetName = ""
+    var homeAddressLine1 = ""
+    var homeAddressLine2 = ""
     var pincode = ""
     var state = ""
     var district = ""
@@ -1640,6 +1961,70 @@ private struct DirectBookingDraft: Codable, Equatable, Sendable {
     var docPreparedIn = ""
     var saveAs: DirectBookingSaveAs = .draft
 
+    var composedHomeAddress: String? {
+        let composed = [
+            ("Door No", homeDoorNo),
+            ("Street Name", homeStreetName),
+            ("Address Line 1", homeAddressLine1),
+            ("Address Line 2", homeAddressLine2)
+        ]
+            .compactMap { label, value -> String? in
+                guard let value = value.directBookingNilIfBlank else { return nil }
+                return "\(label): \(value)"
+            }
+            .joined(separator: ", ")
+        return composed.directBookingNilIfBlank ?? homeAddress.directBookingNilIfBlank
+    }
+
+    var homeAddressSearchText: String {
+        [homeDoorNo, homeStreetName, homeAddressLine1, homeAddressLine2, district, pincode]
+            .compactMap(\.directBookingNilIfBlank)
+            .joined(separator: ", ")
+    }
+
+    var hasMinimumHomeAddressForGeocoding: Bool {
+        homeDoorNo.directBookingNilIfBlank != nil
+            && homeStreetName.directBookingNilIfBlank != nil
+            && homeAddressLine1.directBookingNilIfBlank != nil
+            && district.directBookingNilIfBlank != nil
+            && pincode.filter(\.isNumber).count == 6
+    }
+
+    mutating func migrateLegacyHomeAddressIfNeeded() {
+        guard let legacyAddress = homeAddress.directBookingNilIfBlank else { return }
+
+        let parts = legacyAddress.split(separator: ",", omittingEmptySubsequences: true)
+            .map { $0.trimmingCharacters(in: .whitespacesAndNewlines) }
+        var foundLabel = false
+        for part in parts {
+            let pieces = part.split(separator: ":", maxSplits: 1, omittingEmptySubsequences: false)
+            guard pieces.count == 2 else { continue }
+            let label = pieces[0].trimmingCharacters(in: .whitespacesAndNewlines).lowercased()
+            let value = pieces[1].trimmingCharacters(in: .whitespacesAndNewlines)
+            guard !value.isEmpty else { continue }
+            switch label {
+            case "door no", "door number":
+                if homeDoorNo.directBookingNilIfBlank == nil { homeDoorNo = value }
+            case "street", "street name":
+                if homeStreetName.directBookingNilIfBlank == nil { homeStreetName = value }
+            case "address", "address line 1":
+                if homeAddressLine1.directBookingNilIfBlank == nil { homeAddressLine1 = value }
+            case "floor", "area", "address line 2":
+                if homeAddressLine2.directBookingNilIfBlank == nil { homeAddressLine2 = value }
+            default:
+                continue
+            }
+            foundLabel = true
+        }
+        if !foundLabel {
+            if homeDoorNo.directBookingNilIfBlank == nil, parts.indices.contains(0) { homeDoorNo = parts[0] }
+            if homeStreetName.directBookingNilIfBlank == nil, parts.indices.contains(1) { homeStreetName = parts[1] }
+            if homeAddressLine1.directBookingNilIfBlank == nil, parts.indices.contains(2) { homeAddressLine1 = parts[2] }
+            if homeAddressLine2.directBookingNilIfBlank == nil, parts.indices.contains(3) { homeAddressLine2 = parts[3] }
+        }
+        homeAddress = ""
+    }
+
     var composedOfficeAddress: String? {
         let composed = [
             ("Door No", officeDoorNo),
@@ -1709,6 +2094,7 @@ private struct DirectBookingDraft: Codable, Equatable, Sendable {
     var isEmpty: Bool {
         [
             phone, name, projectName, plotNo, bookingCost, advanceAmount, email, homeAddress,
+            homeDoorNo, homeStreetName, homeAddressLine1, homeAddressLine2,
             fatherSpouseName, officeName, officeDoorNo, officeStreetName, officeAddressLine1,
             cefNo, registrationCharges
         ].allSatisfy { $0.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty }
@@ -1848,7 +2234,7 @@ private struct DirectBookingDraft: Codable, Equatable, Sendable {
             docPreparedIn: docPreparedIn.directBookingNilIfBlank,
             email: email.directBookingNilIfBlank,
             pincode: pincode.directBookingNilIfBlank,
-            homeAddress: homeAddress.directBookingNilIfBlank,
+            homeAddress: composedHomeAddress,
             profession: profession.directBookingNilIfBlank,
             designation: designation.directBookingNilIfBlank,
             department: profession == "Salaried" ? (department == "Other" ? otherDepartment.directBookingNilIfBlank : department.directBookingNilIfBlank) : nil,
@@ -1925,9 +2311,7 @@ private struct DirectBookingTextField: View {
 
     var body: some View {
         VStack(alignment: .leading, spacing: 6) {
-            Text(title)
-                .font(.system(size: 13, weight: .semibold))
-                .foregroundStyle(Color(hex: 0x475467))
+            DirectBookingFieldLabel(title)
             HStack(alignment: axis == .vertical ? .top : .center, spacing: 10) {
                 Image(systemName: icon)
                     .foregroundStyle(Color(hex: 0x98A2B3))
@@ -2040,9 +2424,7 @@ private struct DirectBookingPickerShell: View {
 
     var body: some View {
         VStack(alignment: .leading, spacing: 6) {
-            Text(title)
-                .font(.system(size: 13, weight: .semibold))
-                .foregroundStyle(Color(hex: 0x475467))
+            DirectBookingFieldLabel(title)
             HStack(spacing: 10) {
                 Image(systemName: icon)
                     .foregroundStyle(Color(hex: 0x98A2B3))
@@ -2100,16 +2482,16 @@ private struct DirectBookingDateField: View {
             NavigationStack {
                 VStack {
                     if let maxDate {
-                        DatePicker(title, selection: $date, in: Date.distantPast...maxDate, displayedComponents: .date)
+                        DatePicker(title.directBookingFieldTitle, selection: $date, in: Date.distantPast...maxDate, displayedComponents: .date)
                             .datePickerStyle(.graphical)
                             .padding()
                     } else {
-                        DatePicker(title, selection: $date, displayedComponents: .date)
+                        DatePicker(title.directBookingFieldTitle, selection: $date, displayedComponents: .date)
                             .datePickerStyle(.graphical)
                             .padding()
                     }
                 }
-                .navigationTitle(title)
+                .navigationTitle(title.directBookingFieldTitle)
                 .navigationBarTitleDisplayMode(.inline)
                 .toolbar {
                     ToolbarItem(placement: .cancellationAction) {
@@ -2134,6 +2516,16 @@ private struct DirectBookingDateField: View {
 }
 
 private extension String {
+    var directBookingFieldIsRequired: Bool {
+        trimmingCharacters(in: .whitespacesAndNewlines).hasSuffix("*")
+    }
+
+    var directBookingFieldTitle: String {
+        let trimmed = trimmingCharacters(in: .whitespacesAndNewlines)
+        guard trimmed.hasSuffix("*") else { return trimmed }
+        return String(trimmed.dropLast()).trimmingCharacters(in: .whitespacesAndNewlines)
+    }
+
     var directBookingNilIfBlank: String? {
         let trimmed = trimmingCharacters(in: .whitespacesAndNewlines)
         return trimmed.isEmpty ? nil : trimmed

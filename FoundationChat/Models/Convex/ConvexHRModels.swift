@@ -221,6 +221,10 @@ struct ConvexAttendanceRecord: Decodable, Identifiable, Equatable, Sendable {
     let approvedBy: String?
     let approvedByName: String?
     let approvedOn: String?
+    let penaltyKind: String?
+    let penaltyReason: String?
+    let penaltyTaskId: String?
+    let penaltyTaskUrl: String?
     let lateMinutes: Int?
     let fineAmount: Double?
     let lateFineDeduction: Double?
@@ -272,6 +276,43 @@ struct ConvexAttendanceRecord: Decodable, Identifiable, Equatable, Sendable {
         return candidate
     }
 
+    /// Mirrors the web attendance badge rule. A regular absence must remain a
+    /// plain "Absent"; only a system deadline/task penalty is called out.
+    var hasAbsentPenalty: Bool {
+        guard approvedAttendance?.trimmingCharacters(in: .whitespacesAndNewlines).lowercased() == "absent" else {
+            return false
+        }
+        let approver = approvedByName?.trimmingCharacters(in: .whitespacesAndNewlines)
+        let kind = penaltyKind?.trimmingCharacters(in: .whitespacesAndNewlines)
+        return approver == "System (RO deadline)"
+            || approver == "System (HR deadline)"
+            || kind?.isEmpty == false
+    }
+
+    var resolvedPenaltyReason: String? {
+        guard hasAbsentPenalty else { return nil }
+        if let reason = penaltyReason?.trimmingCharacters(in: .whitespacesAndNewlines), !reason.isEmpty {
+            return reason
+        }
+
+        switch penaltyKind?.trimmingCharacters(in: .whitespacesAndNewlines).lowercased() {
+        case "task_block":
+            return "Overdue task blocked attendance."
+        case "hr_deadline":
+            return "HR Attendance Review deadline missed."
+        case "ro_deadline":
+            return "Team approval deadline missed."
+        default:
+            if approvedByName?.trimmingCharacters(in: .whitespacesAndNewlines) == "System (HR deadline)" {
+                return "HR Attendance Review deadline missed."
+            }
+            if approvedByName?.trimmingCharacters(in: .whitespacesAndNewlines) == "System (RO deadline)" {
+                return "Team approval deadline missed."
+            }
+            return "Marked Absent because of an attendance penalty."
+        }
+    }
+
     private static func formatTime(_ iso: String) -> String {
         let formatter = ISO8601DateFormatter()
         formatter.formatOptions = [.withInternetDateTime, .withFractionalSeconds]
@@ -315,6 +356,10 @@ struct ConvexAttendanceRecord: Decodable, Identifiable, Equatable, Sendable {
             approvedBy: nil,
             approvedByName: nil,
             approvedOn: nil,
+            penaltyKind: nil,
+            penaltyReason: nil,
+            penaltyTaskId: nil,
+            penaltyTaskUrl: nil,
             lateMinutes: nil,
             fineAmount: nil,
             lateFineDeduction: nil,

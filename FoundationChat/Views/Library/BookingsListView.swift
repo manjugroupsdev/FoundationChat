@@ -3,7 +3,7 @@ import SwiftUI
 struct BookingsListView: View {
     @Environment(AuthStore.self) private var authStore
     @State private var bookings: [AppBooking] = []
-    @State private var selectedStatus: BookingStatusFilter = .draft
+    @State private var selectedStatus: BookingStatusFilter = .all
     @State private var searchText = ""
     @State private var isLoading = false
     @State private var hasLoaded = false
@@ -250,13 +250,17 @@ private struct BookingDrawerGrid<Content: View>: View {
 
     var body: some View {
         LazyVGrid(columns: [
-            GridItem(.flexible(), spacing: 14),
-            GridItem(.flexible(), spacing: 14)
-        ], alignment: .leading, spacing: 16) {
+            GridItem(.flexible(), spacing: 10),
+            GridItem(.flexible(), spacing: 10)
+        ], alignment: .leading, spacing: 10) {
             content
         }
-        .padding(16)
-        .background(Color(hex: 0xF8FAFC))
+        .padding(12)
+        .background(Color.white, in: RoundedRectangle(cornerRadius: 16, style: .continuous))
+        .overlay {
+            RoundedRectangle(cornerRadius: 16, style: .continuous)
+                .stroke(Color(hex: 0xEAECF0), lineWidth: 1)
+        }
     }
 }
 
@@ -265,18 +269,21 @@ private struct BookingDrawerGridItem: View {
     let value: String?
 
     var body: some View {
-        VStack(alignment: .leading, spacing: 2) {
+        VStack(alignment: .leading, spacing: 5) {
             Text(title)
-                .font(.system(size: 13, weight: .medium))
+                .font(.system(size: 11, weight: .semibold))
                 .foregroundStyle(Color(hex: 0x667085))
                 .lineLimit(2)
             Text(value?.nilIfBlank ?? "-")
-                .font(.system(size: 14, weight: .medium))
-                .foregroundStyle(Color(hex: 0x344054))
+                .font(.system(size: 14, weight: .semibold))
+                .foregroundStyle(Color(hex: 0x101828))
                 .lineLimit(2)
                 .minimumScaleFactor(0.75)
         }
         .frame(maxWidth: .infinity, alignment: .leading)
+        .frame(minHeight: 50, alignment: .topLeading)
+        .padding(11)
+        .background(Color(hex: 0xF8FAFC), in: RoundedRectangle(cornerRadius: 11, style: .continuous))
     }
 }
 
@@ -460,6 +467,7 @@ private struct BookingDetailView: View {
     @State private var isEditing = false
     @State private var editDraft = BookingDrawerEditDraft()
     @State private var isLoading = false
+    @State private var activeLoadID: UUID?
     @State private var isSaving = false
     @State private var errorMessage: String?
     @State private var showReject = false
@@ -477,24 +485,31 @@ private struct BookingDetailView: View {
                         bookingDrawerHeader(booking)
                         bookingDrawerTabs
                     }
-                    .padding(.top, 26)
+                    .padding(.top, 18)
                     .padding(.horizontal, 16)
-                    .padding(.bottom, 14)
+                    .padding(.bottom, 12)
                     .background(Color.white)
+                    .overlay(alignment: .bottom) {
+                        Rectangle()
+                            .fill(Color(hex: 0xEAECF0))
+                            .frame(height: 1)
+                    }
 
                     ScrollView {
                         bookingDrawerBody(booking)
                             .padding(.horizontal, 16)
-                            .padding(.top, 14)
+                            .padding(.top, 16)
                             .padding(.bottom, isEditing ? 104 : 28)
                     }
+                    .background(Color(hex: 0xF6F8FB))
                     .refreshable { await load() }
 
                     fixedSaveFooter
                 }
             }
         }
-        .background(Color.white.ignoresSafeArea())
+        .background(Color(hex: 0xF6F8FB).ignoresSafeArea())
+        .appCompactSheetCTAContainer()
         .task { await load() }
         .alert("Reject Booking", isPresented: $showReject) {
             TextField("Reason", text: $rejectReason)
@@ -516,44 +531,64 @@ private struct BookingDetailView: View {
     }
 
     private func bookingDrawerHeader(_ booking: AppBooking) -> some View {
-        HStack(alignment: .center, spacing: 12) {
-            VStack(alignment: .leading, spacing: 3) {
-                Text(booking.bookingRefNo?.nilIfBlank ?? "Booking")
-                    .font(.system(size: 17, weight: .bold))
-                    .foregroundStyle(Color(hex: 0x101828))
-                    .lineLimit(1)
-                    .minimumScaleFactor(0.75)
+        VStack(alignment: .leading, spacing: 12) {
+            HStack(alignment: .top, spacing: 12) {
+                VStack(alignment: .leading, spacing: 4) {
+                    Text(booking.bookingRefNo?.nilIfBlank ?? "Booking")
+                        .font(.system(size: 18, weight: .bold))
+                        .foregroundStyle(Color(hex: 0x101828))
+                        .lineLimit(1)
+                        .minimumScaleFactor(0.72)
 
-                Text([
-                    booking.clientName?.nilIfBlank,
-                    booking.projectName?.nilIfBlank ?? booking.projectId?.nilIfBlank,
-                    booking.displayStatus.nilIfBlank
-                ].compactMap { $0 }.joined(separator: " - "))
-                .font(.system(size: 11, weight: .medium))
-                .foregroundStyle(Color(hex: 0x667085))
-                .lineLimit(1)
-            }
-
-            Spacer(minLength: 8)
-
-            Button(isEditing ? "View" : "Edit") {
-                if !isEditing {
-                    editDraft = BookingDrawerEditDraft(booking: booking)
+                    Text(booking.clientName?.nilIfBlank ?? "Unnamed client")
+                        .font(.system(size: 13, weight: .semibold))
+                        .foregroundStyle(Color(hex: 0x475467))
+                        .lineLimit(1)
                 }
-                isEditing.toggle()
-            }
-            .font(.system(size: 12, weight: .semibold))
-            .buttonStyle(.plain)
-            .foregroundStyle(Color(hex: 0x0B61CA))
 
-            Button("Close") {
-                dismiss()
+                Spacer(minLength: 8)
+
+                Button {
+                    if !isEditing {
+                        editDraft = BookingDrawerEditDraft(booking: booking)
+                    }
+                    isEditing.toggle()
+                } label: {
+                    Label(isEditing ? "View" : "Edit", systemImage: isEditing ? "eye" : "pencil")
+                        .font(.system(size: 12, weight: .semibold))
+                        .foregroundStyle(Color(hex: 0x0B61CA))
+                        .padding(.horizontal, 11)
+                        .frame(height: 34)
+                        .background(Color(hex: 0xEFF6FF), in: Capsule())
+                }
+                .buttonStyle(.plain)
+
+                Button {
+                    dismiss()
+                } label: {
+                    Image(systemName: "xmark")
+                        .font(.system(size: 13, weight: .bold))
+                        .foregroundStyle(Color(hex: 0x344054))
+                        .frame(width: 34, height: 34)
+                        .background(Color(hex: 0xF2F4F7), in: Circle())
+                }
+                .buttonStyle(.plain)
+                .accessibilityLabel("Close")
             }
-            .font(.system(size: 12, weight: .semibold))
-            .foregroundStyle(Color(hex: 0x1D2939))
-            .padding(.horizontal, 16)
-            .frame(height: 36)
-            .background(Color(hex: 0xF1F5F9), in: RoundedRectangle(cornerRadius: 10, style: .continuous))
+
+            HStack(spacing: 8) {
+                BookingStatusPill(status: booking.displayStatus)
+
+                Label(booking.projectName?.nilIfBlank ?? booking.projectId?.nilIfBlank ?? "No project", systemImage: "building.2")
+                    .lineLimit(1)
+
+                if let plot = booking.plotNo?.nilIfBlank {
+                    Label("Plot \(plot)", systemImage: "square.grid.2x2")
+                        .lineLimit(1)
+                }
+            }
+            .font(.system(size: 11, weight: .medium))
+            .foregroundStyle(Color(hex: 0x667085))
         }
     }
 
@@ -565,11 +600,11 @@ private struct BookingDetailView: View {
                         selectedTab = tab
                     } label: {
                         Text(tab.title)
-                            .font(.system(size: 11, weight: .semibold))
+                            .font(.system(size: 12, weight: .semibold))
                             .foregroundStyle(selectedTab == tab ? .white : Color(hex: 0x475467))
-                            .padding(.horizontal, 12)
-                            .frame(height: 30)
-                            .background(selectedTab == tab ? Color(hex: 0x20B40B) : Color.white, in: Capsule())
+                            .padding(.horizontal, 14)
+                            .frame(height: 36)
+                            .background(selectedTab == tab ? Color(hex: 0x0B61CA) : Color(hex: 0xF8FAFC), in: Capsule())
                             .overlay(
                                 Capsule()
                                     .stroke(Color(hex: 0xEAECF0), lineWidth: selectedTab == tab ? 0 : 1)
@@ -611,14 +646,23 @@ private struct BookingDetailView: View {
             }
 
             VStack(alignment: .leading, spacing: 10) {
-                Text("Approval Timeline")
-                    .font(.system(size: 16, weight: .bold))
+                Label("Approval Timeline", systemImage: "checkmark.seal")
+                    .font(.system(size: 14, weight: .bold))
                     .foregroundStyle(Color(hex: 0x101828))
-                Text(booking.displayStatus.lowercased().contains("draft")
-                     ? "Approval starts when the draft is submitted for confirmation."
-                     : "Approval status will update as managers review this booking.")
-                    .font(.system(size: 14))
-                    .foregroundStyle(Color(hex: 0x667085))
+                Text(
+                    booking.displayStatus.lowercased().contains("draft")
+                    ? "Approval starts when the draft is submitted for confirmation."
+                    : "Approval status will update as managers review this booking."
+                )
+                .font(.system(size: 13))
+                .foregroundStyle(Color(hex: 0x667085))
+                .fixedSize(horizontal: false, vertical: true)
+            }
+            .padding(16)
+            .background(Color.white, in: RoundedRectangle(cornerRadius: 14, style: .continuous))
+            .overlay {
+                RoundedRectangle(cornerRadius: 14, style: .continuous)
+                    .stroke(Color(hex: 0xEAECF0), lineWidth: 1)
             }
 
             if !booking.displayStatus.lowercased().contains("draft") {
@@ -636,17 +680,22 @@ private struct BookingDetailView: View {
     }
 
     private func clientTab(_ booking: AppBooking) -> some View {
-        VStack(alignment: .leading, spacing: 18) {
+        VStack(alignment: .leading, spacing: 10) {
+            drawerSectionHeader("Personal Information", systemImage: "person.text.rectangle")
             drawerField("Mobile Number", text: $editDraft.mobileNumber, value: booking.mobileNumber, keyboard: .phonePad)
             drawerField("Title", text: $editDraft.title, value: booking.title)
             drawerField("Client Name", text: $editDraft.clientName, value: booking.clientName)
             drawerField("Father / Spouse Name", text: $editDraft.fatherSpouseName, value: booking.fatherSpouseName)
-            drawerField("Date of Birth", text: $editDraft.dateOfBirth, value: booking.dateOfBirth)
-            drawerField("Anniversary Date", text: $editDraft.anniversaryDate, value: booking.anniversaryDate)
+            drawerField("Date of Birth", text: $editDraft.dateOfBirth, value: formattedDrawerDate(booking.dateOfBirth))
+            drawerField("Anniversary Date", text: $editDraft.anniversaryDate, value: formattedDrawerDate(booking.anniversaryDate))
+            drawerField("Nationality", text: $editDraft.nationality, value: booking.nationality)
+
+            drawerSectionHeader("Contact Details", systemImage: "phone")
             drawerField("Alternate Numbers", text: $editDraft.alternateNumbers, value: booking.alternateNumbers, keyboard: .phonePad)
             drawerField("WhatsApp Number", text: $editDraft.whatsappNumber, value: booking.whatsappNumber, keyboard: .phonePad)
             drawerField("Email", text: $editDraft.email, value: booking.email, keyboard: .emailAddress)
-            drawerField("Nationality", text: $editDraft.nationality, value: booking.nationality)
+
+            drawerSectionHeader("Home Address", systemImage: "house")
             drawerField("Home Address", text: $editDraft.homeAddress, value: booking.homeAddress, axis: .vertical)
             drawerField("Pincode", text: $editDraft.pincode, value: booking.pincode, keyboard: .numberPad)
             drawerField("State", text: $editDraft.state, value: booking.state)
@@ -656,13 +705,16 @@ private struct BookingDetailView: View {
     }
 
     private func bookingFinanceTab(_ booking: AppBooking) -> some View {
-        VStack(alignment: .leading, spacing: 18) {
+        VStack(alignment: .leading, spacing: 10) {
+            drawerSectionHeader("Booking Details", systemImage: "doc.text")
             drawerField("Booking Reference", text: .constant(booking.bookingRefNo ?? ""), value: booking.bookingRefNo, editableOverride: false)
-            drawerField("Booking Date", text: $editDraft.bookingDate, value: booking.bookingDate)
+            drawerField("Booking Date", text: $editDraft.bookingDate, value: formattedDrawerDate(booking.bookingDate))
             drawerField("Project", text: .constant(booking.projectName ?? booking.projectId ?? ""), value: booking.projectName ?? booking.projectId, editableOverride: false)
             drawerField("Plot", text: .constant(booking.plotNo ?? ""), value: booking.plotNo, editableOverride: false)
             drawerField("Booking Type", text: $editDraft.bookingType, value: booking.bookingType)
             drawerField("Booking Mode", text: $editDraft.bookingMode, value: booking.bookingMode)
+
+            drawerSectionHeader("Financial Summary", systemImage: "indianrupeesign.circle")
             drawerField("Booking Cost", text: $editDraft.bookingCost, value: booking.bookingCost.map(AppModuleFormatters.rupees), keyboard: .decimalPad)
             drawerField("Guideline Value", text: $editDraft.guidelineValue, value: booking.guidelineValue.map(AppModuleFormatters.rupees), keyboard: .decimalPad)
             drawerField("Advance Amount", text: $editDraft.advanceAmount, value: booking.advanceAmount.map(AppModuleFormatters.rupees), keyboard: .decimalPad)
@@ -670,23 +722,46 @@ private struct BookingDetailView: View {
     }
 
     private func paymentStaffTab(_ booking: AppBooking) -> some View {
-        VStack(alignment: .leading, spacing: 18) {
+        VStack(alignment: .leading, spacing: 10) {
+            drawerSectionHeader("Charges & Payment", systemImage: "creditcard")
             drawerField("Registration Charges", text: $editDraft.registrationCharges, value: booking.registrationCharges.map(AppModuleFormatters.rupees), keyboard: .decimalPad)
             drawerField("GST Amount", text: $editDraft.gstAmount, value: booking.gstAmount.map(AppModuleFormatters.rupees), keyboard: .decimalPad)
             drawerField("Document Charges", text: $editDraft.documentCharges, value: booking.documentCharges.map(AppModuleFormatters.rupees), keyboard: .decimalPad)
             drawerField("Patta Charges", text: $editDraft.pattaCharges, value: booking.pattaCharges.map(AppModuleFormatters.rupees), keyboard: .decimalPad)
             drawerField("Other Charges", text: $editDraft.otherCharges, value: booking.otherCharges.map(AppModuleFormatters.rupees), keyboard: .decimalPad)
             drawerField("Payment Mode", text: $editDraft.paymentMode, value: booking.paymentMode ?? booking.bookingMode)
+
+            drawerSectionHeader("Professional Details", systemImage: "briefcase")
             drawerField("Profession", text: $editDraft.profession, value: booking.profession)
             drawerField("Designation", text: $editDraft.designation, value: booking.designation)
             drawerField("Income Per Annum", text: $editDraft.incomePerAnnum, value: booking.incomePerAnnum, keyboard: .decimalPad)
+
+            drawerSectionHeader("Office Details", systemImage: "building.2")
             drawerField("Office Name", text: $editDraft.officeName, value: booking.officeName)
             drawerField("Office Email", text: $editDraft.officeEmail, value: booking.officeEmail, keyboard: .emailAddress)
             drawerField("Office Mobile", text: $editDraft.officeMobile, value: booking.officeMobile, keyboard: .phonePad)
             drawerField("Office Phone", text: $editDraft.officePhone, value: booking.officePhone, keyboard: .phonePad)
             drawerField("Office Address", text: $editDraft.officeAddress, value: booking.officeAddress, axis: .vertical)
+
+            drawerSectionHeader("Additional Information", systemImage: "note.text")
             drawerField("Notes", text: $editDraft.notes, value: booking.notes, axis: .vertical)
         }
+    }
+
+    private func drawerSectionHeader(_ title: String, systemImage: String) -> some View {
+        Label(title, systemImage: systemImage)
+            .font(.system(size: 13, weight: .bold))
+            .foregroundStyle(Color(hex: 0x344054))
+            .padding(.top, 8)
+            .padding(.horizontal, 2)
+    }
+
+    private func formattedDrawerDate(_ rawValue: String?) -> String? {
+        guard let rawValue = rawValue?.nilIfBlank,
+              let date = AppModuleFormatters.ymd.date(from: rawValue) else {
+            return rawValue
+        }
+        return AppModuleFormatters.day.string(from: date)
     }
 
     private func drawerField(
@@ -698,29 +773,50 @@ private struct BookingDetailView: View {
         editableOverride: Bool? = nil
     ) -> some View {
         let editable = editableOverride ?? isEditing
-        return VStack(alignment: .leading, spacing: 10) {
-            Text(title)
-                .font(.system(size: 16, weight: .medium))
-                .foregroundStyle(Color(hex: 0x667085))
+        let displayValue = value?.nilIfBlank ?? "-"
+        return Group {
             if editable {
-                TextField(title, text: text, axis: axis)
-                    .font(.system(size: 19, weight: .regular))
-                    .foregroundStyle(Color(hex: 0x1D2939))
-                    .keyboardType(keyboard)
-                    .textInputAutocapitalization(keyboard == .default ? .words : .never)
-                    .autocorrectionDisabled(keyboard != .default)
-                    .lineLimit(axis == .vertical ? 3...6 : 1...1)
-                    .padding(.horizontal, 16)
-                    .frame(minHeight: axis == .vertical ? 82 : 54)
-                    .background(Color.white, in: RoundedRectangle(cornerRadius: 12))
-                    .overlay(RoundedRectangle(cornerRadius: 12).stroke(Color(hex: 0xD0D5DD), lineWidth: 1))
+                VStack(alignment: .leading, spacing: 7) {
+                    Text(title)
+                        .font(.system(size: 12, weight: .semibold))
+                        .foregroundStyle(Color(hex: 0x667085))
+
+                    TextField(title, text: text, axis: axis)
+                        .font(.system(size: 15, weight: .medium))
+                        .foregroundStyle(Color(hex: 0x1D2939))
+                        .keyboardType(keyboard)
+                        .textInputAutocapitalization(keyboard == .default ? .words : .never)
+                        .autocorrectionDisabled(keyboard != .default)
+                        .lineLimit(axis == .vertical ? 3...6 : 1...1)
+                        .padding(.horizontal, 14)
+                        .frame(minHeight: axis == .vertical ? 78 : 50)
+                        .background(Color.white, in: RoundedRectangle(cornerRadius: 12, style: .continuous))
+                        .overlay {
+                            RoundedRectangle(cornerRadius: 12, style: .continuous)
+                                .stroke(Color(hex: 0xD0D5DD), lineWidth: 1)
+                        }
+                }
             } else {
-                Text(value?.nilIfBlank ?? "-")
-                    .font(.system(size: 20, weight: .regular))
-                    .foregroundStyle(Color(hex: 0x1D2939))
-                    .padding(.leading, 24)
-                    .frame(maxWidth: .infinity, alignment: .leading)
-                    .frame(minHeight: 36)
+                VStack(alignment: .leading, spacing: 6) {
+                    Text(title)
+                        .font(.system(size: 11, weight: .semibold))
+                        .foregroundStyle(Color(hex: 0x667085))
+
+                    Text(displayValue)
+                        .font(.system(size: 15, weight: .semibold))
+                        .foregroundStyle(displayValue == "-" ? Color(hex: 0x98A2B3) : Color(hex: 0x101828))
+                        .frame(maxWidth: .infinity, alignment: .leading)
+                        .fixedSize(horizontal: false, vertical: true)
+                        .textSelection(.enabled)
+                }
+                .padding(.horizontal, 14)
+                .padding(.vertical, 12)
+                .frame(maxWidth: .infinity, minHeight: 62, alignment: .leading)
+                .background(Color.white, in: RoundedRectangle(cornerRadius: 13, style: .continuous))
+                .overlay {
+                    RoundedRectangle(cornerRadius: 13, style: .continuous)
+                        .stroke(Color(hex: 0xEAECF0), lineWidth: 1)
+                }
             }
         }
     }
@@ -752,25 +848,46 @@ private struct BookingDetailView: View {
                 .background(Color(hex: 0x0B61CA), in: Capsule())
                 .disabled(isSaving)
                 .padding(.horizontal, 24)
-                .padding(.vertical, 14)
+                .padding(.top, 14)
+                .padding(.bottom, 20)
             }
-            .background(Color.white.ignoresSafeArea(edges: .bottom))
+            .background(Color.white)
         }
     }
 
     @MainActor
     private func load() async {
         guard let token = authStore.currentSession?.token else { return }
+        let loadID = UUID()
+        activeLoadID = loadID
         isLoading = true
-        defer { isLoading = false }
+        defer {
+            if activeLoadID == loadID {
+                activeLoadID = nil
+                isLoading = false
+            }
+        }
         do {
-            booking = try await MarketingConvexAPIService.getBooking(token: token, id: bookingId)
-            if let booking, !isEditing {
-                editDraft = BookingDrawerEditDraft(booking: booking)
+            let refreshedBooking = try await MarketingConvexAPIService.getBooking(token: token, id: bookingId)
+            guard activeLoadID == loadID, !Task.isCancelled else { return }
+
+            booking = refreshedBooking
+            errorMessage = nil
+            if !isEditing {
+                editDraft = BookingDrawerEditDraft(booking: refreshedBooking)
             }
         } catch {
+            guard activeLoadID == loadID, !isCancellationError(error) else { return }
             errorMessage = error.localizedDescription
         }
+    }
+
+    private func isCancellationError(_ error: Error) -> Bool {
+        if error is CancellationError {
+            return true
+        }
+        let nsError = error as NSError
+        return nsError.domain == NSURLErrorDomain && nsError.code == NSURLErrorCancelled
     }
 
     @MainActor
@@ -1074,58 +1191,148 @@ private struct BookingRow: View {
     let booking: AppBooking
 
     var body: some View {
-        VStack(alignment: .leading, spacing: 0) {
-            HStack(alignment: .center) {
-                Text(booking.clientName?.nilIfBlank ?? "Unnamed client")
-                    .font(.system(size: 15, weight: .semibold))
-                    .foregroundStyle(Color(hex: 0x101828))
-                    .lineLimit(1)
+        VStack(alignment: .leading, spacing: 12) {
+            HStack(spacing: 11) {
+                Text(clientInitials)
+                    .font(.system(size: 14, weight: .bold))
+                    .foregroundStyle(statusTint)
+                    .frame(width: 42, height: 42)
+                    .background(statusTint.opacity(0.11), in: Circle())
 
-                Spacer()
+                VStack(alignment: .leading, spacing: 4) {
+                    Text(booking.clientName?.nilIfBlank ?? "Unnamed client")
+                        .font(.system(size: 16, weight: .bold))
+                        .foregroundStyle(Color(hex: 0x101828))
+                        .lineLimit(1)
+
+                    HStack(spacing: 5) {
+                        Image(systemName: "doc.text")
+                            .font(.system(size: 10, weight: .semibold))
+                        Text(referenceText)
+                            .font(.system(size: 11, weight: .medium, design: .monospaced))
+                            .lineLimit(1)
+                    }
+                    .foregroundStyle(Color(hex: 0x667085))
+                }
+
+                Spacer(minLength: 6)
 
                 BookingStatusPill(status: booking.displayStatus)
             }
 
-            Text(bookingMeta)
-                .font(.system(size: 12))
-                .foregroundStyle(Color(hex: 0x667085))
-                .lineLimit(1)
-                .padding(.top, 3)
+            HStack(spacing: 10) {
+                HStack(spacing: 7) {
+                    Image(systemName: "building.2")
+                        .font(.system(size: 12, weight: .semibold))
+                        .foregroundStyle(Color(hex: 0x0B61CA))
 
-            HStack(spacing: 6) {
-                Image(systemName: "calendar")
-                    .font(.system(size: 13, weight: .medium))
+                    VStack(alignment: .leading, spacing: 2) {
+                        Text("PROJECT")
+                            .font(.system(size: 9, weight: .bold))
+                            .foregroundStyle(Color(hex: 0x98A2B3))
+                        Text(projectText)
+                            .font(.system(size: 13, weight: .semibold))
+                            .foregroundStyle(Color(hex: 0x344054))
+                            .lineLimit(1)
+                    }
+                }
+                .frame(maxWidth: .infinity, alignment: .leading)
+
+                Rectangle()
+                    .fill(Color(hex: 0xE4E7EC))
+                    .frame(width: 1, height: 30)
+
+                VStack(alignment: .leading, spacing: 2) {
+                    Text("PLOT")
+                        .font(.system(size: 9, weight: .bold))
+                        .foregroundStyle(Color(hex: 0x98A2B3))
+                    Text(plotText)
+                        .font(.system(size: 13, weight: .semibold))
+                        .foregroundStyle(Color(hex: 0x344054))
+                        .lineLimit(1)
+                }
+                .frame(minWidth: 54, alignment: .leading)
+            }
+            .padding(.horizontal, 12)
+            .frame(height: 52)
+            .background(Color(hex: 0xF8FAFC), in: RoundedRectangle(cornerRadius: 11, style: .continuous))
+
+            HStack(alignment: .center, spacing: 10) {
+                Label(formattedDate, systemImage: "calendar")
+                    .font(.system(size: 12, weight: .medium))
                     .foregroundStyle(Color(hex: 0x667085))
-
-                Text(formattedDate)
-                    .font(.system(size: 13, weight: .medium))
-                    .foregroundStyle(Color(hex: 0x344054))
                     .lineLimit(1)
 
                 Spacer()
 
-                Text(amountText)
-                    .font(.system(size: 13, weight: .semibold))
-                    .foregroundStyle(Color(hex: 0x0B61CA))
+                VStack(alignment: .trailing, spacing: 2) {
+                    Text("BOOKING VALUE")
+                        .font(.system(size: 9, weight: .bold))
+                        .foregroundStyle(Color(hex: 0x98A2B3))
+                    Text(amountText)
+                        .font(.system(size: 14, weight: .bold))
+                        .foregroundStyle(Color(hex: 0x0B61CA))
+                }
+
+                Image(systemName: "chevron.right")
+                    .font(.system(size: 11, weight: .bold))
+                    .foregroundStyle(Color(hex: 0x98A2B3))
             }
-            .padding(.top, 10)
         }
-        .padding(.horizontal, 16)
-        .padding(.vertical, 14)
-        .background(Color.white, in: RoundedRectangle(cornerRadius: 12, style: .continuous))
-        .overlay(
-            RoundedRectangle(cornerRadius: 12, style: .continuous)
+        .padding(14)
+        .background(Color.white, in: RoundedRectangle(cornerRadius: 16, style: .continuous))
+        .overlay {
+            RoundedRectangle(cornerRadius: 16, style: .continuous)
                 .stroke(Color(hex: 0xEAECF0), lineWidth: 1)
-        )
-        .shadow(color: Color.black.opacity(0.03), radius: 8, y: 3)
+        }
+        .shadow(color: Color.black.opacity(0.045), radius: 10, y: 4)
+        .contentShape(RoundedRectangle(cornerRadius: 16, style: .continuous))
+        .accessibilityElement(children: .combine)
     }
 
-    private var bookingMeta: String {
-        let ref = booking.bookingRefNo?.nilIfBlank
-        let project = booking.projectName?.nilIfBlank
-        let plot = booking.plotNo?.nilIfBlank.map { "Plot \($0)" }
-        let text = [ref, project, plot].compactMap { $0 }.joined(separator: " · ")
-        return text.isEmpty ? (booking.mobileNumber?.nilIfBlank ?? "Reference not available") : text
+    private var clientInitials: String {
+        let name = booking.clientName?.nilIfBlank ?? ""
+        let initials = name
+            .split(whereSeparator: { !$0.isLetter })
+            .prefix(2)
+            .compactMap(\.first)
+        let result = String(initials).uppercased()
+        return result.isEmpty ? "B" : result
+    }
+
+    private var projectText: String {
+        booking.projectName?.nilIfBlank ?? booking.projectId?.nilIfBlank ?? "-"
+    }
+
+    private var referenceText: String {
+        if let reference = booking.bookingRefNo?.nilIfBlank {
+            return reference
+        }
+        if booking.projectName?.nilIfBlank == nil,
+           booking.projectId?.nilIfBlank == nil,
+           booking.plotNo?.nilIfBlank == nil {
+            return booking.mobileNumber?.nilIfBlank ?? "Reference not available"
+        }
+        return "Reference not available"
+    }
+
+    private var plotText: String {
+        booking.plotNo?.nilIfBlank ?? "-"
+    }
+
+    private var statusTint: Color {
+        switch booking.displayStatus.lowercased().replacingOccurrences(of: "_", with: " ") {
+        case "confirmed", "approved":
+            return Color(hex: 0x169B2F)
+        case "pending", "pending confirmation":
+            return Color(hex: 0xD97706)
+        case "cancelled", "canceled", "rejected":
+            return Color(hex: 0xD92D20)
+        case "draft":
+            return Color(hex: 0x667085)
+        default:
+            return Color(hex: 0x0B61CA)
+        }
     }
 
     private var amountText: String {
@@ -1137,14 +1344,8 @@ private struct BookingRow: View {
 
     private var formattedDate: String {
         guard let raw = booking.bookingDate?.nilIfBlank else { return "-" }
-        let input = DateFormatter()
-        input.locale = Locale(identifier: "en_US_POSIX")
-        input.dateFormat = "yyyy-MM-dd"
-        guard let date = input.date(from: raw) else { return raw }
-        let output = DateFormatter()
-        output.locale = Locale(identifier: "en_US_POSIX")
-        output.dateFormat = "dd MMM yyyy"
-        return output.string(from: date)
+        guard let date = AppModuleFormatters.ymd.date(from: raw) else { return raw }
+        return AppModuleFormatters.day.string(from: date)
     }
 }
 

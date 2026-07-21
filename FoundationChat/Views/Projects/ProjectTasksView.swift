@@ -27,7 +27,7 @@ struct ProjectTasksView: View {
 
     var body: some View {
         ZStack(alignment: .top) {
-            Color(hex: 0xF1F3F8).ignoresSafeArea()
+            Color.white.ignoresSafeArea()
 
             headerTopFill
 

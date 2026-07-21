@@ -300,6 +300,7 @@ private struct CreateFineDeductionSheet: View {
             formContent
         }
         .background(Color.white)
+        .appCompactSheetCTAContainer()
         .task { await loadStaff() }
         .sheet(isPresented: $showEmployeePicker) {
             employeePickerSheet
@@ -439,7 +440,7 @@ private struct CreateFineDeductionSheet: View {
             .disabled(!canSubmit)
             .padding(.horizontal, 20)
             .padding(.top, 12)
-            .padding(.bottom, 18)
+            .padding(.bottom, 20)
             .background(Color.white)
         }
     }

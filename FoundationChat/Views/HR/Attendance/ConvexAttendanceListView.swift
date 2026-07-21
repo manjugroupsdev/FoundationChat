@@ -953,12 +953,19 @@ private struct AttendanceHistoryCard: View {
                 Spacer()
 
                 if let badge = statusBadge {
-                    Text(badge.title)
+                    HStack(spacing: 4) {
+                        if record.hasAbsentPenalty {
+                            Image(systemName: "lock.fill")
+                                .font(.system(size: 9, weight: .bold))
+                        }
+                        Text(badge.title)
+                    }
                         .font(.system(size: 11, weight: .semibold))
                         .foregroundStyle(badge.color)
                         .padding(.horizontal, 8)
                         .frame(height: 22)
                         .background(badge.color.opacity(0.12), in: Capsule())
+                        .fixedSize(horizontal: true, vertical: false)
                 }
 
                 if requestSubmitted {
@@ -1010,6 +1017,10 @@ private struct AttendanceHistoryCard: View {
             .padding(.vertical, 10)
             .background(Color(hex: 0xF8FAFC), in: RoundedRectangle(cornerRadius: 8))
             .overlay(RoundedRectangle(cornerRadius: 8).stroke(Color(hex: 0xE4E7EC), lineWidth: 1))
+
+            if let penaltyReason = record.resolvedPenaltyReason {
+                AttendancePenaltyNotice(reason: penaltyReason)
+            }
 
             if let lateFine = lateFineBanner {
                 fineBanner(icon: "clock.fill", title: "Late by \(lateFine.minutes)mins", amount: lateFine.amount, tint: Color(hex: 0xD92D20), background: Color(hex: 0xFEF3F2))
@@ -1105,6 +1116,9 @@ private struct AttendanceHistoryCard: View {
     }
 
     private var statusBadge: (title: String, color: Color)? {
+        if record.hasAbsentPenalty {
+            return ("Absent · Penalty", Color(hex: 0xB42318))
+        }
         guard !Self.isToday(record.date) else { return nil }
         let raw = (record.approvedAttendance ?? record.status)?.lowercased()
         switch raw {
@@ -1189,6 +1203,72 @@ private struct AttendanceHistoryCard: View {
     private static func isToday(_ raw: String?) -> Bool {
         guard let raw, let date = ymd.date(from: raw) else { return false }
         return Calendar.current.isDateInToday(date)
+    }
+}
+
+private struct AttendancePenaltyNotice: View {
+    let reason: String
+
+    var body: some View {
+        HStack(alignment: .top, spacing: 10) {
+            Image(systemName: "exclamationmark.lock.fill")
+                .font(.system(size: 13, weight: .semibold))
+                .foregroundStyle(Color(hex: 0xB42318))
+                .frame(width: 28, height: 28)
+                .background(Color.white.opacity(0.72), in: Circle())
+
+            VStack(alignment: .leading, spacing: 3) {
+                Text("Absent attendance penalty")
+                    .font(.system(size: 12, weight: .semibold))
+                    .foregroundStyle(Color(hex: 0xB42318))
+                Text("Reason: \(reason)")
+                    .font(.system(size: 12, weight: .medium))
+                    .foregroundStyle(Color(hex: 0x7A271A))
+                    .fixedSize(horizontal: false, vertical: true)
+            }
+
+            Spacer(minLength: 0)
+        }
+        .padding(.horizontal, 12)
+        .padding(.vertical, 10)
+        .background(Color(hex: 0xFEF3F2), in: RoundedRectangle(cornerRadius: 10, style: .continuous))
+        .overlay(
+            RoundedRectangle(cornerRadius: 10, style: .continuous)
+                .stroke(Color(hex: 0xFECDCA), lineWidth: 1)
+        )
+        .accessibilityElement(children: .combine)
+    }
+}
+
+private struct AttendanceLateFineNotice: View {
+    let minutes: Int
+    let amount: Double
+
+    var body: some View {
+        HStack(spacing: 9) {
+            Image(systemName: "clock.badge.exclamationmark.fill")
+                .font(.system(size: 13, weight: .semibold))
+                .foregroundStyle(Color(hex: 0xB42318))
+
+            Text(minutes > 0 ? "Late by \(minutes) min" : "Late attendance fine")
+                .font(.system(size: 12, weight: .medium))
+                .foregroundStyle(Color(hex: 0x7A271A))
+
+            Spacer(minLength: 8)
+
+            Text(AppModuleFormatters.rupees(amount))
+                .font(.system(size: 13, weight: .bold))
+                .foregroundStyle(Color(hex: 0xB42318))
+        }
+        .padding(.horizontal, 12)
+        .padding(.vertical, 10)
+        .background(Color(hex: 0xFEF3F2), in: RoundedRectangle(cornerRadius: 10, style: .continuous))
+        .overlay(
+            RoundedRectangle(cornerRadius: 10, style: .continuous)
+                .stroke(Color(hex: 0xFECDCA), lineWidth: 1)
+        )
+        .accessibilityElement(children: .combine)
+        .accessibilityLabel("Late fine \(AppModuleFormatters.rupees(amount))")
     }
 }
 
@@ -1297,12 +1377,19 @@ private struct TeamAttendanceCard: View {
                 Spacer()
 
                 if let badge = statusBadge {
-                    Text(badge.title)
+                    HStack(spacing: 4) {
+                        if record.hasAbsentPenalty {
+                            Image(systemName: "lock.fill")
+                                .font(.system(size: 9, weight: .bold))
+                        }
+                        Text(badge.title)
+                    }
                         .font(.system(size: 11, weight: .semibold))
                         .foregroundStyle(badge.color)
                         .padding(.horizontal, 8)
                         .frame(height: 22)
                         .background(badge.color.opacity(0.12), in: Capsule())
+                        .fixedSize(horizontal: true, vertical: false)
                 }
             }
 
@@ -1324,6 +1411,14 @@ private struct TeamAttendanceCard: View {
             .padding(.vertical, 10)
             .background(Color(hex: 0xF8FAFC), in: RoundedRectangle(cornerRadius: 8))
             .overlay(RoundedRectangle(cornerRadius: 8).stroke(Color(hex: 0xE4E7EC), lineWidth: 1))
+
+            if let lateFine = lateFineBanner {
+                AttendanceLateFineNotice(minutes: lateFine.minutes, amount: lateFine.amount)
+            }
+
+            if let penaltyReason = record.resolvedPenaltyReason {
+                AttendancePenaltyNotice(reason: penaltyReason)
+            }
 
             if actionStyle != .none {
                 HStack(spacing: 10) {
@@ -1435,7 +1530,16 @@ private struct TeamAttendanceCard: View {
         return "\(inLabel) — \(outLabel)"
     }
 
+    private var lateFineBanner: (minutes: Int, amount: Double)? {
+        let amount = record.lateFineDeduction ?? record.fineAmount ?? 0
+        guard amount > 0 else { return nil }
+        return (record.lateMinutes ?? 0, amount)
+    }
+
     private var statusBadge: (title: String, color: Color)? {
+        if record.hasAbsentPenalty {
+            return ("Absent · Penalty", Color(hex: 0xB42318))
+        }
         let raw = (record.approvedAttendance ?? record.status)?.lowercased()
         switch raw {
         case "present", "approved", "auto-approved":

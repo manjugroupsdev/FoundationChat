@@ -117,8 +117,9 @@ struct AttendanceFilterSheet: View {
         }
         .padding(.horizontal, 16)
         .padding(.top, 14)
-        .padding(.bottom, 16)
+        .padding(.bottom, 20)
         .background(Color.white)
+        .appCompactSheetCTAContainer()
         .sheet(isPresented: $showDateRangePicker) {
             AttendanceDateRangePickerSheet(
                 fromDate: draft.fromDate,
@@ -239,6 +240,7 @@ private struct AttendanceDateRangePickerSheet: View {
         .padding(.top, 26)
         .padding(.bottom, 20)
         .background(Color.white)
+        .appCompactSheetCTAContainer()
     }
 }
 

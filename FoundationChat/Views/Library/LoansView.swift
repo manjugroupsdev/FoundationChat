@@ -672,6 +672,7 @@ private struct LoanNomineePickerSheet: View {
                 .buttonStyle(.plain)
             }
             .padding(.horizontal, 16)
+            .padding(.top, 24)
             .padding(.bottom, 14)
 
             HStack(spacing: 10) {
@@ -893,10 +894,12 @@ private struct LoanRequestSheet: View {
                 .buttonStyle(.plain)
                 .disabled(isSubmitting || isLoadingStaff)
                 .padding(.horizontal, 24)
-                .padding(.vertical, 14)
+                .padding(.top, 14)
+                .padding(.bottom, 20)
                 .background(Color.white)
             }
         }
+        .appCompactSheetCTAContainer()
         .task { await loadStaff() }
         .sheet(item: $nomineePickerTarget) { target in
             LoanNomineePickerSheet(
@@ -1281,10 +1284,12 @@ private struct SalaryAdvanceRequestSheet: View {
                 .buttonStyle(.plain)
                 .disabled(isSubmitting)
                 .padding(.horizontal, 24)
-                .padding(.vertical, 14)
+                .padding(.top, 14)
+                .padding(.bottom, 20)
                 .background(Color.white)
             }
         }
+        .appCompactSheetCTAContainer()
     }
 
     private func advanceInput(

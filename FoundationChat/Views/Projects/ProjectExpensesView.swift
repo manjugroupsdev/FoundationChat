@@ -699,6 +699,7 @@ private struct ExpenseDateFilterSheet: View {
         .padding(.bottom, 20)
         .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
         .background(Color.white)
+        .appCompactSheetCTAContainer()
         .onAppear {
             draftFrom = fromDate ?? Date()
             draftTo = toDate ?? fromDate ?? Date()
@@ -891,6 +892,7 @@ private struct ExpenseCreationSheet: View {
             .background(Color.white)
         }
         .background(Color.white)
+        .appCompactSheetCTAContainer()
         .onAppear {
             if selectedProject == nil {
                 selectedProject = project
@@ -921,6 +923,7 @@ private struct ExpenseCreationSheet: View {
             .padding(.horizontal, 20)
             .padding(.bottom, 20)
             .background(Color.white)
+            .appCompactSheetCTAContainer()
             .appLibraryNativeSheet([.height(470)])
         }
     }

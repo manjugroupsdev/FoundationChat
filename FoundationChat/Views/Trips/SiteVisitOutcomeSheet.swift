@@ -96,9 +96,10 @@ struct SiteVisitOutcomeSheet: View {
                 }
                 .padding(.horizontal, 20)
                 .padding(.top, 18)
-                .padding(.bottom, 24)
+                .padding(.bottom, 20)
             }
             .background(Color(.systemBackground))
+            .appCompactSheetCTAContainer()
             .scrollDismissesKeyboard(.interactively)
             .interactiveDismissDisabled(isSaving)
             .toolbar {

@@ -92,9 +92,10 @@ struct ApplyPermissionView: View {
             .disabled(!submitEnabled || isSubmitting)
             .padding(.horizontal, 20)
             .padding(.bottom, 20)
-            .background(Color.white.opacity(0.98).ignoresSafeArea(edges: .bottom))
+            .background(Color.white.opacity(0.98))
 
         }
+        .appCompactSheetCTAContainer()
         .navigationBarBackButtonHidden(true)
         .toolbar(.hidden, for: .navigationBar)
         .sheet(isPresented: $showDatePicker) {
