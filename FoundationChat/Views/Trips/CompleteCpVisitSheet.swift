@@ -173,6 +173,7 @@ struct CompleteCpVisitSheet: View {
                 .appLibraryNativeSheet([.medium, .large])
             }
         }
+        .appFormActivity()
     }
 
     @ViewBuilder

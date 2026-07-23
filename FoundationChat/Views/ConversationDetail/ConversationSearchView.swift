@@ -29,13 +29,6 @@ struct ConversationSearchView: View {
 
   var body: some View {
     VStack(spacing: 0) {
-      searchField
-        .padding(.horizontal, 16)
-        .padding(.top, 8)
-        .padding(.bottom, 4)
-
-      Divider()
-
       Group {
         if query.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
           ContentUnavailableView(
@@ -78,6 +71,13 @@ struct ConversationSearchView: View {
     }
     .navigationTitle(title)
     .navigationBarTitleDisplayMode(.inline)
+    .searchable(
+      text: $query,
+      placement: .navigationBarDrawer(displayMode: .always),
+      prompt: "Search messages"
+    )
+    .textInputAutocapitalization(.never)
+    .autocorrectionDisabled()
     .onChange(of: query) { _, newValue in
       scheduleSearch(for: newValue)
     }
@@ -85,29 +85,6 @@ struct ConversationSearchView: View {
       searchTask?.cancel()
       searchTask = nil
     }
-  }
-
-  private var searchField: some View {
-    HStack(spacing: 8) {
-      Image(systemName: "magnifyingglass")
-        .foregroundStyle(.secondary)
-      TextField("Search messages", text: $query)
-        .textInputAutocapitalization(.never)
-        .autocorrectionDisabled()
-        .submitLabel(.search)
-      if !query.isEmpty {
-        Button {
-          query = ""
-        } label: {
-          Image(systemName: "xmark.circle.fill")
-            .foregroundStyle(.secondary)
-        }
-        .buttonStyle(.plain)
-      }
-    }
-    .padding(.horizontal, 12)
-    .padding(.vertical, 10)
-    .background(Color(.systemGray6), in: RoundedRectangle(cornerRadius: 12, style: .continuous))
   }
 
   @MainActor

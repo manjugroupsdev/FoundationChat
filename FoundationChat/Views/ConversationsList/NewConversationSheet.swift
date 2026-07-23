@@ -8,7 +8,6 @@ struct NewConversationSheet: View {
 
   private enum FocusedField: Hashable {
     case groupName
-    case peopleSearch
   }
 
   @Environment(AuthStore.self) private var authStore
@@ -75,8 +74,6 @@ struct NewConversationSheet: View {
             groupModeHeader
           }
 
-          peopleSearchField
-
           if isGroupMode, !selectedUsers.isEmpty {
             selectedPeopleStrip
           }
@@ -92,6 +89,13 @@ struct NewConversationSheet: View {
       .background(Color(.systemGroupedBackground).ignoresSafeArea())
       .navigationTitle(isGroupMode ? "Create Group" : "New Chat")
       .navigationBarTitleDisplayMode(.inline)
+      .searchable(
+        text: $searchText,
+        placement: .navigationBarDrawer(displayMode: .always),
+        prompt: "Search by name or email"
+      )
+      .textInputAutocapitalization(.never)
+      .autocorrectionDisabled()
       .toolbar {
         ToolbarItem(placement: .cancellationAction) {
           Button("Cancel") {
@@ -114,6 +118,7 @@ struct NewConversationSheet: View {
     }
     .presentationDetents([.large])
     .presentationDragIndicator(.hidden)
+    .appFormActivity()
   }
 
   private var groupModeHeader: some View {
@@ -160,7 +165,7 @@ struct NewConversationSheet: View {
             .textInputAutocapitalization(.words)
             .submitLabel(.next)
             .focused($focusedField, equals: .groupName)
-            .onSubmit { focusedField = .peopleSearch }
+            .onSubmit { focusedField = nil }
 
           if !groupName.isEmpty {
             Button {
@@ -185,50 +190,6 @@ struct NewConversationSheet: View {
         }
         .shadow(color: Color.black.opacity(0.035), radius: 5, y: 2)
       }
-    }
-  }
-
-  private var peopleSearchField: some View {
-    VStack(alignment: .leading, spacing: 7) {
-      Text(isGroupMode ? "Add people" : "Search people")
-        .font(.system(size: 13, weight: .semibold))
-        .foregroundStyle(Color.secondary)
-
-      HStack(spacing: 10) {
-        Image(systemName: "magnifyingglass")
-          .font(.system(size: 16, weight: .semibold))
-          .foregroundStyle(FoundationChatTheme.outgoingBubble)
-
-        TextField("Search by name or email", text: $searchText)
-          .font(.system(size: 15, weight: .medium))
-          .foregroundStyle(FoundationChatTheme.ink)
-          .textInputAutocapitalization(.never)
-          .autocorrectionDisabled()
-          .submitLabel(.search)
-          .focused($focusedField, equals: .peopleSearch)
-
-        if !searchText.isEmpty {
-          Button {
-            searchText = ""
-          } label: {
-            Image(systemName: "xmark.circle.fill")
-              .font(.system(size: 16))
-              .foregroundStyle(Color.secondary.opacity(0.65))
-          }
-          .buttonStyle(.plain)
-        }
-      }
-      .padding(.horizontal, 14)
-      .frame(height: 52)
-      .background(Color.white, in: RoundedRectangle(cornerRadius: 13, style: .continuous))
-      .overlay {
-        RoundedRectangle(cornerRadius: 13, style: .continuous)
-          .stroke(
-            focusedField == .peopleSearch ? FoundationChatTheme.outgoingBubble : Color.black.opacity(0.10),
-            lineWidth: focusedField == .peopleSearch ? 1.5 : 1
-          )
-      }
-      .shadow(color: Color.black.opacity(0.035), radius: 5, y: 2)
     }
   }
 

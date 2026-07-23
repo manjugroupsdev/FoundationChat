@@ -53,12 +53,9 @@ struct FilesTabView: View {
   var body: some View {
     NavigationStack {
       VStack(spacing: 10) {
-        GlassSearchField(placeholder: "Search files", text: $searchText)
-          .padding(.horizontal, 16)
-          .padding(.top, 8)
-
         filtersBar
           .padding(.horizontal, 16)
+          .padding(.top, 8)
 
         if isLoading, files.isEmpty {
           ProgressView("Loading files...")
@@ -88,6 +85,13 @@ struct FilesTabView: View {
       }
       .navigationTitle("Files")
       .navigationBarTitleDisplayMode(.inline)
+      .searchable(
+        text: $searchText,
+        placement: .navigationBarDrawer(displayMode: .always),
+        prompt: "Search files"
+      )
+      .textInputAutocapitalization(.never)
+      .autocorrectionDisabled()
       .toolbar {
         ToolbarItem(placement: .navigationBarTrailing) {
           Button {
@@ -398,19 +402,6 @@ private struct SharePrivateFileSheet: View {
   var body: some View {
     NavigationStack {
       VStack(spacing: 10) {
-        HStack(spacing: 8) {
-          Image(systemName: "magnifyingglass")
-            .foregroundStyle(.secondary)
-          TextField("Search users", text: $searchText)
-            .textInputAutocapitalization(.never)
-            .autocorrectionDisabled()
-        }
-        .padding(.horizontal, 12)
-        .padding(.vertical, 10)
-        .background(Color(.systemGray6), in: RoundedRectangle(cornerRadius: 12, style: .continuous))
-        .padding(.horizontal, 16)
-        .padding(.top, 8)
-
         if isLoading, users.isEmpty {
           ProgressView("Loading users...")
             .frame(maxWidth: .infinity, maxHeight: .infinity)
@@ -446,6 +437,13 @@ private struct SharePrivateFileSheet: View {
       }
       .navigationTitle("Share File")
       .navigationBarTitleDisplayMode(.inline)
+      .searchable(
+        text: $searchText,
+        placement: .navigationBarDrawer(displayMode: .always),
+        prompt: "Search users"
+      )
+      .textInputAutocapitalization(.never)
+      .autocorrectionDisabled()
       .toolbar {
         ToolbarItem(placement: .cancellationAction) {
           Button("Cancel") {

@@ -26,8 +26,6 @@ struct IssuesView: View {
 
     var body: some View {
         VStack(spacing: 0) {
-            searchBar
-
             Group {
                 if isLoading && issues.isEmpty {
                     ScrollView {
@@ -65,6 +63,13 @@ struct IssuesView: View {
         .background(Color.white)
         .navigationTitle("Issues")
         .navigationBarTitleDisplayMode(.inline)
+        .searchable(
+            text: $searchText,
+            placement: .navigationBarDrawer(displayMode: .always),
+            prompt: "Search Issues"
+        )
+        .textInputAutocapitalization(.never)
+        .autocorrectionDisabled()
         .toolbarBackground(Color.white, for: .navigationBar)
         .toolbarBackground(.visible, for: .navigationBar)
         .toolbar {
@@ -95,6 +100,7 @@ struct IssuesView: View {
             CreateIssueSheet {
                 await loadIssues()
             }
+            .appFormActivity()
             .appLibraryNativeSheet([.height(620), .large])
         }
     }
@@ -104,29 +110,6 @@ struct IssuesView: View {
             get: { errorMessage != nil },
             set: { if !$0 { errorMessage = nil } }
         )
-    }
-
-    private var searchBar: some View {
-        HStack(spacing: 10) {
-            TextField("Search Issues", text: $searchText)
-                .font(.system(size: 14))
-                .textInputAutocapitalization(.never)
-                .autocorrectionDisabled()
-
-            Image(systemName: "magnifyingglass")
-                .font(.system(size: 18, weight: .semibold))
-                .foregroundStyle(Color(hex: 0x64748B))
-        }
-        .padding(.horizontal, 16)
-        .frame(height: 48)
-        .background(Color.white, in: RoundedRectangle(cornerRadius: 14, style: .continuous))
-        .overlay(
-            RoundedRectangle(cornerRadius: 14, style: .continuous)
-                .stroke(Color(hex: 0xE2E8F0), lineWidth: 1)
-        )
-        .shadow(color: .black.opacity(0.03), radius: 8, y: 3)
-        .padding(.horizontal, 16)
-        .padding(.top, 16)
     }
 
     private var emptyState: some View {

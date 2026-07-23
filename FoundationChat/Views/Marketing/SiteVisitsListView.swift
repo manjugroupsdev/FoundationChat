@@ -47,13 +47,19 @@ struct SiteVisitsListView: View {
 
     var body: some View {
         VStack(spacing: 0) {
-            searchBar
             filterPills
             content
         }
         .background(Color(hex: 0xF1F3F8).ignoresSafeArea())
         .navigationTitle("Site Visits")
         .navigationBarTitleDisplayMode(.inline)
+        .searchable(
+            text: $searchText,
+            placement: .navigationBarDrawer(displayMode: .always),
+            prompt: "Search SV"
+        )
+        .textInputAutocapitalization(.never)
+        .autocorrectionDisabled()
         .toolbarBackground(Color.white, for: .navigationBar)
         .toolbarBackground(.visible, for: .navigationBar)
         .toolbar {
@@ -133,25 +139,6 @@ struct SiteVisitsListView: View {
                 .padding(.bottom, 32)
             }
         }
-    }
-
-    private var searchBar: some View {
-        HStack(spacing: 10) {
-            TextField("Search SV", text: $searchText)
-                .font(.system(size: 16, weight: .regular))
-                .textInputAutocapitalization(.never)
-                .disableAutocorrection(true)
-
-            Image(systemName: "magnifyingglass")
-                .font(.system(size: 22, weight: .regular))
-                .foregroundStyle(Color(hex: 0x101828))
-        }
-        .padding(.horizontal, 14)
-        .frame(height: 52)
-        .background(Color.white, in: RoundedRectangle(cornerRadius: 14))
-        .overlay(RoundedRectangle(cornerRadius: 14).stroke(Color(hex: 0xEAECF0), lineWidth: 1))
-        .padding(.horizontal, 16)
-        .padding(.top, 16)
     }
 
     private var filterPills: some View {

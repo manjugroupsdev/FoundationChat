@@ -235,6 +235,7 @@ private struct FleetPortalTripsView: View {
                 filter = .assigned
                 await load()
             }
+            .appFormActivity()
             .presentationDetents([.large])
             .presentationDragIndicator(.visible)
             .preferredColorScheme(.light)
@@ -687,6 +688,7 @@ private struct FleetPortalVehiclesView: View {
             ) {
                 await load()
             }
+            .appFormActivity()
             .presentationDetents([.large])
             .presentationDragIndicator(.visible)
             .preferredColorScheme(.light)
@@ -858,6 +860,7 @@ private struct FleetPortalDriversView: View {
                 actingStaffId: authStore.currentSession?.user._id,
                 driver: nil
             ) { await load() }
+            .appFormActivity()
             .presentationDetents([.large])
             .presentationDragIndicator(.visible)
             .preferredColorScheme(.light)
@@ -869,6 +872,7 @@ private struct FleetPortalDriversView: View {
                 actingStaffId: authStore.currentSession?.user._id,
                 driver: driver
             ) { await load() }
+            .appFormActivity()
             .presentationDetents([.large])
             .presentationDragIndicator(.visible)
             .preferredColorScheme(.light)

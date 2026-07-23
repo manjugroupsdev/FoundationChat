@@ -116,6 +116,7 @@ struct ApplyPermissionView: View {
             .presentationDetents([.height(430)])
             .presentationDragIndicator(.visible)
         }
+        .appFormActivity()
     }
 
     private var permissionDescriptionField: some View {

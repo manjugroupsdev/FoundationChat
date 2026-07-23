@@ -117,6 +117,7 @@ private struct AdminFleetTripsView: View {
                 filter = .assigned
                 await load()
             }
+            .appFormActivity()
             .presentationDetents([.large])
         }
         .alert("Fleet Trips", isPresented: Binding(
@@ -487,6 +488,7 @@ private struct AdminFleetVehiclesView: View {
             FleetVehicleForm(token: authStore.currentSession?.token ?? "") {
                 await load()
             }
+            .appFormActivity()
             .presentationDetents([.medium, .large])
         }
         .alert("Vehicles", isPresented: Binding(
@@ -663,7 +665,11 @@ private struct AdminFleetDriversView: View {
             }
         }
         .navigationTitle("Drivers")
-        .searchable(text: $searchText, prompt: "Search drivers")
+        .searchable(
+            text: $searchText,
+            placement: .navigationBarDrawer(displayMode: .always),
+            prompt: "Search drivers"
+        )
         .toolbar {
             ToolbarItem(placement: .topBarTrailing) {
                 Button {
@@ -682,12 +688,14 @@ private struct AdminFleetDriversView: View {
             FleetDriverForm(token: authStore.currentSession?.token ?? "", scope: scope, driver: nil) {
                 await load()
             }
+            .appFormActivity()
             .presentationDetents([.medium, .large])
         }
         .sheet(item: $editingDriver) { driver in
             FleetDriverForm(token: authStore.currentSession?.token ?? "", scope: scope, driver: driver) {
                 await load()
             }
+            .appFormActivity()
             .presentationDetents([.medium, .large])
         }
         .alert("Drivers", isPresented: Binding(

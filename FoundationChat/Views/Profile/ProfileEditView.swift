@@ -137,6 +137,7 @@ struct ProfileEditView: View {
         }
       }
     }
+    .appFormActivity()
   }
 
   // MARK: - Avatar

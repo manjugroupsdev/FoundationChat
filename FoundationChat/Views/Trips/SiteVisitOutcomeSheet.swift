@@ -136,6 +136,7 @@ struct SiteVisitOutcomeSheet: View {
                 .appLibraryNativeSheet([.medium, .large])
             }
         }
+        .appFormActivity()
     }
 
     private var header: some View {

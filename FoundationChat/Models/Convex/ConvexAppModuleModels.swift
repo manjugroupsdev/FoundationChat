@@ -356,10 +356,15 @@ struct MarketingProject: Decodable, Identifiable, Hashable, Sendable {
     let location: String?
     let specialPaymentEnabled: Bool?
     let minimumAdvanceAmount: Double?
+    let promoOffer: String?
+    let projectOfferValue: Double?
+    let projectOfferTerms: String?
+    let projectOfferValidityDays: Double?
 
     enum CodingKeys: String, CodingKey {
         case id = "_id"
         case name, scope, status, location, specialPaymentEnabled, minimumAdvanceAmount
+        case promoOffer, projectOfferValue, projectOfferTerms, projectOfferValidityDays
     }
 }
 
@@ -406,6 +411,103 @@ struct InventoryUnit: Decodable, Identifiable, Hashable, Sendable {
     }
 }
 
+struct BookingPlotPrefill: Decodable, Sendable {
+    let success: Bool
+    let project: Project?
+    let plot: Plot
+    let fields: Fields
+    let schedules: [Schedule]
+    let error: String?
+
+    struct Project: Decodable, Sendable {
+        let id: String
+        let name: String?
+        let promoOffer: String?
+        let projectOfferValue: Double?
+        let projectOfferTerms: String?
+        let projectOfferValidityDays: Double?
+
+        enum CodingKeys: String, CodingKey {
+            case id = "_id"
+            case name, promoOffer, projectOfferValue, projectOfferTerms, projectOfferValidityDays
+        }
+    }
+
+    struct Plot: Decodable, Sendable {
+        let id: String
+        let plotNo: String?
+        let plotType: String?
+        let area: Double?
+        let ratePerSqft: Double?
+        let plotCost: Double?
+        let guidelineValue: Double?
+
+        enum CodingKeys: String, CodingKey {
+            case id = "_id"
+            case plotNo, plotType, area, ratePerSqft, plotCost, guidelineValue
+        }
+    }
+
+    struct Fields: Decodable, Sendable {
+        let bookingCost: Double?
+        let agreedAmount: Double?
+        let guidelineValue: Double?
+        let registrationCharges: Double?
+        let gstAmount: Double?
+        let documentCharges: Double?
+        let pattaCharges: Double?
+        let otherCharges: Double?
+        let advanceAmount: Double?
+        let advanceDueDate: String?
+        let allotmentDueAmount: Double?
+        let allotmentDueDate: String?
+    }
+
+    struct Schedule: Decodable, Sendable {
+        let description: String?
+        let paymentPercent: Double?
+        let daysFromBooking: Int?
+        let amount: Double?
+        let dueDate: String?
+    }
+}
+
+struct BookingConversionPrefill: Decodable, Equatable, Sendable {
+    let bookingId: String
+    let bookingRefNo: String?
+    let previousProject: String?
+    let previousPlot: String?
+    let totalAmountPaid: Double
+}
+
+struct BookingExchangeSource: Decodable, Identifiable, Hashable, Sendable {
+    let id: String
+    let bookingRefNo: String
+    let bookingDate: String
+    let clientName: String
+    let mobileNumber: String
+    let projectId: String?
+    let plotId: String?
+    let projectName: String?
+    let plotNo: String?
+    let extentSqft: Double?
+    let exchangeValue: Double?
+    let bookingCost: Double?
+    let agreedAmount: Double?
+    let status: String
+
+    enum CodingKeys: String, CodingKey {
+        case id = "_id"
+        case bookingRefNo, bookingDate, clientName, mobileNumber
+        case projectId, plotId, projectName, plotNo, extentSqft
+        case exchangeValue, bookingCost, agreedAmount, status
+    }
+
+    var resolvedExchangeValue: Double {
+        exchangeValue ?? agreedAmount ?? bookingCost ?? 0
+    }
+}
+
 struct TelecallerLeadSearchData: Decodable, Identifiable, Hashable, Sendable {
     let id: String
     let contactName: String?
@@ -434,6 +536,73 @@ struct TelecallerLeadSearchData: Decodable, Identifiable, Hashable, Sendable {
             ?? contactName?.nilIfBlank
             ?? mobileNumber?.nilIfBlank
             ?? id
+    }
+}
+
+/// Client-master profile returned by `/api/clients/search-by-phone`.
+/// The web booking form uses this record after lead lookup to fill any
+/// remaining blank client, address, work, KYC, and reference fields.
+struct BookingClientProfile: Decodable, Identifiable, Sendable {
+    let id: String
+    let mobileNumber: String?
+    let alternateNumbers: String?
+    let whatsappNumber: String?
+    let email: String?
+    let title: String?
+    let clientName: String?
+    let clientImageStorageId: String?
+    let clientImageFileName: String?
+    let fatherSpouseName: String?
+    let dateOfBirth: String?
+    let anniversaryDate: String?
+    let nationality: String?
+    let homeAddress: String?
+    let doorNo: String?
+    let addressLine1: String?
+    let addressLine2: String?
+    let landmark: String?
+    let pincode: String?
+    let state: String?
+    let district: String?
+    let location: String?
+    let formattedAddress: String?
+    let googleMapsLink: String?
+    let lat: Double?
+    let lng: Double?
+    let profession: String?
+    let designation: String?
+    let department: String?
+    let incomePerAnnum: String?
+    let officeName: String?
+    let officeAddress: String?
+    let officeArea: String?
+    let officePincode: String?
+    let officeMobile: String?
+    let officePhone: String?
+    let officeEmail: String?
+    let aadhaar: String?
+    let pan: String?
+    let referenceName1: String?
+    let referenceMobile1: String?
+    let referenceProfession1: String?
+    let referenceName2: String?
+    let referenceMobile2: String?
+    let referenceProfession2: String?
+
+    enum CodingKeys: String, CodingKey {
+        case id = "_id"
+        case mobileNumber, alternateNumbers, whatsappNumber, email
+        case title, clientName, clientImageStorageId, clientImageFileName
+        case fatherSpouseName, dateOfBirth, anniversaryDate, nationality
+        case homeAddress, doorNo, addressLine1, addressLine2, landmark
+        case pincode, state, district, location, formattedAddress
+        case googleMapsLink, lat, lng
+        case profession, designation, department, incomePerAnnum
+        case officeName, officeAddress, officeArea, officePincode
+        case officeMobile, officePhone, officeEmail
+        case aadhaar, pan
+        case referenceName1, referenceMobile1, referenceProfession1
+        case referenceName2, referenceMobile2, referenceProfession2
     }
 }
 

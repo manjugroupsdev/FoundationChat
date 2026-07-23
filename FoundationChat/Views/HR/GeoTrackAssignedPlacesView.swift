@@ -82,7 +82,11 @@ struct GeoTrackAssignedPlacesView: View {
                     }
                 }
                 .listStyle(.plain)
-                .searchable(text: $searchText, prompt: "Search places")
+                .searchable(
+                    text: $searchText,
+                    placement: .navigationBarDrawer(displayMode: .always),
+                    prompt: "Search places"
+                )
             }
         }
         .navigationTitle("Assigned Places")
@@ -108,6 +112,7 @@ struct GeoTrackAssignedPlacesView: View {
                 CreateVisitSheet(place: place, onCreated: {
                     showCreateSheet = false
                 })
+                .appFormActivity()
             }
         }
         .fullScreenCover(item: $placeToNavigate) { place in

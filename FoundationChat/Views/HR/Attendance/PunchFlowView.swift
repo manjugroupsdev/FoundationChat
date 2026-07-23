@@ -128,6 +128,7 @@ struct PunchFlowView: View {
                 showConfirmation = true
             }
         }
+        .appFormActivity()
     }
 
     // MARK: - Current status

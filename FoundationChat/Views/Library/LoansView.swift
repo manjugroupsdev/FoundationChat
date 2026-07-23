@@ -50,6 +50,7 @@ struct LoansView: View {
             LoanRequestSheet {
                 await load()
             }
+            .appFormActivity()
             .appLibraryNativeSheet([.height(720), .large])
             .presentationBackground(Color.white)
         }
@@ -57,6 +58,7 @@ struct LoansView: View {
             SalaryAdvanceRequestSheet {
                 await load()
             }
+            .appFormActivity()
             .appLibraryNativeSheet([.height(520), .large])
             .presentationBackground(Color.white)
         }
@@ -675,32 +677,8 @@ private struct LoanNomineePickerSheet: View {
             .padding(.top, 24)
             .padding(.bottom, 14)
 
-            HStack(spacing: 10) {
-                Image(systemName: "magnifyingglass")
-                    .font(.system(size: 16, weight: .semibold))
-                    .foregroundStyle(Color(hex: 0x667085))
-                TextField("Search nominee", text: $searchText)
-                    .font(.system(size: 15, weight: .regular))
-                    .textInputAutocapitalization(.never)
-                    .autocorrectionDisabled()
-                if !searchText.isEmpty {
-                    Button {
-                        searchText = ""
-                    } label: {
-                        Image(systemName: "xmark.circle.fill")
-                            .font(.system(size: 16, weight: .semibold))
-                            .foregroundStyle(Color(hex: 0x98A2B3))
-                    }
-                    .buttonStyle(.plain)
-                }
-            }
-            .padding(.horizontal, 14)
+            NativeInlineSearchBar(text: $searchText, placeholder: "Search nominee")
             .frame(height: 48)
-            .background(Color(hex: 0xF8FAFC), in: RoundedRectangle(cornerRadius: 14, style: .continuous))
-            .overlay {
-                RoundedRectangle(cornerRadius: 14, style: .continuous)
-                    .stroke(Color(hex: 0xE5E7EB), lineWidth: 1)
-            }
             .padding(.horizontal, 16)
             .padding(.bottom, 10)
 

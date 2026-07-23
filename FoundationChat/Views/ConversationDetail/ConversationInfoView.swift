@@ -335,6 +335,7 @@ struct ConversationInfoView: View {
             await updateGroup(name: name, description: description)
           }
         )
+        .appFormActivity()
       }
     }
     .sheet(isPresented: $showAddMemberSheet) {
@@ -342,6 +343,7 @@ struct ConversationInfoView: View {
         InviteMemberSheet(channelID: channelID, excludedMemberIds: existingMemberIDs) {
           await load()
         }
+        .appFormActivity()
       }
     }
     .onChange(of: selectedPhotoItem) { _, newValue in

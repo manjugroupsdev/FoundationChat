@@ -25,6 +25,12 @@ enum MarketingConvexAPIService {
         let error: String?
     }
 
+    private struct MarketingProjectResponse: Decodable {
+        let success: Bool
+        let project: MarketingProject?
+        let error: String?
+    }
+
     private struct InventoryUnitsResponse: Decodable {
         let success: Bool
         let units: [InventoryUnit]?
@@ -47,6 +53,24 @@ enum MarketingConvexAPIService {
         let success: Bool
         let total: Int?
         let leads: [TelecallerLeadSearchData]?
+        let error: String?
+    }
+
+    private struct ClientByPhoneResponse: Decodable {
+        let success: Bool
+        let client: BookingClientProfile?
+        let error: String?
+    }
+
+    private struct BookingConversionPrefillResponse: Decodable {
+        let success: Bool
+        let prefill: BookingConversionPrefill?
+        let error: String?
+    }
+
+    private struct BookingExchangeSourcesResponse: Decodable {
+        let success: Bool
+        let bookings: [BookingExchangeSource]?
         let error: String?
     }
 
@@ -257,9 +281,31 @@ enum MarketingConvexAPIService {
 
     static func getMarketingProjects(token: String) async throws -> [MarketingProject] {
         let data = try await get(path: "/api/marketing/projects", token: token)
-        let wrapper = try decode(MarketingProjectsResponse.self, from: data)
+        let wrapper: MarketingProjectsResponse
+        do {
+            wrapper = try await BackgroundJSONDecoder.decode(
+                MarketingProjectsResponse.self,
+                from: data
+            )
+        } catch {
+            throw MarketingAPIError.decoding(error)
+        }
         guard wrapper.success else { throw MarketingAPIError.server(wrapper.error ?? "Failed to load projects") }
         return wrapper.projects ?? []
+    }
+
+    static func getMarketingProject(token: String, id: String) async throws -> MarketingProject {
+        let data = try await get(
+            path: "/api/projects/get",
+            token: token,
+            queryItems: [URLQueryItem(name: "id", value: id)],
+            cachePolicy: .reloadIgnoringLocalCacheData
+        )
+        let wrapper = try decode(MarketingProjectResponse.self, from: data)
+        guard wrapper.success, let project = wrapper.project else {
+            throw MarketingAPIError.server(wrapper.error ?? "Failed to load project details")
+        }
+        return project
     }
 
     static func listInventoryUnits(
@@ -273,7 +319,12 @@ enum MarketingConvexAPIService {
         if let unitType, !unitType.isEmpty { items.append(URLQueryItem(name: "unitType", value: unitType)) }
         if let facing, !facing.isEmpty { items.append(URLQueryItem(name: "facing", value: facing)) }
         if let status, !status.isEmpty { items.append(URLQueryItem(name: "status", value: status)) }
-        let data = try await get(path: "/api/marketing/inventory-units", token: token, queryItems: items)
+        let data = try await get(
+            path: "/api/marketing/inventory-units",
+            token: token,
+            queryItems: items,
+            cachePolicy: .reloadIgnoringLocalCacheData
+        )
         let wrapper = try decode(InventoryUnitsResponse.self, from: data)
         guard wrapper.success else { throw MarketingAPIError.server(wrapper.error ?? "Failed to load units") }
         return wrapper.units ?? []
@@ -337,6 +388,72 @@ enum MarketingConvexAPIService {
         let wrapper = try decode(TelecallerLeadSearchResponse.self, from: data)
         guard wrapper.success else { throw MarketingAPIError.server(wrapper.error ?? "Lead search failed") }
         return wrapper.leads ?? []
+    }
+
+    static func searchClientByPhone(token: String, phone: String) async throws -> BookingClientProfile? {
+        let data = try await get(
+            path: "/api/clients/search-by-phone",
+            token: token,
+            queryItems: [URLQueryItem(name: "phone", value: phone)]
+        )
+        let wrapper = try decode(ClientByPhoneResponse.self, from: data)
+        guard wrapper.success else { throw MarketingAPIError.server(wrapper.error ?? "Client search failed") }
+        return wrapper.client
+    }
+
+    static func getBookingPlotPrefill(
+        token: String,
+        plotId: String,
+        bookingDate: String?
+    ) async throws -> BookingPlotPrefill {
+        var queryItems = [URLQueryItem(name: "plotId", value: plotId)]
+        if let bookingDate, !bookingDate.isEmpty {
+            queryItems.append(URLQueryItem(name: "bookingDate", value: bookingDate))
+        }
+        let data = try await get(
+            path: "/api/bookings/plot-prefill",
+            token: token,
+            queryItems: queryItems
+        )
+        let prefill = try decode(BookingPlotPrefill.self, from: data)
+        guard prefill.success else {
+            throw MarketingAPIError.server(prefill.error ?? "Plot pricing lookup failed")
+        }
+        return prefill
+    }
+
+    static func getBookingConversionPrefill(
+        token: String,
+        mobileNumber: String
+    ) async throws -> BookingConversionPrefill? {
+        let data = try await get(
+            path: "/api/bookings/conversion-prefill",
+            token: token,
+            queryItems: [URLQueryItem(name: "mobileNumber", value: mobileNumber)],
+            cachePolicy: .reloadIgnoringLocalCacheData
+        )
+        let wrapper = try decode(BookingConversionPrefillResponse.self, from: data)
+        guard wrapper.success else {
+            throw MarketingAPIError.server(wrapper.error ?? "Previous booking lookup failed")
+        }
+        return wrapper.prefill
+    }
+
+    static func listBookingExchangeSourceCandidates(
+        token: String,
+        mobileNumber: String
+    ) async throws -> [BookingExchangeSource] {
+        let data = try await get(
+            path: "/api/bookings/exchange-source-candidates",
+            token: token,
+            queryItems: [URLQueryItem(name: "mobileNumber", value: mobileNumber)],
+            cachePolicy: .reloadIgnoringLocalCacheData
+        )
+        let wrapper = try decode(BookingExchangeSourcesResponse.self, from: data)
+        guard wrapper.success else {
+            throw MarketingAPIError.server(wrapper.error ?? "Exchanged property lookup failed")
+        }
+        return wrapper.bookings ?? []
     }
 
     static func createBooking(token: String, request: CreateBookingRequest) async throws -> String {
@@ -486,11 +603,16 @@ enum MarketingConvexAPIService {
 
     // MARK: - HTTP
 
-    private static func get(path: String, token: String, queryItems: [URLQueryItem] = []) async throws -> Data {
+    private static func get(
+        path: String,
+        token: String,
+        queryItems: [URLQueryItem] = [],
+        cachePolicy: URLRequest.CachePolicy = .useProtocolCachePolicy
+    ) async throws -> Data {
         var components = URLComponents(string: "\(baseURL)\(path)")
         if !queryItems.isEmpty { components?.queryItems = queryItems }
         guard let url = components?.url else { throw MarketingAPIError.badURL }
-        var request = URLRequest(url: url)
+        var request = URLRequest(url: url, cachePolicy: cachePolicy)
         request.httpMethod = "GET"
         request.setValue("Bearer \(token)", forHTTPHeaderField: "Authorization")
         return try await perform(request)

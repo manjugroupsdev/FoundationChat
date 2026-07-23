@@ -111,9 +111,10 @@ struct ProjectTasksView: View {
 
     private var content: some View {
         VStack(spacing: 0) {
-            searchBar
+            NativeInlineSearchBar(text: $searchText, placeholder: "Search Tasks")
                 .padding(.horizontal, 20)
                 .padding(.top, 20)
+                .frame(height: 50)
 
             filterStrip
                 .padding(.top, 12)
@@ -125,27 +126,6 @@ struct ProjectTasksView: View {
         .frame(maxWidth: .infinity, alignment: .top)
         .background(Color.white)
         .clipShape(.rect(topLeadingRadius: 32, topTrailingRadius: 32))
-    }
-
-    private var searchBar: some View {
-        HStack(spacing: 10) {
-            TextField("Search Tasks", text: $searchText)
-                .font(.system(size: 15, weight: .medium))
-                .foregroundStyle(Color(hex: 0x101828))
-                .textInputAutocapitalization(.never)
-                .autocorrectionDisabled()
-
-            Image(systemName: "magnifyingglass")
-                .font(.system(size: 20, weight: .medium))
-                .foregroundStyle(Color(hex: 0x667085))
-        }
-        .padding(.horizontal, 16)
-        .frame(height: 44)
-        .background(Color.white, in: RoundedRectangle(cornerRadius: 14, style: .continuous))
-        .overlay(
-            RoundedRectangle(cornerRadius: 14, style: .continuous)
-                .stroke(Color(hex: 0xD7DDE8), lineWidth: 1)
-        )
     }
 
     private var filterStrip: some View {

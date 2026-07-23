@@ -29,11 +29,6 @@ struct CollectionsView: View {
         VStack(spacing: 0) {
             ScrollView(showsIndicators: false) {
                 VStack(spacing: 16) {
-                    PostSalesSearchField(
-                        placeholder: "Search Collections",
-                        text: $searchText
-                    )
-
                     PostSalesSegmentedFilter(selection: $selectedFilter)
 
                     PostSalesSummaryCard(
@@ -51,6 +46,13 @@ struct CollectionsView: View {
         .background(Color(hex: 0xF3F5FA).ignoresSafeArea())
         .navigationTitle("Collections")
         .navigationBarTitleDisplayMode(.inline)
+        .searchable(
+            text: $searchText,
+            placement: .navigationBarDrawer(displayMode: .always),
+            prompt: "Search Collections"
+        )
+        .textInputAutocapitalization(.never)
+        .autocorrectionDisabled()
         .toolbarBackground(Color.white, for: .navigationBar)
         .toolbarBackground(.visible, for: .navigationBar)
         .toolbar {
@@ -86,6 +88,7 @@ struct CollectionsView: View {
             CollectionSubmitSheet(rectifyingCollection: nil) {
                 await load()
             }
+            .appFormActivity()
             .appLibraryNativeSheet([.height(720), .large])
             .presentationBackground(Color.white)
         }
@@ -93,6 +96,7 @@ struct CollectionsView: View {
             CollectionSubmitSheet(rectifyingCollection: collection) {
                 await load()
             }
+            .appFormActivity()
             .appLibraryNativeSheet([.height(720), .large])
             .presentationBackground(Color.white)
         }
@@ -193,11 +197,6 @@ struct AccountsCollectionsReviewView: View {
         VStack(spacing: 0) {
             ScrollView(showsIndicators: false) {
                 VStack(spacing: 16) {
-                    PostSalesSearchField(
-                        placeholder: "Search Sales Verification",
-                        text: $searchText
-                    )
-
                     PostSalesSegmentedFilter(selection: $selectedFilter)
 
                     PostSalesSummaryCard(
@@ -215,6 +214,13 @@ struct AccountsCollectionsReviewView: View {
         .background(Color(hex: 0xF3F5FA).ignoresSafeArea())
         .navigationTitle("Post Sales Verification")
         .navigationBarTitleDisplayMode(.inline)
+        .searchable(
+            text: $searchText,
+            placement: .navigationBarDrawer(displayMode: .always),
+            prompt: "Search Sales Verification"
+        )
+        .textInputAutocapitalization(.never)
+        .autocorrectionDisabled()
         .toolbarBackground(Color.white, for: .navigationBar)
         .toolbarBackground(.visible, for: .navigationBar)
         .toolbar {
@@ -405,11 +411,6 @@ struct LoanDeskView: View {
         VStack(spacing: 0) {
             ScrollView(showsIndicators: false) {
                 VStack(spacing: 16) {
-                    PostSalesSearchField(
-                        placeholder: "Search Loan Desk",
-                        text: $searchText
-                    )
-
                     content
                 }
                 .padding(.horizontal, 16)
@@ -420,6 +421,13 @@ struct LoanDeskView: View {
         .background(Color(hex: 0xF3F5FA).ignoresSafeArea())
         .navigationTitle("Loan Desk")
         .navigationBarTitleDisplayMode(.inline)
+        .searchable(
+            text: $searchText,
+            placement: .navigationBarDrawer(displayMode: .always),
+            prompt: "Search Loan Desk"
+        )
+        .textInputAutocapitalization(.never)
+        .autocorrectionDisabled()
         .toolbarBackground(Color.white, for: .navigationBar)
         .toolbarBackground(.visible, for: .navigationBar)
         .toolbar {

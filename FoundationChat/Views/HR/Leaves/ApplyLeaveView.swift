@@ -262,6 +262,7 @@ struct ApplyLeaveView: View {
             )
             .appLibraryNativeSheet([.height(248)])
         }
+        .appFormActivity()
     }
 
     private var submitBackground: some ShapeStyle {

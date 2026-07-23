@@ -20,7 +20,7 @@ struct FinesDeductionsView: View {
     }
 
     private var filteredFines: [ConvexFineDeduction] {
-        guard canViewAll, !searchText.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else {
+        guard !searchText.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else {
             return fines
         }
         return fines.filter {
@@ -34,11 +34,6 @@ struct FinesDeductionsView: View {
         VStack(spacing: 0) {
             ScrollView(showsIndicators: false) {
                 VStack(spacing: 12) {
-                    if canViewAll {
-                        searchField
-                            .padding(.bottom, 4)
-                    }
-
                     if isLoading && fines.isEmpty {
                         fineSkeletons
                     } else if filteredFines.isEmpty {
@@ -63,6 +58,13 @@ struct FinesDeductionsView: View {
         .background(Color(hex: 0xF5F6FA).ignoresSafeArea())
         .navigationTitle("Fines & Deductions")
         .navigationBarTitleDisplayMode(.inline)
+        .searchable(
+            text: $searchText,
+            placement: .navigationBarDrawer(displayMode: .always),
+            prompt: "Search Employee"
+        )
+        .textInputAutocapitalization(.never)
+        .autocorrectionDisabled()
         .toolbarBackground(Color.white, for: .navigationBar)
         .toolbarBackground(.visible, for: .navigationBar)
         .toolbar {
@@ -92,6 +94,7 @@ struct FinesDeductionsView: View {
             CreateFineDeductionSheet {
                 await loadFines()
             }
+            .appFormActivity()
             .appLibraryNativeSheet([.height(720), .large])
             .presentationBackground(Color.white)
         }
@@ -123,27 +126,6 @@ struct FinesDeductionsView: View {
 
             Divider()
                 .background(Color(hex: 0xE4E7EC))
-        }
-    }
-
-    private var searchField: some View {
-        HStack(spacing: 10) {
-            TextField("Search Employee", text: $searchText)
-                .font(.system(size: 14, weight: .regular))
-                .foregroundStyle(Color(hex: 0x1D2939))
-                .textInputAutocapitalization(.words)
-                .autocorrectionDisabled()
-
-            Image(systemName: "magnifyingglass")
-                .font(.system(size: 18, weight: .semibold))
-                .foregroundStyle(Color(hex: 0x475467))
-        }
-        .padding(.horizontal, 16)
-        .frame(height: 48)
-        .background(Color.white, in: RoundedRectangle(cornerRadius: 12, style: .continuous))
-        .overlay {
-            RoundedRectangle(cornerRadius: 12, style: .continuous)
-                .stroke(Color(hex: 0xEAECF0), lineWidth: 1)
         }
     }
 

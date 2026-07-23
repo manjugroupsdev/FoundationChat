@@ -55,12 +55,9 @@ struct ChannelsTabView: View {
   var body: some View {
     NavigationStack(path: $navigationPath) {
       VStack(spacing: 10) {
-        GlassSearchField(placeholder: "Search channels", text: $searchText)
-          .padding(.horizontal, 16)
-          .padding(.top, 8)
-
         filtersBar
           .padding(.horizontal, 16)
+          .padding(.top, 8)
 
         if isLoading, channels.isEmpty {
           ProgressView("Loading channels...")
@@ -114,6 +111,13 @@ struct ChannelsTabView: View {
       }
       .navigationTitle("Channels")
       .navigationBarTitleDisplayMode(.inline)
+      .searchable(
+        text: $searchText,
+        placement: .navigationBarDrawer(displayMode: .always),
+        prompt: "Search channels"
+      )
+      .textInputAutocapitalization(.never)
+      .autocorrectionDisabled()
       .toolbar {
         if authStore.isAdmin {
           ToolbarItem(placement: .navigationBarTrailing) {
@@ -129,6 +133,7 @@ struct ChannelsTabView: View {
         CreateChannelSheet {
           await loadChannels()
         }
+        .appFormActivity()
       }
       .task(id: "\(searchText)-\(selectedFilter.rawValue)") {
         await loadChannels()
@@ -1256,19 +1261,6 @@ struct InviteMemberSheet: View {
   var body: some View {
     NavigationStack {
       VStack(spacing: 10) {
-        HStack(spacing: 8) {
-          Image(systemName: "magnifyingglass")
-            .foregroundStyle(.secondary)
-          TextField("Search users", text: $searchText)
-            .textInputAutocapitalization(.never)
-            .autocorrectionDisabled()
-        }
-        .padding(.horizontal, 12)
-        .padding(.vertical, 10)
-        .background(Color(.systemGray6), in: RoundedRectangle(cornerRadius: 12, style: .continuous))
-        .padding(.horizontal, 16)
-        .padding(.top, 8)
-
         if isLoading, users.isEmpty {
           ProgressView("Loading users...")
             .frame(maxWidth: .infinity, maxHeight: .infinity)
@@ -1304,6 +1296,13 @@ struct InviteMemberSheet: View {
       }
       .navigationTitle("Invite Member")
       .navigationBarTitleDisplayMode(.inline)
+      .searchable(
+        text: $searchText,
+        placement: .navigationBarDrawer(displayMode: .always),
+        prompt: "Search users"
+      )
+      .textInputAutocapitalization(.never)
+      .autocorrectionDisabled()
       .toolbar {
         ToolbarItem(placement: .cancellationAction) {
           Button("Close") {

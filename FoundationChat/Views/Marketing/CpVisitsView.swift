@@ -23,7 +23,6 @@ struct CpVisitsView: View {
 
     var body: some View {
         ScrollView {
-            searchBar
             filterPills
 
             if isLoading && visits.isEmpty {
@@ -85,6 +84,13 @@ struct CpVisitsView: View {
         .background(Color(hex: 0xF1F3F8).ignoresSafeArea())
         .navigationTitle("CP Visits")
         .navigationBarTitleDisplayMode(.inline)
+        .searchable(
+            text: $searchText,
+            placement: .navigationBarDrawer(displayMode: .always),
+            prompt: "Search Client Places"
+        )
+        .textInputAutocapitalization(.never)
+        .autocorrectionDisabled()
         .toolbarBackground(Color.white, for: .navigationBar)
         .toolbarBackground(.visible, for: .navigationBar)
         .toolbar {
@@ -108,6 +114,7 @@ struct CpVisitsView: View {
                 showCreateSheet = false
                 Task { await load() }
             }
+            .appFormActivity()
             .appLibraryNativeSheet([.height(720), .large])
             .presentationBackground(Color.white)
         }
@@ -122,22 +129,6 @@ struct CpVisitsView: View {
             )
             .environment(authStore)
         }
-    }
-
-    private var searchBar: some View {
-        HStack(spacing: 10) {
-            TextField("Search Client Places", text: $searchText)
-                .font(.system(size: 14))
-                .textInputAutocapitalization(.words)
-            Image(systemName: "magnifyingglass")
-                .font(.system(size: 17, weight: .medium))
-                .foregroundStyle(Color(hex: 0x667085))
-        }
-        .padding(.horizontal, 14)
-        .frame(height: 44)
-        .background(.white, in: RoundedRectangle(cornerRadius: 12))
-        .padding(.horizontal, 16)
-        .padding(.top, 12)
     }
 
     private var filterPills: some View {

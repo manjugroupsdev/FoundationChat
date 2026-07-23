@@ -73,6 +73,7 @@ struct TaskUpdateSheet: View {
                 .appLibraryNativeSheet([.height(470)])
                 .presentationBackground(Color.white)
         }
+        .appFormActivity()
     }
 
     private var submitButton: some View {

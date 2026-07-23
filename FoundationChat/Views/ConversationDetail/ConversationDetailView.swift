@@ -1856,7 +1856,11 @@ private struct ForwardMessageSheet: View {
           }
         }
       }
-      .searchable(text: $searchText, prompt: "Search chats")
+      .searchable(
+        text: $searchText,
+        placement: .navigationBarDrawer(displayMode: .always),
+        prompt: "Search chats"
+      )
       .navigationTitle(messages.count == 1 ? "Forward Message" : "Forward Messages")
       .navigationBarTitleDisplayMode(.inline)
       .toolbar {

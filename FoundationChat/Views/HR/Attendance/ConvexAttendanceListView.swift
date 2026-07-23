@@ -62,7 +62,6 @@ struct ConvexAttendanceListView: View {
     @State private var isReportingOfficer = false
     @State private var approvalSubTab: AttendanceApprovalSubTab = .attendance
     @State private var showFilter = false
-    @State private var showSearch = false
     @State private var searchText = ""
     @State private var selectedRecord: ConvexAttendanceRecord?
     @State private var approvalReviewRecord: ConvexAttendanceRecord?
@@ -192,10 +191,6 @@ struct ConvexAttendanceListView: View {
         VStack(spacing: 0) {
             filterStatusBar
             summaryStats
-            if showSearch {
-                attendanceSearchBar
-                    .transition(.move(edge: .top).combined(with: .opacity))
-            }
             if visibleTabs.count > 1 {
                 attendanceTabStrip
             }
@@ -207,6 +202,13 @@ struct ConvexAttendanceListView: View {
         .background(Color(hex: 0xF6F7FB).ignoresSafeArea())
         .navigationTitle("Attendance")
         .navigationBarTitleDisplayMode(.inline)
+        .searchable(
+            text: $searchText,
+            placement: .navigationBarDrawer(displayMode: .always),
+            prompt: "Search members"
+        )
+        .textInputAutocapitalization(.never)
+        .autocorrectionDisabled()
         .toolbarBackground(Color.white, for: .navigationBar)
         .toolbarBackground(.visible, for: .navigationBar)
         .toolbar {
@@ -222,21 +224,6 @@ struct ConvexAttendanceListView: View {
             }
 
             ToolbarItemGroup(placement: .topBarTrailing) {
-                Button {
-                    withAnimation(.snappy(duration: 0.22)) {
-                        showSearch.toggle()
-                        if !showSearch { searchText = "" }
-                    }
-                } label: {
-                    Image(systemName: "magnifyingglass")
-                        .font(.system(size: 16, weight: .semibold))
-                        .foregroundStyle(Color(hex: 0x0B61CA))
-                        .frame(width: 36, height: 36)
-                        .background(Color(hex: 0xF5F8FF), in: Circle())
-                }
-                .buttonStyle(.plain)
-                .accessibilityLabel("Search attendance")
-
                 Button {
                     showFilter = true
                 } label: {
@@ -275,6 +262,7 @@ struct ConvexAttendanceListView: View {
                 if let date = record.date { submittedRequestDates.insert(date) }
                 await loadDataAsync()
             }
+            .appFormActivity()
             .appLibraryNativeSheet([.height(560), .large])
         }
         .task(id: filter.apiRange.from + "_" + filter.apiRange.to) {
@@ -305,88 +293,6 @@ struct ConvexAttendanceListView: View {
             guard !tabs.contains(selectedTab) else { return }
             selectedTab = .my
         }
-    }
-
-    private var attendanceHeader: some View {
-        ZStack {
-            HStack {
-                Color.clear
-                    .frame(width: 32, height: 32)
-
-                Spacer()
-
-                HStack(spacing: 10) {
-                    Button {
-                        withAnimation(.snappy(duration: 0.22)) {
-                            showSearch.toggle()
-                            if !showSearch { searchText = "" }
-                        }
-                    } label: {
-                        Image(systemName: "magnifyingglass")
-                            .font(.system(size: 14, weight: .semibold))
-                            .foregroundStyle(Color(hex: 0x0B61CA))
-                            .frame(width: 32, height: 32)
-                            .background(Color(hex: 0xF5F8FF), in: Circle())
-                    }
-                    .buttonStyle(.plain)
-
-                    Button {
-                        showFilter = true
-                    } label: {
-                        Image(systemName: "line.3.horizontal.decrease")
-                            .font(.system(size: 14, weight: .semibold))
-                            .foregroundStyle(Color(hex: 0x0B61CA))
-                            .frame(width: 32, height: 32)
-                            .background(Color(hex: 0xF5F8FF), in: Circle())
-                    }
-                    .buttonStyle(.plain)
-                }
-            }
-            .padding(.horizontal, 12)
-
-            VStack(spacing: 1) {
-                Text("Attendance")
-                    .font(.system(size: 18, weight: .bold))
-                    .foregroundStyle(Color(hex: 0x101828))
-                Text(filter.rangeLabel)
-                    .font(.system(size: 12, weight: .medium))
-                    .foregroundStyle(Color(hex: 0x0B61CA))
-            }
-        }
-        .frame(height: 82)
-        .frame(maxWidth: .infinity)
-        .background(Color.white)
-    }
-
-    private var attendanceSearchBar: some View {
-        HStack(spacing: 8) {
-            Image(systemName: "magnifyingglass")
-                .font(.system(size: 13, weight: .semibold))
-                .foregroundStyle(Color(hex: 0x667085))
-
-            TextField("Search members", text: $searchText)
-                .font(.system(size: 13, weight: .medium))
-                .textInputAutocapitalization(.never)
-                .autocorrectionDisabled()
-
-            if !searchText.isEmpty {
-                Button {
-                    searchText = ""
-                } label: {
-                    Image(systemName: "xmark.circle.fill")
-                        .font(.system(size: 14, weight: .semibold))
-                        .foregroundStyle(Color(hex: 0x98A2B3))
-                }
-                .buttonStyle(.plain)
-            }
-        }
-        .padding(.horizontal, 12)
-        .frame(height: 40)
-        .background(Color.white, in: RoundedRectangle(cornerRadius: 9, style: .continuous))
-        .overlay(RoundedRectangle(cornerRadius: 9).stroke(Color(hex: 0xE4E7EC), lineWidth: 1))
-        .padding(.horizontal, 12)
-        .padding(.bottom, 8)
-        .background(Color(hex: 0xF6F7FB))
     }
 
     @ViewBuilder

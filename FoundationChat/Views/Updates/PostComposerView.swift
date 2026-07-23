@@ -118,6 +118,7 @@ struct PostComposerView: View {
                 Task { await loadPhotos() }
             }
         }
+        .appFormActivity()
     }
 
     private func loadPhotos() async {

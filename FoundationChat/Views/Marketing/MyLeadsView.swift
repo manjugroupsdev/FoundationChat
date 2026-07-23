@@ -81,7 +81,11 @@ struct MyLeadsView: View {
             }
         }
         .navigationTitle("My Leads")
-        .searchable(text: $search, placement: .navigationBarDrawer(displayMode: .automatic), prompt: "Search name or phone")
+        .searchable(
+            text: $search,
+            placement: .navigationBarDrawer(displayMode: .always),
+            prompt: "Search name or phone"
+        )
         .refreshable { await reload() }
         .overlay {
             if isLoading && leads.isEmpty {

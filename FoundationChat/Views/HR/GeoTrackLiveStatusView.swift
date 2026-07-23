@@ -45,7 +45,11 @@ struct GeoTrackLiveStatusView: View {
                 }
             }
         }
-        .searchable(text: $searchText, prompt: "Search staff")
+        .searchable(
+            text: $searchText,
+            placement: .navigationBarDrawer(displayMode: .always),
+            prompt: "Search staff"
+        )
         .refreshable { await load() }
         .task { await load() }
     }

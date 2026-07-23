@@ -72,6 +72,7 @@ struct LandInspectionView: View {
             LandInspectionSheet(inspection: inspection) {
                 await load()
             }
+            .appFormActivity()
             .appLibraryNativeSheet([.height(720), .large])
             .presentationBackground(Color(.systemGroupedBackground))
         }
@@ -79,6 +80,7 @@ struct LandInspectionView: View {
             LandInspectionRescheduleSheet(inspection: inspection) {
                 await load()
             }
+            .appFormActivity()
             .appLibraryNativeSheet([.medium])
         }
         .alert("Land Inspection", isPresented: Binding(
@@ -160,18 +162,11 @@ struct LandInspectionView: View {
     private var controls: some View {
         VStack(alignment: .leading, spacing: 12) {
             HStack(spacing: 10) {
-                HStack(spacing: 10) {
-                    TextField("Search Inspection List", text: $searchText)
-                        .font(.system(size: 14, weight: .medium))
-                        .textInputAutocapitalization(.never)
-                    Image(systemName: "magnifyingglass")
-                        .font(.system(size: 17, weight: .semibold))
-                        .foregroundStyle(Color(hex: 0x0B61CA))
-                }
-                .padding(.horizontal, 18)
+                NativeInlineSearchBar(
+                    text: $searchText,
+                    placeholder: "Search Inspection List"
+                )
                 .frame(height: 50)
-                .background(Color.white, in: RoundedRectangle(cornerRadius: 10))
-                .shadow(color: .black.opacity(0.04), radius: 6, y: 2)
 
                 Button {
                     showingDateFilter = true
@@ -1839,57 +1834,6 @@ private struct LandQueryInfoCard: View {
         .padding(14)
         .frame(maxWidth: .infinity, alignment: .leading)
         .background(Color.white, in: RoundedRectangle(cornerRadius: 14, style: .continuous))
-    }
-}
-
-private struct NativeInlineSearchBar: UIViewRepresentable {
-    @Binding var text: String
-    let placeholder: String
-
-    func makeCoordinator() -> Coordinator {
-        Coordinator(text: $text)
-    }
-
-    func makeUIView(context: Context) -> UISearchBar {
-        let searchBar = UISearchBar(frame: .zero)
-        searchBar.searchBarStyle = .minimal
-        searchBar.placeholder = placeholder
-        searchBar.delegate = context.coordinator
-        searchBar.autocapitalizationType = .none
-        searchBar.autocorrectionType = .no
-        searchBar.backgroundImage = UIImage()
-        searchBar.searchTextField.backgroundColor = UIColor.secondarySystemGroupedBackground
-        searchBar.searchTextField.layer.cornerRadius = 10
-        searchBar.searchTextField.clipsToBounds = true
-        return searchBar
-    }
-
-    func updateUIView(_ uiView: UISearchBar, context: Context) {
-        if uiView.text != text {
-            uiView.text = text
-        }
-    }
-
-    final class Coordinator: NSObject, UISearchBarDelegate {
-        @Binding var text: String
-
-        init(text: Binding<String>) {
-            _text = text
-        }
-
-        func searchBar(_ searchBar: UISearchBar, textDidChange searchText: String) {
-            text = searchText
-        }
-
-        func searchBarSearchButtonClicked(_ searchBar: UISearchBar) {
-            searchBar.resignFirstResponder()
-        }
-
-        func searchBarCancelButtonClicked(_ searchBar: UISearchBar) {
-            text = ""
-            searchBar.text = ""
-            searchBar.resignFirstResponder()
-        }
     }
 }
 

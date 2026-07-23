@@ -9,6 +9,7 @@ import UIKit
 struct HomeView: View {
     @Environment(AuthStore.self) private var authStore
     @Binding private var hasPlayedEntryAnimation: Bool
+    @State private var formActivityStore = AppFormActivityStore.shared
 
     @State private var todayVisits: [GeoTrackTodayVisit] = []
     @State private var assignedPlaces: [GeoTrackAssignedPlace] = []
@@ -273,6 +274,13 @@ struct HomeView: View {
             .onChange(of: canViewManagementDashboard) { oldValue, newValue in
                 guard oldValue != newValue, appeared else { return }
                 Task { await reload() }
+            }
+            .onChange(of: formActivityStore.isFormActive) { _, isFormActive in
+                if isFormActive {
+                    showPendingTasksSheet = false
+                } else {
+                    presentPendingTasksSheetIfDue()
+                }
             }
             .onReceive(timer) { _ in
                 presentPendingTasksSheetIfDue()
@@ -1725,7 +1733,10 @@ struct HomeView: View {
 
     @MainActor
     private func presentPendingTasksSheet(force: Bool) {
-        guard !pendingTaskNudgeTasks.isEmpty, !showPendingTasksSheet, !showQRPanel else { return }
+        guard !formActivityStore.isFormActive,
+              !pendingTaskNudgeTasks.isEmpty,
+              !showPendingTasksSheet,
+              !showQRPanel else { return }
 
         let now = Date().timeIntervalSince1970
         let hasShownRecently = pendingTaskSheetLastPresentedAt > 0

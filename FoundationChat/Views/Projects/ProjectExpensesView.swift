@@ -95,6 +95,7 @@ struct ProjectExpensesView: View {
                 ExpenseCreationSheet(project: selectedProject, projects: projects) {
                     await refreshExpenses()
                 }
+                .appFormActivity()
                 .appLibraryNativeSheet([.height(720), .large])
                 .presentationBackground(Color.white)
             }

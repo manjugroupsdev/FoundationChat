@@ -43,12 +43,9 @@ struct FleetMyTripsView: View {
 
     var body: some View {
         VStack(spacing: 0) {
-            searchBar
-                .padding(.horizontal, 16)
-                .padding(.top, 10)
-                .padding(.bottom, 12)
             tripTabs
                 .padding(.horizontal, 16)
+                .padding(.top, 10)
                 .padding(.bottom, 12)
             content
             .frame(maxWidth: .infinity, maxHeight: .infinity)
@@ -57,6 +54,13 @@ struct FleetMyTripsView: View {
         .background(Color(hex: 0xF8F9FC).ignoresSafeArea())
         .navigationTitle("My Trips")
         .navigationBarTitleDisplayMode(.inline)
+        .searchable(
+            text: $searchText,
+            placement: .navigationBarDrawer(displayMode: .always),
+            prompt: "Search Trips"
+        )
+        .textInputAutocapitalization(.never)
+        .autocorrectionDisabled()
         .toolbar {
             ToolbarItem(placement: .topBarTrailing) {
                 Button {
@@ -98,23 +102,6 @@ struct FleetMyTripsView: View {
         } message: {
             Text(futureTripMessage ?? "")
         }
-    }
-
-    private var searchBar: some View {
-        HStack(spacing: 10) {
-            TextField("Search Trips", text: $searchText)
-                .font(.system(size: 14, weight: .regular))
-                .foregroundStyle(Color(hex: 0x111827))
-                .textInputAutocapitalization(.never)
-                .submitLabel(.search)
-
-            Image(systemName: "magnifyingglass")
-                .font(.system(size: 18, weight: .semibold))
-                .foregroundStyle(Color(hex: 0x667085))
-        }
-        .padding(.horizontal, 16)
-        .frame(height: 48)
-        .background(Color.white, in: RoundedRectangle(cornerRadius: 14, style: .continuous))
     }
 
     private var tripTabs: some View {

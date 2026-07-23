@@ -97,6 +97,7 @@ struct ProjectDailyLogView: View {
             CreateDailyLogSheet(projects: selectableProjects) {
                 await loadLogs()
             }
+            .appFormActivity()
             .appLibraryNativeSheet([.height(720), .large])
             .presentationBackground(Color.white)
         }
@@ -104,6 +105,7 @@ struct ProjectDailyLogView: View {
             DprAddRecipientSheet(projects: selectableProjects) {
                 await loadDpr()
             }
+            .appFormActivity()
             .appLibraryNativeSheet([.height(520), .large])
             .presentationBackground(Color.white)
         }

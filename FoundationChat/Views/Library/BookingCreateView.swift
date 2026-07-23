@@ -15,27 +15,53 @@ struct BookingCreateView: View {
     @State private var selectedProject: MarketingProject?
     @State private var selectedProjectSpecialPaymentEnabled: Bool?
     @State private var selectedUnit: InventoryUnit?
+    @State private var plotPrefill: BookingPlotPrefill?
+    @State private var conversionPrefill: BookingConversionPrefill?
+    @State private var exchangeSourceCandidates: [BookingExchangeSource] = []
+    @State private var lastAutoFilledPlotId: String?
     @State private var selectedLead: TelecallerLeadSearchData?
+    @State private var matchedClient: BookingClientProfile?
     @State private var leadMatches: [TelecallerLeadSearchData] = []
     @State private var projects: [MarketingProject] = []
     @State private var availableUnits: [InventoryUnit] = []
+    @State private var unitsProjectId: String?
     @State private var staff: [ConvexStaffListItem] = []
     @State private var showProjectPicker = false
     @State private var showUnitPicker = false
     @State private var showLeadPicker = false
+    @State private var showExchangeProjectPicker = false
+    @State private var showExchangeSourcePicker = false
+    @State private var showInternalExchangePlotPicker = false
     @State private var activeStaffPicker: DirectBookingStaffField?
     @State private var clientImagePickerItem: PhotosPickerItem?
+    @State private var clientImageURL: URL?
+    @State private var clientImagePreview: DirectBookingClientImagePreviewItem?
+    @State private var isResolvingClientImageURL = false
     @State private var isUploadingClientImage = false
     @State private var showDocumentImporter = false
     @State private var pendingDocumentUploadKind: DirectBookingUploadKind?
     @State private var isUploadingDocument = false
     @State private var isSubmitting = false
     @State private var isSearchingLead = false
+    @State private var isLoadingStaff = false
+    @State private var isLoadingUnits = false
+    @State private var unitLoadError: String?
+    @State private var isLoadingPlotPrefill = false
+    @State private var plotPrefillError: String?
+    @State private var isLoadingBookingTypeAutofill = false
+    @State private var bookingTypeAutofillError: String?
     @State private var errorMessage: String?
     @State private var successMessage: String?
     @State private var draftMessage: String?
     @State private var draftSaveTask: Task<Void, Never>?
+    @State private var phoneLookupTask: Task<Void, Never>?
+    @State private var clientImageURLTask: Task<Void, Never>?
+    @State private var unitListTask: Task<Void, Never>?
+    @State private var unitLoadGeneration = 0
+    @State private var plotPrefillTask: Task<Void, Never>?
+    @State private var bookingTypeAutofillTask: Task<Void, Never>?
     @State private var homeGeocodeTask: Task<Void, Never>?
+    @State private var homeCoordinateAddressQuery: String?
     @State private var isGeocodingHomeAddress = false
     @State private var hasRestoredDraft = false
 
@@ -53,6 +79,7 @@ struct BookingCreateView: View {
 
     var body: some View {
         bookingAlertView
+            .appFormActivity()
     }
 
     private var bookingContent: some View {
@@ -89,24 +116,35 @@ struct BookingCreateView: View {
         .appCompactSheetCTAContainer()
     }
 
-    private var bookingLifecycleView: some View {
+    private var bookingTaskView: some View {
         bookingContent
-        .task {
-            restoreDraftIfNeeded()
-            await loadInitialData()
-            await resolveSelectedProjectSpecialPaymentIfNeeded()
-        }
-        .onDisappear {
-            draftSaveTask?.cancel()
-            homeGeocodeTask?.cancel()
-        }
+            .task {
+                await prepareBookingForm()
+            }
+            .onDisappear(perform: cancelPendingTasks)
+    }
+
+    private var bookingDraftTrackingView: some View {
+        bookingTaskView
         .onChange(of: booking) { _, _ in scheduleDraftAutosave() }
         .onChange(of: booking.homeAddressSearchText) { _, _ in scheduleHomeAddressGeocode() }
+    }
+
+    private var bookingPaymentTrackingView: some View {
+        bookingDraftTrackingView
         .onChange(of: booking.customerPaymentCategory) { _, value in
             if value != "B" { booking.loanAmountRequested = "" }
         }
         .onChange(of: booking.paymentPlan) { _, value in
             booking.freePayment = value == "Flexi"
+        }
+    }
+
+    private var bookingStaffTrackingView: some View {
+        bookingPaymentTrackingView
+        .onChange(of: selectedTab) { _, tab in
+            guard tab == .paymentStaff else { return }
+            Task { await loadStaffIfNeeded() }
         }
         .onChange(of: booking.profession) { _, value in
             if value != "Salaried" {
@@ -114,9 +152,38 @@ struct BookingCreateView: View {
                 booking.otherDepartment = ""
             }
         }
+    }
+
+    private var bookingLifecycleView: some View {
+        bookingStaffTrackingView
         .onChange(of: clientImagePickerItem) { _, item in
             Task { await uploadClientImage(item) }
         }
+        .onChange(of: booking.clientImageStorageId) { _, storageId in
+            scheduleClientImageURLResolution(for: storageId)
+        }
+    }
+
+    @MainActor
+    private func prepareBookingForm() async {
+        restoreDraftIfNeeded()
+        scheduleClientImageURLResolution(for: booking.clientImageStorageId)
+        await Task.yield()
+        await loadInitialData()
+        await resolveSelectedProjectSpecialPaymentIfNeeded()
+        scheduleBookingTypeAutofill()
+        guard let initialUnit else { return }
+        await loadPlotPrefill(for: initialUnit)
+    }
+
+    private func cancelPendingTasks() {
+        draftSaveTask?.cancel()
+        phoneLookupTask?.cancel()
+        clientImageURLTask?.cancel()
+        unitListTask?.cancel()
+        plotPrefillTask?.cancel()
+        bookingTypeAutofillTask?.cancel()
+        homeGeocodeTask?.cancel()
     }
 
     private var bookingPickerView: some View {
@@ -124,6 +191,12 @@ struct BookingCreateView: View {
         .sheet(isPresented: $showProjectPicker) { projectPickerSheet }
         .sheet(isPresented: $showUnitPicker) { unitPickerSheet }
         .sheet(isPresented: $showLeadPicker) { leadPickerSheet }
+        .sheet(isPresented: $showExchangeProjectPicker) { exchangeProjectPickerSheet }
+        .sheet(isPresented: $showExchangeSourcePicker) { exchangeSourcePickerSheet }
+        .sheet(isPresented: $showInternalExchangePlotPicker) { internalExchangePlotPickerSheet }
+        .fullScreenCover(item: $clientImagePreview) { preview in
+            DirectBookingClientImagePreview(preview: preview)
+        }
         .sheet(item: $activeStaffPicker) { field in
             NativeSearchableSelectionSheet(
                 title: "Select \(field.title)",
@@ -260,21 +333,70 @@ struct BookingCreateView: View {
             .tint(Color(hex: 0x2DAE12))
             .padding(.top, 4)
         } else {
-            HStack(spacing: 12) {
-                Button("Clear") {
-                    clearForm()
+            VStack(spacing: 10) {
+                Button {
+                    withAnimation(.snappy(duration: 0.22)) {
+                        selectedTab = .bookingFinance
+                    }
+                } label: {
+                    Label("Booking & Finance", systemImage: "arrow.left")
+                        .font(.system(size: 14, weight: .semibold))
+                        .frame(maxWidth: .infinity)
                 }
                 .buttonStyle(.bordered)
                 .controlSize(.large)
                 .tint(Color(hex: 0x2DAE12))
+                .disabled(isSubmitting)
+
+                HStack(spacing: 10) {
+                    Button {
+                        Task { await submit(as: .cancelled) }
+                    } label: {
+                        if isSubmitting && booking.saveAs == .cancelled {
+                            ProgressView()
+                                .frame(maxWidth: .infinity)
+                        } else {
+                            Text("Save as Cancelled")
+                                .font(.system(size: 13, weight: .semibold))
+                                .lineLimit(1)
+                                .minimumScaleFactor(0.85)
+                                .frame(maxWidth: .infinity)
+                        }
+                    }
+                    .buttonStyle(.bordered)
+                    .controlSize(.large)
+                    .tint(Color(hex: 0x667085))
+                    .disabled(!canCreateBooking || isSubmitting)
+
+                    Button {
+                        Task { await submit(as: .draft) }
+                    } label: {
+                        if isSubmitting && booking.saveAs == .draft {
+                            ProgressView()
+                                .frame(maxWidth: .infinity)
+                        } else {
+                            Text("Save Draft")
+                                .font(.system(size: 13, weight: .semibold))
+                                .lineLimit(1)
+                                .frame(maxWidth: .infinity)
+                        }
+                    }
+                    .buttonStyle(.bordered)
+                    .controlSize(.large)
+                    .tint(Color(hex: 0x2DAE12))
+                    .disabled(!canCreateBooking || isSubmitting)
+                }
 
                 Button {
-                    Task { await submit() }
+                    Task { await submit(as: .confirmed) }
                 } label: {
-                    if isSubmitting {
-                        ProgressView().frame(maxWidth: .infinity)
+                    if isSubmitting && booking.saveAs == .confirmed {
+                        ProgressView()
+                            .tint(.white)
+                            .frame(maxWidth: .infinity)
                     } else {
-                        Text(booking.saveAs.actionTitle)
+                        Text("Save & Send for Approval")
+                            .font(.system(size: 15, weight: .semibold))
                             .frame(maxWidth: .infinity)
                     }
                 }
@@ -312,12 +434,15 @@ struct BookingCreateView: View {
 
     private var clientDetails: some View {
         VStack(alignment: .leading, spacing: 10) {
-            DirectBookingTextField("Client Phone Number *", text: $booking.phone, placeholder: "Enter Mobile Number", icon: "phone", keyboard: .phonePad)
-                .onChange(of: booking.phone) { _, value in
-                    booking.phone = String(value.filter(\.isNumber).prefix(10))
-                    if booking.whatsappSameAsMobile { booking.whatsappNumber = booking.phone }
-                    Task { await lookupLeadIfNeeded(phone: AppModuleFormatters.normalizePhone(value)) }
-                }
+            clientIdentityDetails
+            clientContactDetails
+            clientHomeAddressDetails
+        }
+    }
+
+    private var clientIdentityDetails: some View {
+        VStack(alignment: .leading, spacing: 10) {
+            clientPhoneField
             leadLookupStatus
             DirectBookingPicker("Title *", value: $booking.title, placeholder: "Select Title", icon: "person", options: ["Mr", "Mrs", "Ms", "Dr", "Prof"])
             DirectBookingTextField("Client Name *", text: $booking.name, placeholder: "Enter Client Name", icon: "person")
@@ -325,6 +450,24 @@ struct BookingCreateView: View {
             DirectBookingTextField("Father/Spouse Name *", text: $booking.fatherSpouseName, placeholder: "Enter Name", icon: "person")
             DirectBookingDateField("Date of Birth *", text: $booking.dateOfBirth)
             DirectBookingDateField("Anniversary Date", text: $booking.anniversaryDate)
+        }
+    }
+
+    private var clientPhoneField: some View {
+        DirectBookingTextField(
+            "Client Phone Number *",
+            text: $booking.phone,
+            placeholder: "Enter Mobile Number",
+            icon: "phone",
+            keyboard: .phonePad
+        )
+        .onChange(of: booking.phone) { _, value in
+            handleClientPhoneChange(value)
+        }
+    }
+
+    private var clientContactDetails: some View {
+        VStack(alignment: .leading, spacing: 10) {
             DirectBookingTextField("Alternate Numbers *", text: $booking.alternateNumbers, placeholder: "Enter Number", icon: "phone", keyboard: .phonePad)
             DirectBookingTextField("WhatsApp Number *", text: $booking.whatsappNumber, placeholder: "Enter Number", icon: "phone", keyboard: .phonePad)
             androidCheckRow("WhatsApp Number", isOn: $booking.whatsappSameAsMobile, onText: "Same as personal mobile")
@@ -333,6 +476,11 @@ struct BookingCreateView: View {
                 }
             DirectBookingTextField("Email *", text: $booking.email, placeholder: "Enter Email Id", icon: "envelope", keyboard: .emailAddress)
             DirectBookingPicker("Nationality *", value: $booking.nationality, placeholder: "Select Nationality", icon: "globe", options: ["Indian", "NRI", "Foreign"])
+        }
+    }
+
+    private var clientHomeAddressDetails: some View {
+        VStack(alignment: .leading, spacing: 10) {
             sectionTitle("Home Address")
             DirectBookingTextField("Door No *", text: $booking.homeDoorNo, placeholder: "Enter door number", icon: "door.left.hand.open")
             DirectBookingTextField("Street Name *", text: $booking.homeStreetName, placeholder: "Enter street name", icon: "road.lanes")
@@ -345,6 +493,23 @@ struct BookingCreateView: View {
             DirectBookingTextField("Address Line 2", text: $booking.homeAddressLine2, placeholder: "Enter address line 2", icon: "mappin")
             homeAddressMapPreview
         }
+    }
+
+    @MainActor
+    private func handleClientPhoneChange(_ value: String) {
+        let sanitizedPhone = String(value.filter(\.isNumber).prefix(10))
+        guard sanitizedPhone == value else {
+            booking.phone = sanitizedPhone
+            return
+        }
+        if booking.whatsappSameAsMobile {
+            booking.whatsappNumber = sanitizedPhone
+        }
+        phoneLookupTask?.cancel()
+        phoneLookupTask = Task {
+            await lookupBookingProfileIfNeeded(phone: sanitizedPhone)
+        }
+        scheduleBookingTypeAutofill()
     }
 
     private var homeAddressMapPreview: AnyView {
@@ -365,6 +530,18 @@ struct BookingCreateView: View {
                     .frame(height: 180)
                     .clipShape(RoundedRectangle(cornerRadius: 12))
                     .overlay(RoundedRectangle(cornerRadius: 12).stroke(Color(hex: 0xE4E7EC), lineWidth: 1))
+                    .overlay(alignment: .topTrailing) {
+                        if isGeocodingHomeAddress {
+                            Label("Updating", systemImage: "location.magnifyingglass")
+                                .font(.system(size: 11, weight: .semibold))
+                                .foregroundStyle(Color(hex: 0x475467))
+                                .padding(.horizontal, 9)
+                                .padding(.vertical, 6)
+                                .background(.ultraThinMaterial, in: Capsule())
+                                .padding(8)
+                        }
+                    }
+                    .id("\(coordinate.latitude),\(coordinate.longitude)")
                 } else {
                     HStack(spacing: 8) {
                         if isGeocodingHomeAddress {
@@ -403,26 +580,46 @@ struct BookingCreateView: View {
             Text("Client Image")
                 .font(.system(size: 13, weight: .semibold))
                 .foregroundStyle(Color(hex: 0x475467))
-            PhotosPicker(selection: $clientImagePickerItem, matching: .images) {
+
+            if booking.clientImageStorageId.directBookingNilIfBlank != nil {
                 HStack(spacing: 12) {
-                    Image(systemName: booking.clientImageStorageId.directBookingNilIfBlank == nil ? "photo.badge.plus" : "checkmark.circle.fill")
-                        .font(.system(size: 20, weight: .semibold))
-                        .foregroundStyle(booking.clientImageStorageId.directBookingNilIfBlank == nil ? Color(hex: 0x0B61CA) : Color(hex: 0x18B400))
+                    Button {
+                        guard let clientImageURL else { return }
+                        clientImagePreview = DirectBookingClientImagePreviewItem(
+                            url: clientImageURL,
+                            fileName: booking.clientImageFileName.directBookingNilIfBlank ?? "Client photo"
+                        )
+                    } label: {
+                        clientImageThumbnail
+                    }
+                    .buttonStyle(.plain)
+                    .disabled(clientImageURL == nil)
+                    .accessibilityLabel("Preview client image")
+
                     VStack(alignment: .leading, spacing: 3) {
-                        Text(isUploadingClientImage ? "Uploading client image..." : (booking.clientImageFileName.directBookingNilIfBlank ?? "Upload client photo"))
+                        Text(isUploadingClientImage ? "Uploading client image..." : (booking.clientImageFileName.directBookingNilIfBlank ?? "Client photo"))
                             .font(.system(size: 14, weight: .semibold))
                             .foregroundStyle(Color(hex: 0x101828))
                             .lineLimit(1)
-                        Text("Optional profile photo for the client")
+                        Text(clientImageURL == nil ? "Preparing preview..." : "Tap the photo to preview")
                             .font(.system(size: 12, weight: .medium))
                             .foregroundStyle(Color(hex: 0x667085))
                             .lineLimit(1)
                     }
+
                     Spacer()
+
                     if isUploadingClientImage {
                         ProgressView()
                             .controlSize(.small)
-                    } else if booking.clientImageStorageId.directBookingNilIfBlank != nil {
+                    } else {
+                        PhotosPicker(selection: $clientImagePickerItem, matching: .images) {
+                            Image(systemName: "pencil.circle.fill")
+                                .font(.system(size: 23, weight: .semibold))
+                                .foregroundStyle(Color(hex: 0x0B61CA))
+                        }
+                        .accessibilityLabel("Replace client image")
+
                         Button {
                             booking.clientImageStorageId = ""
                             booking.clientImageFileName = ""
@@ -432,18 +629,98 @@ struct BookingCreateView: View {
                                 .foregroundStyle(Color(hex: 0x98A2B3))
                         }
                         .buttonStyle(.plain)
+                        .accessibilityLabel("Remove client image")
                     }
                 }
                 .padding(.horizontal, 14)
-                .padding(.vertical, 14)
+                .padding(.vertical, 12)
                 .background(Color.white, in: RoundedRectangle(cornerRadius: 14))
                 .overlay(
                     RoundedRectangle(cornerRadius: 14)
-                        .stroke(style: StrokeStyle(lineWidth: 1.2, dash: [6, 5]))
-                        .foregroundStyle(Color(hex: 0xD0D5DD))
+                        .stroke(Color(hex: 0xD0D5DD), lineWidth: 1)
                 )
+            } else {
+                PhotosPicker(selection: $clientImagePickerItem, matching: .images) {
+                    HStack(spacing: 12) {
+                        Image(systemName: "photo.badge.plus")
+                            .font(.system(size: 20, weight: .semibold))
+                            .foregroundStyle(Color(hex: 0x0B61CA))
+                        VStack(alignment: .leading, spacing: 3) {
+                            Text(isUploadingClientImage ? "Uploading client image..." : "Upload client photo")
+                                .font(.system(size: 14, weight: .semibold))
+                                .foregroundStyle(Color(hex: 0x101828))
+                            Text("Optional profile photo for the client")
+                                .font(.system(size: 12, weight: .medium))
+                                .foregroundStyle(Color(hex: 0x667085))
+                        }
+                        Spacer()
+                        if isUploadingClientImage {
+                            ProgressView()
+                                .controlSize(.small)
+                        }
+                    }
+                    .padding(.horizontal, 14)
+                    .padding(.vertical, 14)
+                    .background(Color.white, in: RoundedRectangle(cornerRadius: 14))
+                    .overlay(
+                        RoundedRectangle(cornerRadius: 14)
+                            .stroke(style: StrokeStyle(lineWidth: 1.2, dash: [6, 5]))
+                            .foregroundStyle(Color(hex: 0xD0D5DD))
+                    )
+                }
+                .disabled(isUploadingClientImage)
             }
-            .disabled(isUploadingClientImage)
+        }
+    }
+
+    @ViewBuilder
+    private var clientImageThumbnail: some View {
+        ZStack {
+            RoundedRectangle(cornerRadius: 12, style: .continuous)
+                .fill(Color(hex: 0xF2F4F7))
+
+            if let clientImageURL {
+                AsyncImage(url: clientImageURL) { phase in
+                    switch phase {
+                    case .success(let image):
+                        image
+                            .resizable()
+                            .scaledToFill()
+                    case .failure:
+                        Image(systemName: "photo")
+                            .font(.system(size: 22, weight: .semibold))
+                            .foregroundStyle(Color(hex: 0x98A2B3))
+                    case .empty:
+                        ProgressView()
+                            .controlSize(.small)
+                    @unknown default:
+                        EmptyView()
+                    }
+                }
+            } else if isResolvingClientImageURL {
+                ProgressView()
+                    .controlSize(.small)
+            } else {
+                Image(systemName: "photo")
+                    .font(.system(size: 22, weight: .semibold))
+                    .foregroundStyle(Color(hex: 0x98A2B3))
+            }
+        }
+        .frame(width: 58, height: 58)
+        .clipShape(RoundedRectangle(cornerRadius: 12, style: .continuous))
+        .overlay(
+            RoundedRectangle(cornerRadius: 12, style: .continuous)
+                .stroke(Color.white, lineWidth: 2)
+        )
+        .overlay(alignment: .bottomTrailing) {
+            if clientImageURL != nil {
+                Image(systemName: "eye.fill")
+                    .font(.system(size: 9, weight: .bold))
+                    .foregroundStyle(.white)
+                    .frame(width: 20, height: 20)
+                    .background(Color.black.opacity(0.68), in: Circle())
+                    .offset(x: 4, y: 4)
+            }
         }
     }
 
@@ -517,16 +794,36 @@ struct BookingCreateView: View {
     private var bookingDetails: some View {
         VStack(alignment: .leading, spacing: 10) {
             DirectBookingPickerShell(title: "Booking Ref No *", value: "Auto", icon: "number")
-            DirectBookingPicker("Booking Type *", value: $booking.bookingType, placeholder: "Select Type", icon: "briefcase", options: ["NEW", "CONVERSION", "EXCHANGE", "INTERNAL EXCHANGE"])
+            DirectBookingPicker(
+                "Booking Type *",
+                value: Binding(
+                    get: { booking.bookingType },
+                    set: { selectBookingType($0) }
+                ),
+                placeholder: "Select Type",
+                icon: "briefcase",
+                options: ["NEW", "CONVERSION", "EXCHANGE", "INTERNAL EXCHANGE"]
+            )
             conversionAndExchangeDetails
             DirectBookingTextField("CEF No *", text: $booking.cefNo, placeholder: "Enter Number", icon: "doc")
-            DirectBookingDateField("Booking Date *", text: $booking.bookingDate, defaultsToToday: true)
+            if booking.bookingType == "INTERNAL EXCHANGE", selectedExchangeSource != nil {
+                DirectBookingReadOnlyField(
+                    "Booking Date *",
+                    value: booking.bookingDate,
+                    placeholder: "Original booking date",
+                    icon: "calendar"
+                )
+            } else {
+                DirectBookingDateField("Booking Date *", text: $booking.bookingDate, defaultsToToday: true)
+            }
             DirectBookingPickerButton(title: "Project *", value: selectedProject?.name ?? booking.projectName, placeholder: "Select Project", icon: "briefcase") {
                 Task { await loadProjectsThenShowPicker() }
             }
             DirectBookingPickerButton(title: "Plot (available only) *", value: selectedUnit?.unitNumber ?? booking.plotNo, placeholder: "Select Project First", icon: "square") {
-                Task { await loadUnitsThenShowPicker() }
+                openUnitPicker()
             }
+            unitListStatus
+            plotPrefillStatus
             DirectBookingPicker("Property Type *", value: $booking.propertyType, placeholder: "Select Type", icon: "building.2", options: ["Plot", "Apartment", "Villa", "Commercial"])
             androidCheckRow("Duplicate Bookings", isOn: $booking.isDuplicateBooking, onText: "Yes")
         }
@@ -571,21 +868,44 @@ struct BookingCreateView: View {
     }
 
     private var conversionDetails: AnyView {
-        if booking.conversionManualEntry {
-            return AnyView(
-                VStack(alignment: .leading, spacing: 10) {
-                    androidCheckRow("Conversion Source", isOn: $booking.conversionManualEntry, onText: "Manual previous booking entry", offText: "Linked previous booking")
+        AnyView(
+            VStack(alignment: .leading, spacing: 10) {
+                bookingCheckboxRow(
+                    "Manual conversion entry",
+                    isOn: Binding(
+                        get: { booking.conversionManualEntry },
+                        set: { setConversionManualEntry($0) }
+                    )
+                )
+
+                if booking.conversionManualEntry {
                     DirectBookingTextField("Previous Project *", text: $booking.manualConversionProjectName, placeholder: "Enter previous project name", icon: "building.2")
                     DirectBookingTextField("Previous Plot *", text: $booking.manualConversionPlotNo, placeholder: "Enter previous plot number", icon: "square")
                     DirectBookingTextField("Conversion Credit *", text: $booking.manualConversionCredit, placeholder: "Amount paid on previous booking", icon: "indianrupeesign", keyboard: .decimalPad)
                     DirectBookingTextField("Conversion Notes", text: $booking.conversionNotes, placeholder: "Details about the previous booking", icon: "doc", axis: .vertical)
+                } else {
+                    DirectBookingReadOnlyField(
+                        "Previous Project",
+                        value: booking.linkedConversionProjectName ?? "",
+                        placeholder: conversionAutofillPlaceholder,
+                        icon: "building.2"
+                    )
+                    DirectBookingReadOnlyField(
+                        "Previous Plot",
+                        value: booking.linkedConversionPlotNo ?? "",
+                        placeholder: conversionAutofillPlaceholder,
+                        icon: "square"
+                    )
+                    DirectBookingReadOnlyField(
+                        "Total Amount Paid",
+                        value: booking.linkedConversionCredit?.directBookingNilIfBlank.map {
+                            AppModuleFormatters.rupees(Double($0) ?? 0)
+                        } ?? "",
+                        placeholder: isLoadingBookingTypeAutofill ? "Loading..." : "",
+                        icon: "indianrupeesign"
+                    )
+                    bookingTypeAutofillStatus
                 }
-            )
-        }
-        return AnyView(
-            VStack(alignment: .leading, spacing: 10) {
-                androidCheckRow("Conversion Source", isOn: $booking.conversionManualEntry, onText: "Manual previous booking entry", offText: "Linked previous booking")
-                DirectBookingTextField("Previous Booking ID", text: $booking.sourceExchangeBookingId, placeholder: "Linked booking ID", icon: "link")
             }
         )
     }
@@ -593,9 +913,27 @@ struct BookingCreateView: View {
     private var exchangeDetails: AnyView {
         AnyView(
             VStack(alignment: .leading, spacing: 10) {
-                androidCheckRow("Exchange Source", isOn: $booking.exchangeManualEntry, onText: "Manual old property entry", offText: "Linked old property")
+                bookingCheckboxRow(
+                    "Manual old property entry",
+                    isOn: Binding(
+                        get: { booking.exchangeManualEntry },
+                        set: { setExchangeManualEntry($0) }
+                    )
+                )
                 exchangeSourceDetails
-                DirectBookingTextField(booking.bookingType == "EXCHANGE" ? "Exchange Value *" : "Exchange Value", text: $booking.exchangeOldRegisteredValue, placeholder: "Old property value", icon: "indianrupeesign", keyboard: .decimalPad)
+
+                if booking.exchangeManualEntry {
+                    DirectBookingTextField(
+                        booking.bookingType == "EXCHANGE" ? "Exchange Value *" : "Exchange Value",
+                        text: $booking.exchangeOldRegisteredValue,
+                        placeholder: "Old property value",
+                        icon: "indianrupeesign",
+                        keyboard: .decimalPad
+                    )
+                }
+
+                exchangePropertySummary
+
                 if booking.bookingType == "EXCHANGE" {
                     DirectBookingPickerShell(title: "Balance Payable", value: AppModuleFormatters.rupees(booking.exchangeBalancePayable), icon: "indianrupeesign")
                 }
@@ -617,16 +955,173 @@ struct BookingCreateView: View {
         if booking.bookingType == "INTERNAL EXCHANGE" {
             return AnyView(
                 VStack(alignment: .leading, spacing: 10) {
-                    DirectBookingTextField("Old Project ID *", text: $booking.exchangeLookupProjectId, placeholder: "Linked old project ID", icon: "building.2")
-                    DirectBookingTextField("Old Plot Number *", text: $booking.exchangeLookupPlotNo, placeholder: "Old plot", icon: "square")
+                    DirectBookingPickerButton(
+                        title: "Old Project Name *",
+                        value: exchangeLookupProject?.name ?? "",
+                        placeholder: "Select old project",
+                        icon: "building.2"
+                    ) {
+                        Task { await loadProjectsThenShowExchangeProjectPicker() }
+                    }
+                    DirectBookingPickerButton(
+                        title: "Old Plot Number *",
+                        value: booking.exchangeLookupPlotNo,
+                        placeholder: internalExchangePlotPlaceholder,
+                        icon: "square"
+                    ) {
+                        openInternalExchangePlotPicker()
+                    }
                     DirectBookingTextField("Connected Mobile Number *", text: $booking.exchangeConnectedMobileNumber, placeholder: "10-digit booked mobile", icon: "phone", keyboard: .phonePad)
-                    DirectBookingTextField("Source Booking ID *", text: $booking.sourceExchangeBookingId, placeholder: "Matched booking ID", icon: "link")
+                        .onChange(of: booking.exchangeConnectedMobileNumber) { _, value in
+                            let sanitizedPhone = String(value.filter(\.isNumber).prefix(10))
+                            guard sanitizedPhone == value else {
+                                booking.exchangeConnectedMobileNumber = sanitizedPhone
+                                return
+                            }
+                            booking.sourceExchangeBookingId = ""
+                            booking.exchangeLookupPlotNo = ""
+                            booking.exchangeOldRegisteredValue = ""
+                            scheduleBookingTypeAutofill()
+                        }
+                    bookingTypeAutofillStatus
                 }
             )
         }
         return AnyView(
-            DirectBookingTextField("Exchanged Property Booking ID *", text: $booking.sourceExchangeBookingId, placeholder: "Linked confirmed booking ID", icon: "link")
+            VStack(alignment: .leading, spacing: 10) {
+                DirectBookingPickerButton(
+                    title: "Exchanged Property *",
+                    value: selectedExchangeSource.map(exchangeSourceTitle) ?? "",
+                    placeholder: exchangeSourcePickerPlaceholder,
+                    icon: "arrow.triangle.2.circlepath"
+                ) {
+                    openExchangeSourcePicker()
+                }
+                bookingTypeAutofillStatus
+            }
         )
+    }
+
+    private var selectedExchangeSource: BookingExchangeSource? {
+        exchangeSourceCandidates.first { $0.id == booking.sourceExchangeBookingId }
+    }
+
+    private var exchangeLookupProject: MarketingProject? {
+        projects.first { $0.id == booking.exchangeLookupProjectId }
+    }
+
+    private var internalExchangePlotCandidates: [BookingExchangeSource] {
+        exchangeSourceCandidates.filter { $0.projectId == booking.exchangeLookupProjectId }
+    }
+
+    private var conversionAutofillPlaceholder: String {
+        if isLoadingBookingTypeAutofill { return "Loading..." }
+        if AppModuleFormatters.normalizePhone(booking.phone).count == 10 {
+            return "No previous booking found"
+        }
+        return "Enter client mobile number"
+    }
+
+    private var exchangeSourcePickerPlaceholder: String {
+        let phone = AppModuleFormatters.normalizePhone(booking.phone)
+        if phone.count != 10 { return "Enter 10-digit client mobile first" }
+        if isLoadingBookingTypeAutofill { return "Loading properties..." }
+        if exchangeSourceCandidates.isEmpty { return "No confirmed property found" }
+        return "Select exchanged property"
+    }
+
+    private var internalExchangePlotPlaceholder: String {
+        guard booking.exchangeLookupProjectId.directBookingNilIfBlank != nil else {
+            return "Pick old project first"
+        }
+        let phone = AppModuleFormatters.normalizePhone(booking.exchangeConnectedMobileNumber)
+        if phone.count != 10 { return "Enter connected mobile first" }
+        if isLoadingBookingTypeAutofill { return "Loading old plots..." }
+        if internalExchangePlotCandidates.isEmpty { return "No confirmed old plots found" }
+        return "Select old plot"
+    }
+
+    @ViewBuilder
+    private var bookingTypeAutofillStatus: some View {
+        if isLoadingBookingTypeAutofill {
+            HStack(spacing: 8) {
+                ProgressView().controlSize(.small)
+                Text(booking.bookingType == "CONVERSION" ? "Finding previous booking..." : "Finding confirmed property...")
+            }
+            .font(.system(size: 12, weight: .medium))
+            .foregroundStyle(Color(hex: 0x667085))
+        } else if let bookingTypeAutofillError {
+            Label(bookingTypeAutofillError, systemImage: "exclamationmark.triangle")
+                .font(.system(size: 12, weight: .medium))
+                .foregroundStyle(.orange)
+        } else if booking.bookingType == "CONVERSION",
+                  !booking.conversionManualEntry,
+                  conversionPrefill != nil {
+            Label("Previous booking details auto-filled", systemImage: "checkmark.circle.fill")
+                .font(.system(size: 12, weight: .medium))
+                .foregroundStyle(Color(hex: 0x187A2F))
+        } else if booking.bookingType == "EXCHANGE",
+                  !booking.exchangeManualEntry,
+                  AppModuleFormatters.normalizePhone(booking.phone).count == 10,
+                  exchangeSourceCandidates.isEmpty {
+            Label("No confirmed property found for this mobile", systemImage: "info.circle")
+                .font(.system(size: 12, weight: .medium))
+                .foregroundStyle(Color(hex: 0x667085))
+        } else if booking.bookingType == "INTERNAL EXCHANGE",
+                  !booking.exchangeManualEntry,
+                  AppModuleFormatters.normalizePhone(booking.exchangeConnectedMobileNumber).count == 10,
+                  internalExchangePlotCandidates.isEmpty {
+            Label("No available confirmed booking matches these details", systemImage: "info.circle")
+                .font(.system(size: 12, weight: .medium))
+                .foregroundStyle(Color(hex: 0x667085))
+        }
+    }
+
+    private var exchangePropertySummary: AnyView {
+        if let source = selectedExchangeSource {
+            if booking.bookingType == "INTERNAL EXCHANGE" {
+                return AnyView(
+                    DirectBookingTypeSummaryCard(items: [
+                        .init(label: "Booking", value: source.bookingRefNo),
+                        .init(label: "Customer", value: source.clientName),
+                        .init(label: "Property", value: exchangeSourceTitle(source)),
+                        .init(label: "Original Booking Date", value: source.bookingDate)
+                    ])
+                )
+            }
+            return AnyView(
+                DirectBookingTypeSummaryCard(items: [
+                    .init(label: "Project Name", value: source.projectName?.directBookingNilIfBlank ?? "—"),
+                    .init(label: "Plot Number", value: source.plotNo?.directBookingNilIfBlank ?? "—"),
+                    .init(label: "Extent (Sq. Ft. / Acres)", value: exchangeExtentText(source.extentSqft)),
+                    .init(label: "Exchange Value", value: AppModuleFormatters.rupees(source.resolvedExchangeValue))
+                ])
+            )
+        }
+
+        if booking.bookingType == "EXCHANGE", booking.exchangeManualEntry {
+            return AnyView(
+                DirectBookingTypeSummaryCard(items: [
+                    .init(label: "Project Name", value: booking.manualExchangeProjectName.directBookingNilIfBlank ?? "—"),
+                    .init(label: "Plot Number", value: booking.manualExchangePlotNo.directBookingNilIfBlank ?? "—"),
+                    .init(label: "Extent (Sq. Ft. / Acres)", value: exchangeExtentText(Double(booking.manualExchangeExtentSqft))),
+                    .init(label: "Exchange Value", value: AppModuleFormatters.rupees(Double(booking.exchangeOldRegisteredValue) ?? 0))
+                ])
+            )
+        }
+
+        return AnyView(EmptyView())
+    }
+
+    private func exchangeSourceTitle(_ source: BookingExchangeSource) -> String {
+        let project = source.projectName?.directBookingNilIfBlank ?? "Project"
+        let plot = source.plotNo?.directBookingNilIfBlank ?? "Plot"
+        return "\(project) / \(plot)"
+    }
+
+    private func exchangeExtentText(_ extent: Double?) -> String {
+        guard let extent, extent > 0 else { return "—" }
+        return "\(extent.formatted(.number.precision(.fractionLength(0...2)))) / \((extent / 43_560).formatted(.number.precision(.fractionLength(3))))"
     }
 
     private var chargesDetails: some View {
@@ -668,9 +1163,10 @@ struct BookingCreateView: View {
                 sectionTitle("Customer Funding")
                 DirectBookingOptionPicker("Customer Payment Category *", value: $booking.customerPaymentCategory, placeholder: "Select category", icon: "creditcard", options: Self.customerPaymentCategoryOptions)
                 customerLoanDetails
+                payableSummaryCard
                 DirectBookingPicker("Advance Booking Payment *", value: $booking.bookingMode, placeholder: "Select...", icon: "creditcard", options: ["CASH", "UPI", "NEFT", "RTGS", "CHEQUE", "DD"])
                 DirectBookingTextField("Advance Amount *", text: $booking.advanceAmount, placeholder: "Enter Amount", icon: "indianrupeesign", keyboard: .decimalPad)
-                bookingHelperText("Project minimum: \(AppModuleFormatters.rupees(selectedProject?.minimumAdvanceAmount ?? 0)). Higher advance is allowed.")
+                bookingHelperText("Project minimum: \(AppModuleFormatters.rupees(configuredMinimumAdvance ?? 0)). Higher advance is allowed.")
                 advancePaymentDetails
             }
         )
@@ -681,6 +1177,69 @@ struct BookingCreateView: View {
             .font(.system(size: 11, weight: .regular))
             .foregroundStyle(Color(hex: 0x667085))
             .fixedSize(horizontal: false, vertical: true)
+    }
+
+    @ViewBuilder
+    private var unitListStatus: some View {
+        if isLoadingUnits {
+            HStack(spacing: 8) {
+                ProgressView().controlSize(.small)
+                Text("Loading available plots...")
+            }
+            .font(.system(size: 12, weight: .medium))
+            .foregroundStyle(Color(hex: 0x667085))
+        } else if selectedUnit == nil, let unitLoadError {
+            Label(unitLoadError, systemImage: "exclamationmark.triangle")
+                .font(.system(size: 12, weight: .medium))
+                .foregroundStyle(.orange)
+        }
+    }
+
+    @ViewBuilder
+    private var plotPrefillStatus: some View {
+        if isLoadingPlotPrefill {
+            HStack(spacing: 8) {
+                ProgressView().controlSize(.small)
+                Text("Loading plot pricing...")
+            }
+            .font(.system(size: 12, weight: .medium))
+            .foregroundStyle(Color(hex: 0x667085))
+        } else if plotPrefill?.plot.id == selectedUnit?.id {
+            Label("Plot pricing filled from project settings", systemImage: "checkmark.circle.fill")
+                .font(.system(size: 12, weight: .medium))
+                .foregroundStyle(Color(hex: 0x187A2F))
+        } else if let plotPrefillError {
+            Label(plotPrefillError, systemImage: "exclamationmark.triangle")
+                .font(.system(size: 12, weight: .medium))
+                .foregroundStyle(.orange)
+        }
+    }
+
+    @ViewBuilder
+    private var payableSummaryCard: some View {
+        if selectedUnit != nil, let totalPayableAmount = booking.payableAmountForBooking {
+            DirectBookingPayableSummaryCard(
+                landCost: booking.agreedAmount ?? 0,
+                gst: booking.gstApplicable ? booking.numericAmount(booking.gstAmount) : 0,
+                registrationCharges: booking.numericAmount(booking.registrationCharges),
+                documentCharges: booking.numericAmount(booking.documentCharges),
+                pattaCharges: booking.numericAmount(booking.pattaCharges),
+                otherCharges: booking.otherChargesApplicable ? booking.numericAmount(booking.otherCharges) : 0,
+                grossBookingValue: booking.totalPayableAmount ?? 0,
+                exchangeValue: booking.bookingType == "EXCHANGE" ? booking.numericAmount(booking.exchangeOldRegisteredValue) : nil,
+                totalPayable: totalPayableAmount,
+                minimumAdvance: configuredMinimumAdvance ?? 0,
+                advanceEntered: booking.numericAmount(booking.advanceAmount),
+                customerPayable: booking.customerPaymentCategory == "B" ? booking.customerPayableAmount : nil,
+                bankLoanAmount: booking.customerPaymentCategory == "B" ? booking.numericAmount(booking.loanAmountRequested) : nil,
+                balanceAfterAdvance: booking.balanceAfterAdvance ?? totalPayableAmount,
+                isExchange: booking.bookingType == "EXCHANGE"
+            )
+        }
+    }
+
+    private var configuredMinimumAdvance: Double? {
+        selectedProject?.minimumAdvanceAmount ?? plotPrefill?.fields.advanceAmount
     }
 
     private func bookingApplicabilityControl(isOn: Binding<Bool>) -> some View {
@@ -733,6 +1292,18 @@ struct BookingCreateView: View {
                     DirectBookingTextField("Bank *", text: $booking.advanceBankName, placeholder: "Enter bank", icon: "building.columns")
                     DirectBookingTextField("Branch *", text: $booking.advanceBankBranch, placeholder: "Enter branch", icon: "building.2")
                     DirectBookingDateField("Instrument Date *", text: $booking.advanceInstrumentDate)
+                    if booking.bookingMode == "CHEQUE" {
+                        bookingDocumentUploadCard(
+                            title: "Cheque Attachment",
+                            fileName: booking.advancePaymentProofFileName,
+                            isUploaded: booking.advancePaymentProofStorageId.directBookingNilIfBlank != nil,
+                            onSelect: { presentDocumentImporter(for: .advanceProof) },
+                            onRemove: {
+                                booking.advancePaymentProofStorageId = ""
+                                booking.advancePaymentProofFileName = ""
+                            }
+                        )
+                    }
                 }
             )
         }
@@ -849,38 +1420,21 @@ struct BookingCreateView: View {
             DirectBookingTextField("Reference Mobile 2 *", text: $booking.referenceMobile2, placeholder: "Enter No", icon: "phone", keyboard: .phonePad)
             DirectBookingPicker("Reference Relation 2 *", value: $booking.referenceProfession2, placeholder: "Select Relation", icon: "person.2", options: Self.referenceRelationOptions)
             DirectBookingPicker("Document to be prepared in *", value: $booking.docPreparedIn, placeholder: "Select", icon: "doc", options: ["English", "Kannada", "Tamil", "Telugu", "Hindi"])
-            Picker("Save as", selection: $booking.saveAs) {
-                Text("Draft").tag(DirectBookingSaveAs.draft)
-                Text("Confirmed").tag(DirectBookingSaveAs.confirmed)
-                Text("Cancelled").tag(DirectBookingSaveAs.cancelled)
-            }
-            .pickerStyle(.segmented)
         }
     }
 
-    @ViewBuilder
     private var leadLookupStatus: some View {
-        if isSearchingLead {
-            HStack(spacing: 8) {
-                ProgressView().controlSize(.small)
-                Text("Searching lead...")
-                    .font(.system(size: 12, weight: .medium))
+        DirectBookingLeadLookupStatus(
+            isSearching: isSearchingLead,
+            matchedClientName: matchedClient.map {
+                $0.clientName?.directBookingNilIfBlank ?? $0.mobileNumber ?? booking.phone
+            },
+            linkedLeadName: selectedLead?.displayName,
+            canChooseLinkedLead: leadMatches.count > 1,
+            onChooseLinkedLead: {
+                showLeadPicker = true
             }
-            .foregroundStyle(Color(hex: 0x667085))
-        } else if let selectedLead {
-            VStack(alignment: .leading, spacing: 6) {
-                DirectBookingFieldLabel("Linked Lead *")
-                Button {
-                    if leadMatches.count > 1 { showLeadPicker = true }
-                } label: {
-                    Label(selectedLead.displayName, systemImage: "person.badge.checkmark")
-                        .font(.system(size: 12, weight: .medium))
-                        .frame(maxWidth: .infinity, alignment: .leading)
-                }
-                .buttonStyle(.bordered)
-                .tint(Color(hex: 0x2DAE12))
-            }
-        }
+        )
     }
 
     private func sectionTitle(_ title: String) -> some View {
@@ -888,6 +1442,28 @@ struct BookingCreateView: View {
             .font(.system(size: 15, weight: .bold))
             .foregroundStyle(Color(hex: 0x101828))
             .padding(.top, 10)
+    }
+
+    private func bookingCheckboxRow(_ title: String, isOn: Binding<Bool>) -> some View {
+        Button {
+            isOn.wrappedValue.toggle()
+        } label: {
+            HStack(spacing: 10) {
+                Image(systemName: isOn.wrappedValue ? "checkmark.square.fill" : "square")
+                    .font(.system(size: 22, weight: .semibold))
+                    .foregroundStyle(isOn.wrappedValue ? Color(hex: 0x0B8F43) : Color(hex: 0x667085))
+                Text(title)
+                    .font(.system(size: 15, weight: .semibold))
+                    .foregroundStyle(Color(hex: 0x101828))
+                Spacer()
+            }
+            .padding(.horizontal, 14)
+            .frame(minHeight: 50)
+            .background(Color(hex: 0xF8FAFC), in: RoundedRectangle(cornerRadius: 12))
+            .overlay(RoundedRectangle(cornerRadius: 12).stroke(Color(hex: 0xE4E7EC), lineWidth: 1))
+        }
+        .buttonStyle(.plain)
+        .accessibilityValue(isOn.wrappedValue ? "Selected" : "Not selected")
     }
 
     private func androidCheckRow(_ title: String, isOn: Binding<Bool>, onText: String, offText: String? = nil) -> some View {
@@ -915,15 +1491,18 @@ struct BookingCreateView: View {
 
     private func staffPicker(_ field: DirectBookingStaffField) -> some View {
         Button {
-            activeStaffPicker = field
+            Task { await loadStaffThenShowPicker(field) }
         } label: {
             DirectBookingPickerShell(
                 title: "\(field.title) *",
-                value: staff.first { $0.id == staffSelection(for: field) }?.displayName ?? "Select",
+                value: isLoadingStaff
+                    ? "Loading staff..."
+                    : (staff.first { $0.id == staffSelection(for: field) }?.displayName ?? "Select"),
                 icon: "person"
             )
         }
         .buttonStyle(.plain)
+        .disabled(isLoadingStaff)
     }
 
     private func staffSelection(for field: DirectBookingStaffField) -> String {
@@ -963,18 +1542,39 @@ struct BookingCreateView: View {
                 )
             },
             onSelect: { project in
+                unitListTask?.cancel()
+                plotPrefillTask?.cancel()
                 selectedProject = project
                 selectedProjectSpecialPaymentEnabled = project.specialPaymentEnabled
                 booking.projectId = project.id
                 booking.projectName = project.name ?? ""
+                applyProjectOffer(
+                    name: project.promoOffer,
+                    value: project.projectOfferValue,
+                    terms: project.projectOfferTerms,
+                    validityDays: project.projectOfferValidityDays
+                )
                 selectedUnit = nil
+                availableUnits = []
+                unitsProjectId = nil
+                unitLoadError = nil
+                isLoadingUnits = false
+                plotPrefill = nil
+                lastAutoFilledPlotId = nil
+                plotPrefillError = nil
+                isLoadingPlotPrefill = false
                 booking.plotId = ""
                 booking.plotNo = ""
                 if booking.paymentPlan == "Special", project.specialPaymentEnabled == false {
                     booking.paymentPlan = "Regular"
                 }
                 showProjectPicker = false
-                Task { await resolveSelectedProjectSpecialPaymentIfNeeded() }
+                Task {
+                    await resolveSelectedProjectSpecialPaymentIfNeeded(
+                        overwriteProjectOffer: true
+                    )
+                }
+                startUnitLoad(for: project, presentWhenReady: false)
             }
         )
         .appLibraryNativeSheet([.medium, .large])
@@ -1004,7 +1604,15 @@ struct BookingCreateView: View {
                 selectedUnit = unit
                 booking.plotId = unit.id
                 booking.plotNo = unit.unitNumber ?? ""
+                // Offers are configured on the project, not on a plot. Put
+                // the cached project values back immediately on every plot
+                // change; the plot-prefill response can then refine them.
+                reapplySelectedProjectOffer()
                 showUnitPicker = false
+                plotPrefillTask?.cancel()
+                plotPrefillTask = Task {
+                    await loadPlotPrefill(for: unit)
+                }
             }
         )
         .appLibraryNativeSheet([.medium, .large])
@@ -1034,6 +1642,97 @@ struct BookingCreateView: View {
         .appLibraryNativeSheet([.medium])
     }
 
+    private var exchangeProjectPickerSheet: some View {
+        NativeSearchableSelectionSheet(
+            title: "Select Old Project",
+            prompt: "Search projects",
+            items: projects,
+            selectedId: booking.exchangeLookupProjectId.directBookingNilIfBlank,
+            searchText: { project in
+                [project.name, project.location].compactMap(\.self).joined(separator: " ")
+            },
+            rowContent: { project, isSelected in
+                selectionRow(
+                    title: project.name ?? "Unnamed project",
+                    subtitle: project.location,
+                    isSelected: isSelected
+                )
+            },
+            onSelect: { project in
+                booking.exchangeLookupProjectId = project.id
+                booking.exchangeLookupPlotNo = ""
+                booking.sourceExchangeBookingId = ""
+                booking.exchangeOldRegisteredValue = ""
+                showExchangeProjectPicker = false
+                scheduleBookingTypeAutofill()
+            }
+        )
+        .appLibraryNativeSheet([.medium, .large])
+    }
+
+    private var exchangeSourcePickerSheet: some View {
+        NativeSearchableSelectionSheet(
+            title: "Select Exchanged Property",
+            prompt: "Search booking or property",
+            items: exchangeSourceCandidates,
+            selectedId: booking.sourceExchangeBookingId.directBookingNilIfBlank,
+            searchText: { source in
+                [
+                    source.bookingRefNo,
+                    source.projectName,
+                    source.plotNo,
+                    source.clientName,
+                    source.mobileNumber
+                ]
+                    .compactMap(\.self)
+                    .joined(separator: " ")
+            },
+            rowContent: { source, isSelected in
+                selectionRow(
+                    title: exchangeSourceTitle(source),
+                    subtitle: "\(source.bookingRefNo) • \(AppModuleFormatters.rupees(source.resolvedExchangeValue))",
+                    isSelected: isSelected
+                )
+            },
+            onSelect: { source in
+                applyExchangeSource(source)
+                showExchangeSourcePicker = false
+            }
+        )
+        .appLibraryNativeSheet([.medium, .large])
+    }
+
+    private var internalExchangePlotPickerSheet: some View {
+        NativeSearchableSelectionSheet(
+            title: "Select Old Plot",
+            prompt: "Search old plots",
+            items: internalExchangePlotCandidates,
+            selectedId: booking.sourceExchangeBookingId.directBookingNilIfBlank,
+            searchText: { source in
+                [
+                    source.plotNo,
+                    source.bookingRefNo,
+                    source.clientName,
+                    source.mobileNumber
+                ]
+                    .compactMap(\.self)
+                    .joined(separator: " ")
+            },
+            rowContent: { source, isSelected in
+                selectionRow(
+                    title: source.plotNo?.directBookingNilIfBlank ?? "Plot",
+                    subtitle: "\(source.bookingRefNo) • \(source.clientName) • \(source.mobileNumber)",
+                    isSelected: isSelected
+                )
+            },
+            onSelect: { source in
+                applyExchangeSource(source)
+                showInternalExchangePlotPicker = false
+            }
+        )
+        .appLibraryNativeSheet([.medium, .large])
+    }
+
     private func selectionRow(title: String, subtitle: String?, isSelected: Bool) -> some View {
         HStack(spacing: 12) {
             VStack(alignment: .leading, spacing: 4) {
@@ -1057,10 +1756,9 @@ struct BookingCreateView: View {
 
     @MainActor
     private func loadInitialData() async {
-        await withTaskGroup(of: Void.self) { group in
-            group.addTask { await loadProjects() }
-            group.addTask { await loadStaff() }
-        }
+        guard initialProject == nil,
+              booking.projectId.directBookingNilIfBlank != nil else { return }
+        await loadProjects()
     }
 
     @MainActor
@@ -1083,6 +1781,24 @@ struct BookingCreateView: View {
     }
 
     @MainActor
+    private func loadStaffIfNeeded() async {
+        guard staff.isEmpty, !isLoadingStaff else { return }
+        isLoadingStaff = true
+        await loadStaff()
+        isLoadingStaff = false
+    }
+
+    @MainActor
+    private func loadStaffThenShowPicker(_ field: DirectBookingStaffField) async {
+        await loadStaffIfNeeded()
+        guard !staff.isEmpty else {
+            errorMessage = "No active staff available"
+            return
+        }
+        activeStaffPicker = field
+    }
+
+    @MainActor
     private func loadProjectsThenShowPicker() async {
         if projects.isEmpty { await loadProjects() }
         showProjectPicker = !projects.isEmpty
@@ -1090,14 +1806,339 @@ struct BookingCreateView: View {
     }
 
     @MainActor
-    private func loadUnitsThenShowPicker() async {
+    private func loadProjectsThenShowExchangeProjectPicker() async {
+        if projects.isEmpty { await loadProjects() }
+        showExchangeProjectPicker = !projects.isEmpty
+        if projects.isEmpty { errorMessage = "No projects available" }
+    }
+
+    @MainActor
+    private func selectBookingType(_ type: String) {
+        guard booking.bookingType != type else {
+            scheduleBookingTypeAutofill()
+            return
+        }
+        bookingTypeAutofillTask?.cancel()
+        booking.bookingType = type
+        booking.conversionManualEntry = false
+        booking.manualConversionProjectName = ""
+        booking.manualConversionPlotNo = ""
+        booking.manualConversionCredit = ""
+        booking.conversionNotes = ""
+        clearLinkedConversionAutofill()
+
+        booking.exchangeManualEntry = false
+        booking.exchangeLookupProjectId = ""
+        booking.exchangeLookupPlotNo = ""
+        booking.exchangeConnectedMobileNumber = ""
+        booking.manualExchangeProjectName = ""
+        booking.manualExchangePlotNo = ""
+        booking.manualExchangeExtentSqft = ""
+        booking.exchangeOldRegisteredValue = ""
+        booking.exchangeNotes = ""
+        booking.sourceExchangeBookingId = ""
+        exchangeSourceCandidates = []
+        bookingTypeAutofillError = nil
+        isLoadingBookingTypeAutofill = false
+        scheduleBookingTypeAutofill()
+    }
+
+    @MainActor
+    private func setConversionManualEntry(_ isManual: Bool) {
+        guard booking.conversionManualEntry != isManual else { return }
+        booking.conversionManualEntry = isManual
+        booking.manualConversionProjectName = ""
+        booking.manualConversionPlotNo = ""
+        booking.manualConversionCredit = ""
+        booking.conversionNotes = ""
+        clearLinkedConversionAutofill()
+        bookingTypeAutofillError = nil
+        if isManual {
+            bookingTypeAutofillTask?.cancel()
+            isLoadingBookingTypeAutofill = false
+        } else {
+            scheduleBookingTypeAutofill()
+        }
+    }
+
+    @MainActor
+    private func setExchangeManualEntry(_ isManual: Bool) {
+        guard booking.exchangeManualEntry != isManual else { return }
+        booking.exchangeManualEntry = isManual
+        booking.sourceExchangeBookingId = ""
+        booking.exchangeOldRegisteredValue = ""
+        bookingTypeAutofillError = nil
+        if isManual {
+            bookingTypeAutofillTask?.cancel()
+            isLoadingBookingTypeAutofill = false
+            exchangeSourceCandidates = []
+            booking.exchangeLookupProjectId = ""
+            booking.exchangeLookupPlotNo = ""
+            booking.exchangeConnectedMobileNumber = ""
+        } else {
+            booking.manualExchangeProjectName = ""
+            booking.manualExchangePlotNo = ""
+            booking.manualExchangeExtentSqft = ""
+            scheduleBookingTypeAutofill()
+        }
+    }
+
+    @MainActor
+    private func clearLinkedConversionAutofill() {
+        conversionPrefill = nil
+        booking.linkedConversionBookingId = nil
+        booking.linkedConversionBookingRefNo = nil
+        booking.linkedConversionProjectName = nil
+        booking.linkedConversionPlotNo = nil
+        booking.linkedConversionCredit = nil
+    }
+
+    @MainActor
+    private func scheduleBookingTypeAutofill() {
+        bookingTypeAutofillTask?.cancel()
+        bookingTypeAutofillError = nil
+        isLoadingBookingTypeAutofill = false
+
+        let bookingType = booking.bookingType
+        switch bookingType {
+        case "CONVERSION" where !booking.conversionManualEntry:
+            let phone = AppModuleFormatters.normalizePhone(booking.phone)
+            guard phone.count == 10 else {
+                clearLinkedConversionAutofill()
+                return
+            }
+            bookingTypeAutofillTask = Task {
+                await loadConversionPrefill(phone: phone)
+            }
+
+        case "EXCHANGE" where !booking.exchangeManualEntry:
+            let phone = AppModuleFormatters.normalizePhone(booking.phone)
+            guard phone.count == 10 else {
+                exchangeSourceCandidates = []
+                booking.sourceExchangeBookingId = ""
+                booking.exchangeOldRegisteredValue = ""
+                return
+            }
+            bookingTypeAutofillTask = Task {
+                await loadExchangeSources(phone: phone, bookingType: bookingType)
+            }
+
+        case "INTERNAL EXCHANGE" where !booking.exchangeManualEntry:
+            let phone = AppModuleFormatters.normalizePhone(booking.exchangeConnectedMobileNumber)
+            guard phone.count == 10 else {
+                exchangeSourceCandidates = []
+                booking.sourceExchangeBookingId = ""
+                booking.exchangeLookupPlotNo = ""
+                booking.exchangeOldRegisteredValue = ""
+                return
+            }
+            bookingTypeAutofillTask = Task {
+                await loadExchangeSources(phone: phone, bookingType: bookingType)
+            }
+
+        default:
+            break
+        }
+    }
+
+    @MainActor
+    private func loadConversionPrefill(phone: String) async {
         guard let token = authStore.currentSession?.token else { return }
+        isLoadingBookingTypeAutofill = true
+        defer {
+            if booking.bookingType == "CONVERSION",
+               !booking.conversionManualEntry,
+               AppModuleFormatters.normalizePhone(booking.phone) == phone {
+                isLoadingBookingTypeAutofill = false
+            }
+        }
+
+        do {
+            let prefill = try await MarketingConvexAPIService.getBookingConversionPrefill(
+                token: token,
+                mobileNumber: phone
+            )
+            guard !Task.isCancelled,
+                  booking.bookingType == "CONVERSION",
+                  !booking.conversionManualEntry,
+                  AppModuleFormatters.normalizePhone(booking.phone) == phone else { return }
+            conversionPrefill = prefill
+            booking.linkedConversionBookingId = prefill?.bookingId
+            booking.linkedConversionBookingRefNo = prefill?.bookingRefNo
+            booking.linkedConversionProjectName = prefill?.previousProject
+            booking.linkedConversionPlotNo = prefill?.previousPlot
+            booking.linkedConversionCredit = prefill.map {
+                DirectBookingDraft.amountInputText($0.totalAmountPaid)
+            } ?? ""
+        } catch {
+            guard !Task.isCancelled,
+                  booking.bookingType == "CONVERSION",
+                  !booking.conversionManualEntry,
+                  AppModuleFormatters.normalizePhone(booking.phone) == phone else { return }
+            clearLinkedConversionAutofill()
+            bookingTypeAutofillError = "Could not load the previous booking. Tap the booking type to retry."
+        }
+    }
+
+    @MainActor
+    private func loadExchangeSources(phone: String, bookingType: String) async {
+        guard let token = authStore.currentSession?.token else { return }
+        isLoadingBookingTypeAutofill = true
+        defer {
+            let currentPhone = bookingType == "INTERNAL EXCHANGE"
+                ? AppModuleFormatters.normalizePhone(booking.exchangeConnectedMobileNumber)
+                : AppModuleFormatters.normalizePhone(booking.phone)
+            if booking.bookingType == bookingType, currentPhone == phone {
+                isLoadingBookingTypeAutofill = false
+            }
+        }
+
+        do {
+            let sources = try await MarketingConvexAPIService.listBookingExchangeSourceCandidates(
+                token: token,
+                mobileNumber: phone
+            )
+            let currentPhone = bookingType == "INTERNAL EXCHANGE"
+                ? AppModuleFormatters.normalizePhone(booking.exchangeConnectedMobileNumber)
+                : AppModuleFormatters.normalizePhone(booking.phone)
+            guard !Task.isCancelled,
+                  booking.bookingType == bookingType,
+                  !booking.exchangeManualEntry,
+                  currentPhone == phone else { return }
+
+            exchangeSourceCandidates = sources
+            if let selected = sources.first(where: { $0.id == booking.sourceExchangeBookingId }) {
+                applyExchangeSource(selected)
+                return
+            }
+
+            booking.sourceExchangeBookingId = ""
+            booking.exchangeOldRegisteredValue = ""
+            if bookingType == "INTERNAL EXCHANGE" {
+                booking.exchangeLookupPlotNo = ""
+                let matchingProjectSources = sources.filter {
+                    $0.projectId == booking.exchangeLookupProjectId
+                }
+                if matchingProjectSources.count == 1, let onlySource = matchingProjectSources.first {
+                    applyExchangeSource(onlySource)
+                }
+            }
+        } catch {
+            let currentPhone = bookingType == "INTERNAL EXCHANGE"
+                ? AppModuleFormatters.normalizePhone(booking.exchangeConnectedMobileNumber)
+                : AppModuleFormatters.normalizePhone(booking.phone)
+            guard !Task.isCancelled,
+                  booking.bookingType == bookingType,
+                  currentPhone == phone else { return }
+            exchangeSourceCandidates = []
+            booking.sourceExchangeBookingId = ""
+            booking.exchangeOldRegisteredValue = ""
+            if bookingType == "INTERNAL EXCHANGE" {
+                booking.exchangeLookupPlotNo = ""
+            }
+            bookingTypeAutofillError = "Could not load confirmed properties. Check the mobile number and retry."
+        }
+    }
+
+    @MainActor
+    private func applyExchangeSource(_ source: BookingExchangeSource) {
+        booking.sourceExchangeBookingId = source.id
+        booking.exchangeOldRegisteredValue = DirectBookingDraft.amountInputText(
+            source.resolvedExchangeValue
+        )
+        if booking.bookingType == "INTERNAL EXCHANGE" {
+            booking.exchangeLookupProjectId = source.projectId ?? booking.exchangeLookupProjectId
+            booking.exchangeLookupPlotNo = source.plotNo?.uppercased() ?? ""
+            booking.bookingDate = source.bookingDate
+        }
+        bookingTypeAutofillError = nil
+    }
+
+    @MainActor
+    private func openExchangeSourcePicker() {
+        let phone = AppModuleFormatters.normalizePhone(booking.phone)
+        guard phone.count == 10 else {
+            bookingTypeAutofillError = "Enter the 10-digit client mobile number in Client Details first."
+            return
+        }
+        guard !exchangeSourceCandidates.isEmpty else {
+            scheduleBookingTypeAutofill()
+            return
+        }
+        showExchangeSourcePicker = true
+    }
+
+    @MainActor
+    private func openInternalExchangePlotPicker() {
+        guard booking.exchangeLookupProjectId.directBookingNilIfBlank != nil else {
+            bookingTypeAutofillError = "Select the old project first."
+            return
+        }
+        let phone = AppModuleFormatters.normalizePhone(booking.exchangeConnectedMobileNumber)
+        guard phone.count == 10 else {
+            bookingTypeAutofillError = "Enter the 10-digit connected mobile number first."
+            return
+        }
+        guard !internalExchangePlotCandidates.isEmpty else {
+            scheduleBookingTypeAutofill()
+            return
+        }
+        showInternalExchangePlotPicker = true
+    }
+
+    @MainActor
+    private func openUnitPicker() {
         guard let project = selectedProject else {
             errorMessage = "Pick a project first"
             return
         }
+
+        if unitsProjectId == project.id, !availableUnits.isEmpty {
+            showUnitPicker = true
+            return
+        }
+
+        startUnitLoad(for: project, presentWhenReady: true)
+    }
+
+    @MainActor
+    private func startUnitLoad(for project: MarketingProject, presentWhenReady: Bool) {
+        unitListTask?.cancel()
+        unitLoadGeneration += 1
+        let generation = unitLoadGeneration
+        unitListTask = Task {
+            await loadUnits(
+                for: project,
+                generation: generation,
+                presentWhenReady: presentWhenReady
+            )
+        }
+    }
+
+    @MainActor
+    private func loadUnits(
+        for project: MarketingProject,
+        generation: Int,
+        presentWhenReady: Bool
+    ) async {
+        guard let token = authStore.currentSession?.token else { return }
+        guard selectedProject?.id == project.id else { return }
+
+        isLoadingUnits = true
+        unitLoadError = nil
+        if unitsProjectId != project.id {
+            availableUnits = []
+            unitsProjectId = nil
+        }
+
+        defer {
+            if unitLoadGeneration == generation, selectedProject?.id == project.id {
+                isLoadingUnits = false
+            }
+        }
+
         do {
-            availableUnits = try await MarketingConvexAPIService.listInventoryUnits(
+            let loadedUnits = try await MarketingConvexAPIService.listInventoryUnits(
                 token: token,
                 projectId: project.id,
                 status: "available"
@@ -1106,12 +2147,25 @@ struct BookingCreateView: View {
                 .sorted {
                     ($0.unitNumber ?? $0.id).localizedStandardCompare($1.unitNumber ?? $1.id) == .orderedAscending
                 }
-            showUnitPicker = !availableUnits.isEmpty
-            if availableUnits.isEmpty {
-                errorMessage = "No available plots found for \(project.name ?? "this project")."
+
+            guard !Task.isCancelled,
+                  unitLoadGeneration == generation,
+                  selectedProject?.id == project.id else { return }
+
+            availableUnits = loadedUnits
+            unitsProjectId = project.id
+            if loadedUnits.isEmpty {
+                unitLoadError = "No available plots found for \(project.name ?? "this project")."
+            } else if presentWhenReady {
+                showUnitPicker = true
             }
         } catch {
-            errorMessage = "Could not load plots for \(project.name ?? "this project"): \(error.localizedDescription)"
+            guard !Task.isCancelled,
+                  unitLoadGeneration == generation,
+                  selectedProject?.id == project.id else { return }
+            unitsProjectId = nil
+            availableUnits = []
+            unitLoadError = "Could not load plots. Tap the plot field to retry."
         }
     }
 
@@ -1119,6 +2173,154 @@ struct BookingCreateView: View {
         let publicStatus = unit.status.trimmingCharacters(in: .whitespacesAndNewlines).lowercased()
         let rawStatus = unit.rawStatus?.trimmingCharacters(in: .whitespacesAndNewlines).lowercased()
         return publicStatus == "available" || rawStatus == "available"
+    }
+
+    @MainActor
+    private func loadPlotPrefill(for unit: InventoryUnit) async {
+        guard lastAutoFilledPlotId != unit.id else { return }
+        guard let token = authStore.currentSession?.token else { return }
+
+        isLoadingPlotPrefill = true
+        plotPrefillError = nil
+        defer {
+            if selectedUnit?.id == unit.id {
+                isLoadingPlotPrefill = false
+            }
+        }
+
+        do {
+            let prefill = try await MarketingConvexAPIService.getBookingPlotPrefill(
+                token: token,
+                plotId: unit.id,
+                bookingDate: booking.bookingDate.directBookingNilIfBlank
+            )
+            guard !Task.isCancelled, selectedUnit?.id == unit.id else { return }
+            applyPlotPrefill(prefill)
+            plotPrefill = prefill
+            lastAutoFilledPlotId = unit.id
+        } catch {
+            guard !Task.isCancelled, selectedUnit?.id == unit.id else { return }
+            plotPrefill = nil
+            plotPrefillError = "Could not load plot pricing. You can still enter it manually."
+        }
+    }
+
+    @MainActor
+    private func applyPlotPrefill(_ prefill: BookingPlotPrefill) {
+        if let project = prefill.project,
+           project.promoOffer?.directBookingNilIfBlank != nil
+            || project.projectOfferValue != nil
+            || project.projectOfferTerms?.directBookingNilIfBlank != nil
+            || project.projectOfferValidityDays != nil {
+            applyProjectOffer(
+                name: project.promoOffer ?? selectedProject?.promoOffer,
+                value: project.projectOfferValue ?? selectedProject?.projectOfferValue,
+                terms: project.projectOfferTerms ?? selectedProject?.projectOfferTerms,
+                validityDays: project.projectOfferValidityDays
+                    ?? selectedProject?.projectOfferValidityDays
+            )
+        }
+
+        let fields = prefill.fields
+        if let propertyType = normalizedPropertyType(prefill.plot.plotType),
+           !propertyType.isEmpty {
+            booking.propertyType = propertyType
+        }
+        booking.bookingCost = fields.bookingCost.map(DirectBookingDraft.amountInputText) ?? booking.bookingCost
+        booking.guidelineValue = fields.guidelineValue.map(DirectBookingDraft.amountInputText) ?? booking.guidelineValue
+        booking.registrationCharges = fields.registrationCharges.map(DirectBookingDraft.amountInputText) ?? booking.registrationCharges
+        booking.gstAmount = fields.gstAmount.map(DirectBookingDraft.amountInputText) ?? booking.gstAmount
+        booking.documentCharges = fields.documentCharges.map(DirectBookingDraft.amountInputText) ?? booking.documentCharges
+        booking.pattaCharges = fields.pattaCharges.map(DirectBookingDraft.amountInputText) ?? booking.pattaCharges
+        booking.otherCharges = fields.otherCharges.map(DirectBookingDraft.amountInputText) ?? booking.otherCharges
+        booking.advanceAmount = fields.advanceAmount.map(DirectBookingDraft.amountInputText) ?? booking.advanceAmount
+        booking.allotmentDueAmount = fields.allotmentDueAmount.map(DirectBookingDraft.amountInputText) ?? booking.allotmentDueAmount
+        booking.allotmentDueDate = fields.allotmentDueDate?.directBookingNilIfBlank ?? booking.allotmentDueDate
+
+        let schedules = prefill.schedules
+        booking.secondPaymentAmount = ""
+        booking.secondPaymentDate = schedules[safe: 0]?.dueDate?.directBookingNilIfBlank ?? ""
+        booking.thirdPaymentAmount = ""
+        booking.thirdPaymentDate = schedules[safe: 1]?.dueDate?.directBookingNilIfBlank ?? ""
+        booking.fourthPaymentAmount = ""
+        booking.fourthPaymentDate = schedules[safe: 2]?.dueDate?.directBookingNilIfBlank ?? ""
+        booking.flexiPaymentRows = [
+            DirectBookingPaymentDraft(
+                amount: "",
+                dueDate: schedules.first?.dueDate?.directBookingNilIfBlank ?? ""
+            )
+        ]
+    }
+
+    @MainActor
+    private func applyProjectOffer(
+        name: String?,
+        value: Double?,
+        terms: String?,
+        validityDays: Double?
+    ) {
+        booking.promotionalOffers = name?.directBookingNilIfBlank ?? ""
+        booking.promotionalOfferValue = value.map(DirectBookingDraft.amountInputText) ?? ""
+        booking.promotionalOffersTnC = terms?.directBookingNilIfBlank ?? ""
+        booking.offerValidityPeriod = validityDays.map(DirectBookingDraft.amountInputText) ?? ""
+    }
+
+    @MainActor
+    private func reapplySelectedProjectOffer() {
+        guard let project = selectedProject else { return }
+        applyProjectOffer(
+            name: project.promoOffer,
+            value: project.projectOfferValue,
+            terms: project.projectOfferTerms,
+            validityDays: project.projectOfferValidityDays
+        )
+    }
+
+    private func normalizedPropertyType(_ value: String?) -> String? {
+        guard let value = value?.directBookingNilIfBlank else { return nil }
+        switch value.lowercased() {
+        case "plot", "plots", "plot only", "plots only", "plots_only": return "Plot"
+        case "apartment", "flat", "flats": return "Apartment"
+        case "villa": return "Villa"
+        case "commercial": return "Commercial"
+        default: return value
+        }
+    }
+
+    @MainActor
+    private func scheduleClientImageURLResolution(for storageId: String) {
+        clientImageURLTask?.cancel()
+        clientImageURL = nil
+        clientImagePreview = nil
+
+        guard let storageId = storageId.directBookingNilIfBlank,
+              let token = authStore.currentSession?.token else {
+            isResolvingClientImageURL = false
+            return
+        }
+
+        isResolvingClientImageURL = true
+        clientImageURLTask = Task {
+            defer {
+                if booking.clientImageStorageId == storageId {
+                    isResolvingClientImageURL = false
+                }
+            }
+
+            do {
+                let urlString = try await HRConvexAPIService.getFileURL(
+                    token: token,
+                    storageId: storageId
+                )
+                guard !Task.isCancelled,
+                      booking.clientImageStorageId == storageId else { return }
+                clientImageURL = URL(string: urlString)
+            } catch {
+                guard !Task.isCancelled,
+                      booking.clientImageStorageId == storageId else { return }
+                clientImageURL = nil
+            }
+        }
     }
 
     @MainActor
@@ -1181,13 +2383,31 @@ struct BookingCreateView: View {
     }
 
     @MainActor
-    private func resolveSelectedProjectSpecialPaymentIfNeeded() async {
-        guard selectedProjectSpecialPaymentEnabled == nil else { return }
+    private func resolveSelectedProjectSpecialPaymentIfNeeded(
+        overwriteProjectOffer: Bool = false
+    ) async {
         guard let token = authStore.currentSession?.token, let project = selectedProject else { return }
         do {
-            let detail = try await ProjectConvexAPIService.getProjectDetail(token: token, id: project.id)
+            let detail = try await MarketingConvexAPIService.getMarketingProject(
+                token: token,
+                id: project.id
+            )
             guard selectedProject?.id == project.id else { return }
+            selectedProject = detail
             selectedProjectSpecialPaymentEnabled = detail.specialPaymentEnabled
+            let offerFieldsAreEmpty =
+                booking.promotionalOffers.directBookingNilIfBlank == nil &&
+                booking.promotionalOfferValue.directBookingNilIfBlank == nil &&
+                booking.promotionalOffersTnC.directBookingNilIfBlank == nil &&
+                booking.offerValidityPeriod.directBookingNilIfBlank == nil
+            if overwriteProjectOffer || offerFieldsAreEmpty {
+                applyProjectOffer(
+                    name: detail.promoOffer,
+                    value: detail.projectOfferValue,
+                    terms: detail.projectOfferTerms,
+                    validityDays: detail.projectOfferValidityDays
+                )
+            }
             if booking.paymentPlan == "Special", detail.specialPaymentEnabled != true {
                 booking.paymentPlan = "Regular"
             }
@@ -1197,22 +2417,44 @@ struct BookingCreateView: View {
     }
 
     @MainActor
-    private func lookupLeadIfNeeded(phone: String) async {
+    private func lookupBookingProfileIfNeeded(phone: String) async {
         guard phone.count == 10 else {
             selectedLead = nil
+            matchedClient = nil
             leadMatches = []
+            isSearchingLead = false
             return
         }
         guard let token = authStore.currentSession?.token else { return }
+        selectedLead = nil
+        matchedClient = nil
+        leadMatches = []
         isSearchingLead = true
         defer { isSearchingLead = false }
+
+        var matches: [TelecallerLeadSearchData] = []
         do {
-            let matches = try await MarketingConvexAPIService.searchTelecallerLeadsByPhone(token: token, phone: phone)
+            matches = try await MarketingConvexAPIService.searchTelecallerLeadsByPhone(token: token, phone: phone)
             guard AppModuleFormatters.normalizePhone(booking.phone) == phone else { return }
             leadMatches = matches
+            selectedLead = nil
             if let first = matches.first { applyLead(first) }
         } catch {
             // Lead lookup is helpful, but manual booking entry must stay usable.
+        }
+
+        guard !Task.isCancelled,
+              AppModuleFormatters.normalizePhone(booking.phone) == phone else { return }
+        do {
+            let client = try await MarketingConvexAPIService.searchClientByPhone(token: token, phone: phone)
+            guard !Task.isCancelled,
+                  AppModuleFormatters.normalizePhone(booking.phone) == phone else { return }
+            matchedClient = client
+            if let client {
+                applyClientProfile(client)
+            }
+        } catch {
+            // Client-master lookup supplements lead data. Keep manual entry usable.
         }
     }
 
@@ -1246,10 +2488,94 @@ struct BookingCreateView: View {
         booking.latitude = lead.suggestedVisitLat.map { String($0) } ?? booking.latitude
         booking.longitude = lead.suggestedVisitLng.map { String($0) } ?? booking.longitude
         booking.googleMapsLink = lead.suggestedGoogleMapsLink?.directBookingNilIfBlank ?? booking.googleMapsLink
+        if homeAddressCoordinate != nil {
+            homeCoordinateAddressQuery = booking.homeAddressSearchText
+        }
         booking.propertyType = lead.latestAnalysisProfile?.propertyType?.directBookingNilIfBlank ?? booking.propertyType
         if booking.isAgainstSV {
             booking.svName = booking.svName.directBookingNilIfBlank ?? lead.displayName
             booking.svMobileNo = booking.svMobileNo.directBookingNilIfBlank ?? AppModuleFormatters.normalizePhone(lead.mobileNumber ?? "")
+        }
+    }
+
+    @MainActor
+    private func applyClientProfile(_ client: BookingClientProfile) {
+        booking.title.directBookingFillIfBlank(with: client.title)
+        booking.name.directBookingFillIfBlank(with: client.clientName?.directBookingNormalizedPersonName)
+        booking.clientImageStorageId.directBookingFillIfBlank(with: client.clientImageStorageId)
+        booking.clientImageFileName.directBookingFillIfBlank(with: client.clientImageFileName)
+        booking.fatherSpouseName.directBookingFillIfBlank(with: client.fatherSpouseName?.directBookingNormalizedPersonName)
+        booking.dateOfBirth.directBookingFillIfBlank(with: client.dateOfBirth)
+        booking.anniversaryDate.directBookingFillIfBlank(with: client.anniversaryDate)
+        booking.nationality.directBookingFillIfBlank(with: client.nationality)
+        booking.alternateNumbers.directBookingFillIfBlank(with: client.alternateNumbers)
+        booking.whatsappNumber.directBookingFillIfBlank(with: client.whatsappNumber)
+        booking.email.directBookingFillIfBlank(with: client.email)
+
+        booking.homeDoorNo.directBookingFillIfBlank(with: client.doorNo)
+        booking.homeStreetName.directBookingFillIfBlank(
+            with: client.addressLine1 ?? client.homeAddress ?? client.formattedAddress
+        )
+        booking.homeAddressLine1.directBookingFillIfBlank(
+            with: client.addressLine2 ?? client.landmark ?? client.location ?? client.district
+        )
+        booking.homeAddressLine2.directBookingFillIfBlank(
+            with: client.landmark ?? client.addressLine2
+        )
+        booking.pincode.directBookingFillIfBlank(with: client.pincode)
+        booking.state.directBookingFillIfBlank(with: client.state)
+        booking.district.directBookingFillIfBlank(with: client.district)
+        booking.location.directBookingFillIfBlank(with: client.location)
+        booking.latitude.directBookingFillIfBlank(with: client.lat.map { String($0) })
+        booking.longitude.directBookingFillIfBlank(with: client.lng.map { String($0) })
+        booking.googleMapsLink.directBookingFillIfBlank(with: client.googleMapsLink)
+        if booking.googleMapsLink.directBookingNilIfBlank == nil,
+           let lat = client.lat,
+           let lng = client.lng {
+            booking.googleMapsLink = "https://www.google.com/maps?q=\(lat),\(lng)"
+        }
+        if homeAddressCoordinate != nil {
+            homeCoordinateAddressQuery = booking.homeAddressSearchText
+        }
+
+        booking.profession.directBookingFillIfBlank(with: client.profession)
+        booking.designation.directBookingFillIfBlank(with: client.designation)
+        if booking.profession == "Salaried",
+           booking.department.directBookingNilIfBlank == nil,
+           let department = client.department?.directBookingNilIfBlank {
+            let standardDepartments = ["Admin", "Sales", "HR", "Software Developer"]
+            if standardDepartments.contains(department) {
+                booking.department = department
+            } else {
+                booking.department = "Other"
+                booking.otherDepartment = department
+            }
+        }
+        booking.incomePerAnnum.directBookingFillIfBlank(with: client.incomePerAnnum)
+
+        booking.officeName.directBookingFillIfBlank(with: client.officeName)
+        booking.officeAddress.directBookingFillIfBlank(with: client.officeAddress)
+        booking.migrateLegacyOfficeAddressIfNeeded()
+        booking.officeArea.directBookingFillIfBlank(with: client.officeArea)
+        booking.officePincode.directBookingFillIfBlank(with: client.officePincode)
+        booking.officeMobile.directBookingFillIfBlank(with: client.officeMobile)
+        booking.officePhone.directBookingFillIfBlank(with: client.officePhone)
+        booking.officeEmail.directBookingFillIfBlank(with: client.officeEmail)
+
+        booking.aadhaar.directBookingFillIfBlank(
+            with: client.aadhaar.map { String($0.filter(\.isNumber).prefix(12)) }
+        )
+        booking.pan.directBookingFillIfBlank(with: client.pan?.uppercased())
+        booking.referenceName1.directBookingFillIfBlank(with: client.referenceName1)
+        booking.referenceMobile1.directBookingFillIfBlank(with: client.referenceMobile1)
+        booking.referenceProfession1.directBookingFillIfBlank(with: client.referenceProfession1)
+        booking.referenceName2.directBookingFillIfBlank(with: client.referenceName2)
+        booking.referenceMobile2.directBookingFillIfBlank(with: client.referenceMobile2)
+        booking.referenceProfession2.directBookingFillIfBlank(with: client.referenceProfession2)
+
+        if booking.isAgainstSV {
+            booking.svName.directBookingFillIfBlank(with: client.clientName)
+            booking.svMobileNo.directBookingFillIfBlank(with: client.mobileNumber)
         }
     }
 
@@ -1261,14 +2587,16 @@ struct BookingCreateView: View {
                 booking.latitude = ""
                 booking.longitude = ""
                 booking.googleMapsLink = ""
+                homeCoordinateAddressQuery = nil
             }
             return
         }
 
         let query = booking.homeAddressSearchText
-        booking.latitude = ""
-        booking.longitude = ""
-        booking.googleMapsLink = ""
+        guard homeAddressCoordinate == nil || homeCoordinateAddressQuery != query else {
+            isGeocodingHomeAddress = false
+            return
+        }
         homeGeocodeTask = Task {
             try? await Task.sleep(for: .milliseconds(850))
             guard !Task.isCancelled else { return }
@@ -1292,13 +2620,15 @@ struct BookingCreateView: View {
             booking.latitude = String(coordinate.latitude)
             booking.longitude = String(coordinate.longitude)
             booking.googleMapsLink = "https://www.google.com/maps?q=\(coordinate.latitude),\(coordinate.longitude)"
+            homeCoordinateAddressQuery = query
         } catch {
-            // Address entry remains valid even when MapKit cannot resolve it.
+            // Keep the last known client pin if MapKit cannot resolve the edited address.
         }
     }
 
     @MainActor
-    private func submit() async {
+    private func submit(as saveAs: DirectBookingSaveAs) async {
+        booking.saveAs = saveAs
         let mobile = AppModuleFormatters.normalizePhone(booking.phone)
         if let validation = bookingValidationError(mobile: mobile) {
             errorMessage = validation.message
@@ -1320,7 +2650,14 @@ struct BookingCreateView: View {
                 )
             )
             clearDraft()
-            successMessage = "Booking created"
+            switch saveAs {
+            case .confirmed:
+                successMessage = "Booking saved and sent for approval"
+            case .draft:
+                successMessage = "Booking saved as draft"
+            case .cancelled:
+                successMessage = "Booking saved as cancelled"
+            }
         } catch {
             errorMessage = error.localizedDescription
         }
@@ -1536,7 +2873,7 @@ struct BookingCreateView: View {
 
     private func paymentAmountValidation() -> BookingValidationIssue? {
         let advanceAmount = Double(booking.advanceAmount) ?? 0
-        if let minimumAdvanceAmount = selectedProject?.minimumAdvanceAmount,
+        if let minimumAdvanceAmount = configuredMinimumAdvance,
            advanceAmount < minimumAdvanceAmount {
             return ("Advance must be at least \(AppModuleFormatters.rupees(minimumAdvanceAmount)) as set in Project Details", .bookingFinance)
         }
@@ -1581,21 +2918,61 @@ struct BookingCreateView: View {
     }
 
     private func clearForm() {
+        unitListTask?.cancel()
+        unitLoadGeneration += 1
+        plotPrefillTask?.cancel()
+        bookingTypeAutofillTask?.cancel()
         booking = DirectBookingDraft()
         selectedProject = initialProject
         selectedProjectSpecialPaymentEnabled = initialProject?.specialPaymentEnabled
         selectedUnit = initialUnit
+        availableUnits = []
+        unitsProjectId = nil
+        unitLoadError = nil
+        isLoadingUnits = false
+        showUnitPicker = false
+        plotPrefill = nil
+        lastAutoFilledPlotId = nil
+        plotPrefillError = nil
+        isLoadingPlotPrefill = false
+        conversionPrefill = nil
+        exchangeSourceCandidates = []
+        bookingTypeAutofillError = nil
+        isLoadingBookingTypeAutofill = false
+        showExchangeProjectPicker = false
+        showExchangeSourcePicker = false
+        showInternalExchangePlotPicker = false
         selectedLead = nil
+        matchedClient = nil
         leadMatches = []
         if let initialProject {
             booking.projectId = initialProject.id
             booking.projectName = initialProject.name ?? ""
+            applyProjectOffer(
+                name: initialProject.promoOffer,
+                value: initialProject.projectOfferValue,
+                terms: initialProject.projectOfferTerms,
+                validityDays: initialProject.projectOfferValidityDays
+            )
         }
         if let initialUnit {
             booking.plotId = initialUnit.id
             booking.plotNo = initialUnit.unitNumber ?? ""
         }
         clearDraft()
+        if let initialProject {
+            startUnitLoad(for: initialProject, presentWhenReady: false)
+            Task {
+                await resolveSelectedProjectSpecialPaymentIfNeeded(
+                    overwriteProjectOffer: true
+                )
+            }
+        }
+        if let initialUnit {
+            plotPrefillTask = Task {
+                await loadPlotPrefill(for: initialUnit)
+            }
+        }
     }
 
     private var draftStorageKey: String {
@@ -1623,6 +3000,9 @@ struct BookingCreateView: View {
         booking = draft
         booking.migrateLegacyHomeAddressIfNeeded()
         booking.migrateLegacyOfficeAddressIfNeeded()
+        if homeAddressCoordinate != nil {
+            homeCoordinateAddressQuery = booking.homeAddressSearchText
+        }
         scheduleHomeAddressGeocode()
         draftMessage = "Draft restored"
     }
@@ -1791,14 +3171,6 @@ private enum DirectBookingSaveAs: String, Codable, Hashable {
     case draft
     case confirmed
     case cancelled
-
-    var actionTitle: String {
-        switch self {
-        case .draft: return "Save Draft"
-        case .confirmed: return "Save & Send for Approval"
-        case .cancelled: return "Save as Cancelled"
-        }
-    }
 }
 
 private struct DirectBookingPaymentDraft: Codable, Equatable, Sendable {
@@ -1873,13 +3245,18 @@ private struct DirectBookingDraft: Codable, Equatable, Sendable {
     var plotId = ""
     var plotNo = ""
     var bookingType = ""
-    var conversionManualEntry = true
+    var conversionManualEntry = false
     var manualConversionProjectName = ""
     var manualConversionPlotNo = ""
     var manualConversionCredit = ""
     var conversionNotes = ""
+    var linkedConversionBookingId: String?
+    var linkedConversionBookingRefNo: String?
+    var linkedConversionProjectName: String?
+    var linkedConversionPlotNo: String?
+    var linkedConversionCredit: String?
     var sourceExchangeBookingId = ""
-    var exchangeManualEntry = true
+    var exchangeManualEntry = false
     var exchangeLookupProjectId = ""
     var exchangeLookupPlotNo = ""
     var exchangeConnectedMobileNumber = ""
@@ -2077,6 +3454,21 @@ private struct DirectBookingDraft: Codable, Equatable, Sendable {
         return max(cost - (Double(specialConsideration) ?? 0), 0)
     }
 
+    static func amountInputText(_ amount: Double) -> String {
+        guard amount.isFinite else { return "" }
+        if amount.rounded() == amount,
+           amount >= Double(Int64.min),
+           amount <= Double(Int64.max) {
+            return String(Int64(amount))
+        }
+        return String(amount)
+    }
+
+    func numericAmount(_ value: String) -> Double {
+        let amount = Double(value) ?? 0
+        return amount.isFinite ? amount : 0
+    }
+
     var totalPayableAmount: Double? {
         guard let agreedAmount else { return nil }
         return agreedAmount
@@ -2089,6 +3481,25 @@ private struct DirectBookingDraft: Codable, Equatable, Sendable {
 
     var exchangeBalancePayable: Double {
         max((totalPayableAmount ?? 0) - (Double(exchangeOldRegisteredValue) ?? 0), 0)
+    }
+
+    var payableAmountForBooking: Double? {
+        guard let totalPayableAmount else { return nil }
+        return bookingType == "EXCHANGE" ? exchangeBalancePayable : totalPayableAmount
+    }
+
+    var customerPayableAmount: Double? {
+        guard let payableAmountForBooking else { return nil }
+        let bankLoan = customerPaymentCategory == "B" ? numericAmount(loanAmountRequested) : 0
+        return max(payableAmountForBooking - bankLoan, 0)
+    }
+
+    var balanceAfterAdvance: Double? {
+        guard let payableAmountForBooking else { return nil }
+        let conversionCredit = bookingType == "CONVERSION"
+            ? numericAmount(conversionManualEntry ? manualConversionCredit : (linkedConversionCredit ?? ""))
+            : 0
+        return max(payableAmountForBooking - numericAmount(advanceAmount) - conversionCredit, 0)
     }
 
     var isEmpty: Bool {
@@ -2114,6 +3525,7 @@ private struct DirectBookingDraft: Codable, Equatable, Sendable {
         let isExchange = bookingType == "EXCHANGE" || bookingType == "INTERNAL EXCHANGE"
         let isOnlinePayment = ["UPI", "NEFT", "RTGS"].contains(bookingMode)
         let isInstrumentPayment = ["CHEQUE", "DD"].contains(bookingMode)
+        let includesPaymentProof = isOnlinePayment || bookingMode == "CHEQUE"
         let flexiSchedule = freePayment
             ? flexiPaymentRows.compactMap { row -> BookingPaymentScheduleItem? in
                 guard let amount = Double(row.amount), let dueDate = row.dueDate.directBookingNilIfBlank else { return nil }
@@ -2121,8 +3533,8 @@ private struct DirectBookingDraft: Codable, Equatable, Sendable {
             }
             : []
         let total = bookingType == "EXCHANGE" ? exchangeBalancePayable : totalPayableAmount
-        let conversionCredit = bookingType == "CONVERSION" && conversionManualEntry
-            ? (Double(manualConversionCredit) ?? 0)
+        let conversionCredit = bookingType == "CONVERSION"
+            ? (Double(conversionManualEntry ? manualConversionCredit : (linkedConversionCredit ?? "")) ?? 0)
             : 0
         return CreateBookingRequest(
             clientName: name.trimmingCharacters(in: .whitespacesAndNewlines),
@@ -2194,8 +3606,8 @@ private struct DirectBookingDraft: Codable, Equatable, Sendable {
             balanceAmount: total.map { max($0 - (advance ?? 0) - conversionCredit, 0) },
             paymentMode: bookingMode.directBookingNilIfBlank,
             advanceTransactionId: isOnlinePayment ? advanceTransactionId.directBookingNilIfBlank : nil,
-            advancePaymentProofStorageId: isOnlinePayment ? advancePaymentProofStorageId.directBookingNilIfBlank : nil,
-            advancePaymentProofFileName: isOnlinePayment ? advancePaymentProofFileName.directBookingNilIfBlank : nil,
+            advancePaymentProofStorageId: includesPaymentProof ? advancePaymentProofStorageId.directBookingNilIfBlank : nil,
+            advancePaymentProofFileName: includesPaymentProof ? advancePaymentProofFileName.directBookingNilIfBlank : nil,
             advanceInstrumentNo: isInstrumentPayment ? advanceInstrumentNo.directBookingNilIfBlank : nil,
             advanceBankName: isInstrumentPayment ? advanceBankName.directBookingNilIfBlank : nil,
             advanceBankBranch: isInstrumentPayment ? advanceBankBranch.directBookingNilIfBlank : nil,
@@ -2290,6 +3702,308 @@ private struct DirectBookingDraft: Codable, Equatable, Sendable {
 private struct BookingRemoteDraftPayload: Encodable, Sendable {
     let sourceKey: String
     let draftJson: String
+}
+
+private struct DirectBookingClientImagePreviewItem: Identifiable {
+    let id = UUID()
+    let url: URL
+    let fileName: String
+}
+
+private struct DirectBookingClientImagePreview: View {
+    let preview: DirectBookingClientImagePreviewItem
+
+    @Environment(\.dismiss) private var dismiss
+    @State private var scale: CGFloat = 1
+    @State private var restingScale: CGFloat = 1
+
+    var body: some View {
+        NavigationStack {
+            ZStack {
+                Color.black.ignoresSafeArea()
+
+                AsyncImage(url: preview.url) { phase in
+                    switch phase {
+                    case .success(let image):
+                        image
+                            .resizable()
+                            .scaledToFit()
+                            .scaleEffect(scale)
+                            .gesture(zoomGesture)
+                            .onTapGesture(count: 2) {
+                                withAnimation(.snappy(duration: 0.22)) {
+                                    let nextScale: CGFloat = scale > 1 ? 1 : 2.5
+                                    scale = nextScale
+                                    restingScale = nextScale
+                                }
+                            }
+                    case .failure:
+                        VStack(spacing: 12) {
+                            Image(systemName: "photo.badge.exclamationmark")
+                                .font(.system(size: 42, weight: .semibold))
+                            Text("Unable to load client photo")
+                                .font(.system(size: 15, weight: .semibold))
+                        }
+                        .foregroundStyle(.white.opacity(0.72))
+                    case .empty:
+                        ProgressView()
+                            .controlSize(.large)
+                            .tint(.white)
+                    @unknown default:
+                        EmptyView()
+                    }
+                }
+                .padding(.horizontal, 12)
+            }
+            .navigationTitle(preview.fileName)
+            .navigationBarTitleDisplayMode(.inline)
+            .toolbar {
+                ToolbarItem(placement: .topBarLeading) {
+                    Button {
+                        dismiss()
+                    } label: {
+                        Image(systemName: "xmark")
+                            .font(.system(size: 15, weight: .bold))
+                            .foregroundStyle(.white)
+                            .frame(width: 34, height: 34)
+                            .background(.white.opacity(0.14), in: Circle())
+                    }
+                    .accessibilityLabel("Close preview")
+                }
+            }
+            .toolbarBackground(.black, for: .navigationBar)
+            .toolbarBackground(.visible, for: .navigationBar)
+            .toolbarColorScheme(.dark, for: .navigationBar)
+        }
+    }
+
+    private var zoomGesture: some Gesture {
+        MagnifyGesture()
+            .onChanged { value in
+                scale = min(max(restingScale * value.magnification, 1), 5)
+            }
+            .onEnded { value in
+                let finalScale = min(max(restingScale * value.magnification, 1), 5)
+                scale = finalScale
+                restingScale = finalScale
+            }
+    }
+}
+
+private struct DirectBookingPayableSummaryCard: View {
+    let landCost: Double
+    let gst: Double
+    let registrationCharges: Double
+    let documentCharges: Double
+    let pattaCharges: Double
+    let otherCharges: Double
+    let grossBookingValue: Double
+    let exchangeValue: Double?
+    let totalPayable: Double
+    let minimumAdvance: Double
+    let advanceEntered: Double
+    let customerPayable: Double?
+    let bankLoanAmount: Double?
+    let balanceAfterAdvance: Double
+    let isExchange: Bool
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 14) {
+            Label("Client Payable Summary", systemImage: "list.bullet.rectangle.portrait")
+                .font(.system(size: 15, weight: .bold))
+                .foregroundStyle(Color(hex: 0x101828))
+
+            VStack(spacing: 10) {
+                DirectBookingMoneySummaryRow(label: "Total land cost", value: landCost)
+                DirectBookingMoneySummaryRow(label: "GST", value: gst)
+                DirectBookingMoneySummaryRow(label: "Registration charges", value: registrationCharges)
+                DirectBookingMoneySummaryRow(label: "Document charges", value: documentCharges)
+                DirectBookingMoneySummaryRow(label: "Patta charges", value: pattaCharges)
+                DirectBookingMoneySummaryRow(label: "Other charges", value: otherCharges)
+
+                Divider()
+
+                if isExchange {
+                    DirectBookingMoneySummaryRow(label: "Total booking value", value: grossBookingValue)
+                    DirectBookingMoneySummaryRow(label: "Less: Exchange value", value: -(exchangeValue ?? 0))
+                }
+                DirectBookingMoneySummaryRow(
+                    label: isExchange ? "Balance payable" : "Total amount payable",
+                    value: totalPayable,
+                    isStrong: true
+                )
+            }
+
+            Divider()
+
+            VStack(alignment: .leading, spacing: 8) {
+                Text("PAYMENT POSITION")
+                    .font(.system(size: 11, weight: .bold))
+                    .tracking(0.8)
+                    .foregroundStyle(Color(hex: 0x667085))
+
+                Text("Enter the advance below. The client may pay more than the project minimum.")
+                    .font(.system(size: 12, weight: .regular))
+                    .foregroundStyle(Color(hex: 0x667085))
+                    .fixedSize(horizontal: false, vertical: true)
+
+                VStack(spacing: 10) {
+                    DirectBookingMoneySummaryRow(label: "Minimum advance", value: minimumAdvance)
+                    DirectBookingMoneySummaryRow(label: "Advance entered", value: advanceEntered)
+                    if let customerPayable, let bankLoanAmount {
+                        DirectBookingMoneySummaryRow(label: "Customer payable amount", value: customerPayable)
+                        DirectBookingMoneySummaryRow(label: "Final bank loan payment", value: bankLoanAmount)
+                    }
+                    Divider()
+                    DirectBookingMoneySummaryRow(
+                        label: "Balance after advance",
+                        value: balanceAfterAdvance,
+                        isStrong: true
+                    )
+                }
+                .padding(12)
+                .background(Color.white, in: RoundedRectangle(cornerRadius: 10))
+            }
+        }
+        .padding(14)
+        .background(Color(hex: 0xF8FAFC), in: RoundedRectangle(cornerRadius: 14))
+        .overlay(RoundedRectangle(cornerRadius: 14).stroke(Color(hex: 0xDDE3EA), lineWidth: 1))
+    }
+}
+
+private struct DirectBookingMoneySummaryRow: View {
+    let label: String
+    let value: Double
+    var isStrong = false
+
+    var body: some View {
+        HStack(alignment: .firstTextBaseline, spacing: 12) {
+            Text(label)
+                .foregroundStyle(isStrong ? Color(hex: 0x101828) : Color(hex: 0x667085))
+            Spacer(minLength: 12)
+            Text(AppModuleFormatters.rupees(value))
+                .foregroundStyle(Color(hex: 0x101828))
+                .multilineTextAlignment(.trailing)
+        }
+        .font(.system(size: isStrong ? 14 : 13, weight: isStrong ? .bold : .medium))
+    }
+}
+
+private struct DirectBookingReadOnlyField: View {
+    let title: String
+    let value: String
+    let placeholder: String
+    let icon: String
+
+    init(
+        _ title: String,
+        value: String,
+        placeholder: String = "",
+        icon: String = "doc.text"
+    ) {
+        self.title = title
+        self.value = value
+        self.placeholder = placeholder
+        self.icon = icon
+    }
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 6) {
+            DirectBookingFieldLabel(title)
+            HStack(spacing: 10) {
+                Image(systemName: icon)
+                    .foregroundStyle(Color(hex: 0x98A2B3))
+                    .font(.system(size: 15, weight: .medium))
+                    .frame(width: 18)
+                Text(value.directBookingNilIfBlank ?? placeholder)
+                    .foregroundStyle(value.directBookingNilIfBlank == nil ? Color(hex: 0x98A2B3) : Color(hex: 0x475467))
+                    .lineLimit(2)
+                Spacer(minLength: 0)
+            }
+            .font(.system(size: 14, weight: .medium))
+            .padding(.horizontal, 12)
+            .frame(minHeight: 46)
+            .background(Color(hex: 0xF2F4F7), in: RoundedRectangle(cornerRadius: 12))
+            .overlay(RoundedRectangle(cornerRadius: 12).stroke(Color(hex: 0xE4E7EC), lineWidth: 1))
+        }
+    }
+}
+
+private struct DirectBookingTypeSummaryItem: Identifiable {
+    let id = UUID()
+    let label: String
+    let value: String
+}
+
+private struct DirectBookingLeadLookupStatus: View {
+    let isSearching: Bool
+    let matchedClientName: String?
+    let linkedLeadName: String?
+    let canChooseLinkedLead: Bool
+    let onChooseLinkedLead: () -> Void
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 8) {
+            if isSearching {
+                HStack(spacing: 8) {
+                    ProgressView()
+                        .controlSize(.small)
+                    Text("Searching client details...")
+                        .font(.system(size: 12, weight: .medium))
+                }
+                .foregroundStyle(Color(hex: 0x667085))
+            }
+
+            if let matchedClientName {
+                Label(
+                    "Existing client details auto-filled for \(matchedClientName)",
+                    systemImage: "person.crop.circle.badge.checkmark"
+                )
+                .font(.system(size: 12, weight: .medium))
+                .foregroundStyle(Color(hex: 0x187A2F))
+            }
+
+            if let linkedLeadName {
+                VStack(alignment: .leading, spacing: 6) {
+                    DirectBookingFieldLabel("Linked Lead *")
+                    Button {
+                        guard canChooseLinkedLead else { return }
+                        onChooseLinkedLead()
+                    } label: {
+                        Label(linkedLeadName, systemImage: "person.badge.checkmark")
+                            .font(.system(size: 12, weight: .medium))
+                            .frame(maxWidth: .infinity, alignment: .leading)
+                    }
+                    .buttonStyle(.bordered)
+                    .tint(Color(hex: 0x2DAE12))
+                }
+            }
+        }
+    }
+}
+
+private struct DirectBookingTypeSummaryCard: View {
+    let items: [DirectBookingTypeSummaryItem]
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 12) {
+            ForEach(items) { item in
+                HStack(alignment: .firstTextBaseline, spacing: 12) {
+                    Text(item.label)
+                        .foregroundStyle(Color(hex: 0x667085))
+                    Spacer(minLength: 12)
+                    Text(item.value)
+                        .fontWeight(.semibold)
+                        .foregroundStyle(Color(hex: 0x101828))
+                        .multilineTextAlignment(.trailing)
+                }
+            }
+        }
+        .font(.system(size: 13, weight: .medium))
+        .padding(14)
+        .background(Color(hex: 0xF8FAFC), in: RoundedRectangle(cornerRadius: 12))
+        .overlay(RoundedRectangle(cornerRadius: 12).stroke(Color(hex: 0xDDE3EA), lineWidth: 1))
+    }
 }
 
 private struct DirectBookingTextField: View {
@@ -2529,5 +4243,23 @@ private extension String {
     var directBookingNilIfBlank: String? {
         let trimmed = trimmingCharacters(in: .whitespacesAndNewlines)
         return trimmed.isEmpty ? nil : trimmed
+    }
+
+    var directBookingNormalizedPersonName: String {
+        split(whereSeparator: \.isWhitespace)
+            .joined(separator: " ")
+            .uppercased()
+    }
+
+    mutating func directBookingFillIfBlank(with candidate: String?) {
+        guard directBookingNilIfBlank == nil,
+              let candidate = candidate?.directBookingNilIfBlank else { return }
+        self = candidate
+    }
+}
+
+private extension Collection {
+    subscript(safe index: Index) -> Element? {
+        indices.contains(index) ? self[index] : nil
     }
 }

@@ -35,13 +35,19 @@ struct BookingsListView: View {
 
     var body: some View {
         VStack(spacing: 0) {
-            searchBar
             filterBar
             content
         }
         .background(Color(hex: 0xF1F3F8).ignoresSafeArea())
         .navigationTitle("Booking")
         .navigationBarTitleDisplayMode(.inline)
+        .searchable(
+            text: $searchText,
+            placement: .navigationBarDrawer(displayMode: .always),
+            prompt: "Search Bookings"
+        )
+        .textInputAutocapitalization(.never)
+        .autocorrectionDisabled()
         .toolbarBackground(Color.white, for: .navigationBar)
         .toolbarBackground(.visible, for: .navigationBar)
         .toolbar {
@@ -125,28 +131,6 @@ struct BookingsListView: View {
             }
             .refreshable { await load() }
         }
-    }
-
-    private var searchBar: some View {
-        HStack(spacing: 10) {
-            TextField("Search Bookings", text: $searchText)
-                .font(.system(size: 14))
-                .textInputAutocapitalization(.never)
-                .autocorrectionDisabled()
-
-            Image(systemName: "magnifyingglass")
-                .font(.system(size: 17, weight: .medium))
-                .foregroundStyle(Color(hex: 0x9CA3AF))
-        }
-        .padding(.horizontal, 14)
-        .frame(height: 44)
-        .background(Color.white, in: RoundedRectangle(cornerRadius: 12, style: .continuous))
-        .overlay(
-            RoundedRectangle(cornerRadius: 12, style: .continuous)
-                .stroke(Color(hex: 0xEAECF0), lineWidth: 1)
-        )
-        .padding(.horizontal, 16)
-        .padding(.top, 12)
     }
 
     private var filterBar: some View {
@@ -1011,6 +995,7 @@ private struct BookingUpdateSheet: View {
                 }
             }
         }
+        .appFormActivity()
     }
 
     @MainActor

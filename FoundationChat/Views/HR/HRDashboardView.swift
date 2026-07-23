@@ -161,6 +161,7 @@ struct HRDashboardView: View {
                         await startOnDuty(request)
                     }
                 }
+                .appFormActivity()
                 .appLibraryNativeSheet([.fraction(0.72), .large])
                 .presentationBackground(Color(hex: 0xF8FAFC))
             }
@@ -1388,16 +1389,11 @@ private struct OnDutyStartSheet: View {
                 .overlay(RoundedRectangle(cornerRadius: 12, style: .continuous).stroke(Color(hex: 0xE4E7EC), lineWidth: 1))
         } else {
             VStack(spacing: 12) {
-                HStack(spacing: 10) {
-                    TextField(selectedCategory == .vendors ? "Search Vendors" : "Search Projects", text: $searchText)
-                        .textInputAutocapitalization(.never)
-                    Image(systemName: "magnifyingglass")
-                        .foregroundStyle(Color(hex: 0x667085))
-                }
-                .padding(.horizontal, 16)
+                NativeInlineSearchBar(
+                    text: $searchText,
+                    placeholder: selectedCategory == .vendors ? "Search Vendors" : "Search Projects"
+                )
                 .frame(height: 48)
-                .background(Color.white, in: RoundedRectangle(cornerRadius: 12, style: .continuous))
-                .overlay(RoundedRectangle(cornerRadius: 12, style: .continuous).stroke(Color(hex: 0xEAECF0), lineWidth: 1))
 
                 if isLoadingMasters && currentTargets.isEmpty {
                     ProgressView()
