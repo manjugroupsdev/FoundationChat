@@ -3476,12 +3476,12 @@ private struct DirectBookingDraft: Codable, Equatable, Sendable {
 
     var totalPayableAmount: Double? {
         guard let agreedAmount else { return nil }
-        return agreedAmount
-            + (Double(registrationCharges) ?? 0)
-            + (gstApplicable ? (Double(gstAmount) ?? 0) : 0)
-            + (Double(documentCharges) ?? 0)
-            + (Double(pattaCharges) ?? 0)
-            + (otherChargesApplicable ? (Double(otherCharges) ?? 0) : 0)
+        let registration = Double(registrationCharges) ?? 0
+        let gst = gstApplicable ? (Double(gstAmount) ?? 0) : 0
+        let document = Double(documentCharges) ?? 0
+        let patta = Double(pattaCharges) ?? 0
+        let other = otherChargesApplicable ? (Double(otherCharges) ?? 0) : 0
+        return agreedAmount + registration + gst + document + patta + other
     }
 
     var exchangeBalancePayable: Double {

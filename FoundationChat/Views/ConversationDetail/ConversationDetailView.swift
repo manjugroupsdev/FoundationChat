@@ -2403,7 +2403,7 @@ extension ConversationDetailView {
         try? FileManager.default.removeItem(at: url)
         return
       }
-      pendingVoicePreviewDuration = audioDuration(for: url)
+      pendingVoicePreviewDuration = await audioDuration(for: url)
       pendingVoicePreviewURL = url
     } catch {
       try? FileManager.default.removeItem(at: url)
@@ -2468,7 +2468,7 @@ extension ConversationDetailView {
 
   private func requestMicrophonePermission() async -> Bool {
     await withCheckedContinuation { continuation in
-      AVAudioSession.sharedInstance().requestRecordPermission { granted in
+      AVAudioApplication.requestRecordPermission { granted in
         continuation.resume(returning: granted)
       }
     }
@@ -2516,9 +2516,10 @@ extension ConversationDetailView {
     voiceTypingTask = nil
   }
 
-  private func audioDuration(for url: URL) -> TimeInterval? {
+  private func audioDuration(for url: URL) async -> TimeInterval? {
     let asset = AVURLAsset(url: url)
-    let seconds = CMTimeGetSeconds(asset.duration)
+    guard let duration = try? await asset.load(.duration) else { return nil }
+    let seconds = CMTimeGetSeconds(duration)
     guard seconds.isFinite, seconds > 0 else { return nil }
     return seconds
   }

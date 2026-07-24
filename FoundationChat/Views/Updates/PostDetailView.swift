@@ -181,7 +181,7 @@ struct PostDetailView: View {
         isLoadingPost = true
         do {
             post = try await authStore.fetchPostById(postId: postId)
-            try? await authStore.markPostRead(postId: postId)
+            _ = try? await authStore.markPostRead(postId: postId)
         } catch {}
         isLoadingPost = false
     }
