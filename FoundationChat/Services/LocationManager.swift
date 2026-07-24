@@ -315,7 +315,7 @@ final class LocationTracker: NSObject {
 
 // MARK: - CLLocationManagerDelegate
 
-extension LocationTracker: @preconcurrency CLLocationManagerDelegate {
+extension LocationTracker: CLLocationManagerDelegate {
     nonisolated func locationManager(
         _ manager: CLLocationManager,
         didUpdateLocations locations: [CLLocation]

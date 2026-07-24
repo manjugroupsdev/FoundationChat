@@ -594,7 +594,7 @@ private struct CreateIssueSheet: View {
 
     private func startRecording() {
         stopPreview()
-        AVAudioSession.sharedInstance().requestRecordPermission { granted in
+        AVAudioApplication.requestRecordPermission { granted in
             DispatchQueue.main.async {
                 guard granted else {
                     errorMessage = "Permission to record audio is required."

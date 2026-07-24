@@ -677,7 +677,7 @@ private final class VoicePlaybackController: NSObject, ObservableObject, AVAudio
       guard !Task.isCancelled else { return }
 
       let session = AVAudioSession.sharedInstance()
-      try session.setCategory(.playAndRecord, mode: .spokenAudio, options: [.defaultToSpeaker, .allowBluetooth])
+      try session.setCategory(.playAndRecord, mode: .spokenAudio, options: [.defaultToSpeaker, .allowBluetoothHFP])
       try session.setActive(true)
 
       let audioPlayer = try AVAudioPlayer(contentsOf: localURL)
@@ -927,21 +927,13 @@ private struct VideoInlinePreview: View {
   }
 
   private func generateThumbnail(for url: URL) async -> UIImage? {
-    await withCheckedContinuation { continuation in
-      DispatchQueue.global(qos: .userInitiated).async {
-        let asset = AVURLAsset(url: url)
-        let generator = AVAssetImageGenerator(asset: asset)
-        generator.appliesPreferredTrackTransform = true
-        let time = CMTime(seconds: 0.1, preferredTimescale: 600)
+    let asset = AVURLAsset(url: url)
+    let generator = AVAssetImageGenerator(asset: asset)
+    generator.appliesPreferredTrackTransform = true
+    let time = CMTime(seconds: 0.1, preferredTimescale: 600)
 
-        do {
-          let cgImage = try generator.copyCGImage(at: time, actualTime: nil)
-          continuation.resume(returning: UIImage(cgImage: cgImage))
-        } catch {
-          continuation.resume(returning: nil)
-        }
-      }
-    }
+    guard let (cgImage, _) = try? await generator.image(at: time) else { return nil }
+    return UIImage(cgImage: cgImage)
   }
 }
 
