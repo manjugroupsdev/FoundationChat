@@ -334,39 +334,20 @@ struct BookingCreateView: View {
             .padding(.top, 4)
         } else {
             VStack(spacing: 10) {
-                Button {
-                    withAnimation(.snappy(duration: 0.22)) {
-                        selectedTab = .bookingFinance
-                    }
-                } label: {
-                    Label("Booking & Finance", systemImage: "arrow.left")
-                        .font(.system(size: 14, weight: .semibold))
-                        .frame(maxWidth: .infinity)
-                }
-                .buttonStyle(.bordered)
-                .controlSize(.large)
-                .tint(Color(hex: 0x2DAE12))
-                .disabled(isSubmitting)
-
                 HStack(spacing: 10) {
                     Button {
-                        Task { await submit(as: .cancelled) }
-                    } label: {
-                        if isSubmitting && booking.saveAs == .cancelled {
-                            ProgressView()
-                                .frame(maxWidth: .infinity)
-                        } else {
-                            Text("Save as Cancelled")
-                                .font(.system(size: 13, weight: .semibold))
-                                .lineLimit(1)
-                                .minimumScaleFactor(0.85)
-                                .frame(maxWidth: .infinity)
+                        withAnimation(.snappy(duration: 0.22)) {
+                            selectedTab = .bookingFinance
                         }
+                    } label: {
+                        Label("Back", systemImage: "chevron.left")
+                            .font(.system(size: 14, weight: .semibold))
+                            .frame(maxWidth: .infinity)
                     }
                     .buttonStyle(.bordered)
                     .controlSize(.large)
-                    .tint(Color(hex: 0x667085))
-                    .disabled(!canCreateBooking || isSubmitting)
+                    .tint(Color(hex: 0x2DAE12))
+                    .disabled(isSubmitting)
 
                     Button {
                         Task { await submit(as: .draft) }
@@ -375,7 +356,7 @@ struct BookingCreateView: View {
                             ProgressView()
                                 .frame(maxWidth: .infinity)
                         } else {
-                            Text("Save Draft")
+                            Label("Save Draft", systemImage: "doc")
                                 .font(.system(size: 13, weight: .semibold))
                                 .lineLimit(1)
                                 .frame(maxWidth: .infinity)
@@ -395,7 +376,7 @@ struct BookingCreateView: View {
                             .tint(.white)
                             .frame(maxWidth: .infinity)
                     } else {
-                        Text("Save & Send for Approval")
+                        Label("Save & Send for Approval", systemImage: "paperplane.fill")
                             .font(.system(size: 15, weight: .semibold))
                             .frame(maxWidth: .infinity)
                     }
@@ -408,27 +389,38 @@ struct BookingCreateView: View {
         }
     }
 
-    @ViewBuilder
-    private var tabBody: some View {
+    private var tabBody: AnyView {
         switch selectedTab {
         case .client:
-            VStack(alignment: .leading, spacing: 12) {
-                clientDetails
-                professionalDetails
-                officeDetails
-            }
+            return AnyView(clientTabBody)
         case .bookingFinance:
-            VStack(alignment: .leading, spacing: 12) {
-                bookingDetails
-                sourceReferralDetails
-                chargesDetails
-                chargesAndAdvanceDetails
-            }
+            return AnyView(bookingFinanceTabBody)
         case .paymentStaff:
-            VStack(alignment: .leading, spacing: 12) {
-                paymentDetails
-                staffDetails
-            }
+            return AnyView(paymentStaffTabBody)
+        }
+    }
+
+    private var clientTabBody: some View {
+        VStack(alignment: .leading, spacing: 12) {
+            clientDetails
+            professionalDetails
+            officeDetails
+        }
+    }
+
+    private var bookingFinanceTabBody: some View {
+        VStack(alignment: .leading, spacing: 12) {
+            bookingDetails
+            sourceReferralDetails
+            chargesDetails
+            chargesAndAdvanceDetails
+        }
+    }
+
+    private var paymentStaffTabBody: some View {
+        VStack(alignment: .leading, spacing: 12) {
+            paymentDetails
+            staffDetails
         }
     }
 
@@ -1148,28 +1140,37 @@ struct BookingCreateView: View {
         }
     }
 
-    private var chargesAndAdvanceDetails: AnyView {
-        AnyView(
-            VStack(alignment: .leading, spacing: 10) {
-                sectionTitle("Charges & Advance")
-                DirectBookingTextField("Registration Charges *", text: $booking.registrationCharges, placeholder: "Enter Cost", icon: "indianrupeesign", keyboard: .decimalPad)
-                DirectBookingTextField("GST Amount *", text: $booking.gstAmount, placeholder: "Enter Value", icon: "indianrupeesign", keyboard: .decimalPad)
-                bookingApplicabilityControl(isOn: $booking.gstApplicable)
-                DirectBookingTextField("Document Charges *", text: $booking.documentCharges, placeholder: "Enter Cost", icon: "doc", keyboard: .decimalPad)
-                DirectBookingTextField("Patta Charges *", text: $booking.pattaCharges, placeholder: "Enter Cost", icon: "doc", keyboard: .decimalPad)
-                DirectBookingTextField("Other Charges *", text: $booking.otherCharges, placeholder: "Enter Value", icon: "indianrupeesign", keyboard: .decimalPad)
-                bookingApplicabilityControl(isOn: $booking.otherChargesApplicable)
+    private var chargesAndAdvanceDetails: some View {
+        VStack(alignment: .leading, spacing: 10) {
+            bookingChargeFields
+            customerFundingFields
+        }
+    }
 
-                sectionTitle("Customer Funding")
-                DirectBookingOptionPicker("Customer Payment Category *", value: $booking.customerPaymentCategory, placeholder: "Select category", icon: "creditcard", options: Self.customerPaymentCategoryOptions)
-                customerLoanDetails
-                payableSummaryCard
-                DirectBookingPicker("Advance Booking Payment *", value: $booking.bookingMode, placeholder: "Select...", icon: "creditcard", options: ["CASH", "UPI", "NEFT", "RTGS", "CHEQUE", "DD"])
-                DirectBookingTextField("Advance Amount *", text: $booking.advanceAmount, placeholder: "Enter Amount", icon: "indianrupeesign", keyboard: .decimalPad)
-                bookingHelperText("Project minimum: \(AppModuleFormatters.rupees(configuredMinimumAdvance ?? 0)). Higher advance is allowed.")
-                advancePaymentDetails
-            }
-        )
+    private var bookingChargeFields: some View {
+        VStack(alignment: .leading, spacing: 10) {
+            sectionTitle("Charges & Advance")
+            DirectBookingTextField("Registration Charges *", text: $booking.registrationCharges, placeholder: "Enter Cost", icon: "indianrupeesign", keyboard: .decimalPad)
+            DirectBookingTextField("GST Amount *", text: $booking.gstAmount, placeholder: "Enter Value", icon: "indianrupeesign", keyboard: .decimalPad)
+            bookingApplicabilityControl(isOn: $booking.gstApplicable)
+            DirectBookingTextField("Document Charges *", text: $booking.documentCharges, placeholder: "Enter Cost", icon: "doc", keyboard: .decimalPad)
+            DirectBookingTextField("Patta Charges *", text: $booking.pattaCharges, placeholder: "Enter Cost", icon: "doc", keyboard: .decimalPad)
+            DirectBookingTextField("Other Charges *", text: $booking.otherCharges, placeholder: "Enter Value", icon: "indianrupeesign", keyboard: .decimalPad)
+            bookingApplicabilityControl(isOn: $booking.otherChargesApplicable)
+        }
+    }
+
+    private var customerFundingFields: some View {
+        VStack(alignment: .leading, spacing: 10) {
+            sectionTitle("Customer Funding")
+            DirectBookingOptionPicker("Customer Payment Category *", value: $booking.customerPaymentCategory, placeholder: "Select category", icon: "creditcard", options: Self.customerPaymentCategoryOptions)
+            customerLoanDetails
+            payableSummaryCard
+            DirectBookingPicker("Advance Booking Payment *", value: $booking.bookingMode, placeholder: "Select...", icon: "creditcard", options: ["CASH", "UPI", "NEFT", "RTGS", "CHEQUE", "DD"])
+            DirectBookingTextField("Advance Amount *", text: $booking.advanceAmount, placeholder: "Enter Amount", icon: "indianrupeesign", keyboard: .decimalPad)
+            bookingHelperText("Project minimum: \(AppModuleFormatters.rupees(configuredMinimumAdvance ?? 0)). Higher advance is allowed.")
+            advancePaymentDetails
+        }
     }
 
     private func bookingHelperText(_ text: String) -> some View {
@@ -1215,9 +1216,13 @@ struct BookingCreateView: View {
         }
     }
 
-    @ViewBuilder
-    private var payableSummaryCard: some View {
-        if selectedUnit != nil, let totalPayableAmount = booking.payableAmountForBooking {
+    private var payableSummaryCard: AnyView {
+        guard selectedUnit != nil,
+              let totalPayableAmount = booking.payableAmountForBooking else {
+            return AnyView(EmptyView())
+        }
+
+        return AnyView(
             DirectBookingPayableSummaryCard(
                 landCost: booking.agreedAmount ?? 0,
                 gst: booking.gstApplicable ? booking.numericAmount(booking.gstAmount) : 0,
@@ -1235,7 +1240,7 @@ struct BookingCreateView: View {
                 balanceAfterAdvance: booking.balanceAfterAdvance ?? totalPayableAmount,
                 isExchange: booking.bookingType == "EXCHANGE"
             )
-        }
+        )
     }
 
     private var configuredMinimumAdvance: Double? {
