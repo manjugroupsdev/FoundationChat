@@ -16,6 +16,12 @@ struct ConvexMobileDashboard: Decodable, Equatable, Sendable {
     let present: Int
     let absent: Int
     let leave: Int
+    let prevTotalCalls: Int?
+    let prevIncomingCalls: Int?
+    let prevOutboundCalls: Int?
+    let prevHot: Int?
+    let prevWarm: Int?
+    let prevCold: Int?
     let error: String?
 
     // Optional extended fields returned by `/api/dashboard/overview` and newer dashboard builds.
@@ -43,6 +49,8 @@ struct ConvexMobileDashboard: Decodable, Equatable, Sendable {
         case success, date, totalCalls, incomingCalls, outboundCalls
         case hot, warm, cold, cpVisitsFixed, svVisitsFixed
         case totalStaff, present, absent, leave, error
+        case prevTotalCalls, prevIncomingCalls, prevOutboundCalls
+        case prevHot, prevWarm, prevCold
         case notPunchedIn, cpVisitsCompleted, svVisitsCompleted
         case collectionTotal, collectionCount, bookingCount, registrationCount
         case leaveApproved, weekOff, permissionCount, wfhApproved
@@ -65,6 +73,12 @@ struct ConvexMobileDashboard: Decodable, Equatable, Sendable {
         present = container.decodeLossyInt(forKey: .present)
         absent = container.decodeLossyInt(forKey: .absent)
         leave = container.decodeLossyInt(forKey: .leave)
+        prevTotalCalls = container.decodeLossyOptionalInt(forKey: .prevTotalCalls)
+        prevIncomingCalls = container.decodeLossyOptionalInt(forKey: .prevIncomingCalls)
+        prevOutboundCalls = container.decodeLossyOptionalInt(forKey: .prevOutboundCalls)
+        prevHot = container.decodeLossyOptionalInt(forKey: .prevHot)
+        prevWarm = container.decodeLossyOptionalInt(forKey: .prevWarm)
+        prevCold = container.decodeLossyOptionalInt(forKey: .prevCold)
         error = try container.decodeIfPresent(String.self, forKey: .error)
         notPunchedIn = container.decodeLossyOptionalInt(forKey: .notPunchedIn)
         cpVisitsCompleted = container.decodeLossyOptionalInt(forKey: .cpVisitsCompleted)
@@ -80,6 +94,123 @@ struct ConvexMobileDashboard: Decodable, Equatable, Sendable {
         leadsHot = container.decodeLossyOptionalInt(forKey: .leadsHot)
         leadsWarm = container.decodeLossyOptionalInt(forKey: .leadsWarm)
         leadsCold = container.decodeLossyOptionalInt(forKey: .leadsCold)
+    }
+
+    /// Same thin fallback Android uses when the aggregate dashboard route is
+    /// unavailable: retain the live CP/SV counts and leave unavailable
+    /// company-wide metrics at zero without inventing trend data.
+    static func visitFallback(date: String, cpVisitsFixed: Int, svVisitsFixed: Int) -> Self {
+        Self(
+            success: true,
+            date: date,
+            totalCalls: 0,
+            incomingCalls: 0,
+            outboundCalls: 0,
+            hot: 0,
+            warm: 0,
+            cold: 0,
+            cpVisitsFixed: cpVisitsFixed,
+            svVisitsFixed: svVisitsFixed,
+            totalStaff: 0,
+            present: 0,
+            absent: 0,
+            leave: 0,
+            prevTotalCalls: nil,
+            prevIncomingCalls: nil,
+            prevOutboundCalls: nil,
+            prevHot: nil,
+            prevWarm: nil,
+            prevCold: nil,
+            error: nil,
+            notPunchedIn: nil,
+            cpVisitsCompleted: nil,
+            svVisitsCompleted: nil,
+            collectionTotal: nil,
+            collectionCount: nil,
+            bookingCount: nil,
+            registrationCount: nil,
+            leaveApproved: nil,
+            weekOff: nil,
+            permissionCount: nil,
+            wfhApproved: nil,
+            leadsHot: nil,
+            leadsWarm: nil,
+            leadsCold: nil
+        )
+    }
+
+    private init(
+        success: Bool,
+        date: String?,
+        totalCalls: Int,
+        incomingCalls: Int,
+        outboundCalls: Int,
+        hot: Int,
+        warm: Int,
+        cold: Int,
+        cpVisitsFixed: Int,
+        svVisitsFixed: Int,
+        totalStaff: Int,
+        present: Int,
+        absent: Int,
+        leave: Int,
+        prevTotalCalls: Int?,
+        prevIncomingCalls: Int?,
+        prevOutboundCalls: Int?,
+        prevHot: Int?,
+        prevWarm: Int?,
+        prevCold: Int?,
+        error: String?,
+        notPunchedIn: Int?,
+        cpVisitsCompleted: Int?,
+        svVisitsCompleted: Int?,
+        collectionTotal: Double?,
+        collectionCount: Int?,
+        bookingCount: Int?,
+        registrationCount: Int?,
+        leaveApproved: Int?,
+        weekOff: Int?,
+        permissionCount: Int?,
+        wfhApproved: Int?,
+        leadsHot: Int?,
+        leadsWarm: Int?,
+        leadsCold: Int?
+    ) {
+        self.success = success
+        self.date = date
+        self.totalCalls = totalCalls
+        self.incomingCalls = incomingCalls
+        self.outboundCalls = outboundCalls
+        self.hot = hot
+        self.warm = warm
+        self.cold = cold
+        self.cpVisitsFixed = cpVisitsFixed
+        self.svVisitsFixed = svVisitsFixed
+        self.totalStaff = totalStaff
+        self.present = present
+        self.absent = absent
+        self.leave = leave
+        self.prevTotalCalls = prevTotalCalls
+        self.prevIncomingCalls = prevIncomingCalls
+        self.prevOutboundCalls = prevOutboundCalls
+        self.prevHot = prevHot
+        self.prevWarm = prevWarm
+        self.prevCold = prevCold
+        self.error = error
+        self.notPunchedIn = notPunchedIn
+        self.cpVisitsCompleted = cpVisitsCompleted
+        self.svVisitsCompleted = svVisitsCompleted
+        self.collectionTotal = collectionTotal
+        self.collectionCount = collectionCount
+        self.bookingCount = bookingCount
+        self.registrationCount = registrationCount
+        self.leaveApproved = leaveApproved
+        self.weekOff = weekOff
+        self.permissionCount = permissionCount
+        self.wfhApproved = wfhApproved
+        self.leadsHot = leadsHot
+        self.leadsWarm = leadsWarm
+        self.leadsCold = leadsCold
     }
 }
 

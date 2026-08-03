@@ -4,6 +4,7 @@ import SwiftUI
 struct FleetMyTripsView: View {
     @Environment(AuthStore.self) private var authStore
     @State private var visits: [GeoTrackTodayVisit] = []
+    @State private var driverTrips: [FleetDriverTrip] = []
     @State private var selectedFilter: FleetTripFilter = .all
     @State private var isLoading = false
     @State private var hasLoaded = false
@@ -11,7 +12,7 @@ struct FleetMyTripsView: View {
     @State private var futureTripMessage: String?
     @State private var emptyStateMessage: String?
     @State private var searchText = ""
-    @State private var visitToNavigate: GeoTrackTodayVisit?
+    @State private var tripToNavigate: FleetDriverTrip?
     @State private var locationProvider = FleetTripLocationProvider()
 
     private var filteredVisits: [GeoTrackTodayVisit] {
@@ -51,7 +52,7 @@ struct FleetMyTripsView: View {
             .frame(maxWidth: .infinity, maxHeight: .infinity)
         }
         .frame(maxWidth: .infinity, maxHeight: .infinity)
-        .background(Color(hex: 0xF8F9FC).ignoresSafeArea())
+        .background(Color.appScreenBackground.ignoresSafeArea())
         .navigationTitle("My Trips")
         .navigationBarTitleDisplayMode(.inline)
         .searchable(
@@ -74,19 +75,23 @@ struct FleetMyTripsView: View {
         .toolbar(.hidden, for: .tabBar)
         .task { if !hasLoaded { await load() } }
         .onAppear { locationProvider.start() }
-        .navigationDestination(item: $visitToNavigate) { visit in
+        .navigationDestination(item: $tripToNavigate) { trip in
+            let visit = trip.toTodayVisitOrNil()
             TripNavigationView(
-                visitId: visit.id,
+                visitId: trip.id,
                 placeId: nil,
-                placeName: visit.fleetDisplayName,
-                placeAddress: visit.placeAddress,
-                destination: coordinate(for: visit),
-                initialStatus: visit.status,
-                tripType: visit.tripType,
-                clientPlaceVisitId: visit.clientPlaceVisitId,
-                cpClientMet: visit.cpVisit?.clientMet,
-                cpOutcome: visit.cpVisit?.outcome,
-                requiresOpenAttendance: true,
+                placeName: trip.title,
+                placeAddress: trip.pickupAddress,
+                mapsLink: trip.pickupGoogleMapsLink,
+                destination: visit.flatMap { coordinate(for: $0) },
+                initialStatus: trip.phase,
+                tripType: "site_visit",
+                clientPlaceVisitId: nil,
+                cpClientMet: nil,
+                cpOutcome: nil,
+                fleetOnSiteAt: trip.travelDeskOnSiteAt,
+                usesAgencyFleetDriverAPI: authStore.currentSession?.user.isExternalFleetDriver == true,
+                requiresOpenAttendance: authStore.currentSession?.user.isExternalFleetDriver != true,
                 onTripChanged: {
                     Task { await load() }
                 }
@@ -114,7 +119,7 @@ struct FleetMyTripsView: View {
                 } label: {
                     Text(filter.title)
                         .font(.system(size: 11, weight: .semibold))
-                        .foregroundStyle(selectedFilter == filter ? .white : Color(hex: 0x667085))
+                        .foregroundStyle(selectedFilter == filter ? Color.white : Color.primary)
                         .frame(maxWidth: .infinity)
                         .frame(height: 32)
                         .background(
@@ -127,7 +132,7 @@ struct FleetMyTripsView: View {
         }
         .padding(3)
         .frame(height: 38)
-        .background(Color(hex: 0xEEF2F7), in: Capsule())
+        .background(Color.appFieldBackground, in: Capsule())
         .sensoryFeedback(.selection, trigger: selectedFilter)
     }
 
@@ -161,7 +166,7 @@ struct FleetMyTripsView: View {
                 }
 
                 LinearGradient(
-                    colors: [Color(hex: 0xF8F9FC).opacity(0), Color(hex: 0xF8F9FC)],
+                    colors: [Color.appScreenBackground.opacity(0), Color.appScreenBackground],
                     startPoint: .top,
                     endPoint: .bottom
                 )
@@ -192,7 +197,9 @@ struct FleetMyTripsView: View {
         }
         do {
             GeoTrackAPIService.shared.tokenProvider = { token }
-            let driverTrips = try await FleetConvexAPIService.listDriverTrips(token: token)
+            let scope: FleetDispatchScope = authStore.currentSession?.user.isExternalFleetDriver == true ? .agency : .mms
+            let driverTrips = try await FleetConvexAPIService.listDriverTrips(token: token, scope: scope)
+            self.driverTrips = driverTrips
             visits = driverTrips
                 .compactMap { $0.toTodayVisitOrNil() }
                 .sorted { lhs, rhs in
@@ -218,7 +225,7 @@ struct FleetMyTripsView: View {
             futureTripMessage = "This trip is scheduled for a future date."
             return
         }
-        visitToNavigate = visit
+        tripToNavigate = driverTrips.first { $0.id == visit.id }
     }
 
     private func coordinate(for visit: GeoTrackTodayVisit) -> CLLocationCoordinate2D? {
@@ -304,7 +311,7 @@ private struct FleetVisitCard: View {
                 headerRow
 
                 Rectangle()
-                    .fill(Color(hex: 0xE5E7EB))
+                    .fill(Color.appSeparator)
                     .frame(height: 1)
                     .padding(.vertical, 16)
 
@@ -314,7 +321,7 @@ private struct FleetVisitCard: View {
                     .padding(.top, 20)
             }
             .padding(16)
-            .background(Color.white, in: RoundedRectangle(cornerRadius: 16, style: .continuous))
+            .background(Color.appSurface, in: RoundedRectangle(cornerRadius: 16, style: .continuous))
         }
         .buttonStyle(.plain)
     }
@@ -323,19 +330,19 @@ private struct FleetVisitCard: View {
         HStack(spacing: 12) {
             Text(userInitial)
                 .font(.system(size: 18, weight: .semibold))
-                .foregroundStyle(Color(hex: 0x475467))
+                .foregroundStyle(.secondary)
                 .frame(width: 44, height: 44)
-                .background(Color(hex: 0xF2F4F7), in: Circle())
+                .background(Color.appFieldBackground, in: Circle())
 
             VStack(alignment: .leading, spacing: 2) {
-                Text(user?.name?.nonBlank ?? "Donald Trump")
+                Text(user?.name?.nonBlank ?? "Fleet Driver")
                     .font(.system(size: 14, weight: .semibold))
-                    .foregroundStyle(Color(hex: 0x111827))
+                    .foregroundStyle(.primary)
                     .lineLimit(1)
 
-                Text("\(driverPrefix):\(user?.employeeId?.nonBlank ?? "38212")")
+                Text(user?.employeeId?.nonBlank.map { "\(driverPrefix): \($0)" } ?? driverPrefix)
                     .font(.system(size: 12, weight: .regular))
-                    .foregroundStyle(Color(hex: 0x667085))
+                    .foregroundStyle(.secondary)
                     .lineLimit(1)
             }
 
@@ -363,16 +370,16 @@ private struct FleetVisitCard: View {
             }
 
             Rectangle()
-                .fill(Color(hex: 0xE5E7EB))
+                .fill(Color.appSeparator)
                 .frame(width: 1, height: 80)
 
             VStack(spacing: 12) {
                 if statusState.isUpcoming {
-                    detailItem(icon: "clock", label: "Time", value: visit.scheduledStartTime?.nonBlank ?? "09:30 AM")
-                    detailItem(icon: "timer", label: "ETA", value: "25 Mins")
+                    detailItem(icon: "clock", label: "Time", value: visit.scheduledStartTime?.nonBlank ?? "Not set")
+                    detailItem(icon: "timer", label: "Status", value: "Upcoming")
                 } else {
-                    detailItem(icon: "phone", label: "Phone Number", value: visit.leadPhone?.nonBlank ?? "9874827382")
-                    detailItem(icon: "clock", label: "Time", value: visit.scheduledStartTime?.nonBlank ?? "09:30 AM")
+                    detailItem(icon: "phone", label: "Phone Number", value: visit.leadPhone?.nonBlank ?? "Not available")
+                    detailItem(icon: "clock", label: "Time", value: visit.scheduledStartTime?.nonBlank ?? "Not set")
                 }
             }
         }
@@ -384,16 +391,16 @@ private struct FleetVisitCard: View {
                 .font(.system(size: 16, weight: .semibold))
                 .foregroundStyle(Color(hex: 0x0BCAB4))
                 .frame(width: 36, height: 36)
-                .background(Color(hex: 0xF2F4F7), in: Circle())
+                .background(Color.appFieldBackground, in: Circle())
 
             VStack(alignment: .leading, spacing: 2) {
                 Text(label)
                     .font(.system(size: 10, weight: .regular))
-                    .foregroundStyle(Color(hex: 0x667085))
+                    .foregroundStyle(.secondary)
                     .lineLimit(1)
                 Text(value)
                     .font(.system(size: 11, weight: .semibold))
-                    .foregroundStyle(Color(hex: 0x111827))
+                    .foregroundStyle(.primary)
                     .lineLimit(1)
                     .minimumScaleFactor(0.78)
             }
@@ -460,11 +467,11 @@ private struct FleetTripsEmptyState: View {
 
             Text(title)
                 .font(.system(size: 20, weight: .bold))
-                .foregroundStyle(Color(hex: 0x111827))
+                .foregroundStyle(.primary)
 
             Text(description)
                 .font(.system(size: 14, weight: .regular))
-                .foregroundStyle(Color(hex: 0x667085))
+                .foregroundStyle(.secondary)
                 .multilineTextAlignment(.center)
                 .fixedSize(horizontal: false, vertical: true)
         }
@@ -484,7 +491,7 @@ private struct FleetTripCardState {
     }
 
     var isInProgress: Bool {
-        ["in-progress", "in_progress", "ongoing", "started", "active", "arrived", "arrival_verified", "arrival-verified"].contains(normalizedStatus)
+        ["in-progress", "in_progress", "ongoing", "started", "active", "arrived", "arrival_verified", "arrival-verified", "on_site", "picked_from_site"].contains(normalizedStatus)
     }
 
     var isUpcoming: Bool {
@@ -506,10 +513,10 @@ private struct FleetTripCardState {
     }
 
     var statusBackground: Color {
-        if isCompleted { return Color(hex: 0xF2F4F7) }
-        if isInProgress { return Color(hex: 0xFFFAEB) }
-        if isUpcoming { return Color(hex: 0xEAF3FF) }
-        return Color(hex: 0xECFDF3)
+        if isCompleted { return Color.secondary.opacity(0.11) }
+        if isInProgress { return Color.orange.opacity(0.13) }
+        if isUpcoming { return Color.blue.opacity(0.11) }
+        return Color.green.opacity(0.11)
     }
 
     var dotColor: Color { statusTextColor }
@@ -528,8 +535,8 @@ private struct FleetTripCardState {
     }
 
     var actionBackground: Color {
-        if isCompleted { return Color(hex: 0xF2F4F7) }
-        if isUpcoming { return Color(hex: 0xEAF3FF) }
+        if isCompleted { return Color.secondary.opacity(0.11) }
+        if isUpcoming { return Color.blue.opacity(0.11) }
         return Color(hex: 0x1BCA0B)
     }
 
@@ -548,6 +555,8 @@ private extension FleetDriverTrip {
         switch normalizedPhase {
         case "completed":
             status = "completed"
+        case "picked_from_site":
+            status = "picked_from_site"
         case "on_site":
             status = "on_site"
         case "in_progress":
@@ -570,8 +579,8 @@ private extension FleetDriverTrip {
             placeName: title,
             placeAddress: pickupAddress?.nonBlank,
             placeType: "project",
-            placeLat: nil,
-            placeLng: nil,
+            placeLat: pickupLat,
+            placeLng: pickupLng,
             tripType: "site_visit",
             clientPlaceVisitId: nil,
             leadName: nil,

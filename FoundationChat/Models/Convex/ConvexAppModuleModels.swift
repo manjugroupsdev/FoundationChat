@@ -356,6 +356,8 @@ struct MarketingProject: Decodable, Identifiable, Hashable, Sendable {
     let location: String?
     let specialPaymentEnabled: Bool?
     let minimumAdvanceAmount: Double?
+    let allotmentDueDays: Int?
+    let gstPercent: Double?
     let promoOffer: String?
     let projectOfferValue: Double?
     let projectOfferTerms: String?
@@ -364,6 +366,7 @@ struct MarketingProject: Decodable, Identifiable, Hashable, Sendable {
     enum CodingKeys: String, CodingKey {
         case id = "_id"
         case name, scope, status, location, specialPaymentEnabled, minimumAdvanceAmount
+        case allotmentDueDays, gstPercent
         case promoOffer, projectOfferValue, projectOfferTerms, projectOfferValidityDays
     }
 }
@@ -426,10 +429,14 @@ struct BookingPlotPrefill: Decodable, Sendable {
         let projectOfferValue: Double?
         let projectOfferTerms: String?
         let projectOfferValidityDays: Double?
+        let gstPercent: Double?
+        let minimumAdvanceAmount: Double?
+        let allotmentDueDays: Int?
 
         enum CodingKeys: String, CodingKey {
             case id = "_id"
             case name, promoOffer, projectOfferValue, projectOfferTerms, projectOfferValidityDays
+            case gstPercent, minimumAdvanceAmount, allotmentDueDays
         }
     }
 
@@ -514,6 +521,7 @@ struct TelecallerLeadSearchData: Decodable, Identifiable, Hashable, Sendable {
     let mobileNumber: String?
     let emailId: String?
     let projectId: String?
+    let assignedToStaffId: String?
     let clientCity: String?
     let locationPreferred: String?
     let suggestedVisitAddress: String?
@@ -526,7 +534,7 @@ struct TelecallerLeadSearchData: Decodable, Identifiable, Hashable, Sendable {
 
     enum CodingKeys: String, CodingKey {
         case id = "_id"
-        case contactName, mobileNumber, emailId, projectId, clientCity, locationPreferred
+        case contactName, mobileNumber, emailId, projectId, assignedToStaffId, clientCity, locationPreferred
         case suggestedVisitAddress, suggestedVisitLat, suggestedVisitLng, suggestedGoogleMapsLink
         case latestAnalysisProfile, clientPlaceProfile, manualProfile
     }
@@ -581,7 +589,11 @@ struct BookingClientProfile: Decodable, Identifiable, Sendable {
     let officePhone: String?
     let officeEmail: String?
     let aadhaar: String?
+    let aadhaarDocumentStorageId: String?
+    let aadhaarDocumentFileName: String?
     let pan: String?
+    let panDocumentStorageId: String?
+    let panDocumentFileName: String?
     let referenceName1: String?
     let referenceMobile1: String?
     let referenceProfession1: String?
@@ -600,7 +612,8 @@ struct BookingClientProfile: Decodable, Identifiable, Sendable {
         case profession, designation, department, incomePerAnnum
         case officeName, officeAddress, officeArea, officePincode
         case officeMobile, officePhone, officeEmail
-        case aadhaar, pan
+        case aadhaar, aadhaarDocumentStorageId, aadhaarDocumentFileName
+        case pan, panDocumentStorageId, panDocumentFileName
         case referenceName1, referenceMobile1, referenceProfession1
         case referenceName2, referenceMobile2, referenceProfession2
     }
@@ -1051,6 +1064,52 @@ struct SetSiteVisitOutcomeRequest: Encodable, Sendable {
     let notInterestedDetails: [SiteVisitNotInterestedDetail]?
     let notes: String?
     let bookingId: String?
+    let followupDueDate: String?
+    let followupDueTime: String?
+
+    init(
+        id: String,
+        outcome: String,
+        reasons: [String]? = nil,
+        postponeReasons: [String]? = nil,
+        notInterestedReasons: [String]? = nil,
+        notInterestedDetails: [SiteVisitNotInterestedDetail]? = nil,
+        notes: String? = nil,
+        bookingId: String? = nil,
+        followupDueDate: String? = nil,
+        followupDueTime: String? = nil
+    ) {
+        self.id = id
+        self.outcome = outcome
+        self.reasons = reasons
+        self.postponeReasons = postponeReasons
+        self.notInterestedReasons = notInterestedReasons
+        self.notInterestedDetails = notInterestedDetails
+        self.notes = notes
+        self.bookingId = bookingId
+        self.followupDueDate = followupDueDate
+        self.followupDueTime = followupDueTime
+    }
+}
+
+struct SiteVisitQRScanRequest: Encodable, Sendable {
+    let qrData: String
+}
+
+struct SiteVisitIDRequest: Encodable, Sendable {
+    let id: String
+}
+
+struct PostponeSiteVisitRequest: Encodable, Sendable {
+    let id: String
+    let scheduledDate: String
+    let scheduledTime: String?
+    let reason: String?
+}
+
+struct CancelSiteVisitRequest: Encodable, Sendable {
+    let id: String
+    let reason: String?
 }
 
 struct SiteVisitNotInterestedDetail: Encodable, Sendable {
@@ -1301,6 +1360,21 @@ struct SetCpVisitOutcomeRequest: Encodable, Sendable {
     let outcome: String
     let postponeReasons: [String]?
     let notes: String?
+    let arrivalPhotoStorageId: String?
+
+    init(
+        id: String,
+        outcome: String,
+        postponeReasons: [String]? = nil,
+        notes: String? = nil,
+        arrivalPhotoStorageId: String? = nil
+    ) {
+        self.id = id
+        self.outcome = outcome
+        self.postponeReasons = postponeReasons
+        self.notes = notes
+        self.arrivalPhotoStorageId = arrivalPhotoStorageId
+    }
 }
 
 struct SiteVisitAttendeeRequest: Encodable, Hashable, Sendable {
@@ -1326,6 +1400,9 @@ struct ConvertCpVisitToSiteVisitRequest: Encodable, Sendable {
     let expectedAttendeeCount: Int?
     let attendees: [SiteVisitAttendeeRequest]?
     let pickupAddress: String?
+    let pickupLat: Double?
+    let pickupLng: Double?
+    let pickupGoogleMapsLink: String?
     let pickupTime: String?
     let travelMode: String?
     let vehiclePreference: String?
@@ -1348,6 +1425,9 @@ struct ConvertCpVisitToSiteVisitRequest: Encodable, Sendable {
         expectedAttendeeCount: Int? = nil,
         attendees: [SiteVisitAttendeeRequest]? = nil,
         pickupAddress: String? = nil,
+        pickupLat: Double? = nil,
+        pickupLng: Double? = nil,
+        pickupGoogleMapsLink: String? = nil,
         pickupTime: String? = nil,
         travelMode: String? = nil,
         vehiclePreference: String? = nil,
@@ -1369,6 +1449,9 @@ struct ConvertCpVisitToSiteVisitRequest: Encodable, Sendable {
         self.expectedAttendeeCount = expectedAttendeeCount
         self.attendees = attendees
         self.pickupAddress = pickupAddress
+        self.pickupLat = pickupLat
+        self.pickupLng = pickupLng
+        self.pickupGoogleMapsLink = pickupGoogleMapsLink
         self.pickupTime = pickupTime
         self.travelMode = travelMode
         self.vehiclePreference = vehiclePreference

@@ -15,14 +15,13 @@ struct FoundationChatApp: App {
     @Environment(\.scenePhase) private var scenePhase
 
     @AppStorage("app.language") private var languagePreference = ProfileLanguage.english.rawValue
-    @AppStorage("app.appearance") private var appearancePreference = ProfileAppearance.light.rawValue
 
     @State private var authStore = AuthStore()
     @State private var launchPhase: LaunchPhase
 
     init() {
         UINavigationController.enableGlobalSwipeBack()
-        Self.configureLightInputAppearance()
+        Self.configureBrandInputAppearance()
         let mgr = OnboardingManager()
         _launchPhase = State(initialValue: mgr.shouldShowOnboarding ? .splash : .auth)
     }
@@ -55,13 +54,13 @@ struct FoundationChatApp: App {
                 }
             }
             .animation(.easeInOut(duration: 0.4), value: launchPhase)
-            .background(Color.white.ignoresSafeArea())
+            .background(Color.appScreenBackground.ignoresSafeArea())
             .background {
                 GlobalSwipeBackInstaller()
                     .frame(width: 0, height: 0)
             }
             .environment(\.locale, Locale(identifier: languagePreference))
-            .preferredColorScheme(appColorScheme)
+            .preferredColorScheme(.light)
             .modelContainer(for: [Conversation.self, Message.self])
             .environment(authStore)
             .onChange(of: scenePhase) { oldPhase, newPhase in
@@ -70,16 +69,7 @@ struct FoundationChatApp: App {
         }
     }
 
-    private var appColorScheme: ColorScheme {
-        switch ProfileAppearance(rawValue: appearancePreference) {
-        case .dark:
-            return .dark
-        case .light, .system, .none:
-            return .light
-        }
-    }
-
-    private static func configureLightInputAppearance() {
+    private static func configureBrandInputAppearance() {
         let textColor = UIColor.label
         let tintColor = UIColor(red: 0.043, green: 0.380, blue: 0.792, alpha: 1)
 
@@ -113,7 +103,7 @@ struct FoundationChatApp: App {
     }
 
     private static func recoverVisibleWindowLayout() {
-        configureLightInputAppearance()
+        configureBrandInputAppearance()
         UINavigationController.enableGlobalSwipeBack()
 
         let windows = UIApplication.shared.connectedScenes

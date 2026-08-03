@@ -19,6 +19,18 @@ struct LandInspection: Decodable, Identifiable, Hashable, Sendable {
     let pincode: String?
     let surveyNo: String?
     let propertyType: String?
+    let subType: String?
+    let state: String?
+    let doorNo: String?
+    let approxCostPerUnit: Double?
+    let costUnit: String?
+    let paymentTerms: String?
+    let jvRatio: String?
+    let leadSource: String?
+    let leadSourceDetail: String?
+    let referrerName: String?
+    let referrerContact: String?
+    let customerNumber: String?
     let status: String?
     let derivedInspectionStatus: String?
     let inspectionAcceptanceStatus: String?
@@ -32,6 +44,9 @@ struct LandInspection: Decodable, Identifiable, Hashable, Sendable {
     let exactLocation: String?
     let landmark: String?
     let latLong: String?
+    let googleMapsLink: String?
+    let latitude: Double?
+    let longitude: Double?
     let population: String?
     let roadType: [String]?
     let accessibilityWidth: String?
@@ -64,10 +79,13 @@ struct LandInspection: Decodable, Identifiable, Hashable, Sendable {
         case id = "_id"
         case propertyId, referenceNo, totalArea, areaUnit
         case propertyName, ownerName, customerName, location, scheduledDate, inspectionDate
-        case village, taluk, district, locality, city, fullAddress, pincode, surveyNo, propertyType
+        case village, taluk, district, locality, city, state, fullAddress, doorNo, pincode
+        case surveyNo, propertyType, subType, approxCostPerUnit, costUnit, paymentTerms, jvRatio
+        case leadSource, leadSourceDetail, referrerName, referrerContact, customerNumber
         case status, derivedInspectionStatus, inspectionAcceptanceStatus, reportId, vpInspectionStatus
         case inspectionDetails, competitorDetails, amenityDetails, targetDetails
-        case exactLocation, landmark, latLong, mapLink, googleMapLink, population, roadType
+        case exactLocation, landmark, latLong, mapLink, googleMapLink, googleMapsLink
+        case latitude, longitude, population, roadType
         case accessibilityWidth, accessibilityWidthUnit, electricity, eConnectionToLand, telecom
         case railwayStationDistance, busStopDistance
         case schoolEntries, collegeEntries, hospitalEntries, mallEntries, marketEntries
@@ -109,6 +127,18 @@ struct LandInspection: Decodable, Identifiable, Hashable, Sendable {
         pincode = try container.decodeIfPresent(String.self, forKey: .pincode)
         surveyNo = try container.decodeIfPresent(String.self, forKey: .surveyNo)
         propertyType = try container.decodeIfPresent(String.self, forKey: .propertyType)
+        subType = try container.decodeIfPresent(String.self, forKey: .subType)
+        state = try container.decodeIfPresent(String.self, forKey: .state)
+        doorNo = try container.decodeIfPresent(String.self, forKey: .doorNo)
+        approxCostPerUnit = try container.decodeLossyDoubleIfPresent(forKey: .approxCostPerUnit)
+        costUnit = try container.decodeIfPresent(String.self, forKey: .costUnit)
+        paymentTerms = try container.decodeIfPresent(String.self, forKey: .paymentTerms)
+        jvRatio = try container.decodeIfPresent(String.self, forKey: .jvRatio)
+        leadSource = try container.decodeIfPresent(String.self, forKey: .leadSource)
+        leadSourceDetail = try container.decodeIfPresent(String.self, forKey: .leadSourceDetail)
+        referrerName = try container.decodeIfPresent(String.self, forKey: .referrerName)
+        referrerContact = try container.decodeIfPresent(String.self, forKey: .referrerContact)
+        customerNumber = try container.decodeIfPresent(String.self, forKey: .customerNumber)
         status = try container.decodeIfPresent(String.self, forKey: .status)
         derivedInspectionStatus = try container.decodeIfPresent(String.self, forKey: .derivedInspectionStatus)
         inspectionAcceptanceStatus = try container.decodeIfPresent(String.self, forKey: .inspectionAcceptanceStatus)
@@ -120,9 +150,13 @@ struct LandInspection: Decodable, Identifiable, Hashable, Sendable {
         targetDetails = try container.decodeIfPresent(String.self, forKey: .targetDetails)
         exactLocation = try container.decodeIfPresent(String.self, forKey: .exactLocation)
         landmark = try container.decodeIfPresent(String.self, forKey: .landmark)
-        latLong = try container.decodeIfPresent(String.self, forKey: .latLong)
-            ?? container.decodeIfPresent(String.self, forKey: .mapLink)
+        googleMapsLink = try container.decodeIfPresent(String.self, forKey: .googleMapsLink)
             ?? container.decodeIfPresent(String.self, forKey: .googleMapLink)
+            ?? container.decodeIfPresent(String.self, forKey: .mapLink)
+        latitude = try container.decodeLossyDoubleIfPresent(forKey: .latitude)
+        longitude = try container.decodeLossyDoubleIfPresent(forKey: .longitude)
+        latLong = try container.decodeIfPresent(String.self, forKey: .latLong)
+            ?? googleMapsLink
         population = try container.decodeIfPresent(String.self, forKey: .population)
         roadType = try container.decodeStringArrayIfPresent(forKey: .roadType)
         accessibilityWidth = try container.decodeIfPresent(String.self, forKey: .accessibilityWidth)

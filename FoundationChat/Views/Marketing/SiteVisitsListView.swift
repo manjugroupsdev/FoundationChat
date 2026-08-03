@@ -50,7 +50,7 @@ struct SiteVisitsListView: View {
             filterPills
             content
         }
-        .background(Color(hex: 0xF1F3F8).ignoresSafeArea())
+        .background(Color.appScreenBackground.ignoresSafeArea())
         .navigationTitle("Site Visits")
         .navigationBarTitleDisplayMode(.inline)
         .searchable(
@@ -60,7 +60,7 @@ struct SiteVisitsListView: View {
         )
         .textInputAutocapitalization(.never)
         .autocorrectionDisabled()
-        .toolbarBackground(Color.white, for: .navigationBar)
+        .toolbarBackground(Color.appElevatedSurface, for: .navigationBar)
         .toolbarBackground(.visible, for: .navigationBar)
         .toolbar {
             ToolbarItem(placement: .topBarTrailing) {
@@ -126,10 +126,7 @@ struct SiteVisitsListView: View {
                         Button {
                             selectedVisit = visit
                         } label: {
-                            SiteVisitRow(
-                                visit: visit,
-                                bdoName: authStore.currentSession?.user.siteVisitListDisplayName ?? "—"
-                            )
+                            SiteVisitRow(visit: visit)
                         }
                         .buttonStyle(.plain)
                     }
@@ -142,7 +139,7 @@ struct SiteVisitsListView: View {
     }
 
     private var filterPills: some View {
-        ScrollView(.horizontal, showsIndicators: false) {
+        ScrollView(.horizontal) {
             HStack(spacing: 8) {
                 ForEach(SiteVisitListFilter.allCases) { filter in
                     Button {
@@ -150,16 +147,16 @@ struct SiteVisitsListView: View {
                     } label: {
                         Text(filter.title)
                             .font(.system(size: 14, weight: selectedFilter == filter ? .semibold : .medium))
-                            .foregroundStyle(selectedFilter == filter ? .white : Color(hex: 0x475467))
+                            .foregroundStyle(selectedFilter == filter ? .white : .primary)
                             .padding(.horizontal, 18)
                             .frame(height: 38)
                             .background(
-                                selectedFilter == filter ? Color(hex: 0x0B61CA) : Color.white,
+                                selectedFilter == filter ? Color(hex: 0x0B61CA) : Color.appSurface,
                                 in: Capsule()
                             )
                             .overlay(
                                 Capsule()
-                                    .stroke(selectedFilter == filter ? Color.clear : Color(hex: 0xEAECF0), lineWidth: 1)
+                                    .stroke(selectedFilter == filter ? Color.clear : Color.appSeparator, lineWidth: 1)
                             )
                     }
                     .buttonStyle(.plain)
@@ -167,6 +164,7 @@ struct SiteVisitsListView: View {
             }
             .padding(.horizontal, 16)
         }
+        .scrollIndicators(.hidden)
         .padding(.top, 16)
     }
 
@@ -177,10 +175,20 @@ struct SiteVisitsListView: View {
         switch selectedFilter {
         case .all, .scheduled:
             return "No Site Visits Yet"
-        case .clientStarted:
-            return "No Visits In Progress"
-        case .pickedUp:
-            return "No Picked Up Visits"
+        case .fixed:
+            return "No Fixed Visits"
+        case .enroute:
+            return "No Enroute Visits"
+        case .onsite:
+            return "No Onsite Visits"
+        case .returningHome:
+            return "No Returning Visits"
+        case .completed:
+            return "No Completed Visits"
+        case .cancelled:
+            return "No Cancelled Visits"
+        case .postponed:
+            return "No Postponed Visits"
         }
     }
 
@@ -288,7 +296,7 @@ private struct SiteVisitSkeletonRow: View {
             }
 
             Rectangle()
-                .fill(Color(hex: 0xEAECF0))
+                .fill(Color.appSeparator)
                 .frame(width: 1)
                 .padding(.vertical, 2)
 
@@ -315,7 +323,7 @@ private struct SiteVisitSkeletonRow: View {
         }
         .padding(12)
         .frame(maxWidth: .infinity, alignment: .leading)
-        .background(Color.white, in: RoundedRectangle(cornerRadius: 16))
+        .background(Color.appSurface, in: RoundedRectangle(cornerRadius: 16))
         .redacted(reason: .placeholder)
     }
 
@@ -342,14 +350,13 @@ private struct SiteVisitSkeletonRow: View {
 
 struct SiteVisitRow: View {
     let visit: ConvexSiteVisit
-    let bdoName: String
 
     var body: some View {
         HStack(alignment: .top, spacing: 12) {
             dateBlock
 
             Rectangle()
-                .fill(Color(hex: 0xEAECF0))
+                .fill(Color.appSeparator)
                 .frame(width: 1)
                 .padding(.vertical, 2)
 
@@ -357,7 +364,7 @@ struct SiteVisitRow: View {
                 HStack(spacing: 8) {
                     Text(visit.leadName?.nilIfBlank ?? "—")
                         .font(.system(size: 17, weight: .bold))
-                        .foregroundStyle(Color(hex: 0x1D2939))
+                        .foregroundStyle(.primary)
                         .lineLimit(1)
                         .frame(maxWidth: .infinity, alignment: .leading)
 
@@ -394,15 +401,19 @@ struct SiteVisitRow: View {
 
                 DashedDivider()
 
-                HStack(spacing: 12) {
-                    footerItem(icon: "person", title: bdoName, subtitle: "BDO")
+                VStack(alignment: .leading, spacing: 9) {
+                    HStack(spacing: 12) {
+                        footerItem(icon: "person.crop.circle", title: visit.lmoName?.nilIfBlank ?? "—", subtitle: "LMO")
+                        footerItem(icon: "person", title: visit.bdoName?.nilIfBlank ?? visit.staffName?.nilIfBlank ?? "—", subtitle: "BDO")
+                    }
+
                     footerItem(icon: "mappin", title: visit.destinationTitle, subtitle: "ORIGIN")
                 }
             }
         }
         .padding(12)
         .frame(maxWidth: .infinity, alignment: .leading)
-        .background(Color.white, in: RoundedRectangle(cornerRadius: 16))
+        .background(Color.appSurface, in: RoundedRectangle(cornerRadius: 16))
     }
 
     private var dateBlock: some View {
@@ -410,12 +421,12 @@ struct SiteVisitRow: View {
             VStack(spacing: 3) {
                 Text(visit.androidDayText)
                     .font(.system(size: 11, weight: .semibold))
-                    .foregroundStyle(Color(hex: 0x667085))
+                    .foregroundStyle(.secondary)
                     .lineLimit(1)
 
                 Text(visit.androidDateText)
                     .font(.system(size: 25, weight: .bold))
-                    .foregroundStyle(Color(hex: 0x1D2939))
+                    .foregroundStyle(.primary)
                     .lineLimit(1)
 
                 Text(visit.androidMonthText)
@@ -449,7 +460,7 @@ struct SiteVisitRow: View {
             VStack(alignment: .leading, spacing: 3) {
                 Text(title)
                     .font(.system(size: 12, weight: .bold))
-                    .foregroundStyle(Color(hex: 0x344054))
+                    .foregroundStyle(.primary)
                     .lineLimit(1)
                 Text(subtitle)
                     .font(.system(size: 10, weight: .medium))
@@ -499,7 +510,7 @@ private struct DashedDivider: View {
             .overlay {
                 Line()
                     .stroke(style: StrokeStyle(lineWidth: 1, dash: [5, 4]))
-                    .foregroundStyle(Color(hex: 0xEAECF0))
+                    .foregroundStyle(Color.appSeparator)
             }
     }
 
@@ -534,6 +545,7 @@ private enum AndroidSiteVisitRowStatus {
     case dropped
     case inProgress
     case completed
+    case postponed
     case cancelled
 
     var isCancelled: Bool {
@@ -545,7 +557,16 @@ private enum AndroidSiteVisitRowStatus {
         switch self {
         case .clientStarted, .pickedUp, .onSite, .dropped, .inProgress:
             return true
-        case .start, .completed, .cancelled:
+        case .start, .completed, .postponed, .cancelled:
+            return false
+        }
+    }
+
+    var isPickedUpBucket: Bool {
+        switch self {
+        case .pickedUp, .onSite, .dropped:
+            return true
+        case .start, .clientStarted, .inProgress, .completed, .postponed, .cancelled:
             return false
         }
     }
@@ -553,18 +574,28 @@ private enum AndroidSiteVisitRowStatus {
 
 private enum SiteVisitListFilter: String, CaseIterable, Identifiable {
     case all
+    case fixed
     case scheduled
-    case clientStarted
-    case pickedUp
+    case enroute
+    case onsite
+    case returningHome
+    case completed
+    case cancelled
+    case postponed
 
     var id: String { rawValue }
 
     var title: String {
         switch self {
         case .all: return "All"
+        case .fixed: return "Fixed"
         case .scheduled: return "Scheduled"
-        case .clientStarted: return "Client Started"
-        case .pickedUp: return "Picked Up"
+        case .enroute: return "Enroute"
+        case .onsite: return "Onsite"
+        case .returningHome: return "Returning home"
+        case .completed: return "Completed"
+        case .cancelled: return "Cancelled"
+        case .postponed: return "Postponed"
         }
     }
 
@@ -572,26 +603,42 @@ private enum SiteVisitListFilter: String, CaseIterable, Identifiable {
         switch self {
         case .all:
             return true
+        case .fixed:
+            return visit.isFixedSiteVisit
         case .scheduled:
-            return visit.siteVisitStatus == .start
-        case .clientStarted:
-            return visit.siteVisitStatus.isInProgress
-        case .pickedUp:
-            return visit.siteVisitStatus == .pickedUp
+            return visit.isScheduledSiteVisit && !visit.isFixedSiteVisit
+        case .enroute:
+            return visit.isEnrouteSiteVisit
+        case .onsite:
+            return visit.isOnsiteSiteVisit
+        case .returningHome:
+            return visit.isReturningHomeSiteVisit
+        case .completed:
+            return visit.isCompletedSiteVisit
+        case .cancelled:
+            return visit.isCancelledSiteVisit
+        case .postponed:
+            return visit.isPostponedSiteVisit
         }
     }
 }
 
 private extension ConvexSiteVisit {
-    var siteVisitStatus: AndroidSiteVisitRowStatus {
-        let value = (status ?? "")
+    var effectiveSiteVisitStatus: String {
+        (rawStatus?.nilIfBlank ?? status ?? "")
             .trimmingCharacters(in: .whitespacesAndNewlines)
             .lowercased()
             .replacingOccurrences(of: "-", with: "_")
+    }
+
+    var siteVisitStatus: AndroidSiteVisitRowStatus {
+        let value = effectiveSiteVisitStatus
 
         switch value {
         case "completed", "complete", "done", "closed":
             return .completed
+        case "postponed":
+            return .postponed
         case "cancelled", "canceled", "no_show":
             return .cancelled
         case "client_started", "started":
@@ -600,48 +647,88 @@ private extension ConvexSiteVisit {
             return .pickedUp
         case "on_site", "site_reached":
             return .onSite
-        case "dropped":
+        case "dropped", "picked_from_site":
             return .dropped
-        case "in_progress", "ongoing", "active", "arrived":
+        case "consulting", "on_counselling", "arrived":
+            return .onSite
+        case "in_progress":
+            return .clientStarted
+        case "ongoing", "active":
             return .inProgress
         default:
             return .start
         }
     }
 
+    var isEnrouteSiteVisit: Bool {
+        ["client_started", "started", "in_progress", "picked_up"].contains(effectiveSiteVisitStatus.normalizedSiteVisitValue)
+    }
+
+    var isOnsiteSiteVisit: Bool {
+        ["on_site", "on_counselling", "consulting", "arrived"].contains(effectiveSiteVisitStatus.normalizedSiteVisitValue)
+    }
+
+    var isReturningHomeSiteVisit: Bool {
+        ["picked_from_site", "dropped"].contains(effectiveSiteVisitStatus.normalizedSiteVisitValue)
+    }
+
+    var isCompletedSiteVisit: Bool {
+        ["completed", "complete", "done", "closed"].contains(effectiveSiteVisitStatus.normalizedSiteVisitValue)
+    }
+
+    var isCancelledSiteVisit: Bool {
+        ["cancelled", "canceled", "no_show"].contains(effectiveSiteVisitStatus.normalizedSiteVisitValue)
+    }
+
+    var isPostponedSiteVisit: Bool {
+        effectiveSiteVisitStatus.normalizedSiteVisitValue == "postponed"
+    }
+
+    var isScheduledSiteVisit: Bool {
+        !isEnrouteSiteVisit && !isOnsiteSiteVisit && !isReturningHomeSiteVisit
+            && !isCompletedSiteVisit && !isCancelledSiteVisit && !isPostponedSiteVisit
+    }
+
+    var isFixedSiteVisit: Bool {
+        isScheduledSiteVisit
+            && confirmationStatus?.trimmingCharacters(in: .whitespacesAndNewlines).lowercased() == "pending"
+    }
+
     var rowStatus: (title: String, foreground: Color, background: Color) {
         switch siteVisitStatus {
         case .start:
-            return ("Scheduled", Color(hex: 0xB54708), Color(hex: 0xFFFAEB))
+            return ("Scheduled", Color(hex: 0xB54708), Color(hex: 0xB54708).opacity(0.12))
         case .clientStarted:
-            return ("Client Started", Color(hex: 0xB54708), Color(hex: 0xFFFAEB))
+            return ("Client Started", Color(hex: 0xB54708), Color(hex: 0xB54708).opacity(0.12))
         case .pickedUp:
-            return ("Picked up", Color(hex: 0xB54708), Color(hex: 0xFFFAEB))
+            return ("Picked up", Color(hex: 0xB54708), Color(hex: 0xB54708).opacity(0.12))
         case .onSite:
-            return ("On site", Color(hex: 0xB54708), Color(hex: 0xFFFAEB))
+            return ("On site", Color(hex: 0xB54708), Color(hex: 0xB54708).opacity(0.12))
         case .dropped:
-            return ("Dropped", Color(hex: 0xB54708), Color(hex: 0xFFFAEB))
+            return ("Dropped", Color(hex: 0xB54708), Color(hex: 0xB54708).opacity(0.12))
         case .inProgress:
-            let value = (status ?? "").normalizedSiteVisitValue
+            let value = effectiveSiteVisitStatus.normalizedSiteVisitValue
             if value == "arrived" {
-                return ("Arrived", Color(hex: 0xB54708), Color(hex: 0xFFFAEB))
+                return ("Reaching", Color(hex: 0xB54708), Color(hex: 0xB54708).opacity(0.12))
             }
-            return ("Enroute", Color(hex: 0xB54708), Color(hex: 0xFFFAEB))
+            return ("Enroute", Color(hex: 0xB54708), Color(hex: 0xB54708).opacity(0.12))
         case .completed:
-            return ("Completed", Color(hex: 0x027A48), Color(hex: 0xECFDF3))
+            return ("Completed", Color(hex: 0x027A48), Color(hex: 0x027A48).opacity(0.12))
+        case .postponed:
+            return ("Postponed", Color(hex: 0xB54708), Color(hex: 0xB54708).opacity(0.12))
         case .cancelled:
-            return ("Cancelled", Color(hex: 0xB42318), Color(hex: 0xFEF3F2))
+            return ("Cancelled", Color(hex: 0xB42318), Color(hex: 0xB42318).opacity(0.12))
         }
     }
 
     var vehiclePill: (title: String, foreground: Color, background: Color) {
         if isOwnVehicleForList {
-            return ("Own Vehicle", Color(hex: 0x175CD3), Color(hex: 0xEFF8FF))
+            return ("Own Vehicle", Color(hex: 0x175CD3), Color(hex: 0x175CD3).opacity(0.12))
         }
         if isVehicleAssignedForList {
-            return ("Vehicle Assigned", Color(hex: 0x027A48), Color(hex: 0xECFDF3))
+            return ("Vehicle Assigned", Color(hex: 0x027A48), Color(hex: 0x027A48).opacity(0.12))
         }
-        return ("No Vehicle Assigned", Color(hex: 0xF04438), Color(hex: 0xFEF3F2))
+        return ("No Vehicle Assigned", Color(hex: 0xF04438), Color(hex: 0xF04438).opacity(0.12))
     }
 
     var isOwnVehicleForList: Bool {
@@ -764,6 +851,8 @@ private struct SiteVisitOverviewSheet: View {
     @Environment(\.dismiss) private var dismiss
 
     @State private var selectedOutcome: SiteVisitOverviewOutcome?
+    @State private var showPostponeVisit = false
+    @State private var showCancelVisit = false
     @State private var detail: CpVisitDetail?
     @State private var staffDirectory: [ConvexStaffListItem] = []
     @State private var projectDirectory: [MarketingProject] = []
@@ -780,11 +869,11 @@ private struct SiteVisitOverviewSheet: View {
                         ProgressView()
                         Text("Loading visit details...")
                             .font(.system(size: 13, weight: .medium))
-                            .foregroundStyle(Color(hex: 0x667085))
+                            .foregroundStyle(.secondary)
                     }
                     .frame(maxWidth: .infinity, alignment: .leading)
                     .padding(12)
-                    .background(Color(hex: 0xF8FAFC), in: RoundedRectangle(cornerRadius: 12))
+                    .background(Color.appFieldBackground, in: RoundedRectangle(cornerRadius: 12))
                 }
 
                 LazyVGrid(columns: [GridItem(.flexible()), GridItem(.flexible())], spacing: 12) {
@@ -808,7 +897,33 @@ private struct SiteVisitOverviewSheet: View {
 
                 HStack(spacing: 12) {
                     bottomTintCard(title: "Visitors", value: visitorSummary, tint: Color(hex: 0x0B61CA), bg: Color(hex: 0xEEF4FF))
-                    bottomTintCard(title: "Notes", value: notesText, tint: Color(hex: 0x92400E), bg: Color(hex: 0xFFF8E1))
+                    bottomTintCard(title: "Notes", value: notesText, tint: Color.orange, bg: Color.orange.opacity(0.10))
+                }
+
+                if canPostponeVisit {
+                    Button {
+                        showPostponeVisit = true
+                    } label: {
+                        Label("Postpone Site Visit", systemImage: "calendar.badge.clock")
+                            .font(.system(size: 14, weight: .semibold))
+                            .frame(maxWidth: .infinity)
+                    }
+                    .buttonStyle(.bordered)
+                    .controlSize(.large)
+                    .tint(Color(hex: 0xD97706))
+                }
+
+                if canCancelVisit {
+                    Button(role: .destructive) {
+                        showCancelVisit = true
+                    } label: {
+                        Label("Cancel Site Visit", systemImage: "xmark.circle.fill")
+                            .font(.system(size: 14, weight: .semibold))
+                            .frame(maxWidth: .infinity)
+                    }
+                    .buttonStyle(.bordered)
+                    .controlSize(.large)
+                    .tint(Color(hex: 0xD92D20))
                 }
 
                 outcomeButtons
@@ -818,7 +933,7 @@ private struct SiteVisitOverviewSheet: View {
             .padding(.top, 34)
             .padding(.bottom, 24)
         }
-        .background(Color.white)
+        .background(Color.appSurface)
         .task { await loadEnrichedDetail() }
         .sheet(item: $selectedOutcome) { outcome in
             SiteVisitOutcomeSheet(siteVisitId: visit.id, initialOutcome: outcome.rawValue, locksOutcome: true) {
@@ -826,6 +941,22 @@ private struct SiteVisitOverviewSheet: View {
                 dismiss()
             }
             .appLibraryNativeSheet([.large])
+        }
+        .sheet(isPresented: $showPostponeVisit) {
+            PostponeSiteVisitSheet(siteVisitID: visit.id) {
+                showPostponeVisit = false
+                onChanged()
+                dismiss()
+            }
+            .appLibraryNativeSheet([.medium])
+        }
+        .sheet(isPresented: $showCancelVisit) {
+            CancelSiteVisitSheet(siteVisitID: visit.id) {
+                showCancelVisit = false
+                onChanged()
+                dismiss()
+            }
+            .appLibraryNativeSheet([.medium])
         }
     }
 
@@ -835,7 +966,7 @@ private struct SiteVisitOverviewSheet: View {
                 VStack(alignment: .leading, spacing: 7) {
                     Text(overviewTitle)
                         .font(.system(size: 24, weight: .bold))
-                        .foregroundStyle(Color(hex: 0x101828))
+                        .foregroundStyle(.primary)
                         .lineLimit(2)
                         .minimumScaleFactor(0.82)
 
@@ -852,21 +983,21 @@ private struct SiteVisitOverviewSheet: View {
 
                 Text(vehicleTitle)
                     .font(.system(size: 14, weight: .semibold))
-                    .foregroundStyle(Color(hex: 0x344054))
+                    .foregroundStyle(.primary)
                     .padding(.horizontal, 16)
                     .frame(height: 42)
-                    .background(Color.white, in: RoundedRectangle(cornerRadius: 10))
+                    .background(Color.appSurface, in: RoundedRectangle(cornerRadius: 10))
                     .overlay(RoundedRectangle(cornerRadius: 10).stroke(Color(hex: 0xD0D5DD), lineWidth: 1))
             }
 
             HStack {
                 Label(displayDateTime, systemImage: "calendar")
                     .font(.system(size: 14, weight: .medium))
-                    .foregroundStyle(Color(hex: 0x475467))
+                    .foregroundStyle(.secondary)
                 Spacer()
                 Label(visitTypeTitle, systemImage: "mappin")
                     .font(.system(size: 14, weight: .medium))
-                    .foregroundStyle(Color(hex: 0x475467))
+                    .foregroundStyle(.secondary)
             }
         }
     }
@@ -874,9 +1005,9 @@ private struct SiteVisitOverviewSheet: View {
     private var progressStepper: some View {
         ZStack(alignment: .top) {
             HStack(spacing: 0) {
-                ForEach(0..<(stepItems.count - 1), id: \.self) { index in
+                ForEach(0..<(displayedStepItems.count - 1), id: \.self) { index in
                     Rectangle()
-                        .fill(index < currentStepIndex ? Color(hex: 0x0B61CA) : Color(hex: 0xEAECF0))
+                        .fill(index < displayedCurrentStepIndex ? Color(hex: 0x0B61CA) : Color.appSeparator)
                         .frame(height: 2)
                         .frame(maxWidth: .infinity)
                 }
@@ -886,24 +1017,25 @@ private struct SiteVisitOverviewSheet: View {
             .zIndex(0)
 
             HStack(spacing: 0) {
-                ForEach(Array(stepItems.enumerated()), id: \.offset) { index, step in
+                ForEach(Array(displayedStepItems.enumerated()), id: \.offset) { index, step in
                     VStack(spacing: 7) {
                         ZStack {
                             Circle()
-                                .fill(index <= currentStepIndex ? Color(hex: 0x0B61CA) : Color.white)
+                                .fill(index <= displayedCurrentStepIndex ? Color(hex: 0x0B61CA) : Color.appSurface)
                                 .frame(width: 32, height: 32)
-                                .overlay(Circle().stroke(Color(hex: 0xEAECF0), lineWidth: index <= currentStepIndex ? 0 : 1))
+                                .overlay(Circle().stroke(Color.appSeparator, lineWidth: index <= displayedCurrentStepIndex ? 0 : 1))
 
                             Image(systemName: step.icon)
                                 .font(.system(size: 13, weight: .semibold))
-                                .foregroundStyle(index <= currentStepIndex ? .white : Color(hex: 0x98A2B3))
+                                .foregroundStyle(index <= displayedCurrentStepIndex ? .white : Color(hex: 0x98A2B3))
                         }
 
                         Text(step.title)
                             .font(.system(size: 8, weight: .semibold))
-                            .foregroundStyle(index <= currentStepIndex ? Color(hex: 0x0B61CA) : Color(hex: 0x98A2B3))
-                            .lineLimit(1)
+                            .foregroundStyle(index <= displayedCurrentStepIndex ? Color(hex: 0x0B61CA) : Color(hex: 0x98A2B3))
+                            .lineLimit(2)
                             .minimumScaleFactor(0.65)
+                            .multilineTextAlignment(.center)
                     }
                     .frame(maxWidth: .infinity)
                 }
@@ -918,7 +1050,7 @@ private struct SiteVisitOverviewSheet: View {
             HStack {
                 Text("Outcome")
                     .font(.system(size: 16, weight: .semibold))
-                    .foregroundStyle(Color(hex: 0x101828))
+                    .foregroundStyle(.primary)
                 Spacer()
                 if isVisitClosed {
                     Text("Completed")
@@ -926,24 +1058,24 @@ private struct SiteVisitOverviewSheet: View {
                         .foregroundStyle(Color(hex: 0x0B61CA))
                         .padding(.horizontal, 10)
                         .padding(.vertical, 5)
-                        .background(Color(hex: 0xEAF3FF), in: Capsule())
+                        .background(Color(hex: 0x0B61CA).opacity(0.10), in: Capsule())
                 }
             }
 
             HStack(spacing: 10) {
                 outcomeButton("Booking", icon: "briefcase.fill", tint: Color(hex: 0x16A34A), outcome: .booking)
                 outcomeButton("Client Not Interested", icon: "hand.thumbsdown.fill", tint: Color(hex: 0xDC2626), outcome: .notInterested)
-                outcomeButton("Its Been Postponed", icon: "calendar.badge.clock", tint: Color(hex: 0xD97706), outcome: .postponed)
+                outcomeButton("Follow up", icon: "calendar.badge.clock", tint: Color(hex: 0xD97706), outcome: .postponed)
             }
 
             if isVisitClosed {
                 Label("This site visit outcome is already completed.", systemImage: "lock.fill")
                     .font(.system(size: 12, weight: .medium))
-                    .foregroundStyle(Color(hex: 0x667085))
+                    .foregroundStyle(.secondary)
             } else if !isOutcomeEnabled {
-                Label("Outcome buttons will activate once you reach on site.", systemImage: "lock.fill")
+                Label("Scan the client QR and start counselling to record the outcome.", systemImage: "qrcode")
                     .font(.system(size: 12, weight: .medium))
-                    .foregroundStyle(Color(hex: 0x667085))
+                    .foregroundStyle(.secondary)
             }
         }
     }
@@ -963,7 +1095,7 @@ private struct SiteVisitOverviewSheet: View {
             }
             .foregroundStyle(isOutcomeEnabled ? tint : Color(hex: 0x98A2B3))
             .frame(maxWidth: .infinity, minHeight: 72)
-            .background((isOutcomeEnabled ? tint.opacity(0.10) : Color(hex: 0xF2F4F7)), in: RoundedRectangle(cornerRadius: 14))
+            .background((isOutcomeEnabled ? tint.opacity(0.10) : Color.appFieldBackground), in: RoundedRectangle(cornerRadius: 14))
         }
         .buttonStyle(.plain)
         .disabled(!isOutcomeEnabled)
@@ -971,27 +1103,35 @@ private struct SiteVisitOverviewSheet: View {
     }
 
     private func overviewCard(icon: String, tint: Color, label: String, value: String) -> some View {
-        HStack(spacing: 10) {
-            Image(systemName: icon)
-                .font(.system(size: 16, weight: .semibold))
-                .foregroundStyle(tint)
-                .frame(width: 36, height: 36)
-                .background(tint.opacity(0.12), in: Circle())
-            VStack(alignment: .leading, spacing: 3) {
+        VStack(alignment: .leading, spacing: 9) {
+            HStack(spacing: 7) {
+                Image(systemName: icon)
+                    .font(.system(size: 13, weight: .semibold))
+                    .foregroundStyle(tint)
+                    .frame(width: 28, height: 28)
+                    .background(tint.opacity(0.12), in: Circle())
+
                 Text(label)
                     .font(.system(size: 10, weight: .semibold))
                     .foregroundStyle(Color(hex: 0x98A2B3))
-                Text(value)
-                    .font(.system(size: 15, weight: .bold))
-                    .foregroundStyle(Color(hex: 0x1D2939))
-                    .lineLimit(2)
+                    .lineLimit(1)
+                    .minimumScaleFactor(0.78)
+
+                Spacer(minLength: 0)
             }
-            Spacer(minLength: 0)
+
+            Text(value)
+                .font(.system(size: 15, weight: .bold))
+                .foregroundStyle(.primary)
+                .lineLimit(1)
+                .minimumScaleFactor(0.72)
+                .allowsTightening(true)
+                .frame(maxWidth: .infinity, alignment: .leading)
         }
         .padding(12)
-        .frame(minHeight: 82)
-        .background(Color.white, in: RoundedRectangle(cornerRadius: 14))
-        .overlay(RoundedRectangle(cornerRadius: 14).stroke(Color(hex: 0xEAECF0), lineWidth: 1))
+        .frame(maxWidth: .infinity, minHeight: 86, alignment: .topLeading)
+        .background(Color.appSurface, in: RoundedRectangle(cornerRadius: 14))
+        .overlay(RoundedRectangle(cornerRadius: 14).stroke(Color.appSeparator, lineWidth: 1))
     }
 
     private func wideCard(icon: String, tint: Color, label: String, value: String) -> some View {
@@ -1007,14 +1147,14 @@ private struct SiteVisitOverviewSheet: View {
                     .foregroundStyle(Color(hex: 0x98A2B3))
                 Text(value)
                     .font(.system(size: 15, weight: .bold))
-                    .foregroundStyle(Color(hex: 0x344054))
+                    .foregroundStyle(.primary)
                     .lineSpacing(2)
             }
         }
         .padding(14)
         .frame(maxWidth: .infinity, alignment: .leading)
-        .background(Color.white, in: RoundedRectangle(cornerRadius: 16))
-        .overlay(RoundedRectangle(cornerRadius: 16).stroke(Color(hex: 0xEAECF0), lineWidth: 1))
+        .background(Color.appSurface, in: RoundedRectangle(cornerRadius: 16))
+        .overlay(RoundedRectangle(cornerRadius: 16).stroke(Color.appSeparator, lineWidth: 1))
     }
 
     private func bottomTintCard(title: String, value: String, tint: Color, bg: Color) -> some View {
@@ -1024,7 +1164,7 @@ private struct SiteVisitOverviewSheet: View {
                 .foregroundStyle(tint)
             Text(value)
                 .font(.system(size: 12, weight: .medium))
-                .foregroundStyle(Color(hex: 0x475467))
+                .foregroundStyle(.secondary)
                 .lineLimit(3)
         }
         .padding(14)
@@ -1176,6 +1316,10 @@ private struct SiteVisitOverviewSheet: View {
             return "PICKED UP"
         case "on_site", "arrived":
             return "ON SITE"
+        case "consulting", "on_counselling":
+            return "ON COUNSELLING"
+        case "picked_from_site":
+            return "PICKED FROM SITE"
         case "dropped":
             return "DROPPED"
         case "assigned":
@@ -1214,7 +1358,8 @@ private struct SiteVisitOverviewSheet: View {
     }
 
     private var isVisitClosed: Bool {
-        visit.hasLockedOutcome
+        if isFleetOutcomePending { return false }
+        return visit.hasLockedOutcome
             || detail?.convertedBookingId?.nilIfBlank != nil
             || detail?.outcome?.nilIfBlank != nil
             || detail?.completedAt != nil
@@ -1234,23 +1379,45 @@ private struct SiteVisitOverviewSheet: View {
         return [date, time].filter { !$0.isEmpty }.joined(separator: ", ")
     }
 
+    private var terminalStepTitle: String? {
+        switch normalizedStatus.normalizedSiteVisitValue {
+        case "postponed": "POSTPONED"
+        case "cancelled", "canceled", "no_show": "CANCELLED"
+        default: nil
+        }
+    }
+
     private var stepItems: [(title: String, icon: String)] {
         if isOwnVehicle {
             return [
                 ("SCHEDULED", "checkmark"),
                 ("CLIENT DEPARTURE", "car.fill"),
                 ("ON SITE", "building.2.fill"),
+                ("CONSULTING", "person.2.fill"),
                 ("DONE", "checkmark.circle.fill")
             ]
         }
         return [
             ("SCHEDULED", "checkmark"),
             ("ASSIGNED", "car.fill"),
-            ("PICKED UP", "house.fill"),
+            ("REACHED CP", "mappin"),
+            ("PICKED FROM CP", "house.fill"),
             ("ON SITE", "building.2.fill"),
+            ("CONSULTING", "person.2.fill"),
+            ("PICKED FROM SITE", "house.fill"),
             ("DROPPED", "mappin.circle.fill"),
             ("DONE", "checkmark.circle.fill")
         ]
+    }
+
+    private var displayedStepItems: [(title: String, icon: String)] {
+        guard let terminalStepTitle else { return stepItems }
+        let reachedCount = min(max(currentStepIndex + 1, 1), max(stepItems.count - 1, 1))
+        return Array(stepItems.prefix(reachedCount)) + [(terminalStepTitle, "xmark.circle.fill")]
+    }
+
+    private var displayedCurrentStepIndex: Int {
+        terminalStepTitle == nil ? currentStepIndex : displayedStepItems.count - 1
     }
 
     private var currentStepIndex: Int {
@@ -1259,8 +1426,10 @@ private struct SiteVisitOverviewSheet: View {
             var ownIndex: Int
             switch normalizedStatus {
             case "completed", "complete", "done", "closed":
+                ownIndex = 4
+            case "consulting", "on_counselling", "picked_from_site", "dropped":
                 ownIndex = 3
-            case "dropped", "on_site", "arrived", "site_reached":
+            case "on_site", "arrived", "site_reached":
                 ownIndex = 2
             case "picked_up", "client_started", "started", "client_departure", "departed", "assigned":
                 ownIndex = 1
@@ -1280,28 +1449,38 @@ private struct SiteVisitOverviewSheet: View {
         var cabIndex: Int
         switch normalizedStatus {
         case "completed", "complete", "done", "closed":
-            cabIndex = 5
+            cabIndex = 8
         case "dropped":
-            cabIndex = 4
+            cabIndex = 7
+        case "picked_from_site":
+            cabIndex = 6
+        case "consulting", "on_counselling":
+            cabIndex = 5
         case "on_site", "arrived", "site_reached":
-            cabIndex = 3
+            cabIndex = 4
         case "picked_up":
-            cabIndex = 2
+            cabIndex = 3
         case "client_started", "started", "client_departure", "departed":
-            cabIndex = 2
+            cabIndex = 3
         case "assigned":
             cabIndex = 1
         default:
             cabIndex = 0
         }
 
-        if proposed?.travelDeskEndedAt != nil || proposed?.droppedAt != nil || proposed?.completedAt != nil {
+        if proposed?.travelDeskEndedAt != nil {
+            cabIndex = max(cabIndex, 7)
+        }
+        if proposed?.travelDeskPickedFromSiteAt != nil {
+            cabIndex = max(cabIndex, 6)
+        }
+        if proposed?.travelDeskOnSiteAt != nil {
             cabIndex = max(cabIndex, 4)
         }
-        if proposed?.travelDeskOnSiteAt != nil || proposed?.arrivedSiteAt != nil {
+        if proposed?.travelDeskStartedAt != nil {
             cabIndex = max(cabIndex, 3)
         }
-        if proposed?.travelDeskStartedAt != nil || proposed?.pickedUpAt != nil {
+        if proposed?.travelDeskArrivedAt != nil {
             cabIndex = max(cabIndex, 2)
         }
         if cabIndex == 0 && (proposed?.vehicleId?.nilIfBlank != nil || proposed?.travelAgencyId?.nilIfBlank != nil) {
@@ -1313,15 +1492,185 @@ private struct SiteVisitOverviewSheet: View {
 
     private var isOutcomeEnabled: Bool {
         guard !isVisitClosed else { return false }
-        let onSiteIndex = isOwnVehicle ? 2 : 3
-        return currentStepIndex >= onSiteIndex
+        return isFleetOutcomePending || [
+            "consulting", "on_counselling", "picked_from_site", "dropped"
+        ].contains(normalizedStatus.normalizedSiteVisitValue)
+    }
+
+    private var isFleetOutcomePending: Bool {
+        (detail?.completedOffline ?? visit.completedOffline) == true
+            && detail?.outcome?.nilIfBlank == nil
+            && visit.outcome?.nilIfBlank == nil
+    }
+
+    private var canPostponeVisit: Bool {
+        guard authStore.hasPermission("marketing.siteVisits.edit"), !isVisitClosed else { return false }
+        let status = normalizedStatus.normalizedSiteVisitValue
+        return ![
+            "consulting", "on_counselling", "picked_from_site", "dropped",
+            "completed", "complete", "done", "closed", "cancelled", "canceled", "no_show"
+        ].contains(status)
+    }
+
+    private var canCancelVisit: Bool {
+        guard authStore.hasPermission("marketing.siteVisits.cancel") else { return false }
+        let status = normalizedStatus.normalizedSiteVisitValue
+        return ![
+            "completed", "complete", "done", "closed",
+            "cancelled", "canceled", "no_show", "postponed"
+        ].contains(status)
+    }
+}
+
+private struct CancelSiteVisitSheet: View {
+    let siteVisitID: String
+    let onCancelled: () -> Void
+
+    @Environment(AuthStore.self) private var authStore
+    @Environment(\.dismiss) private var dismiss
+    @State private var reason = ""
+    @State private var isSaving = false
+    @State private var errorMessage: String?
+
+    var body: some View {
+        NavigationStack {
+            Form {
+                Section {
+                    Label(
+                        "This stops the active site visit and keeps its history for reporting.",
+                        systemImage: "exclamationmark.triangle.fill"
+                    )
+                    .font(.footnote)
+                    .foregroundStyle(Color(hex: 0xB42318))
+                }
+
+                Section("Reason (optional)") {
+                    TextField("Why is this site visit being cancelled?", text: $reason, axis: .vertical)
+                        .lineLimit(3...5)
+                }
+
+                if let errorMessage {
+                    Section {
+                        Text(errorMessage)
+                            .foregroundStyle(.red)
+                    }
+                }
+            }
+            .navigationTitle("Cancel Site Visit")
+            .navigationBarTitleDisplayMode(.inline)
+            .toolbar {
+                ToolbarItem(placement: .cancellationAction) {
+                    Button("Keep Visit") { dismiss() }
+                        .disabled(isSaving)
+                }
+                ToolbarItem(placement: .confirmationAction) {
+                    Button("Cancel Visit", role: .destructive) {
+                        Task { await cancel() }
+                    }
+                    .disabled(isSaving)
+                }
+            }
+            .interactiveDismissDisabled(isSaving)
+        }
+    }
+
+    @MainActor
+    private func cancel() async {
+        guard let token = authStore.currentSession?.token else {
+            errorMessage = "Please sign in again."
+            return
+        }
+        isSaving = true
+        errorMessage = nil
+        defer { isSaving = false }
+        do {
+            try await MarketingConvexAPIService.cancelSiteVisit(
+                token: token,
+                request: CancelSiteVisitRequest(id: siteVisitID, reason: reason.nilIfBlank)
+            )
+            onCancelled()
+            dismiss()
+        } catch {
+            errorMessage = error.localizedDescription
+        }
+    }
+}
+
+private struct PostponeSiteVisitSheet: View {
+    let siteVisitID: String
+    let onSaved: () -> Void
+
+    @Environment(AuthStore.self) private var authStore
+    @Environment(\.dismiss) private var dismiss
+    @State private var scheduledAt = Date()
+    @State private var reason = ""
+    @State private var isSaving = false
+    @State private var errorMessage: String?
+
+    var body: some View {
+        NavigationStack {
+            Form {
+                Section("New schedule") {
+                    DatePicker(
+                        "Date & time",
+                        selection: $scheduledAt,
+                        in: Date()...,
+                        displayedComponents: [.date, .hourAndMinute]
+                    )
+                }
+                Section("Reason (optional)") {
+                    TextField("Why is this SV being postponed?", text: $reason, axis: .vertical)
+                        .lineLimit(2...4)
+                }
+                if let errorMessage {
+                    Section { Text(errorMessage).foregroundStyle(.red) }
+                }
+            }
+            .navigationTitle("Postpone SV")
+            .navigationBarTitleDisplayMode(.inline)
+            .toolbar {
+                ToolbarItem(placement: .cancellationAction) {
+                    Button("Cancel") { dismiss() }.disabled(isSaving)
+                }
+                ToolbarItem(placement: .confirmationAction) {
+                    Button(isSaving ? "Saving..." : "Postpone") { Task { await save() } }
+                        .disabled(isSaving)
+                }
+            }
+            .interactiveDismissDisabled(isSaving)
+        }
+    }
+
+    @MainActor
+    private func save() async {
+        guard let token = authStore.currentSession?.token else { return }
+        isSaving = true
+        errorMessage = nil
+        defer { isSaving = false }
+        do {
+            let timeFormatter = DateFormatter()
+            timeFormatter.locale = Locale(identifier: "en_US_POSIX")
+            timeFormatter.dateFormat = "HH:mm"
+            try await MarketingConvexAPIService.postponeSiteVisit(
+                token: token,
+                request: PostponeSiteVisitRequest(
+                    id: siteVisitID,
+                    scheduledDate: AppModuleFormatters.ymd.string(from: scheduledAt),
+                    scheduledTime: timeFormatter.string(from: scheduledAt),
+                    reason: reason.nilIfBlank
+                )
+            )
+            onSaved()
+        } catch {
+            errorMessage = error.localizedDescription
+        }
     }
 }
 
 private enum SiteVisitOverviewOutcome: String, Identifiable {
     case booking = "converted_to_booking"
     case notInterested = "not_interested"
-    case postponed = "postponed"
+    case postponed = "follow_up"
 
     var id: String { rawValue }
 }

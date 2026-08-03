@@ -314,6 +314,7 @@ private struct GeoTrackPermissionChecklist: View {
 final class GeoTrackPermissionGuide: NSObject, CLLocationManagerDelegate {
     private let locationManager = CLLocationManager()
     private let motionManager = CMMotionActivityManager()
+    private var shouldEscalateToAlways = false
 
     private(set) var locationStatus: CLAuthorizationStatus
     private(set) var motionStatus: CMAuthorizationStatus
@@ -370,7 +371,22 @@ final class GeoTrackPermissionGuide: NSObject, CLLocationManagerDelegate {
     }
 
     func requestAlwaysLocation() {
-        locationManager.requestAlwaysAuthorization()
+        switch locationManager.authorizationStatus {
+        case .notDetermined:
+            // iOS requires the foreground grant before it can reliably
+            // escalate to Always. Continue the sequence from the delegate.
+            shouldEscalateToAlways = true
+            locationManager.requestWhenInUseAuthorization()
+        case .authorizedWhenInUse:
+            shouldEscalateToAlways = true
+            locationManager.requestAlwaysAuthorization()
+        case .authorizedAlways:
+            shouldEscalateToAlways = false
+        case .denied, .restricted:
+            openSettings()
+        @unknown default:
+            break
+        }
         refresh()
     }
 
@@ -394,7 +410,16 @@ final class GeoTrackPermissionGuide: NSObject, CLLocationManagerDelegate {
 
     nonisolated func locationManagerDidChangeAuthorization(_ manager: CLLocationManager) {
         Task { @MainActor [weak self] in
-            self?.refresh()
+            guard let self else { return }
+            self.refresh()
+            if self.shouldEscalateToAlways,
+               manager.authorizationStatus == .authorizedWhenInUse {
+                manager.requestAlwaysAuthorization()
+            } else if manager.authorizationStatus == .authorizedAlways
+                        || manager.authorizationStatus == .denied
+                        || manager.authorizationStatus == .restricted {
+                self.shouldEscalateToAlways = false
+            }
         }
     }
 }

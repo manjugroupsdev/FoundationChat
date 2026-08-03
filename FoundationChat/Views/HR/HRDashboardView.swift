@@ -941,7 +941,7 @@ struct HRDashboardView: View {
 }
 
 @MainActor
-private final class OneShotLocationReader: NSObject, CLLocationManagerDelegate {
+final class OneShotLocationReader: NSObject, CLLocationManagerDelegate {
     private let manager = CLLocationManager()
     private var continuation: CheckedContinuation<CLLocation, Error>?
 

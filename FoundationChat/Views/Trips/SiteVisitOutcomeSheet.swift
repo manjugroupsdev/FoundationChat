@@ -26,8 +26,8 @@ struct SiteVisitOutcomeSheet: View {
     @State private var activeStaffPicker: SiteVisitOutcomeStaffField?
     @State private var isSearchingLead = false
 
-    @State private var selectedPostponeReasons: Set<SiteVisitPostponeReason> = []
-    @State private var postponedNotes = ""
+    @State private var followUpDate = Date()
+    @State private var followUpReason = ""
     @State private var selectedNotInterestedReasons: Set<SiteVisitNotInterestedReason> = []
     @State private var notInterestedDetails: [SiteVisitNotInterestedReason: String] = [:]
     @State private var notInterestedNotes = ""
@@ -144,10 +144,10 @@ struct SiteVisitOutcomeSheet: View {
             VStack(alignment: .leading, spacing: 2) {
                 Text("Outcome Information")
                     .font(.system(size: 16, weight: .semibold))
-                    .foregroundStyle(Color(hex: 0x101828))
+                    .foregroundStyle(.primary)
                 Text("Information about Client Details")
                     .font(.system(size: 11))
-                    .foregroundStyle(Color(hex: 0x94A3B8))
+                    .foregroundStyle(.secondary)
             }
 
             Spacer()
@@ -160,7 +160,7 @@ struct SiteVisitOutcomeSheet: View {
                     .foregroundStyle(Color(hex: 0x2563EB))
                     .padding(.horizontal, 14)
                     .frame(height: 32)
-                    .background(Color(hex: 0xEFF6FF), in: Capsule())
+                    .background(Color(hex: 0x2563EB).opacity(0.10), in: Capsule())
             }
             .buttonStyle(.plain)
 
@@ -172,7 +172,7 @@ struct SiteVisitOutcomeSheet: View {
                     .foregroundStyle(Color(hex: 0x2DAE12))
                     .padding(.horizontal, 14)
                     .frame(height: 32)
-                    .background(Color(hex: 0xEAF8E8), in: Capsule())
+                    .background(Color(hex: 0x2DAE12).opacity(0.10), in: Capsule())
             }
             .buttonStyle(.plain)
         }
@@ -195,7 +195,7 @@ struct SiteVisitOutcomeSheet: View {
 
                 if index < SiteVisitOutcome.allCases.count - 1 {
                     Rectangle()
-                        .fill(Color(hex: 0xF3F3F5))
+                        .fill(Color.appSeparator)
                         .frame(width: 1, height: 28)
                 }
             }
@@ -214,7 +214,7 @@ struct SiteVisitOutcomeSheet: View {
                                 .foregroundStyle(bookingSub == sub ? .white : Color(hex: 0x475467))
                                 .padding(.horizontal, 14)
                                 .frame(height: 36)
-                                .background(bookingSub == sub ? Color(hex: 0x2DAE12) : Color.white, in: Capsule())
+                                .background(bookingSub == sub ? Color(hex: 0x2DAE12) : Color.appSurface, in: Capsule())
                                 .overlay(
                                     Capsule()
                                         .stroke(Color(hex: 0xE4E7EC), lineWidth: bookingSub == sub ? 0 : 1)
@@ -372,15 +372,29 @@ struct SiteVisitOutcomeSheet: View {
 
     private var postponedSection: some View {
         VStack(alignment: .leading, spacing: 14) {
-            Text("Reasons")
+            Text("Next visit date")
                 .font(.system(size: 14, weight: .semibold))
-                .foregroundStyle(Color(hex: 0x475467))
+                .foregroundStyle(.secondary)
 
-            ForEach(SiteVisitPostponeReason.allCases) { reason in
-                outcomeCheckCard(title: reason.title, isOn: binding(for: reason))
-            }
+            Text("When should this visit be followed up.")
+                .font(.system(size: 11))
+                .foregroundStyle(.secondary)
 
-            SiteVisitOutcomeTextField("Additional notes", text: $postponedNotes, placeholder: "Add notes", icon: "doc", axis: .vertical)
+            DatePicker(
+                "Follow-up date",
+                selection: $followUpDate,
+                in: Calendar.current.startOfDay(for: Date())...,
+                displayedComponents: .date
+            )
+            .datePickerStyle(.compact)
+
+            SiteVisitOutcomeTextField(
+                "Reason",
+                text: $followUpReason,
+                placeholder: "Reason for follow up",
+                icon: "doc",
+                axis: .vertical
+            )
         }
     }
 
@@ -388,7 +402,7 @@ struct SiteVisitOutcomeSheet: View {
         VStack(alignment: .leading, spacing: 14) {
             Text("Why is the client not interested?")
                 .font(.system(size: 14, weight: .semibold))
-                .foregroundStyle(Color(hex: 0x475467))
+                .foregroundStyle(.secondary)
 
             ForEach(SiteVisitNotInterestedReason.allCases) { reason in
                 VStack(alignment: .leading, spacing: 10) {
@@ -417,7 +431,7 @@ struct SiteVisitOutcomeSheet: View {
                 Text("Searching lead...")
                     .font(.system(size: 12, weight: .medium))
             }
-            .foregroundStyle(Color(hex: 0x667085))
+            .foregroundStyle(.secondary)
         } else if let selectedLead {
             Button {
                 if leadMatches.count > 1 { showLeadPicker = true }
@@ -435,7 +449,7 @@ struct SiteVisitOutcomeSheet: View {
         VStack(alignment: .leading, spacing: 8) {
             Text(title)
                 .font(.system(size: 14, weight: .semibold))
-                .foregroundStyle(Color(hex: 0x475467))
+                .foregroundStyle(.secondary)
             Button {
                 isOn.wrappedValue.toggle()
             } label: {
@@ -448,7 +462,7 @@ struct SiteVisitOutcomeSheet: View {
                 }
                 .padding(.horizontal, 16)
                 .frame(minHeight: 56)
-                .background(Color.white, in: RoundedRectangle(cornerRadius: 14))
+                .background(Color.appSurface, in: RoundedRectangle(cornerRadius: 14))
                 .overlay(RoundedRectangle(cornerRadius: 14).stroke(Color(hex: 0xE4E7EC), lineWidth: 1))
             }
             .buttonStyle(.plain)
@@ -466,11 +480,11 @@ struct SiteVisitOutcomeSheet: View {
                     .foregroundStyle(isOn.wrappedValue ? Color(hex: 0x2DAE12) : Color(hex: 0x98A2B3))
                 Text(title)
                     .font(.system(size: 14, weight: .medium))
-                    .foregroundStyle(Color(hex: 0x344054))
+                    .foregroundStyle(.primary)
                 Spacer()
             }
             .padding(14)
-            .background(Color.white, in: RoundedRectangle(cornerRadius: 14))
+            .background(Color.appSurface, in: RoundedRectangle(cornerRadius: 14))
             .overlay(RoundedRectangle(cornerRadius: 14).stroke(isOn.wrappedValue ? Color(hex: 0x2DAE12) : Color(hex: 0xE4E7EC), lineWidth: 1))
         }
         .buttonStyle(.plain)
@@ -590,7 +604,7 @@ struct SiteVisitOutcomeSheet: View {
             VStack(alignment: .leading, spacing: 4) {
                 Text(title)
                     .font(.system(size: 15, weight: .semibold))
-                    .foregroundStyle(Color(hex: 0x101828))
+                    .foregroundStyle(.primary)
                 if let subtitle, !subtitle.isEmpty {
                     Text(subtitle)
                         .font(.caption)
@@ -609,16 +623,8 @@ struct SiteVisitOutcomeSheet: View {
     private var ctaTitle: String {
         switch selectedOutcome {
         case .booking: return booking.saveAs == .confirmed ? "Create Confirmed Booking" : "Save Booking Draft"
-        case .postponed: return "Save Postponed Outcome"
+        case .postponed: return "Save Follow Up"
         case .notInterested: return "Save Not Interested Outcome"
-        }
-    }
-
-    private func binding(for reason: SiteVisitPostponeReason) -> Binding<Bool> {
-        Binding {
-            selectedPostponeReasons.contains(reason)
-        } set: { isSelected in
-            if isSelected { selectedPostponeReasons.insert(reason) } else { selectedPostponeReasons.remove(reason) }
         }
     }
 
@@ -737,8 +743,8 @@ struct SiteVisitOutcomeSheet: View {
                 let bookingId = try await createBooking(token: token)
                 try await saveOutcome(token: token, bookingId: bookingId)
             case .postponed:
-                guard !selectedPostponeReasons.isEmpty else {
-                    errorMessage = "Select at least one postponed reason"
+                guard followUpReason.outcomeNilIfBlank != nil else {
+                    errorMessage = "Enter a reason for follow up"
                     return
                 }
                 try await saveOutcome(token: token, bookingId: nil)
@@ -776,17 +782,23 @@ struct SiteVisitOutcomeSheet: View {
     }
 
     private func saveOutcome(token: String, bookingId: String?) async throws {
+        // Android advances an on-site SV into counselling before saving a
+        // terminal outcome. The call is intentionally best-effort because an
+        // already-on-counselling visit returns a harmless transition error.
+        try? await MarketingConvexAPIService.markSiteVisitOnCounselling(token: token, id: siteVisitId)
         try await MarketingConvexAPIService.setSiteVisitOutcome(
             token: token,
             request: SetSiteVisitOutcomeRequest(
                 id: siteVisitId,
                 outcome: selectedOutcome.rawValue,
                 reasons: selectedReasonCodes,
-                postponeReasons: selectedOutcome == .postponed ? selectedReasonCodes : nil,
+                postponeReasons: nil,
                 notInterestedReasons: selectedOutcome == .notInterested ? selectedReasonCodes : nil,
                 notInterestedDetails: selectedOutcome == .notInterested ? notInterestedDetailPayload : nil,
                 notes: outcomeNotes(bookingId: bookingId),
-                bookingId: bookingId
+                bookingId: bookingId,
+                followupDueDate: selectedOutcome == .postponed ? AppModuleFormatters.ymd.string(from: followUpDate) : nil,
+                followupDueTime: nil
             )
         )
     }
@@ -796,7 +808,7 @@ struct SiteVisitOutcomeSheet: View {
         case .booking:
             return nil
         case .postponed:
-            return selectedPostponeReasons.map(\.rawValue).sorted()
+            return nil
         case .notInterested:
             return selectedNotInterestedReasons.map(\.rawValue).sorted()
         }
@@ -817,8 +829,7 @@ struct SiteVisitOutcomeSheet: View {
             rows.append("Outcome: Converted to Booking")
             if let notes = booking.notes.outcomeNilIfBlank { rows.append("Notes: \(notes)") }
         case .postponed:
-            rows.append("Reasons: \(selectedPostponeReasons.map(\.title).sorted().joined(separator: ", "))")
-            if let notes = postponedNotes.outcomeNilIfBlank { rows.append("Notes: \(notes)") }
+            if let reason = followUpReason.outcomeNilIfBlank { rows.append(reason) }
         case .notInterested:
             rows.append(contentsOf: selectedNotInterestedReasons.sorted { $0.title < $1.title }.map { reason in
                 if let detail = notInterestedDetails[reason]?.outcomeNilIfBlank {
@@ -850,8 +861,8 @@ struct SiteVisitOutcomeSheet: View {
             leadMatches = []
             bookingSub = .client
         case .postponed:
-            selectedPostponeReasons = []
-            postponedNotes = ""
+            followUpDate = Date()
+            followUpReason = ""
         case .notInterested:
             selectedNotInterestedReasons = []
             notInterestedDetails = [:]
@@ -866,7 +877,7 @@ struct SiteVisitOutcomeSheet: View {
 
 private enum SiteVisitOutcome: String, CaseIterable, Identifiable {
     case booking = "converted_to_booking"
-    case postponed
+    case postponed = "follow_up"
     case notInterested = "not_interested"
 
     var id: String { rawValue }
@@ -874,7 +885,7 @@ private enum SiteVisitOutcome: String, CaseIterable, Identifiable {
     var title: String {
         switch self {
         case .booking: return "Booking"
-        case .postponed: return "Postpone"
+        case .postponed: return "Follow up"
         case .notInterested: return "Not Interested"
         }
     }
@@ -1135,7 +1146,7 @@ private struct SiteVisitOutcomeTabView: View {
                 .minimumScaleFactor(0.72)
         }
         .frame(height: 62)
-        .background(isSelected ? Color(hex: 0xEAF8E8) : Color.white)
+        .background(isSelected ? Color(hex: 0x2DAE12).opacity(0.14) : Color.appSurface)
         .overlay(
             Rectangle()
                 .fill(isSelected ? Color(hex: 0x2DAE12) : .clear)
@@ -1166,7 +1177,7 @@ private struct SiteVisitOutcomeTextField: View {
         VStack(alignment: .leading, spacing: 8) {
             Text(title)
                 .font(.system(size: 14, weight: .semibold))
-                .foregroundStyle(Color(hex: 0x475467))
+                .foregroundStyle(.secondary)
             HStack(alignment: axis == .vertical ? .top : .center, spacing: 12) {
                 Image(systemName: icon)
                     .foregroundStyle(Color(hex: 0x98A2B3))
@@ -1180,7 +1191,7 @@ private struct SiteVisitOutcomeTextField: View {
             .font(.system(size: 15, weight: .medium))
             .padding(.horizontal, 16)
             .frame(minHeight: 56)
-            .background(Color.white, in: RoundedRectangle(cornerRadius: 14))
+            .background(Color.appSurface, in: RoundedRectangle(cornerRadius: 14))
             .overlay(RoundedRectangle(cornerRadius: 14).stroke(Color(hex: 0xE4E7EC), lineWidth: 1))
         }
     }
@@ -1241,7 +1252,7 @@ private struct SiteVisitOutcomePickerShell: View {
         VStack(alignment: .leading, spacing: 8) {
             Text(title)
                 .font(.system(size: 14, weight: .semibold))
-                .foregroundStyle(Color(hex: 0x475467))
+                .foregroundStyle(.secondary)
             HStack(spacing: 12) {
                 Image(systemName: icon)
                     .foregroundStyle(Color(hex: 0x98A2B3))
@@ -1256,7 +1267,7 @@ private struct SiteVisitOutcomePickerShell: View {
             .font(.system(size: 15, weight: .medium))
             .padding(.horizontal, 16)
             .frame(height: 56)
-            .background(Color.white, in: RoundedRectangle(cornerRadius: 14))
+            .background(Color.appSurface, in: RoundedRectangle(cornerRadius: 14))
             .overlay(RoundedRectangle(cornerRadius: 14).stroke(Color(hex: 0xE4E7EC), lineWidth: 1))
         }
     }
@@ -1309,28 +1320,6 @@ private struct SiteVisitOutcomeDateField: View {
                     }
             }
             .appLibraryNativeSheet([.medium])
-        }
-    }
-}
-
-private enum SiteVisitPostponeReason: String, CaseIterable, Identifiable {
-    case clientUnavailable = "client_unavailable"
-    case weather
-    case vehicleIssue = "vehicle_issue"
-    case documentPending = "document_pending"
-    case rescheduledByClient = "rescheduled_by_client"
-    case otherCommitment = "other_commitment"
-
-    var id: String { rawValue }
-
-    var title: String {
-        switch self {
-        case .clientUnavailable: return "Client unavailable"
-        case .weather: return "Weather"
-        case .vehicleIssue: return "Vehicle issue"
-        case .documentPending: return "Document pending"
-        case .rescheduledByClient: return "Rescheduled by client"
-        case .otherCommitment: return "Other commitment"
         }
     }
 }

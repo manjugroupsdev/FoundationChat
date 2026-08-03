@@ -43,10 +43,11 @@ enum AttendanceTrackingGate {
         formatter.dateFormat = "yyyy-MM-dd"
         let today = formatter.string(from: date)
 
-        async let attendance = try? HRConvexAPIService.getTodayAttendance(token: token)
-        async let sessions = try? HRConvexAPIService.getDaySessions(token: token, date: today)
-        let todayAttendance = await attendance
-        let daySessions = await sessions
+        // Avoid `async let` with optional-try here. On physical devices this
+        // combination can trip Swift's async-let allocator when the parent
+        // SwiftUI task is cancelled during startup.
+        let todayAttendance = try? await HRConvexAPIService.getTodayAttendance(token: token)
+        let daySessions = try? await HRConvexAPIService.getDaySessions(token: token, date: today)
 
         let firstPunchIn = daySessions?.firstPunchIn.nilIfBlank
             ?? todayAttendance?.firstPunchIn.nilIfBlank
@@ -67,10 +68,9 @@ enum AttendanceTrackingGate {
         formatter.dateFormat = "yyyy-MM-dd"
         let today = formatter.string(from: date)
 
-        async let attendance = try? HRConvexAPIService.getTodayAttendance(token: token)
-        async let sessions = try? HRConvexAPIService.getDaySessions(token: token, date: today)
-        let todayAttendance = await attendance
-        let daySessions = await sessions
+        // Keep these requests cancellation-safe. See `isClockedInForToday`.
+        let todayAttendance = try? await HRConvexAPIService.getTodayAttendance(token: token)
+        let daySessions = try? await HRConvexAPIService.getDaySessions(token: token, date: today)
 
         let firstPunchIn = daySessions?.firstPunchIn.nilIfBlank
             ?? todayAttendance?.firstPunchIn.nilIfBlank

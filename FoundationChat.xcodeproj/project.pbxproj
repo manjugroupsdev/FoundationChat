@@ -266,7 +266,7 @@
 				ASSETCATALOG_COMPILER_GLOBAL_ACCENT_COLOR_NAME = AccentColor;
 				CODE_SIGN_ENTITLEMENTS = FoundationChat/FoundationChat.entitlements;
 				CODE_SIGN_STYLE = Automatic;
-				CURRENT_PROJECT_VERSION = 32;
+				CURRENT_PROJECT_VERSION = 41;
 				DEVELOPMENT_TEAM = WLMZ5G3G5G;
 				ENABLE_APP_SANDBOX = YES;
 				ENABLE_HARDENED_RUNTIME = YES;
@@ -286,6 +286,7 @@
 				GENERATE_INFOPLIST_FILE = YES;
 				INFOPLIST_KEY_CFBundleDisplayName = "M-Connect";
 				INFOPLIST_KEY_CONVEX_URL = "https://industrious-bullfrog-820.convex.cloud";
+				INFOPLIST_KEY_ITSAppUsesNonExemptEncryption = NO;
 				INFOPLIST_KEY_LSApplicationCategoryType = "public.app-category.productivity";
 				INFOPLIST_KEY_NEXT_PUBLIC_STACK_API_URL = "https://api.manjuauth.aivida.in";
 				INFOPLIST_KEY_NEXT_PUBLIC_STACK_PROJECT_ID = "d680fa85-f908-4cf7-9541-0401ab1340b2";
@@ -336,7 +337,7 @@
 				ASSETCATALOG_COMPILER_GLOBAL_ACCENT_COLOR_NAME = AccentColor;
 				CODE_SIGN_ENTITLEMENTS = FoundationChat/FoundationChat.entitlements;
 				CODE_SIGN_STYLE = Automatic;
-				CURRENT_PROJECT_VERSION = 32;
+				CURRENT_PROJECT_VERSION = 41;
 				DEVELOPMENT_TEAM = WLMZ5G3G5G;
 				ENABLE_APP_SANDBOX = YES;
 				ENABLE_HARDENED_RUNTIME = YES;
@@ -356,6 +357,7 @@
 				GENERATE_INFOPLIST_FILE = YES;
 				INFOPLIST_KEY_CFBundleDisplayName = "M-Connect";
 				INFOPLIST_KEY_CONVEX_URL = "https://industrious-bullfrog-820.convex.cloud";
+				INFOPLIST_KEY_ITSAppUsesNonExemptEncryption = NO;
 				INFOPLIST_KEY_LSApplicationCategoryType = "public.app-category.productivity";
 				INFOPLIST_KEY_NEXT_PUBLIC_STACK_API_URL = "https://api.manjuauth.aivida.in";
 				INFOPLIST_KEY_NEXT_PUBLIC_STACK_PROJECT_ID = "d680fa85-f908-4cf7-9541-0401ab1340b2";

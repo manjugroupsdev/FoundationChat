@@ -459,6 +459,14 @@ final class GeoTrackAPIService {
         if !result.success, let err = result.error { throw GeoTrackAPIError.serverError(err) }
     }
 
+    /// POST /api/mms-fleet/driver/picked-from-site
+    func markMmsFleetDriverPickedFromSite(siteVisitId: String) async throws {
+        let body = MmsFleetDriverSiteVisitRequest(siteVisitId: siteVisitId)
+        let request = try makeRequest(path: "/api/mms-fleet/driver/picked-from-site", method: "POST", body: body)
+        let result: MmsFleetDriverActionResponse = try await perform(request)
+        if !result.success, let err = result.error { throw GeoTrackAPIError.serverError(err) }
+    }
+
     /// POST /api/mms-fleet/driver/end
     func endMmsFleetDriverTrip(siteVisitId: String, photoIds: [String], endKm: Double) async throws {
         let body = MmsFleetDriverEndRequest(siteVisitId: siteVisitId, photoIds: photoIds, endKm: endKm)
@@ -509,9 +517,16 @@ final class GeoTrackAPIService {
         visitId: String,
         otp: String,
         lat: Double? = nil,
-        lng: Double? = nil
+        lng: Double? = nil,
+        arrivalPhotoStorageId: String? = nil
     ) async throws -> GeoTrackArrivalOtpVerifyResponse {
-        let body = GeoTrackArrivalOtpVerifyBody(visitId: visitId, otp: otp, lat: lat, lng: lng)
+        let body = GeoTrackArrivalOtpVerifyBody(
+            visitId: visitId,
+            otp: otp,
+            lat: lat,
+            lng: lng,
+            arrivalPhotoStorageId: arrivalPhotoStorageId
+        )
         let request = try makeRequest(path: "/api/geotrack/visit/arrival-otp/verify", method: "POST", body: body)
         let result: GeoTrackArrivalOtpVerifyResponse = try await perform(request)
         return result

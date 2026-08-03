@@ -799,12 +799,20 @@ struct GeoTrackArrivalOtpVerifyBody: Encodable, Sendable {
     let otp: String
     let lat: Double?
     let lng: Double?
+    let arrivalPhotoStorageId: String?
 
-    init(visitId: String, otp: String, lat: Double? = nil, lng: Double? = nil) {
+    init(
+        visitId: String,
+        otp: String,
+        lat: Double? = nil,
+        lng: Double? = nil,
+        arrivalPhotoStorageId: String? = nil
+    ) {
         self.visitId = visitId
         self.otp = otp
         self.lat = lat
         self.lng = lng
+        self.arrivalPhotoStorageId = arrivalPhotoStorageId
     }
 }
 

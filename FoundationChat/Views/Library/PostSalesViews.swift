@@ -10,6 +10,7 @@ struct CollectionsView: View {
     @State private var errorMessage: String?
     @State private var showingSubmitSheet = false
     @State private var rectifyingCollection: CustomerCollectionRow?
+    @State private var editingCollection: CustomerCollectionRow?
     @State private var selectedFilter: CollectionPaymentFilter = .all
     @State private var selectedDate: Date?
     @State private var draftDate = Date()
@@ -43,7 +44,7 @@ struct CollectionsView: View {
                 .padding(.bottom, 28)
             }
         }
-        .background(Color(hex: 0xF3F5FA).ignoresSafeArea())
+        .background(Color.appScreenBackground.ignoresSafeArea())
         .navigationTitle("Collections")
         .navigationBarTitleDisplayMode(.inline)
         .searchable(
@@ -53,13 +54,13 @@ struct CollectionsView: View {
         )
         .textInputAutocapitalization(.never)
         .autocorrectionDisabled()
-        .toolbarBackground(Color.white, for: .navigationBar)
+        .toolbarBackground(Color.appElevatedSurface, for: .navigationBar)
         .toolbarBackground(.visible, for: .navigationBar)
         .toolbar {
             ToolbarItem(placement: .principal) {
                 Text("Collections")
                     .font(.system(size: 18, weight: .bold))
-                    .foregroundStyle(Color(hex: 0x101828))
+                .foregroundStyle(.primary)
             }
             ToolbarItemGroup(placement: .topBarTrailing) {
                 Button {
@@ -90,7 +91,7 @@ struct CollectionsView: View {
             }
             .appFormActivity()
             .appLibraryNativeSheet([.height(720), .large])
-            .presentationBackground(Color.white)
+            .presentationBackground(Color.appElevatedSurface)
         }
         .sheet(item: $rectifyingCollection) { collection in
             CollectionSubmitSheet(rectifyingCollection: collection) {
@@ -98,12 +99,18 @@ struct CollectionsView: View {
             }
             .appFormActivity()
             .appLibraryNativeSheet([.height(720), .large])
-            .presentationBackground(Color.white)
+            .presentationBackground(Color.appElevatedSurface)
+        }
+        .sheet(item: $editingCollection) { collection in
+            CollectionAmountCorrectionSheet(collection: collection) {
+                await load()
+            }
+            .appLibraryNativeSheet([.medium])
         }
         .sheet(isPresented: $showingDateFilter) {
             PostSalesCollectionDateFilterSheet(date: $draftDate, selectedDate: $selectedDate)
                 .appLibraryNativeSheet([.height(560)])
-                .presentationBackground(Color.white)
+            .presentationBackground(Color.appElevatedSurface)
         }
         .sheet(item: Binding(get: { previewURL.map(URLPreviewItem.init(url:)) }, set: { if $0 == nil { previewURL = nil } })) { item in
             StoragePreviewSheet(url: item.url)
@@ -129,7 +136,8 @@ struct CollectionsView: View {
                         CollectionRowCard(
                             collection: collection,
                             onProof: { await openProof(collection) },
-                            onRectify: collection.isRejected ? { rectifyingCollection = collection } : nil
+                            onRectify: collection.isRejected ? { rectifyingCollection = collection } : nil,
+                            onEdit: collection.isPendingVerification ? { editingCollection = collection } : nil
                         )
                     }
                 }
@@ -211,7 +219,7 @@ struct AccountsCollectionsReviewView: View {
                 .padding(.bottom, 28)
             }
         }
-        .background(Color(hex: 0xF3F5FA).ignoresSafeArea())
+        .background(Color.appScreenBackground.ignoresSafeArea())
         .navigationTitle("Post Sales Verification")
         .navigationBarTitleDisplayMode(.inline)
         .searchable(
@@ -221,13 +229,13 @@ struct AccountsCollectionsReviewView: View {
         )
         .textInputAutocapitalization(.never)
         .autocorrectionDisabled()
-        .toolbarBackground(Color.white, for: .navigationBar)
+        .toolbarBackground(Color.appElevatedSurface, for: .navigationBar)
         .toolbarBackground(.visible, for: .navigationBar)
         .toolbar {
             ToolbarItem(placement: .principal) {
                 Text("Post Sales Verification")
                     .font(.system(size: 18, weight: .bold))
-                    .foregroundStyle(Color(hex: 0x101828))
+                .foregroundStyle(.primary)
                     .lineLimit(1)
                     .minimumScaleFactor(0.82)
             }
@@ -268,7 +276,7 @@ struct AccountsCollectionsReviewView: View {
         .sheet(isPresented: $showingDateFilter) {
             PostSalesCollectionDateFilterSheet(date: $draftDate, selectedDate: $selectedDate)
                 .appLibraryNativeSheet([.height(560)])
-                .presentationBackground(Color.white)
+            .presentationBackground(Color.appElevatedSurface)
         }
     }
 
@@ -418,7 +426,7 @@ struct LoanDeskView: View {
                 .padding(.bottom, 28)
             }
         }
-        .background(Color(hex: 0xF3F5FA).ignoresSafeArea())
+        .background(Color.appScreenBackground.ignoresSafeArea())
         .navigationTitle("Loan Desk")
         .navigationBarTitleDisplayMode(.inline)
         .searchable(
@@ -428,13 +436,13 @@ struct LoanDeskView: View {
         )
         .textInputAutocapitalization(.never)
         .autocorrectionDisabled()
-        .toolbarBackground(Color.white, for: .navigationBar)
+        .toolbarBackground(Color.appElevatedSurface, for: .navigationBar)
         .toolbarBackground(.visible, for: .navigationBar)
         .toolbar {
             ToolbarItem(placement: .principal) {
                 Text("Loan Desk")
                     .font(.system(size: 18, weight: .bold))
-                    .foregroundStyle(Color(hex: 0x101828))
+                .foregroundStyle(.primary)
             }
             ToolbarItem(placement: .topBarTrailing) {
                 Button {} label: {
@@ -520,13 +528,13 @@ struct LoanDeskView: View {
 
             Text(hasQuery ? "No Loan Requests Found" : "No Loan Desk Yet")
                 .font(.system(size: 20, weight: .bold))
-                .foregroundStyle(Color(hex: 0x0F172A))
+                .foregroundStyle(.primary)
 
             Text(hasQuery
                  ? "Try searching with a different customer, phone number, booking reference, or project."
                  : "Loan requests and their processing status will appear here when records become available.")
                 .font(.system(size: 14, weight: .regular))
-                .foregroundStyle(Color(hex: 0x64748B))
+                .foregroundStyle(.secondary)
                 .multilineTextAlignment(.center)
                 .lineSpacing(4)
                 .padding(.horizontal, 28)
@@ -639,14 +647,14 @@ struct PostSalesCaseLookupView: View {
                         .tint(Color(hex: 0x0B61CA))
                     }
                     .padding(16)
-                    .background(Color.white, in: RoundedRectangle(cornerRadius: 16))
+                    .background(Color.appSurface, in: RoundedRectangle(cornerRadius: 16))
 
                     if isLoading {
                         AppModuleLoadingRows()
                     } else if cases.isEmpty && hasSearched {
                         ContentUnavailableView("No Cases", systemImage: "doc.text.magnifyingglass")
                             .padding(.vertical, 28)
-                            .background(Color.white, in: RoundedRectangle(cornerRadius: 18))
+                            .background(Color.appSurface, in: RoundedRectangle(cornerRadius: 18))
                     } else {
                         LazyVStack(spacing: 12) {
                             ForEach(cases) { item in
@@ -727,15 +735,15 @@ private struct LoanModeBanner: View {
             VStack(alignment: .leading, spacing: 2) {
                 Text(mode.title)
                     .font(AppModuleFont.rowMetaSemibold)
-                    .foregroundStyle(Color(hex: 0x101828))
+                .foregroundStyle(.primary)
                 Text("Workflow matched to your staff role")
                     .font(AppModuleFont.rowMeta)
-                    .foregroundStyle(Color(hex: 0x667085))
+                .foregroundStyle(.secondary)
             }
             Spacer()
         }
         .padding(12)
-        .background(Color.white, in: RoundedRectangle(cornerRadius: 12, style: .continuous))
+        .background(Color.appSurface, in: RoundedRectangle(cornerRadius: 12, style: .continuous))
     }
 }
 
@@ -747,16 +755,16 @@ struct PostSalesSearchField: View {
         HStack(spacing: 12) {
             TextField(placeholder, text: $text)
                 .font(.system(size: 15, weight: .regular))
-                .foregroundStyle(Color(hex: 0x101828))
+                .foregroundStyle(.primary)
                 .textInputAutocapitalization(.words)
 
             Image(systemName: "magnifyingglass")
                 .font(.system(size: 22, weight: .semibold))
-                .foregroundStyle(Color(hex: 0x101828))
+                .foregroundStyle(.primary)
         }
         .padding(.horizontal, 14)
         .frame(height: 56)
-        .background(Color.white, in: RoundedRectangle(cornerRadius: 14, style: .continuous))
+        .background(Color.appSurface, in: RoundedRectangle(cornerRadius: 14, style: .continuous))
         .overlay(
             RoundedRectangle(cornerRadius: 14, style: .continuous)
                 .stroke(Color(hex: 0xE0E4EC), lineWidth: 1)
@@ -789,7 +797,7 @@ struct PostSalesSegmentedFilter: View {
             }
         }
         .padding(3)
-        .background(Color.white, in: Capsule())
+        .background(Color.appSurface, in: Capsule())
         .overlay(
             Capsule()
                 .stroke(Color(hex: 0xEAECF0), lineWidth: 1)
@@ -883,9 +891,9 @@ private struct PostSalesCollectionDateFilterSheet: View {
                     } label: {
                         Text("Cancel")
                             .font(.system(size: 16, weight: .regular))
-                            .foregroundStyle(Color(hex: 0x101828))
+                .foregroundStyle(.primary)
                             .frame(width: 86, height: 44)
-                            .background(Color(hex: 0xF8FAFC), in: Capsule())
+                            .background(Color.appFieldBackground, in: Capsule())
                     }
                     .buttonStyle(.plain)
 
@@ -918,7 +926,7 @@ private struct PostSalesCollectionDateFilterSheet: View {
 
                 Text("Date Filter")
                     .font(.system(size: 18, weight: .bold))
-                    .foregroundStyle(Color(hex: 0x101828))
+                .foregroundStyle(.primary)
             }
             .padding(.horizontal, 18)
             .padding(.top, 28)
@@ -927,7 +935,7 @@ private struct PostSalesCollectionDateFilterSheet: View {
             VStack(spacing: 14) {
                 Text("Select Date Filter")
                     .font(.system(size: 14, weight: .medium))
-                    .foregroundStyle(Color(hex: 0x667085))
+                .foregroundStyle(.secondary)
                     .frame(maxWidth: .infinity, alignment: .leading)
                     .padding(.horizontal, 22)
 
@@ -939,7 +947,7 @@ private struct PostSalesCollectionDateFilterSheet: View {
             }
             .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .top)
         }
-        .background(Color.white)
+        .background(Color.appSurface)
     }
 }
 
@@ -1014,10 +1022,10 @@ private struct CollectionControls: View {
             VStack(alignment: .leading, spacing: 2) {
                 Text(title)
                     .font(AppModuleFont.rowMeta)
-                    .foregroundStyle(Color(hex: 0x667085))
+                .foregroundStyle(.secondary)
                 Text(value)
                     .font(AppModuleFont.rowMetaSemibold)
-                    .foregroundStyle(Color(hex: 0x101828))
+                .foregroundStyle(.primary)
                     .lineLimit(1)
                     .minimumScaleFactor(0.75)
             }
@@ -1025,7 +1033,7 @@ private struct CollectionControls: View {
         }
         .padding(12)
         .frame(maxWidth: .infinity)
-        .background(Color.white, in: RoundedRectangle(cornerRadius: 12, style: .continuous))
+        .background(Color.appSurface, in: RoundedRectangle(cornerRadius: 12, style: .continuous))
     }
 }
 
@@ -1033,6 +1041,7 @@ private struct CollectionRowCard: View {
     let collection: CustomerCollectionRow
     var onProof: (() async -> Void)? = nil
     var onRectify: (() -> Void)? = nil
+    var onEdit: (() -> Void)? = nil
     var onReject: (() -> Void)? = nil
     var onAccept: (() -> Void)? = nil
 
@@ -1042,7 +1051,7 @@ private struct CollectionRowCard: View {
                 HStack(alignment: .center) {
                     Text(AppModuleFormatters.rupees(collection.amount ?? 0))
                         .font(.system(size: 20, weight: .bold))
-                        .foregroundStyle(Color(hex: 0x0B2B5C))
+                .foregroundStyle(.primary)
                         .lineLimit(1)
                         .minimumScaleFactor(0.8)
                     Spacer(minLength: 12)
@@ -1051,7 +1060,7 @@ private struct CollectionRowCard: View {
 
                 Text(collection.androidBookingLabel)
                     .font(.system(size: 14, weight: .semibold))
-                    .foregroundStyle(Color(hex: 0x344054))
+                .foregroundStyle(.primary)
                     .lineLimit(2)
             }
 
@@ -1086,7 +1095,7 @@ private struct CollectionRowCard: View {
             if let date = collection.androidCollectionDate {
                 Label(date, systemImage: "calendar")
                     .font(.system(size: 11, weight: .regular))
-                    .foregroundStyle(Color(hex: 0x667085))
+                .foregroundStyle(.secondary)
             }
 
             if collection.isRejected, let remarks = collection.verificationNotes?.nonBlank {
@@ -1096,7 +1105,7 @@ private struct CollectionRowCard: View {
                         .foregroundStyle(Color(hex: 0xB42318))
                     Text(remarks)
                         .font(.system(size: 12, weight: .medium))
-                        .foregroundStyle(Color(hex: 0x667085))
+                .foregroundStyle(.secondary)
                 }
                 .padding(12)
                 .frame(maxWidth: .infinity, alignment: .leading)
@@ -1128,6 +1137,18 @@ private struct CollectionRowCard: View {
                     .tint(Color(hex: 0x16A34A))
                 }
                 .padding(.top, 4)
+            } else if let onEdit {
+                Button {
+                    onEdit()
+                } label: {
+                    Label("Edit amount", systemImage: "pencil")
+                        .font(.system(size: 14, weight: .semibold))
+                        .frame(maxWidth: .infinity)
+                        .frame(height: 44)
+                }
+                .buttonStyle(.borderedProminent)
+                .tint(Color(hex: 0x0B61CA))
+                .padding(.top, 4)
             } else if let onRectify {
                 Button {
                     onRectify()
@@ -1143,7 +1164,7 @@ private struct CollectionRowCard: View {
             }
         }
         .padding(16)
-        .background(Color.white, in: RoundedRectangle(cornerRadius: 16, style: .continuous))
+        .background(Color.appSurface, in: RoundedRectangle(cornerRadius: 16, style: .continuous))
         .overlay(
             RoundedRectangle(cornerRadius: 16, style: .continuous)
                 .stroke(Color(hex: 0xEAECF0), lineWidth: 1)
@@ -1179,19 +1200,99 @@ private struct CollectionRowCard: View {
                 .font(.system(size: 14, weight: .medium))
                 .foregroundStyle(Color(hex: 0x0B61CA))
                 .frame(width: 28, height: 28)
-                .background(Color(hex: 0xF1F5F9), in: Circle())
+                .background(Color.appFieldBackground, in: Circle())
             VStack(alignment: .leading, spacing: 2) {
                 Text(title)
                     .font(.system(size: 11, weight: .regular))
-                    .foregroundStyle(Color(hex: 0x667085))
+                .foregroundStyle(.secondary)
                 Text(value)
                     .font(.system(size: 12, weight: .semibold))
-                    .foregroundStyle(Color(hex: 0x101828))
+                .foregroundStyle(.primary)
                     .lineLimit(1)
                     .minimumScaleFactor(0.8)
             }
         }
         .padding(.vertical, 4)
+    }
+}
+
+private struct CollectionAmountCorrectionSheet: View {
+    @Environment(AuthStore.self) private var authStore
+    @Environment(\.dismiss) private var dismiss
+
+    let collection: CustomerCollectionRow
+    let onSaved: () async -> Void
+
+    @State private var amount: String
+    @State private var isSaving = false
+    @State private var errorMessage: String?
+
+    init(collection: CustomerCollectionRow, onSaved: @escaping () async -> Void) {
+        self.collection = collection
+        self.onSaved = onSaved
+        _amount = State(initialValue: collection.amount.map { String($0) } ?? "")
+    }
+
+    var body: some View {
+        NavigationStack {
+            Form {
+                Section("Pending collection") {
+                    LabeledContent("Customer", value: collection.displayTitle)
+                    LabeledContent("Current amount", value: AppModuleFormatters.rupees(collection.amount ?? 0))
+                }
+                Section {
+                    TextField("Amount", text: $amount)
+                        .keyboardType(.decimalPad)
+                } header: {
+                    Text("Correct amount")
+                } footer: {
+                    Text("The amount can be corrected only while Accounts has not approved or rejected it.")
+                }
+                if let errorMessage {
+                    Section {
+                        Text(errorMessage)
+                            .foregroundStyle(.red)
+                    }
+                }
+            }
+            .navigationTitle("Edit collection amount")
+            .navigationBarTitleDisplayMode(.inline)
+            .interactiveDismissDisabled(isSaving)
+            .toolbar {
+                ToolbarItem(placement: .cancellationAction) {
+                    Button("Cancel") { dismiss() }
+                        .disabled(isSaving)
+                }
+                ToolbarItem(placement: .confirmationAction) {
+                    Button(isSaving ? "Saving…" : "Save") {
+                        Task { await save() }
+                    }
+                    .disabled(isSaving || validAmount == nil)
+                }
+            }
+        }
+    }
+
+    private var validAmount: Double? {
+        guard let value = Double(amount), value.isFinite, value > 0 else { return nil }
+        return value
+    }
+
+    @MainActor
+    private func save() async {
+        guard let token = authStore.currentSession?.token, let validAmount else { return }
+        isSaving = true
+        defer { isSaving = false }
+        do {
+            _ = try await PostSalesConvexAPIService.correctCollection(
+                token: token,
+                request: CorrectCollectionRequest(collectionId: collection.id, amount: validAmount)
+            )
+            await onSaved()
+            dismiss()
+        } catch {
+            errorMessage = error.localizedDescription
+        }
     }
 }
 
@@ -1217,7 +1318,7 @@ private struct CollectionProofThumbnail: View {
         } label: {
             ZStack {
                 RoundedRectangle(cornerRadius: 8, style: .continuous)
-                    .fill(Color(hex: 0xF8FAFC))
+                    .fill(Color.appFieldBackground)
                 if let thumbnailURL {
                     AsyncImage(url: thumbnailURL) { phase in
                         switch phase {
@@ -1255,7 +1356,7 @@ private struct CollectionProofThumbnail: View {
     private var proofFallback: some View {
         Image(systemName: "doc.viewfinder")
             .font(.system(size: 24, weight: .medium))
-            .foregroundStyle(Color(hex: 0x98A2B3))
+                .foregroundStyle(.tertiary)
     }
 
     @MainActor
@@ -1289,10 +1390,10 @@ private struct LoanDeskCaseCard: View {
                 VStack(alignment: .leading, spacing: 4) {
                     Text(loanCase.displayTitle)
                         .font(AppModuleFont.rowTitle)
-                        .foregroundStyle(Color(hex: 0x101828))
+                .foregroundStyle(.primary)
                     Text([loanCase.projectName, loanCase.plotNo, loanCase.phone].compactMap { $0?.nonBlank }.joined(separator: " · "))
                         .font(AppModuleFont.rowMeta)
-                        .foregroundStyle(Color(hex: 0x667085))
+                .foregroundStyle(.secondary)
                 }
                 Spacer()
                 AppModuleBadge(text: loanCase.displayStatus, tint: Color(hex: 0x0B61CA))
@@ -1306,7 +1407,7 @@ private struct LoanDeskCaseCard: View {
             if let assignee = loanCase.legalAssignedName?.nonBlank {
                 Label(assignee, systemImage: "person.crop.circle.badge.checkmark")
                     .font(AppModuleFont.rowMeta)
-                    .foregroundStyle(Color(hex: 0x667085))
+                .foregroundStyle(.secondary)
             }
 
             HStack(spacing: 10) {
@@ -1326,7 +1427,7 @@ private struct LoanDeskCaseCard: View {
             }
         }
         .padding(16)
-        .background(Color.white, in: RoundedRectangle(cornerRadius: 16, style: .continuous))
+        .background(Color.appSurface, in: RoundedRectangle(cornerRadius: 16, style: .continuous))
         .shadow(color: .black.opacity(0.04), radius: 10, x: 0, y: 4)
     }
 
@@ -1334,14 +1435,14 @@ private struct LoanDeskCaseCard: View {
         VStack(alignment: .leading, spacing: 3) {
             Text(title)
                 .font(AppModuleFont.rowMeta)
-                .foregroundStyle(Color(hex: 0x667085))
+                .foregroundStyle(.secondary)
             Text(value)
                 .font(AppModuleFont.rowMetaSemibold)
-                .foregroundStyle(Color(hex: 0x101828))
+                .foregroundStyle(.primary)
         }
         .frame(maxWidth: .infinity, alignment: .leading)
         .padding(10)
-        .background(Color(hex: 0xF8FAFC), in: RoundedRectangle(cornerRadius: 10))
+        .background(Color.appFieldBackground, in: RoundedRectangle(cornerRadius: 10))
     }
 }
 
@@ -1356,7 +1457,7 @@ private struct PostSaleCaseCard: View {
                         .font(AppModuleFont.rowTitle)
                     Text(item.subtitle)
                         .font(AppModuleFont.rowMeta)
-                        .foregroundStyle(Color(hex: 0x667085))
+                .foregroundStyle(.secondary)
                 }
                 Spacer()
                 AppModuleBadge(text: item.currentStage ?? "Open", tint: Color(hex: 0x0B61CA))
@@ -1367,7 +1468,7 @@ private struct PostSaleCaseCard: View {
             }
         }
         .padding(16)
-        .background(Color.white, in: RoundedRectangle(cornerRadius: 16, style: .continuous))
+        .background(Color.appSurface, in: RoundedRectangle(cornerRadius: 16, style: .continuous))
         .shadow(color: .black.opacity(0.04), radius: 10, x: 0, y: 4)
     }
 
@@ -1375,14 +1476,193 @@ private struct PostSaleCaseCard: View {
         VStack(alignment: .leading, spacing: 3) {
             Text(title)
                 .font(AppModuleFont.rowMeta)
-                .foregroundStyle(Color(hex: 0x667085))
+                .foregroundStyle(.secondary)
             Text(value)
                 .font(AppModuleFont.rowMetaSemibold)
-                .foregroundStyle(Color(hex: 0x101828))
+                .foregroundStyle(.primary)
         }
         .frame(maxWidth: .infinity, alignment: .leading)
         .padding(10)
-        .background(Color(hex: 0xF8FAFC), in: RoundedRectangle(cornerRadius: 10))
+        .background(Color.appFieldBackground, in: RoundedRectangle(cornerRadius: 10))
+    }
+}
+
+private enum CollectionEntryPaymentMode: String, CaseIterable, Identifiable {
+    case cash
+    case upi
+    case neft
+    case rtgs
+    case cheque
+    case dd
+
+    var id: String { rawValue }
+    var title: String { rawValue.uppercased() }
+    var isCash: Bool { self == .cash }
+    var isInstrument: Bool { self == .cheque || self == .dd }
+}
+
+private struct CollectionBookingSelectionSheet: View {
+    @Environment(\.dismiss) private var dismiss
+    let cases: [PostSaleCaseSummary]
+    let selectedCaseId: String
+    let onSelect: (PostSaleCaseSummary) -> Void
+    @State private var searchText = ""
+
+    private var filteredCases: [PostSaleCaseSummary] {
+        let query = searchText.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !query.isEmpty else { return cases }
+        return cases.filter { item in
+            [
+                item.clientName,
+                item.bookingRefNo,
+                item.mobileNumber,
+                item.projectName,
+                item.plotNo
+            ]
+            .compactMap { $0 }
+            .joined(separator: " ")
+            .localizedStandardContains(query)
+        }
+    }
+
+    var body: some View {
+        NavigationStack {
+            List(filteredCases) { item in
+                Button {
+                    onSelect(item)
+                    dismiss()
+                } label: {
+                    CollectionBookingSelectionRow(
+                        item: item,
+                        isSelected: item.id == selectedCaseId
+                    )
+                }
+                .buttonStyle(.plain)
+            }
+            .listStyle(.plain)
+            .overlay {
+                if filteredCases.isEmpty {
+                    ContentUnavailableView.search(text: searchText)
+                }
+            }
+            .navigationTitle("Select Booking")
+            .navigationBarTitleDisplayMode(.inline)
+            .searchable(text: $searchText, prompt: "Search customer, booking or project")
+            .toolbar {
+                ToolbarItem(placement: .cancellationAction) {
+                    Button("Cancel") { dismiss() }
+                }
+            }
+        }
+    }
+}
+
+private struct CollectionBookingSelectionRow: View {
+    let item: PostSaleCaseSummary
+    let isSelected: Bool
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 10) {
+            HStack(alignment: .top, spacing: 10) {
+                VStack(alignment: .leading, spacing: 3) {
+                    Text(item.clientName?.nonBlank ?? "Customer")
+                        .font(.headline)
+                        .foregroundStyle(.primary)
+                    Text(item.bookingRefNo?.nonBlank ?? "Booking reference unavailable")
+                        .font(.subheadline)
+                        .foregroundStyle(.secondary)
+                }
+                Spacer(minLength: 8)
+                if isSelected {
+                    Image(systemName: "checkmark.circle.fill")
+                        .font(.title3)
+                        .foregroundStyle(.tint)
+                        .accessibilityLabel("Selected")
+                }
+            }
+
+            Label(item.mobileNumber?.nonBlank ?? "No mobile number", systemImage: "phone")
+                .font(.subheadline)
+                .foregroundStyle(.secondary)
+
+            HStack(spacing: 10) {
+                bookingMetric("Project", item.projectName?.nonBlank ?? "-")
+                bookingMetric("Plot", item.plotNo?.nonBlank ?? "-")
+            }
+
+            HStack {
+                Text("Balance")
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+                Spacer()
+                Text(AppModuleFormatters.rupees(item.balanceAmount ?? 0))
+                    .font(.subheadline.weight(.semibold))
+                    .foregroundStyle(.primary)
+            }
+        }
+        .padding(.vertical, 8)
+        .contentShape(.rect)
+        .accessibilityElement(children: .combine)
+    }
+
+    private func bookingMetric(_ title: String, _ value: String) -> some View {
+        VStack(alignment: .leading, spacing: 2) {
+            Text(title)
+                .font(.caption)
+                .foregroundStyle(.secondary)
+            Text(value)
+                .font(.subheadline.weight(.medium))
+                .foregroundStyle(.primary)
+                .lineLimit(2)
+        }
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .padding(10)
+        .background(.secondary.opacity(0.08), in: .rect(cornerRadius: 10))
+    }
+}
+
+private struct CollectionSelectedBookingView: View {
+    let item: PostSaleCaseSummary
+    let onChange: () -> Void
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 10) {
+            HStack(alignment: .top) {
+                VStack(alignment: .leading, spacing: 3) {
+                    Text(item.clientName?.nonBlank ?? "Customer")
+                        .font(.headline)
+                    Text(item.bookingRefNo?.nonBlank ?? "Booking selected")
+                        .font(.subheadline)
+                        .foregroundStyle(.secondary)
+                }
+                Spacer()
+                Button("Change", action: onChange)
+                    .font(.subheadline.weight(.semibold))
+            }
+
+            Text(
+                [
+                    item.projectName?.nonBlank,
+                    item.plotNo?.nonBlank.map { "Plot \($0)" },
+                    item.mobileNumber?.nonBlank
+                ]
+                .compactMap { $0 }
+                .joined(separator: " · ")
+            )
+            .font(.subheadline)
+            .foregroundStyle(.secondary)
+
+            HStack {
+                Text("Outstanding balance")
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+                Spacer()
+                Text(AppModuleFormatters.rupees(item.balanceAmount ?? 0))
+                    .font(.subheadline.weight(.semibold))
+            }
+        }
+        .padding(.vertical, 4)
+        .accessibilityElement(children: .combine)
     }
 }
 
@@ -1393,11 +1673,13 @@ private struct CollectionSubmitSheet: View {
     @State private var caseId = ""
     @State private var mobile = ""
     @State private var caseMatches: [PostSaleCaseSummary] = []
-    @State private var selectedCaseId = ""
+    @State private var selectedCase: PostSaleCaseSummary?
     @State private var amount = ""
-    @State private var paymentMode = "cash"
+    @State private var paymentMode: CollectionEntryPaymentMode = .upi
     @State private var reference = ""
     @State private var bankName = ""
+    @State private var branchName = ""
+    @State private var paymentInstrumentDate = Date()
     @State private var notes = ""
     @State private var proofFile: PostSalesUploadedFile?
     @State private var errorMessage: String?
@@ -1405,7 +1687,28 @@ private struct CollectionSubmitSheet: View {
     @State private var isSearching = false
     @State private var isUploading = false
     @State private var showingFileImporter = false
+    @State private var showingBookingSelection = false
     let onSaved: () async -> Void
+
+    private var amountValue: Double? {
+        guard let value = Double(amount), value.isFinite, value > 0 else { return nil }
+        return value
+    }
+
+    private var hasValidInstrumentDetails: Bool {
+        guard paymentMode.isInstrument else { return true }
+        return reference.nonBlank != nil
+            && bankName.nonBlank != nil
+            && branchName.nonBlank != nil
+    }
+
+    private var canSubmit: Bool {
+        !isSubmitting
+            && !isUploading
+            && caseId.nonBlank != nil
+            && amountValue != nil
+            && hasValidInstrumentDetails
+    }
 
     var body: some View {
         NavigationStack {
@@ -1414,65 +1717,141 @@ private struct CollectionSubmitSheet: View {
                     HStack {
                         TextField("Mobile number", text: $mobile)
                             .keyboardType(.phonePad)
+                            .textContentType(.telephoneNumber)
+                            .submitLabel(.search)
+                            .onSubmit {
+                                Task { await searchCases() }
+                            }
                         Button {
                             Task { await searchCases() }
                         } label: {
-                            Image(systemName: "magnifyingglass")
-                        }
-                        .disabled(isSearching || AppModuleFormatters.normalizePhone(mobile).isEmpty)
-                    }
-
-                    if !caseMatches.isEmpty {
-                        Picker("Case", selection: $selectedCaseId) {
-                            ForEach(caseMatches) { item in
-                                Text(item.title).tag(item.id)
+                            if isSearching {
+                                ProgressView()
+                            } else {
+                                Image(systemName: "magnifyingglass")
                             }
                         }
+                        .disabled(isSearching || AppModuleFormatters.normalizePhone(mobile).isEmpty)
+                        .accessibilityLabel("Find customer bookings")
                     }
 
-                    TextField("Case ID", text: $caseId)
-                        .textInputAutocapitalization(.never)
-                }
-
-                Section {
-                    TextField("Amount", text: $amount)
-                        .keyboardType(.decimalPad)
-                    Picker("Payment Mode", selection: $paymentMode) {
-                        ForEach(["cash", "upi", "neft", "rtgs", "cheque", "dd", "bank"], id: \.self) { mode in
-                            Text(mode.uppercased()).tag(mode)
+                    if let selectedCase {
+                        CollectionSelectedBookingView(item: selectedCase) {
+                            showingBookingSelection = true
+                        }
+                    } else if !caseMatches.isEmpty {
+                        Button {
+                            showingBookingSelection = true
+                        } label: {
+                            Label(
+                                "Select from \(caseMatches.count) booking\(caseMatches.count == 1 ? "" : "s")",
+                                systemImage: "rectangle.stack"
+                            )
+                        }
+                    } else if let rectifyingCollection {
+                        VStack(alignment: .leading, spacing: 4) {
+                            Text(rectifyingCollection.customerName?.nonBlank ?? "Existing booking")
+                                .font(.headline)
+                            Text(
+                                [
+                                    rectifyingCollection.bookingRefNo?.nonBlank,
+                                    rectifyingCollection.projectName?.nonBlank,
+                                    rectifyingCollection.plotNo?.nonBlank.map { "Plot \($0)" }
+                                ]
+                                .compactMap { $0 }
+                                .joined(separator: " · ")
+                            )
+                            .font(.subheadline)
+                            .foregroundStyle(.secondary)
                         }
                     }
-                    TextField("Transaction Reference", text: $reference)
-                    TextField("Bank Name", text: $bankName)
+                }
+
+                Section("Payment") {
+                    TextField("Amount received", text: $amount)
+                        .keyboardType(.decimalPad)
+                    Picker("Payment Mode", selection: $paymentMode) {
+                        ForEach(CollectionEntryPaymentMode.allCases) { mode in
+                            Text(mode.title).tag(mode)
+                        }
+                    }
+
+                    if paymentMode.isInstrument {
+                        TextField(paymentMode == .dd ? "DD number" : "Cheque number", text: $reference)
+                        TextField("Bank", text: $bankName)
+                        TextField("Branch", text: $branchName)
+                        DatePicker(
+                            paymentMode == .dd ? "DD date" : "Cheque date",
+                            selection: $paymentInstrumentDate,
+                            displayedComponents: .date
+                        )
+                    } else if !paymentMode.isCash {
+                        TextField("Transaction ID", text: $reference)
+                            .textInputAutocapitalization(.characters)
+                    }
+
                     TextField("Notes", text: $notes, axis: .vertical)
                         .lineLimit(3, reservesSpace: true)
                 }
 
-                Section("Proof") {
+                Section("Payment Proof") {
                     Button {
                         showingFileImporter = true
                     } label: {
-                        Label(proofFile?.fileName ?? "Attach payment proof", systemImage: "paperclip")
+                        Label(proofFile == nil ? "Attach payment proof" : "Replace payment proof", systemImage: "paperclip")
                     }
                     if isUploading {
                         ProgressView("Uploading proof...")
                     }
                     if let proofFile {
-                        Text(proofFile.storageId)
-                            .font(.caption)
-                            .foregroundStyle(.secondary)
+                        HStack {
+                            VStack(alignment: .leading, spacing: 3) {
+                                Text(proofFile.fileName)
+                                    .font(.subheadline.weight(.medium))
+                                    .lineLimit(1)
+                                Text(proofFile.fileSize.formatted(.byteCount(style: .file)))
+                                    .font(.caption)
+                                    .foregroundStyle(.secondary)
+                            }
+                            Spacer()
+                            Button("Remove", role: .destructive) {
+                                self.proofFile = nil
+                            }
+                        }
                     }
+
+                    Text("PDF, JPG, PNG or WebP up to 10 MB. Accounts can review this before approval.")
+                        .font(.caption)
+                        .foregroundStyle(.secondary)
                 }
             }
-            .navigationTitle(rectifyingCollection == nil ? "New Collection" : "Rectify Collection")
+            .navigationTitle(rectifyingCollection == nil ? "Payment Entry" : "Rectify Collection")
             .navigationBarTitleDisplayMode(.inline)
             .onAppear(perform: applyRectifyPrefill)
-            .onChange(of: selectedCaseId) { _, newValue in
-                if !newValue.isEmpty { caseId = newValue }
+            .onChange(of: paymentMode) { oldValue, newValue in
+                guard oldValue != newValue else { return }
+                if newValue.isCash {
+                    reference = ""
+                }
+                if !newValue.isInstrument {
+                    bankName = ""
+                    branchName = ""
+                    paymentInstrumentDate = Date()
+                }
+            }
+            .sheet(isPresented: $showingBookingSelection) {
+                CollectionBookingSelectionSheet(
+                    cases: caseMatches,
+                    selectedCaseId: selectedCase?.id ?? caseId
+                ) { item in
+                    selectedCase = item
+                    caseId = item.id
+                }
+                .appLibraryNativeSheet([.medium, .large])
             }
             .fileImporter(
                 isPresented: $showingFileImporter,
-                allowedContentTypes: [.image, .pdf, .data],
+                allowedContentTypes: [.pdf, .jpeg, .png, .webP],
                 allowsMultipleSelection: false
             ) { result in
                 Task { await importProof(result) }
@@ -1482,10 +1861,10 @@ private struct CollectionSubmitSheet: View {
                     Button("Cancel") { dismiss() }
                 }
                 ToolbarItem(placement: .confirmationAction) {
-                    Button(isSubmitting ? "Saving..." : "Save") {
+                    Button(isSubmitting ? "Submitting..." : "Submit for Accounts") {
                         Task { await submit() }
                     }
-                    .disabled(isSubmitting || isUploading || caseId.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty || Double(amount) == nil)
+                    .disabled(!canSubmit)
                 }
             }
             .alert("Collection", isPresented: Binding(get: { errorMessage != nil }, set: { if !$0 { errorMessage = nil } })) {
@@ -1499,11 +1878,14 @@ private struct CollectionSubmitSheet: View {
     private func applyRectifyPrefill() {
         guard let row = rectifyingCollection, caseId.isEmpty else { return }
         caseId = row.caseId ?? ""
-        selectedCaseId = row.caseId ?? ""
         amount = row.amount.map { String($0) } ?? ""
-        paymentMode = row.paymentMode ?? "cash"
+        paymentMode = CollectionEntryPaymentMode(rawValue: row.paymentMode ?? "") ?? .upi
         reference = row.transactionReference ?? ""
         bankName = row.bankName ?? ""
+        branchName = row.branchName ?? ""
+        if let date = Self.dateOnlyFormatter.date(from: row.paymentInstrumentDate ?? "") {
+            paymentInstrumentDate = date
+        }
         notes = row.notes ?? row.verificationNotes ?? ""
     }
 
@@ -1513,13 +1895,16 @@ private struct CollectionSubmitSheet: View {
         isSearching = true
         defer { isSearching = false }
         do {
+            selectedCase = nil
+            caseId = ""
             caseMatches = try await PostSalesConvexAPIService.getCasesByMobile(
                 token: token,
                 mobile: AppModuleFormatters.normalizePhone(mobile)
             )
-            if let first = caseMatches.first {
-                selectedCaseId = first.id
-                caseId = first.id
+            if caseMatches.isEmpty {
+                errorMessage = "No bookings found for this mobile number."
+            } else {
+                showingBookingSelection = true
             }
         } catch {
             errorMessage = error.localizedDescription
@@ -1531,6 +1916,19 @@ private struct CollectionSubmitSheet: View {
         guard let token = authStore.currentSession?.token else { return }
         do {
             guard let url = try result.get().first else { return }
+            let values = try url.resourceValues(forKeys: [.fileSizeKey])
+            let fileSize = values.fileSize ?? 0
+            let allowedTypes: Set<UTType> = [.pdf, .jpeg, .png, .webP]
+            guard let type = UTType(filenameExtension: url.pathExtension),
+                  allowedTypes.contains(type)
+            else {
+                errorMessage = "Upload a PDF, JPG, PNG or WebP proof."
+                return
+            }
+            guard fileSize <= 10 * 1024 * 1024 else {
+                errorMessage = "Proof file must be 10 MB or smaller."
+                return
+            }
             isUploading = true
             defer { isUploading = false }
             proofFile = try await PostSalesStorageService.uploadFile(token: token, fileURL: url)
@@ -1541,18 +1939,23 @@ private struct CollectionSubmitSheet: View {
 
     @MainActor
     private func submit() async {
-        guard let token = authStore.currentSession?.token, let amountValue = Double(amount) else { return }
+        guard let token = authStore.currentSession?.token, let amountValue else { return }
         isSubmitting = true
         defer { isSubmitting = false }
         do {
             _ = try await PostSalesConvexAPIService.submitCollection(
                 token: token,
                 request: SubmitCollectionRequest(
+                    cpVisitId: nil,
                     caseId: caseId.trimmingCharacters(in: .whitespacesAndNewlines),
                     amount: amountValue,
-                    paymentMode: paymentMode,
-                    transactionReference: reference.nonBlank,
-                    bankName: bankName.nonBlank,
+                    paymentMode: paymentMode.rawValue,
+                    transactionReference: paymentMode.isCash ? nil : reference.nonBlank,
+                    bankName: paymentMode.isInstrument ? bankName.nonBlank : nil,
+                    branchName: paymentMode.isInstrument ? branchName.nonBlank : nil,
+                    paymentInstrumentDate: paymentMode.isInstrument
+                        ? Self.dateOnlyFormatter.string(from: paymentInstrumentDate)
+                        : nil,
                     proofStorageId: proofFile?.storageId,
                     proofFileName: proofFile?.fileName,
                     notes: notes.nonBlank
@@ -1564,6 +1967,14 @@ private struct CollectionSubmitSheet: View {
             errorMessage = error.localizedDescription
         }
     }
+
+    private static let dateOnlyFormatter: DateFormatter = {
+        let formatter = DateFormatter()
+        formatter.locale = Locale(identifier: "en_US_POSIX")
+        formatter.calendar = Calendar(identifier: .gregorian)
+        formatter.dateFormat = "yyyy-MM-dd"
+        return formatter
+    }()
 }
 
 private struct RejectCollectionSheet: View {
@@ -1581,7 +1992,7 @@ private struct RejectCollectionSheet: View {
                     Section {
                         Text(subtitle)
                             .font(.system(size: 13, weight: .medium))
-                            .foregroundStyle(Color(hex: 0x667085))
+                .foregroundStyle(.secondary)
                     }
                 }
                 Section {

@@ -1,4 +1,5 @@
 import CoreLocation
+import MapKit
 import SwiftUI
 import UIKit
 
@@ -13,6 +14,14 @@ struct CpVisitsView: View {
     @State private var selectedFilter: CpVisitFilter = .all
     @State private var isClockedIn = false
     @State private var selectedOutcomeVisit: CpListVisit?
+    @State private var selectedSpecialOutcomeVisit: CpListVisit?
+    @State private var showSpecialOutcome = false
+    @State private var showDateFilter = false
+    @State private var filterFromDate: Date?
+    @State private var filterToDate: Date?
+    @State private var showPunchIn = false
+    @State private var showHomeFenceWarning = false
+    @State private var isCheckingHomeFence = false
 
     private var filteredVisits: [CpListVisit] {
         visits.filter { visit in
@@ -24,6 +33,7 @@ struct CpVisitsView: View {
     var body: some View {
         ScrollView {
             filterPills
+            dateFilterChip
 
             if isLoading && visits.isEmpty {
                 skeletonList
@@ -34,13 +44,29 @@ struct CpVisitsView: View {
             } else {
                 LazyVStack(spacing: 12) {
                     ForEach(filteredVisits) { visit in
-                        if visit.isPendingOutcomeCpVisit {
+                        if visit.isPendingOutcomeCpVisit && visit.hasSpecialCompletion {
+                            Button {
+                                selectedSpecialOutcomeVisit = visit
+                                showSpecialOutcome = true
+                            } label: {
+                                CpVisitCard(visit: visit, isClockedIn: isClockedIn)
+                            }
+                            .buttonStyle(.plain)
+                        } else if visit.isPendingOutcomeCpVisit {
                             Button {
                                 selectedOutcomeVisit = visit
                             } label: {
                                 CpVisitCard(visit: visit, isClockedIn: isClockedIn)
                             }
                             .buttonStyle(.plain)
+                        } else if visit.requiresClockIn(isClockedIn: isClockedIn) {
+                            Button {
+                                Task { await openClockInRespectingHomeFence() }
+                            } label: {
+                                CpVisitCard(visit: visit, isClockedIn: isClockedIn)
+                            }
+                            .buttonStyle(.plain)
+                            .disabled(isCheckingHomeFence)
                         } else if visit.isOpenableCpVisit {
                             NavigationLink {
                                 TripNavigationView(
@@ -55,6 +81,8 @@ struct CpVisitsView: View {
                                     cpOutcome: visit.outcome,
                                     cpVisitCategory: visit.visitCategory,
                                     cpType: visit.cpType,
+                                    lmoName: visit.lmoName,
+                                    deadline: visit.deadlineText,
                                     onTripChanged: {
                                         Task { await load() }
                                     }
@@ -81,7 +109,7 @@ struct CpVisitsView: View {
             }
         }
         .refreshable { await load() }
-        .background(Color(hex: 0xF1F3F8).ignoresSafeArea())
+        .background(Color.appScreenBackground.ignoresSafeArea())
         .navigationTitle("CP Visits")
         .navigationBarTitleDisplayMode(.inline)
         .searchable(
@@ -91,21 +119,29 @@ struct CpVisitsView: View {
         )
         .textInputAutocapitalization(.never)
         .autocorrectionDisabled()
-        .toolbarBackground(Color.white, for: .navigationBar)
+        .toolbarBackground(Color.appElevatedSurface, for: .navigationBar)
         .toolbarBackground(.visible, for: .navigationBar)
         .toolbar {
             ToolbarItem(placement: .principal) {
                 Text("CP Visits")
                     .font(.system(size: 20, weight: .bold))
-                    .foregroundStyle(Color(hex: 0x101828))
+                    .foregroundStyle(.primary)
             }
 
             ToolbarItem(placement: .topBarTrailing) {
-                Button { showCreateSheet = true } label: {
-                    Image(systemName: "plus")
-                        .font(.system(size: 20, weight: .semibold))
+                HStack(spacing: 16) {
+                    Button { showDateFilter = true } label: {
+                        Image(systemName: "calendar")
+                            .font(.system(size: 18, weight: .semibold))
+                    }
+                    .accessibilityLabel("Filter CP visits by date")
+
+                    Button { showCreateSheet = true } label: {
+                        Image(systemName: "plus")
+                            .font(.system(size: 20, weight: .semibold))
+                    }
+                    .accessibilityLabel("Create CP visit")
                 }
-                .accessibilityLabel("Create CP visit")
             }
         }
         .task { if !hasLoaded { await load() } }
@@ -116,7 +152,7 @@ struct CpVisitsView: View {
             }
             .appFormActivity()
             .appLibraryNativeSheet([.height(720), .large])
-            .presentationBackground(Color.white)
+            .presentationBackground(Color.appElevatedSurface)
         }
         .sheet(item: $selectedOutcomeVisit) { visit in
             CompleteCpVisitSheet(
@@ -128,6 +164,51 @@ struct CpVisitsView: View {
                 }
             )
             .environment(authStore)
+        }
+        .sheet(isPresented: $showDateFilter) {
+            CpDateRangeFilterSheet(
+                initialFrom: filterFromDate,
+                initialTo: filterToDate
+            ) { from, to in
+                filterFromDate = from
+                filterToDate = to
+                showDateFilter = false
+                Task { await load() }
+            }
+            .appLibraryNativeSheet([.medium])
+        }
+        .sheet(isPresented: $showPunchIn) {
+            PunchFlowView(mode: .punchIn) {
+                showPunchIn = false
+                Task { await load() }
+            }
+        }
+        .navigationDestination(isPresented: $showSpecialOutcome) {
+            if let visit = selectedSpecialOutcomeVisit {
+                TripNavigationView(
+                    visitId: visit.id,
+                    placeName: visit.placeName ?? visit.leadName ?? "CP Visit",
+                    placeAddress: visit.placeAddress,
+                    destination: coordinate(for: visit),
+                    initialStatus: visit.status,
+                    tripType: visit.tripType,
+                    clientPlaceVisitId: visit.clientPlaceVisitId,
+                    cpClientMet: visit.clientMet,
+                    cpOutcome: visit.outcome,
+                    cpVisitCategory: visit.visitCategory,
+                    cpType: visit.cpType,
+                    lmoName: visit.lmoName,
+                    deadline: visit.deadlineText,
+                    onTripChanged: {
+                        Task { await load() }
+                    }
+                )
+            }
+        }
+        .alert("You are at Home!", isPresented: $showHomeFenceWarning) {
+            Button("OK", role: .cancel) {}
+        } message: {
+            Text("Clock in is blocked inside the configured home area.")
         }
     }
 
@@ -156,6 +237,32 @@ struct CpVisitsView: View {
         .padding(.top, 12)
     }
 
+    @ViewBuilder
+    private var dateFilterChip: some View {
+        if let from = filterFromDate {
+            Button {
+                filterFromDate = nil
+                filterToDate = nil
+                Task { await load() }
+            } label: {
+                HStack(spacing: 7) {
+                    Image(systemName: "calendar")
+                    Text(CpDateRangeFilterSheet.label(from: from, to: filterToDate))
+                    Image(systemName: "xmark.circle.fill")
+                }
+                .font(.system(size: 12, weight: .semibold))
+                .foregroundStyle(Color(hex: 0x0B61CA))
+                .padding(.horizontal, 12)
+                .frame(height: 32)
+                .background(Color(hex: 0x0B61CA).opacity(0.10), in: Capsule())
+            }
+            .buttonStyle(.plain)
+            .frame(maxWidth: .infinity, alignment: .leading)
+            .padding(.horizontal, 16)
+            .padding(.top, 10)
+        }
+    }
+
     private var emptyState: some View {
         VStack(spacing: 0) {
             Image("HomeEmptyTrips")
@@ -166,11 +273,11 @@ struct CpVisitsView: View {
                 .padding(.top, 64)
             Text(emptyTitle)
                 .font(.system(size: 18, weight: .semibold))
-                .foregroundStyle(Color(hex: 0x101828))
+                .foregroundStyle(.primary)
                 .padding(.top, 16)
             Text(emptySubtitle)
                 .font(.system(size: 13))
-                .foregroundStyle(Color(hex: 0x667085))
+                .foregroundStyle(.secondary)
                 .multilineTextAlignment(.center)
                 .lineSpacing(2)
                 .padding(.horizontal, 32)
@@ -233,15 +340,14 @@ struct CpVisitsView: View {
         }
         isLoading = true
         defer { isLoading = false; hasLoaded = true }
-        let calendar = Calendar.current
-        let today = Date()
-        let from = calendar.date(byAdding: .day, value: -30, to: today) ?? today
-        let to = calendar.date(byAdding: .day, value: 30, to: today) ?? today
         do {
+            let fromDate = filterFromDate.map { AppModuleFormatters.ymd.string(from: $0) }
+            let effectiveTo = filterToDate ?? filterFromDate
+            let toDate = effectiveTo.map { AppModuleFormatters.ymd.string(from: $0) }
             async let visitsRequest = MarketingConvexAPIService.getMyMarketingCpVisits(
                 token: token,
-                fromDate: AppModuleFormatters.ymd.string(from: from),
-                toDate: AppModuleFormatters.ymd.string(from: to)
+                fromDate: fromDate,
+                toDate: toDate
             )
             async let attendanceRequest = loadClockInState(token: token)
             let all = try await visitsRequest
@@ -256,12 +362,35 @@ struct CpVisitsView: View {
     }
 
     private func loadClockInState(token: String) async -> Bool {
-        await AttendanceTrackingGate.hasOpenSessionForToday(token: token)
+        await AttendanceTrackingGate.isClockedInForToday(token: token)
     }
 
     private func coordinate(for visit: CpListVisit) -> CLLocationCoordinate2D? {
         guard let lat = visit.placeLat, let lng = visit.placeLng else { return nil }
         return CLLocationCoordinate2D(latitude: lat, longitude: lng)
+    }
+
+    @MainActor
+    private func openClockInRespectingHomeFence() async {
+        guard let token = authStore.currentSession?.token else { return }
+        isCheckingHomeFence = true
+        defer { isCheckingHomeFence = false }
+        let fence = try? await HRConvexAPIService.getHomeFence(token: token)
+        guard let fence, fence.enabled, let lat = fence.lat, let lng = fence.lng else {
+            showPunchIn = true
+            return
+        }
+        do {
+            let current = try await OneShotLocationReader.requestLocation()
+            let home = CLLocation(latitude: lat, longitude: lng)
+            if current.distance(from: home) <= Double(fence.radiusMeters) {
+                showHomeFenceWarning = true
+            } else {
+                showPunchIn = true
+            }
+        } catch {
+            showPunchIn = true
+        }
     }
 }
 
@@ -281,6 +410,7 @@ private struct CpListVisit: Identifiable {
     let placeLng: Double?
     let leadName: String?
     let leadPhone: String?
+    let lmoName: String?
     let clientMet: Bool?
     let clientMetAt: Int64?
     let clientNoShowReason: String?
@@ -295,7 +425,7 @@ private struct CpListVisit: Identifiable {
 
     init?(detail: CpVisitDetail) {
         guard detail.id.blankToNil != nil, detail.scheduledDate?.blankToNil != nil else { return nil }
-        self.id = detail.fieldVisitId?.blankToNil ?? detail.id
+        self.id = detail.id
         self.fieldVisitId = detail.fieldVisitId
         self.clientPlaceVisitId = detail.id
         self.clientPlaceId = detail.clientPlaceId
@@ -304,12 +434,20 @@ private struct CpListVisit: Identifiable {
         self.scheduledEndTime = nil
         let fieldStatus = detail.fieldVisit?.status?.blankToNil
         self.status = fieldStatus ?? detail.status
-        self.placeName = detail.client?.clientName?.blankToNil
-            ?? detail.lead?.contactName?.blankToNil
-            ?? detail.clientPlace?.name?.blankToNil
-            ?? "CP visit"
-        self.placeAddress = detail.clientPlace?.formattedAddress?.blankToNil
-            ?? detail.clientPlace?.address?.blankToNil
+        let manualClientName = detail.lead?.manualProfile?.clientName?.cpClientName
+        let masterClientName = detail.client?.clientName?.cpClientName
+        let leadContactName = detail.lead?.contactName?.cpClientName
+        let clientPlaceName = detail.clientPlace?.name?.blankToNil
+        let fallbackPhone = detail.lead?.mobileNumber?.blankToNil
+            ?? detail.client?.mobileNumber?.blankToNil
+        self.placeName = manualClientName
+            ?? masterClientName
+            ?? leadContactName
+            ?? clientPlaceName
+            ?? fallbackPhone
+            ?? "CP Visit"
+        self.placeAddress = detail.clientPlace?.address?.blankToNil
+            ?? detail.clientPlace?.formattedAddress?.blankToNil
             ?? [
                 detail.clientPlace?.landmark,
                 detail.clientPlace?.city,
@@ -322,10 +460,14 @@ private struct CpListVisit: Identifiable {
         self.placeType = detail.clientPlace?.contactPerson?.blankToNil
         self.placeLat = detail.clientPlace?.lat
         self.placeLng = detail.clientPlace?.lng
-        self.leadName = detail.lead?.contactName?.blankToNil ?? detail.client?.clientName?.blankToNil
+        self.leadName = detail.lead?.manualProfile?.clientName?.cpClientName
+            ?? detail.client?.clientName?.cpClientName
+            ?? detail.lead?.contactName?.cpClientName
         self.leadPhone = detail.lead?.mobileNumber?.blankToNil
             ?? detail.client?.mobileNumber?.blankToNil
             ?? detail.clientPlace?.contactPhone?.blankToNil
+        self.lmoName = detail.telecaller?.name?.blankToNil
+            ?? detail.telecaller?.staffName?.blankToNil
         self.clientMet = detail.clientMet
         self.clientMetAt = detail.clientMetAt
         self.clientNoShowReason = detail.clientNoShowReason
@@ -341,6 +483,26 @@ private struct CpListVisit: Identifiable {
 
     var tripType: String { "client_place" }
 
+    var deadlineText: String? {
+        guard let rawDate = scheduledDate?.blankToNil else { return nil }
+        let input = DateFormatter()
+        input.locale = Locale(identifier: "en_US_POSIX")
+        input.dateFormat = "yyyy-MM-dd"
+        let dateText: String
+        if let date = input.date(from: rawDate) {
+            let output = DateFormatter()
+            output.locale = Locale.current
+            output.dateFormat = "dd MMM yyyy"
+            dateText = output.string(from: date)
+        } else {
+            dateText = rawDate
+        }
+        guard let time = scheduledEndTime?.blankToNil ?? scheduledStartTime?.blankToNil else {
+            return dateText
+        }
+        return "\(dateText) · \(time)"
+    }
+
     var normalizedStatus: String {
         (status ?? "").trimmingCharacters(in: .whitespacesAndNewlines).lowercased()
     }
@@ -354,7 +516,7 @@ private struct CpListVisit: Identifiable {
     }
 
     var isOpenableCpVisit: Bool {
-        !normalizedStatus.isCompleted && !normalizedStatus.isCancelled
+        !normalizedStatus.isCompleted && !normalizedStatus.isCancelled && !isExpired
     }
 
     var isCompletedCpVisit: Bool {
@@ -365,6 +527,22 @@ private struct CpListVisit: Identifiable {
         normalizedStatus.isCompleted && outcome?.blankToNil == nil
     }
 
+    var hasSpecialCompletion: Bool {
+        ["collection_cp", "old_client", "gift_distribution"].contains(cpType?.normalizedMarker ?? "")
+    }
+
+    var isExpired: Bool {
+        false
+    }
+
+    func requiresClockIn(isClockedIn: Bool) -> Bool {
+        !isClockedIn
+            && isOpenableCpVisit
+            && !normalizedStatus.isInProgress
+            && !needsCpDetails
+            && !isPostponedCpVisit
+    }
+
     var typeLabel: String {
         if let cpTypeLabel { return cpTypeLabel }
         return visitCategory == "sv_cum_cp" ? "SV Confirmation CP" : "Direct CP"
@@ -372,8 +550,11 @@ private struct CpListVisit: Identifiable {
 
     private var cpTypeLabel: String? {
         switch cpType?.normalizedMarker {
+        case "sv_cum_cp": return "SV cum CP"
+        case "follow_up": return "Follow-up"
+        case "booking_cp": return "Booking CP"
         case "collection_cp": return "Collection CP"
-        case "old_client": return "Old Client CP"
+        case "old_client": return "Old Client"
         case "gift_distribution": return "Gift Distribution"
         case let value? where value.isEmpty == false:
             return value.replacingOccurrences(of: "_", with: " ").capitalized
@@ -406,17 +587,20 @@ private struct CpListVisit: Identifiable {
             outcome,
             typeLabel,
             cpType
+            , lmoName
         ]
         .compactMap { $0?.lowercased() }
-        .contains { $0.contains(needle) }
+        .contains { $0.localizedStandardContains(needle) }
     }
 
     static func androidOrder(_ lhs: CpListVisit, _ rhs: CpListVisit) -> Bool {
         if lhs.sortGroup != rhs.sortGroup { return lhs.sortGroup < rhs.sortGroup }
+        let leftCreated = lhs.detail.createdAt ?? 0
+        let rightCreated = rhs.detail.createdAt ?? 0
+        if leftCreated != rightCreated { return leftCreated > rightCreated }
         let leftDate = lhs.scheduledDate ?? ""
         let rightDate = rhs.scheduledDate ?? ""
-        if leftDate != rightDate { return leftDate > rightDate }
-        return (lhs.detail.createdAt ?? 0) > (rhs.detail.createdAt ?? 0)
+        return leftDate > rightDate
     }
 
     private var sortGroup: Int {
@@ -424,6 +608,7 @@ private struct CpListVisit: Identifiable {
         if normalizedStatus.isCompleted || normalizedStatus.isCancelled { return 2 }
         return 1
     }
+
 }
 
 private struct CpVisitCard: View {
@@ -433,6 +618,17 @@ private struct CpVisitCard: View {
     var body: some View {
         VStack(spacing: 0) {
             header
+            if let lmo = visit.lmoName?.blankToNil {
+                HStack(spacing: 6) {
+                    Image(systemName: "person.badge.key")
+                    Text("LMO: \(lmo)")
+                        .lineLimit(1)
+                }
+                .font(.system(size: 11, weight: .medium))
+                .foregroundStyle(.secondary)
+                .frame(maxWidth: .infinity, alignment: .leading)
+                .padding(.top, 10)
+            }
             statsGrid
                 .padding(.top, 20)
             actionPill
@@ -458,10 +654,18 @@ private struct CpVisitCard: View {
                 .frame(width: 44, height: 44)
                 .background(Color(red: 0.95, green: 0.96, blue: 0.98), in: Circle())
 
-            Text(title)
-                .font(.system(size: 14, weight: .semibold))
-                .foregroundStyle(textPrimary)
-                .lineLimit(1)
+            VStack(alignment: .leading, spacing: 3) {
+                Text(title)
+                    .font(.system(size: 14, weight: .semibold))
+                    .foregroundStyle(textPrimary)
+                    .lineLimit(1)
+                if let supportText {
+                    Text(supportText)
+                        .font(.system(size: 11, weight: .medium))
+                        .foregroundStyle(textSecondary)
+                        .lineLimit(1)
+                }
+            }
                 .frame(maxWidth: .infinity, alignment: .leading)
 
             statusPill
@@ -471,7 +675,7 @@ private struct CpVisitCard: View {
     private var statusPill: some View {
         HStack(spacing: 6) {
             Circle()
-                .fill(Color(red: 0.13, green: 0.73, blue: 0.30))
+                .fill(statusDotColor)
                 .frame(width: 6, height: 6)
             Text(statusTitle)
                 .font(.system(size: 12, weight: .medium))
@@ -524,7 +728,7 @@ private struct CpVisitCard: View {
 
                 Text(value)
                     .font(.system(size: 10, weight: .medium))
-                    .foregroundStyle(Color(red: 0.10, green: 0.10, blue: 0.10))
+                    .foregroundStyle(.primary)
                     .lineLimit(1)
             }
             .frame(maxWidth: .infinity, alignment: .leading)
@@ -557,6 +761,13 @@ private struct CpVisitCard: View {
         visit.placeName ?? visit.leadName ?? "CP Visit"
     }
 
+    private var supportText: String? {
+        visit.placeAddress?.blankToNil
+            ?? visit.leadPhone?.blankToNil
+            ?? visit.placeType?.blankToNil
+            ?? "Client Place"
+    }
+
     private var initial: String {
         title.first.map { String($0).uppercased() } ?? "C"
     }
@@ -566,6 +777,12 @@ private struct CpVisitCard: View {
     }
 
     private var timeText: String {
+        if let dateTime = Self.displayVisitDateTime(
+            date: visit.scheduledDate,
+            time: visit.scheduledStartTime
+        ) {
+            return dateTime
+        }
         let start = visit.scheduledStartTime?.trimmingCharacters(in: .whitespacesAndNewlines)
         let end = visit.scheduledEndTime?.trimmingCharacters(in: .whitespacesAndNewlines)
         if let startTime = start.flatMap(Self.displayVisitTime) {
@@ -584,6 +801,7 @@ private struct CpVisitCard: View {
     }
 
     private var etaText: String {
+        if visit.isExpired { return "Expired" }
         if visit.isPostponedCpVisit { return "Postponed" }
         if normalizedStatus.isCancelled { return "Cancelled" }
         if normalizedStatus.isCompleted { return "Complete" }
@@ -593,6 +811,7 @@ private struct CpVisitCard: View {
     }
 
     private var statusTitle: String {
+        if visit.isExpired { return "Expired" }
         if normalizedStatus.isCancelled { return "Cancelled" }
         if normalizedStatus.isCompleted && visit.outcome?.blankToNil == nil { return "Pending" }
         if normalizedStatus.isCompleted { return "Completed" }
@@ -603,6 +822,7 @@ private struct CpVisitCard: View {
     }
 
     private var actionTitle: String {
+        if visit.isExpired { return "Expired" }
         if normalizedStatus.isCancelled { return "Cancelled" }
         if normalizedStatus.isCompleted && visit.outcome?.blankToNil == nil { return "Pending" }
         if normalizedStatus.isCompleted { return "Completed" }
@@ -615,11 +835,12 @@ private struct CpVisitCard: View {
     }
 
     private var showsPlayIcon: Bool {
-        if normalizedStatus.isCompleted || normalizedStatus.isCancelled || normalizedStatus.isInProgress { return false }
+        if visit.isExpired || normalizedStatus.isCompleted || normalizedStatus.isCancelled || normalizedStatus.isInProgress { return false }
         return true
     }
 
     private var statusTextColor: Color {
+        if visit.isExpired { return Color(hex: 0xB42318) }
         if normalizedStatus.isCancelled { return Color(hex: 0xB42318) }
         if normalizedStatus.isInProgress { return Color(red: 0.71, green: 0.28, blue: 0.03) }
         if normalizedStatus.isCompleted && visit.outcome?.blankToNil == nil { return Color(hex: 0xB54708) }
@@ -629,14 +850,15 @@ private struct CpVisitCard: View {
     }
 
     private var statusBackground: Color {
-        if normalizedStatus.isCancelled { return Color(hex: 0xFEE4E2) }
-        if normalizedStatus.isInProgress { return Color(red: 1.0, green: 0.96, blue: 0.90) }
-        if normalizedStatus.isCompleted && visit.outcome?.blankToNil == nil { return Color(hex: 0xFEF0C7) }
-        if normalizedStatus.isCompleted || visit.isPostponedCpVisit { return Color(red: 0.95, green: 0.96, blue: 0.97) }
-        return Color(red: 0.90, green: 0.96, blue: 0.92)
+        if visit.isExpired || normalizedStatus.isCancelled { return Color.red.opacity(0.12) }
+        if normalizedStatus.isInProgress { return Color.orange.opacity(0.13) }
+        if normalizedStatus.isCompleted && visit.outcome?.blankToNil == nil { return Color.orange.opacity(0.15) }
+        if normalizedStatus.isCompleted || visit.isPostponedCpVisit { return Color.secondary.opacity(0.11) }
+        return Color.green.opacity(0.12)
     }
 
     private var actionForeground: Color {
+        if visit.isExpired { return Color(hex: 0x7A0F0A) }
         if normalizedStatus.isCancelled { return Color(hex: 0x7A0F0A) }
         if normalizedStatus.isInProgress { return Color(red: 0.71, green: 0.28, blue: 0.03) }
         if normalizedStatus.isCompleted && visit.outcome?.blankToNil == nil { return Color(hex: 0xB54708) }
@@ -645,14 +867,14 @@ private struct CpVisitCard: View {
     }
 
     private var actionBackground: some ShapeStyle {
-        if normalizedStatus.isCancelled {
-            return AnyShapeStyle(Color(hex: 0xFEE4E2))
+        if visit.isExpired || normalizedStatus.isCancelled {
+            return AnyShapeStyle(Color.red.opacity(0.12))
         }
         if normalizedStatus.isInProgress {
-            return AnyShapeStyle(Color(red: 1.0, green: 0.96, blue: 0.90))
+            return AnyShapeStyle(Color.orange.opacity(0.13))
         }
         if normalizedStatus.isCompleted {
-            return AnyShapeStyle(Color(red: 0.89, green: 0.91, blue: 0.93))
+            return AnyShapeStyle(Color.secondary.opacity(0.14))
         }
         return AnyShapeStyle(
             LinearGradient(
@@ -667,8 +889,14 @@ private struct CpVisitCard: View {
         (visit.status ?? "").lowercased()
     }
 
-    private var textPrimary: Color { Color(red: 0.06, green: 0.09, blue: 0.16) }
-    private var textSecondary: Color { Color(red: 0.40, green: 0.44, blue: 0.52) }
+    private var statusDotColor: Color {
+        if visit.isExpired || normalizedStatus.isCancelled { return Color(hex: 0xD92D20) }
+        if normalizedStatus.isInProgress { return Color(hex: 0xF79009) }
+        return Color(red: 0.13, green: 0.73, blue: 0.30)
+    }
+
+    private var textPrimary: Color { .primary }
+    private var textSecondary: Color { .secondary }
 
     private static func parseVisitDate(_ raw: String) -> Date? {
         let trimmed = raw
@@ -718,6 +946,22 @@ private struct CpVisitCard: View {
             if let date = formatter.date(from: normalized) {
                 return visitTimeFormatter.string(from: date)
             }
+        }
+        return nil
+    }
+
+    private static func displayVisitDateTime(date: String?, time: String?) -> String? {
+        guard let date = date?.blankToNil else { return nil }
+        let raw = "\(date) \(time?.blankToNil ?? "")".trimmingCharacters(in: .whitespaces)
+        for pattern in ["yyyy-MM-dd HH:mm:ss", "yyyy-MM-dd HH:mm", "yyyy-MM-dd h:mm a", "yyyy-MM-dd hh:mm a", "yyyy-MM-dd"] {
+            let formatter = DateFormatter()
+            formatter.locale = Locale(identifier: "en_US_POSIX")
+            formatter.dateFormat = pattern
+            guard let parsed = formatter.date(from: raw) else { continue }
+            let output = DateFormatter()
+            output.locale = Locale(identifier: "en_IN")
+            output.dateFormat = time?.blankToNil == nil ? "dd/MM/yyyy" : "dd/MM/yyyy hh:mm a"
+            return output.string(from: parsed)
         }
         return nil
     }
@@ -816,7 +1060,7 @@ private struct CompletedCpVisitDetailView: View {
                         ProgressView().controlSize(.small)
                         Text("Loading visit proof…")
                             .font(.system(size: 13))
-                            .foregroundStyle(Color(hex: 0x667085))
+                            .foregroundStyle(.secondary)
                     }
                     .padding(.horizontal, 16)
                 }
@@ -826,12 +1070,12 @@ private struct CompletedCpVisitDetailView: View {
                         .foregroundStyle(Color(hex: 0xB42318))
                         .padding(12)
                         .frame(maxWidth: .infinity, alignment: .leading)
-                        .background(Color(hex: 0xFEE4E2), in: RoundedRectangle(cornerRadius: 12))
+                        .background(Color.red.opacity(0.12), in: RoundedRectangle(cornerRadius: 12))
                 }
             }
             .padding(16)
         }
-        .background(Color(hex: 0xF1F3F8).ignoresSafeArea())
+        .background(Color.appScreenBackground.ignoresSafeArea())
         .navigationTitle("Completed Visit")
         .navigationBarTitleDisplayMode(.inline)
         .task { await loadDetail() }
@@ -850,13 +1094,13 @@ private struct CompletedCpVisitDetailView: View {
                 VStack(alignment: .leading, spacing: 5) {
                     Text(displayName)
                         .font(.system(size: 19, weight: .semibold))
-                        .foregroundStyle(Color(hex: 0x101828))
+                        .foregroundStyle(.primary)
                     Text(primaryPhone)
                         .font(.system(size: 13, weight: .medium))
-                        .foregroundStyle(Color(hex: 0x667085))
+                        .foregroundStyle(.secondary)
                     Text(primaryAddress)
                         .font(.system(size: 13))
-                        .foregroundStyle(Color(hex: 0x667085))
+                        .foregroundStyle(.secondary)
                         .lineLimit(3)
                 }
             }
@@ -880,7 +1124,7 @@ private struct CompletedCpVisitDetailView: View {
             }
             Text(statusSubtitle)
                 .font(.system(size: 13))
-                .foregroundStyle(Color(hex: 0x667085))
+                .foregroundStyle(.secondary)
             if let reasons = detail?.postponeReasons ?? (summary.postponeReasons.isEmpty ? nil : summary.postponeReasons), !reasons.isEmpty {
                 FlowChipRow(items: reasons, tint: Color(hex: 0xB54708))
             }
@@ -892,14 +1136,14 @@ private struct CompletedCpVisitDetailView: View {
         VStack(alignment: .leading, spacing: 12) {
             Text("Visit Information")
                 .font(.system(size: 15, weight: .semibold))
-                .foregroundStyle(Color(hex: 0x101828))
+                .foregroundStyle(.primary)
             twoColumnRow("Date", formattedDate(summary.scheduledDate), "Time", formattedTime)
             twoColumnRow("Trip Type", tripTypeTitle, "Location", isGeoMapped ? "Geo-mapped" : "Not mapped")
             if let notes = detail?.notes?.blankToNil, !isBookingOutcome {
                 Divider()
                 Text(notes)
                     .font(.system(size: 13))
-                    .foregroundStyle(Color(hex: 0x475467))
+                    .foregroundStyle(.secondary)
             }
         }
         .completedCard()
@@ -958,7 +1202,7 @@ private struct CompletedCpVisitDetailView: View {
                     }
                 }
                 .padding(12)
-                .background(Color(hex: 0xF8FAFC), in: RoundedRectangle(cornerRadius: 12))
+                .background(Color.appFieldBackground, in: RoundedRectangle(cornerRadius: 12))
             }
         }
         .completedCard()
@@ -974,9 +1218,9 @@ private struct CompletedCpVisitDetailView: View {
                     case .success(let image):
                         image.resizable().scaledToFill()
                     case .failure:
-                        Color(hex: 0xF2F4F7).overlay(Image(systemName: "photo"))
+                        Color.appFieldBackground.overlay(Image(systemName: "photo"))
                     default:
-                        Color(hex: 0xF2F4F7).overlay(ProgressView())
+                        Color.appFieldBackground.overlay(ProgressView())
                     }
                 }
                 .frame(height: 170)
@@ -1020,7 +1264,7 @@ private struct CompletedCpVisitDetailView: View {
                     Spacer()
                     Text(formatEpoch(event.1))
                         .font(.system(size: 12))
-                        .foregroundStyle(Color(hex: 0x667085))
+                        .foregroundStyle(.secondary)
                 }
             }
         }
@@ -1038,10 +1282,10 @@ private struct CompletedCpVisitDetailView: View {
         VStack(alignment: .leading, spacing: 4) {
             Text(label)
                 .font(.system(size: 11, weight: .semibold))
-                .foregroundStyle(Color(hex: 0x667085))
+                .foregroundStyle(.secondary)
             Text(value)
                 .font(.system(size: 13, weight: .medium))
-                .foregroundStyle(Color(hex: 0x101828))
+                .foregroundStyle(.primary)
                 .lineLimit(2)
         }
         .frame(maxWidth: .infinity, alignment: .leading)
@@ -1051,11 +1295,11 @@ private struct CompletedCpVisitDetailView: View {
         HStack {
             Text(label)
                 .font(.system(size: 13))
-                .foregroundStyle(Color(hex: 0x667085))
+                .foregroundStyle(.secondary)
             Spacer()
             Text(value?.blankToNil ?? "-")
                 .font(.system(size: 13, weight: .medium))
-                .foregroundStyle(Color(hex: 0x101828))
+                .foregroundStyle(.primary)
                 .multilineTextAlignment(.trailing)
         }
     }
@@ -1296,10 +1540,10 @@ private extension View {
     func completedCard() -> some View {
         padding(16)
             .frame(maxWidth: .infinity, alignment: .leading)
-            .background(.white, in: RoundedRectangle(cornerRadius: 14))
+            .background(Color.appSurface, in: RoundedRectangle(cornerRadius: 14))
             .overlay(
                 RoundedRectangle(cornerRadius: 14)
-                    .stroke(Color(hex: 0xEAECF0), lineWidth: 1)
+                    .stroke(Color.appSeparator, lineWidth: 1)
             )
     }
 }
@@ -1328,7 +1572,7 @@ private struct CreateCpVisitSheet: View {
     @State private var latitude = ""
     @State private var longitude = ""
     @State private var notes = ""
-    @State private var selectedCpType: CpVisitCreateType = .direct
+    @State private var selectedCpType: CpVisitCreateType?
     @State private var bookingGatePhone: String?
     @State private var bookingGateCount = 0
     @State private var isCheckingBookingGate = false
@@ -1345,6 +1589,12 @@ private struct CreateCpVisitSheet: View {
     @State private var errorMessage: String?
     @State private var showStaffPicker = false
     @State private var showProjectPicker = false
+    @State private var showMapPinPicker = false
+    @State private var pinnedAddress: String?
+    @State private var addressParseStatus: String?
+    @State private var leadLookupTask: Task<Void, Never>?
+    @State private var addressParseTask: Task<Void, Never>?
+    @State private var lastParsedAddressLine1 = ""
 
     var body: some View {
         ZStack(alignment: .bottom) {
@@ -1359,15 +1609,16 @@ private struct CreateCpVisitSheet: View {
 
                     Text("Information about CP")
                         .font(.system(size: 13, weight: .medium))
-                        .foregroundStyle(Color(hex: 0x667085))
+                        .foregroundStyle(.secondary)
                         .padding(.bottom, 2)
 
                     cpTextField("Client Phone Number *", placeholder: "Enter Client Number", text: $phone, systemImage: "phone", keyboard: .phonePad)
-                        .onChange(of: phone) { _, _ in
+                        .onChange(of: phone) { _, newValue in
                             selectedLead = nil
                             leadMatches = []
                             bookingGatePhone = nil
                             bookingGateCount = 0
+                            scheduleAutomaticLeadLookup(for: newValue)
                         }
 
                     cpTextField("Client Name", placeholder: "Enter Client Name", text: $clientName, systemImage: "person")
@@ -1385,10 +1636,10 @@ private struct CreateCpVisitSheet: View {
                             Text("Search existing client")
                                 .font(.system(size: 13, weight: .semibold))
                         }
-                        .foregroundStyle(Color(hex: 0x475467))
+                        .foregroundStyle(.secondary)
                         .frame(maxWidth: .infinity)
                         .frame(height: 44)
-                        .background(Color(hex: 0xF3F4F6), in: Capsule())
+                        .background(Color.appFieldBackground, in: Capsule())
                     }
                     .buttonStyle(.plain)
                     .disabled(isSearchingLead || AppModuleFormatters.normalizePhone(phone).count != 10)
@@ -1407,22 +1658,22 @@ private struct CreateCpVisitSheet: View {
                             VStack(alignment: .leading, spacing: 4) {
                                 Text(lead.displayName)
                                     .font(.system(size: 14, weight: .semibold))
-                                    .foregroundStyle(Color(hex: 0x101828))
+                                    .foregroundStyle(.primary)
                                 Text(lead.mobileNumber ?? "No mobile")
                                     .font(.system(size: 12))
-                                    .foregroundStyle(Color(hex: 0x667085))
+                                    .foregroundStyle(.secondary)
                                 if let area = lead.suggestedVisitAddress?.blankToNil ?? lead.locationPreferred?.blankToNil {
                                     Text(area)
                                         .font(.system(size: 12))
-                                        .foregroundStyle(Color(hex: 0x667085))
+                                        .foregroundStyle(.secondary)
                                 }
                             }
                             .padding(12)
                             .frame(maxWidth: .infinity, alignment: .leading)
-                            .background(Color(hex: 0xF9FAFB), in: RoundedRectangle(cornerRadius: 12, style: .continuous))
+                            .background(Color.appFieldBackground, in: RoundedRectangle(cornerRadius: 12, style: .continuous))
                             .overlay(
                                 RoundedRectangle(cornerRadius: 12, style: .continuous)
-                                    .stroke(Color(hex: 0xEAECF0), lineWidth: 1)
+                                    .stroke(Color.appSeparator, lineWidth: 1)
                             )
                         }
                         .buttonStyle(.plain)
@@ -1437,17 +1688,51 @@ private struct CreateCpVisitSheet: View {
                     cpTextField("Door / Plot No", placeholder: "Enter Door / Plot No", text: $doorNo, systemImage: "house")
                     cpTextField("Street", placeholder: "Enter Street", text: $street, systemImage: "road.lanes")
                     cpTextField("Address Line 1 *", placeholder: "Enter Address", text: $addressLine1, systemImage: "mappin.and.ellipse", axis: .vertical)
+                        .onChange(of: addressLine1) { _, value in
+                            scheduleAddressParse(for: value)
+                        }
+                    if let addressParseStatus {
+                        Text(addressParseStatus)
+                            .font(.system(size: 11, weight: .medium))
+                            .foregroundStyle(.secondary)
+                            .padding(.top, 6)
+                    }
                     cpTextField("Landmark / Address Line 2", placeholder: "Enter Landmark", text: $addressLine2, systemImage: "signpost.right")
                     cpTextField("City *", placeholder: "Enter City", text: $city, systemImage: "building")
                     cpTextField("State", placeholder: "Enter State", text: $state, systemImage: "map.fill")
                     cpTextField("Pincode *", placeholder: "6 digits", text: $pincode, systemImage: "checkmark.circle", keyboard: .numberPad)
 
-                    cpTextField("Google Map Link (Optional)", placeholder: "Skip if you only have the address", text: $mapsLink, systemImage: "link", keyboard: .URL)
-
-                    HStack(alignment: .top, spacing: 10) {
-                        cpTextField("Latitude (Optional)", placeholder: "Latitude", text: $latitude, systemImage: "location.north", keyboard: .decimalPad)
-                        cpTextField("Longitude (Optional)", placeholder: "Longitude", text: $longitude, systemImage: "location.north.line", keyboard: .decimalPad)
+                    Button {
+                        showMapPinPicker = true
+                    } label: {
+                        HStack(spacing: 12) {
+                            Image(systemName: "map.fill")
+                                .font(.system(size: 18, weight: .semibold))
+                                .foregroundStyle(Color(hex: 0x0B61CA))
+                                .frame(width: 40, height: 40)
+                                .background(Color(hex: 0x0B61CA).opacity(0.10), in: RoundedRectangle(cornerRadius: 12))
+                            VStack(alignment: .leading, spacing: 3) {
+                                Text(latitude.blankToNil == nil ? "Drop location pin" : "Change location pin")
+                                    .font(.system(size: 14, weight: .semibold))
+                                    .foregroundStyle(.primary)
+                                Text(pinnedAddress?.blankToNil ?? mapsLink.blankToNil ?? "Search or tap the map to set the client location")
+                                    .font(.system(size: 11, weight: .medium))
+                                    .foregroundStyle(.secondary)
+                                    .lineLimit(2)
+                            }
+                            Spacer()
+                            Image(systemName: "chevron.right")
+                                .foregroundStyle(Color(hex: 0x98A2B3))
+                        }
+                        .padding(12)
+                        .background(Color.appSurface, in: RoundedRectangle(cornerRadius: 12))
+                        .overlay {
+                            RoundedRectangle(cornerRadius: 12)
+                                .stroke(Color(hex: 0xD0D5DD), lineWidth: 1)
+                        }
                     }
+                    .buttonStyle(.plain)
+                    .padding(.top, 16)
 
                     cpTextField("Notes", placeholder: "Enter Notes", text: $notes, systemImage: "note.text", axis: .vertical)
                 }
@@ -1458,17 +1743,17 @@ private struct CreateCpVisitSheet: View {
 
             VStack(spacing: 0) {
                 Divider()
-                    .overlay(Color(hex: 0xEAECF0))
+                    .overlay(Color.appSeparator)
 
                 HStack(spacing: 12) {
                     Button("Cancel") {
                         dismiss()
                     }
                     .font(.system(size: 15, weight: .bold))
-                    .foregroundStyle(Color(hex: 0x475467))
+                    .foregroundStyle(.secondary)
                     .frame(maxWidth: .infinity)
                     .frame(height: 54)
-                    .background(Color.white, in: Capsule())
+                    .background(Color.appSurface, in: Capsule())
                     .overlay(
                         Capsule()
                             .stroke(Color(hex: 0xD0D5DD), lineWidth: 1)
@@ -1495,10 +1780,10 @@ private struct CreateCpVisitSheet: View {
                 .padding(.horizontal, 24)
                 .padding(.top, 14)
                 .padding(.bottom, 20)
-                .background(Color.white)
+                .background(Color.appSurface)
             }
         }
-        .background(Color.white.ignoresSafeArea())
+        .background(Color.appScreenBackground.ignoresSafeArea())
         .appCompactSheetCTAContainer()
         .alert("CP Visit", isPresented: Binding(
             get: { errorMessage != nil },
@@ -1546,22 +1831,40 @@ private struct CreateCpVisitSheet: View {
             )
             .appLibraryNativeSheet([.medium, .large])
         }
+        .sheet(isPresented: $showMapPinPicker) {
+            CpMapPinPicker(
+                initialCoordinate: selectedCoordinate,
+                initialAddress: pinnedAddress ?? addressLine1.blankToNil
+            ) { result in
+                latitude = String(result.latitude)
+                longitude = String(result.longitude)
+                mapsLink = result.googleMapsLink
+                pinnedAddress = result.address
+                fillIfBlank($addressLine1, result.address)
+                showMapPinPicker = false
+            }
+            .appLibraryNativeSheet([.large])
+        }
         .task { await loadBootstrapData() }
+        .onDisappear {
+            leadLookupTask?.cancel()
+            addressParseTask?.cancel()
+        }
     }
 
     private func selectedInfo(title: String, value: String) -> some View {
         HStack {
             Text(title)
                 .font(.system(size: 12, weight: .medium))
-                .foregroundStyle(Color(hex: 0x667085))
+                .foregroundStyle(.secondary)
             Spacer()
             Text(value)
                 .font(.system(size: 13, weight: .semibold))
-                .foregroundStyle(Color(hex: 0x101828))
+                .foregroundStyle(.primary)
                 .lineLimit(1)
         }
         .padding(12)
-        .background(Color(hex: 0xF9FAFB), in: RoundedRectangle(cornerRadius: 10, style: .continuous))
+        .background(Color.appFieldBackground, in: RoundedRectangle(cornerRadius: 10, style: .continuous))
     }
 
     private func cpTextField(
@@ -1575,11 +1878,11 @@ private struct CreateCpVisitSheet: View {
         VStack(alignment: .leading, spacing: 6) {
             Text(title)
                 .font(.system(size: 13, weight: .medium))
-                .foregroundStyle(Color(hex: 0x344054))
+                .foregroundStyle(.primary)
             HStack(alignment: axis == .vertical ? .top : .center, spacing: 10) {
                 Image(systemName: systemImage)
                     .font(.system(size: 17, weight: .medium))
-                    .foregroundStyle(Color(hex: 0x667085))
+                    .foregroundStyle(.secondary)
                     .frame(width: 20)
                     .padding(.top, axis == .vertical ? 3 : 0)
                 TextField(placeholder, text: text, axis: axis)
@@ -1592,7 +1895,7 @@ private struct CreateCpVisitSheet: View {
             .padding(.horizontal, 14)
             .padding(.vertical, axis == .vertical ? 10 : 0)
             .frame(minHeight: axis == .vertical ? 72 : 50, alignment: axis == .vertical ? .top : .center)
-            .background(Color.white, in: RoundedRectangle(cornerRadius: 12, style: .continuous))
+            .background(Color.appSurface, in: RoundedRectangle(cornerRadius: 12, style: .continuous))
             .overlay(
                 RoundedRectangle(cornerRadius: 12, style: .continuous)
                     .stroke(Color(hex: 0xD0D5DD), lineWidth: 1)
@@ -1630,11 +1933,11 @@ private struct CreateCpVisitSheet: View {
             VStack(alignment: .leading, spacing: 4) {
                 Text(item.displayName)
                     .font(.system(size: 15, weight: .semibold))
-                    .foregroundStyle(Color(hex: 0x101828))
+                    .foregroundStyle(.primary)
                 if let designation = item.designation, !designation.isEmpty {
                     Text(designation)
                         .font(.system(size: 12, weight: .medium))
-                        .foregroundStyle(Color(hex: 0x667085))
+                        .foregroundStyle(.secondary)
                 }
             }
             Spacer()
@@ -1651,11 +1954,11 @@ private struct CreateCpVisitSheet: View {
             VStack(alignment: .leading, spacing: 4) {
                 Text(project.name ?? project.location ?? "Unnamed project")
                     .font(.system(size: 15, weight: .semibold))
-                    .foregroundStyle(Color(hex: 0x101828))
+                    .foregroundStyle(.primary)
                 if let location = project.location, !location.isEmpty {
                     Text(location)
                         .font(.system(size: 12, weight: .medium))
-                        .foregroundStyle(Color(hex: 0x667085))
+                        .foregroundStyle(.secondary)
                 }
             }
             Spacer()
@@ -1668,7 +1971,7 @@ private struct CreateCpVisitSheet: View {
     }
 
     private var cpTypePicker: some View {
-        pickerShell(title: "CP Type *", icon: "tag") {
+        pickerShell(title: "CP Type", icon: "tag") {
             Menu {
                 ForEach(CpVisitCreateType.allCases) { type in
                     Button {
@@ -1680,13 +1983,13 @@ private struct CreateCpVisitSheet: View {
             } label: {
                 HStack {
                     VStack(alignment: .leading, spacing: 2) {
-                        Text(selectedCpType.title)
+                        Text(selectedCpType?.title ?? "Select CP type")
                             .font(.system(size: 14, weight: .medium))
-                            .foregroundStyle(Color(hex: 0x101828))
+                            .foregroundStyle(selectedCpType == nil ? Color(hex: 0x9CA3AF) : Color(hex: 0x101828))
                             .lineLimit(1)
-                        Text(selectedCpType.subtitle)
+                        Text(selectedCpType?.subtitle ?? "Optional")
                             .font(.system(size: 10, weight: .medium))
-                            .foregroundStyle(Color(hex: 0x667085))
+                            .foregroundStyle(.secondary)
                             .lineLimit(1)
                     }
                     Spacer()
@@ -1696,7 +1999,7 @@ private struct CreateCpVisitSheet: View {
                     } else {
                         Image(systemName: "chevron.down")
                             .font(.system(size: 12, weight: .semibold))
-                            .foregroundStyle(Color(hex: 0x667085))
+                            .foregroundStyle(.secondary)
                     }
                 }
                 .frame(maxWidth: .infinity)
@@ -1709,17 +2012,17 @@ private struct CreateCpVisitSheet: View {
         VStack(alignment: .leading, spacing: 6) {
             Text(title)
                 .font(.system(size: 13, weight: .medium))
-                .foregroundStyle(Color(hex: 0x344054))
+                .foregroundStyle(.primary)
             HStack(spacing: 10) {
                 Image(systemName: icon)
                     .font(.system(size: 17, weight: .medium))
-                    .foregroundStyle(Color(hex: 0x667085))
+                    .foregroundStyle(.secondary)
                     .frame(width: 20)
                 content()
             }
             .padding(.horizontal, 14)
             .frame(height: 50)
-            .background(Color.white, in: RoundedRectangle(cornerRadius: 12, style: .continuous))
+            .background(Color.appSurface, in: RoundedRectangle(cornerRadius: 12, style: .continuous))
             .overlay(
                 RoundedRectangle(cornerRadius: 12, style: .continuous)
                     .stroke(Color(hex: 0xD0D5DD), lineWidth: 1)
@@ -1737,7 +2040,7 @@ private struct CreateCpVisitSheet: View {
             Spacer()
             Image(systemName: "chevron.down")
                 .font(.system(size: 12, weight: .semibold))
-                .foregroundStyle(Color(hex: 0x667085))
+                .foregroundStyle(.secondary)
         }
         .frame(maxWidth: .infinity)
         .contentShape(Rectangle())
@@ -1747,11 +2050,11 @@ private struct CreateCpVisitSheet: View {
         VStack(alignment: .leading, spacing: 6) {
             Text("Date & Time")
                 .font(.system(size: 13, weight: .medium))
-                .foregroundStyle(Color(hex: 0x344054))
+                .foregroundStyle(.primary)
             HStack(spacing: 10) {
                 Image(systemName: "calendar")
                     .font(.system(size: 17, weight: .medium))
-                    .foregroundStyle(Color(hex: 0x667085))
+                    .foregroundStyle(.secondary)
                     .frame(width: 20)
                 DatePicker(
                     "",
@@ -1764,13 +2067,18 @@ private struct CreateCpVisitSheet: View {
             }
             .padding(.horizontal, 14)
             .frame(height: 50)
-            .background(Color.white, in: RoundedRectangle(cornerRadius: 12, style: .continuous))
+            .background(Color.appSurface, in: RoundedRectangle(cornerRadius: 12, style: .continuous))
             .overlay(
                 RoundedRectangle(cornerRadius: 12, style: .continuous)
                     .stroke(Color(hex: 0xD0D5DD), lineWidth: 1)
             )
         }
         .padding(.top, 16)
+    }
+
+    private var selectedCoordinate: CLLocationCoordinate2D? {
+        guard let lat = coordinateValue(latitude), let lng = coordinateValue(longitude) else { return nil }
+        return CLLocationCoordinate2D(latitude: lat, longitude: lng)
     }
 
     @MainActor
@@ -1788,6 +2096,7 @@ private struct CreateCpVisitSheet: View {
         defer { isLoadingProjects = false }
         do {
             projects = try await MarketingConvexAPIService.getMarketingProjects(token: token)
+                .filter { ($0.status ?? "").trimmingCharacters(in: .whitespacesAndNewlines).caseInsensitiveCompare("ongoing") == .orderedSame }
         } catch {
             errorMessage = error.localizedDescription
         }
@@ -1829,6 +2138,79 @@ private struct CreateCpVisitSheet: View {
             }
         } catch {
             errorMessage = error.localizedDescription
+        }
+    }
+
+    @MainActor
+    private func scheduleAutomaticLeadLookup(for rawPhone: String) {
+        leadLookupTask?.cancel()
+        let normalized = AppModuleFormatters.normalizePhone(rawPhone)
+        guard normalized.count == 10 else { return }
+        leadLookupTask = Task {
+            try? await Task.sleep(for: .milliseconds(250))
+            guard !Task.isCancelled else { return }
+            await automaticLeadLookup(phone: normalized)
+        }
+    }
+
+    @MainActor
+    private func automaticLeadLookup(phone normalizedPhone: String) async {
+        guard let token = authStore.currentSession?.token else { return }
+        isSearchingLead = true
+        defer { isSearchingLead = false }
+        do {
+            let matches = try await MarketingConvexAPIService.searchTelecallerLeadsByPhone(
+                token: token,
+                phone: normalizedPhone
+            )
+            guard AppModuleFormatters.normalizePhone(phone) == normalizedPhone else { return }
+            leadMatches = matches
+            if let first = matches.first {
+                applyLead(first)
+            }
+        } catch {
+            // Android treats automatic lookup as opportunistic.
+        }
+    }
+
+    @MainActor
+    private func scheduleAddressParse(for rawAddress: String) {
+        addressParseTask?.cancel()
+        let trimmed = rawAddress.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard trimmed.count >= 25, trimmed != lastParsedAddressLine1 else {
+            addressParseStatus = nil
+            return
+        }
+        addressParseTask = Task {
+            try? await Task.sleep(for: .milliseconds(700))
+            guard !Task.isCancelled else { return }
+            await parseAddress(trimmed)
+        }
+    }
+
+    @MainActor
+    private func parseAddress(_ rawAddress: String) async {
+        guard let token = authStore.currentSession?.token,
+              addressLine1.trimmingCharacters(in: .whitespacesAndNewlines) == rawAddress
+        else { return }
+        lastParsedAddressLine1 = rawAddress
+        addressParseStatus = "Splitting address…"
+        do {
+            let fields = try await MarketingConvexAPIService.parseAddress(token: token, raw: rawAddress)
+            guard addressLine1.trimmingCharacters(in: .whitespacesAndNewlines) == rawAddress else { return }
+            fillIfBlank($doorNo, fields.doorNo)
+            fillIfBlank($street, fields.street)
+            if let parsedLine1 = fields.addressLine1?.blankToNil, parsedLine1 != rawAddress {
+                lastParsedAddressLine1 = parsedLine1
+                addressLine1 = parsedLine1
+            }
+            fillIfBlank($addressLine2, fields.addressLine2)
+            fillIfBlank($city, fields.city)
+            fillIfBlank($state, fields.state)
+            fillIfBlank($pincode, fields.pincode)
+            addressParseStatus = "Address auto-filled"
+        } catch {
+            addressParseStatus = "Could not split address"
         }
     }
 
@@ -1934,10 +2316,10 @@ private struct CreateCpVisitSheet: View {
             return
         }
         guard let token = authStore.currentSession?.token else { return }
-        if selectedCpType.requiresConfirmedBooking {
+        if selectedCpType?.requiresConfirmedBooking == true {
             let cachedPhone = bookingGatePhone ?? ""
             if cachedPhone != normalizedPhone || bookingGateCount == 0 {
-                errorMessage = "\(selectedCpType.title) needs a confirmed booking for this mobile. Re-pick the CP type to verify."
+                errorMessage = "\(selectedCpType?.title ?? "This CP type") needs a confirmed booking for this mobile. Re-pick the CP type to verify."
                 return
             }
         }
@@ -1950,7 +2332,7 @@ private struct CreateCpVisitSheet: View {
             assignedStaffId: staffId,
             scheduledDate: AppModuleFormatters.ymd.string(from: date),
             scheduledTime: Self.timeFormatter.string(from: date),
-            cpType: selectedCpType.payloadValue,
+            cpType: selectedCpType?.rawValue,
             visitAddress: trimmedAddress,
             visitLat: coordinateValue(latitude),
             visitLng: coordinateValue(longitude),
@@ -2041,7 +2423,8 @@ private extension String {
     var isInProgress: Bool {
         [
             "picked_up", "on_site", "dropped", "in-progress", "in_progress",
-            "client_started", "ongoing", "started", "active", "arrived"
+            "client_started", "ongoing", "started", "active", "arrived",
+            "arrival_verified", "arrival-verified", "on-site", "reaching"
         ].contains(self)
     }
 
@@ -2051,6 +2434,80 @@ private extension String {
 
     var isCancelled: Bool {
         ["cancelled", "canceled", "no_show"].contains(self)
+    }
+}
+
+private extension String {
+    var cpClientName: String? {
+        let value = trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !value.isEmpty else { return nil }
+        let digits = value.filter(\.isNumber)
+        let nameCharacters = value.filter { $0.isLetter }
+        guard !(digits.count >= 8 && nameCharacters.count <= 2) else { return nil }
+        return value
+    }
+}
+
+private struct CpDateRangeFilterSheet: View {
+    @Environment(\.dismiss) private var dismiss
+
+    let initialFrom: Date?
+    let initialTo: Date?
+    let onApply: (Date, Date?) -> Void
+
+    @State private var isRange: Bool
+    @State private var from: Date
+    @State private var to: Date
+
+    init(initialFrom: Date?, initialTo: Date?, onApply: @escaping (Date, Date?) -> Void) {
+        self.initialFrom = initialFrom
+        self.initialTo = initialTo
+        self.onApply = onApply
+        let start = initialFrom ?? Date()
+        _from = State(initialValue: start)
+        _to = State(initialValue: initialTo ?? start)
+        _isRange = State(initialValue: initialTo != nil && !Calendar.current.isDate(initialTo ?? start, inSameDayAs: start))
+    }
+
+    var body: some View {
+        NavigationStack {
+            Form {
+                Picker("Filter", selection: $isRange) {
+                    Text("Single day").tag(false)
+                    Text("Date range").tag(true)
+                }
+                .pickerStyle(.segmented)
+
+                DatePicker(isRange ? "From" : "Date", selection: $from, displayedComponents: .date)
+                if isRange {
+                    DatePicker("To", selection: $to, in: from..., displayedComponents: .date)
+                }
+            }
+            .navigationTitle("Filter by date")
+            .navigationBarTitleDisplayMode(.inline)
+            .toolbar {
+                ToolbarItem(placement: .cancellationAction) {
+                    Button("Cancel") { dismiss() }
+                }
+                ToolbarItem(placement: .confirmationAction) {
+                    Button("Apply") {
+                        onApply(from, isRange ? max(from, to) : nil)
+                        dismiss()
+                    }
+                    .bold()
+                }
+            }
+        }
+    }
+
+    static func label(from: Date, to: Date?) -> String {
+        let formatter = DateFormatter()
+        formatter.locale = Locale(identifier: "en_IN")
+        formatter.dateFormat = "dd MMM yyyy"
+        guard let to, !Calendar.current.isDate(from, inSameDayAs: to) else {
+            return formatter.string(from: from)
+        }
+        return "\(formatter.string(from: from)) – \(formatter.string(from: to))"
     }
 }
 
@@ -2138,8 +2595,260 @@ private struct IOSGlassCloseButtonStyle: ButtonStyle {
     }
 }
 
+struct CpMapPinResult {
+    let latitude: Double
+    let longitude: Double
+    let address: String
+
+    var googleMapsLink: String {
+        "https://www.google.com/maps?q=\(latitude),\(longitude)"
+    }
+}
+
+struct CpMapPinPicker: View {
+    @Environment(\.dismiss) private var dismiss
+
+    let initialCoordinate: CLLocationCoordinate2D?
+    let initialAddress: String?
+    let onSelect: (CpMapPinResult) -> Void
+
+    @State private var cameraPosition: MapCameraPosition
+    @State private var selectedCoordinate: CLLocationCoordinate2D?
+    @State private var selectedAddress: String
+    @State private var searchText = ""
+    @State private var searchResults: [CpMapSearchResult] = []
+    @State private var isSearching = false
+    @State private var isSearchPresented = false
+
+    init(
+        initialCoordinate: CLLocationCoordinate2D?,
+        initialAddress: String?,
+        onSelect: @escaping (CpMapPinResult) -> Void
+    ) {
+        self.initialCoordinate = initialCoordinate
+        self.initialAddress = initialAddress
+        self.onSelect = onSelect
+        _selectedCoordinate = State(initialValue: initialCoordinate)
+        _selectedAddress = State(initialValue: initialAddress ?? "")
+        if let initialCoordinate {
+            _cameraPosition = State(initialValue: .region(MKCoordinateRegion(
+                center: initialCoordinate,
+                span: MKCoordinateSpan(latitudeDelta: 0.02, longitudeDelta: 0.02)
+            )))
+        } else {
+            _cameraPosition = State(initialValue: .region(MKCoordinateRegion(
+                center: CLLocationCoordinate2D(latitude: 13.0827, longitude: 80.2707),
+                span: MKCoordinateSpan(latitudeDelta: 0.35, longitudeDelta: 0.35)
+            )))
+        }
+    }
+
+    var body: some View {
+        NavigationStack {
+            ZStack {
+                mapArea
+            }
+            .safeAreaInset(edge: .bottom, spacing: 0) {
+                selectionFooter
+            }
+            .navigationTitle("Set client location")
+            .navigationBarTitleDisplayMode(.inline)
+            .searchable(
+                text: $searchText,
+                isPresented: $isSearchPresented,
+                placement: .navigationBarDrawer(displayMode: .always),
+                prompt: "Search places or addresses"
+            )
+            .searchSuggestions {
+                if isSearching {
+                    Label("Searching Manju Maps…", systemImage: "sparkle.magnifyingglass")
+                        .foregroundStyle(.secondary)
+                }
+                ForEach(searchResults) { result in
+                    Button {
+                        choose(result)
+                    } label: {
+                        HStack(spacing: 12) {
+                            Image(systemName: result.symbolName)
+                                .font(.title3)
+                                .foregroundStyle(.blue)
+                                .frame(width: 28)
+                            VStack(alignment: .leading, spacing: 3) {
+                                Text(result.title)
+                                    .font(.headline)
+                                    .foregroundStyle(.primary)
+                                Text(result.subtitle)
+                                    .font(.subheadline)
+                                    .foregroundStyle(.secondary)
+                                    .lineLimit(2)
+                            }
+                        }
+                        .padding(.vertical, 4)
+                    }
+                }
+            }
+            .toolbar {
+                ToolbarItem(placement: .cancellationAction) {
+                    Button("Cancel") { dismiss() }
+                }
+            }
+            .task(id: searchText) {
+                await search()
+            }
+        }
+    }
+
+    private var mapArea: some View {
+        MapReader { proxy in
+            Map(position: $cameraPosition) {
+                if let selectedCoordinate {
+                    Marker("Client location", coordinate: selectedCoordinate)
+                        .tint(Color(hex: 0x0B61CA))
+                }
+            }
+            .mapControls {
+                MapCompass()
+                MapUserLocationButton()
+            }
+            .gesture(
+                SpatialTapGesture()
+                    .onEnded { value in
+                        guard let coordinate = proxy.convert(value.location, from: .local) else { return }
+                        selectCoordinate(coordinate)
+                    }
+            )
+        }
+    }
+
+    private var selectionFooter: some View {
+        VStack(alignment: .leading, spacing: 14) {
+            if let selectedCoordinate {
+                Label {
+                    VStack(alignment: .leading, spacing: 3) {
+                        Text(selectedAddress.blankToNil ?? "Pinned location")
+                            .font(.subheadline.weight(.semibold))
+                            .foregroundStyle(.primary)
+                            .lineLimit(2)
+                        Text("\(selectedCoordinate.latitude.formatted(.number.precision(.fractionLength(5)))), \(selectedCoordinate.longitude.formatted(.number.precision(.fractionLength(5))))")
+                            .font(.caption)
+                            .foregroundStyle(.secondary)
+                    }
+                } icon: {
+                    Image(systemName: "mappin.circle.fill")
+                        .font(.title2)
+                        .foregroundStyle(.blue)
+                }
+            } else {
+                Label("Search above or tap the map to drop a pin.", systemImage: "hand.tap")
+                    .font(.subheadline)
+                    .foregroundStyle(.secondary)
+            }
+
+            Button {
+                guard let selectedCoordinate else { return }
+                onSelect(CpMapPinResult(
+                    latitude: selectedCoordinate.latitude,
+                    longitude: selectedCoordinate.longitude,
+                    address: selectedAddress
+                ))
+                dismiss()
+            } label: {
+                Label("Use this location", systemImage: "checkmark.circle.fill")
+                    .frame(maxWidth: .infinity)
+            }
+            .buttonStyle(.borderedProminent)
+            .buttonBorderShape(.capsule)
+            .controlSize(.large)
+            .tint(Color(hex: 0x1BCA0B))
+            .disabled(selectedCoordinate == nil)
+        }
+        .padding(16)
+        .background(.regularMaterial)
+    }
+
+    @MainActor
+    private func search() async {
+        let query = searchText.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard query.count >= 2 else {
+            searchResults = []
+            return
+        }
+        try? await Task.sleep(for: .milliseconds(320))
+        guard !Task.isCancelled else { return }
+        isSearching = true
+        defer { isSearching = false }
+        do {
+            let response = try await MapServiceAPI.search(query: query, limit: 6)
+            guard !Task.isCancelled else { return }
+            searchResults = response.compactMap(CpMapSearchResult.init)
+            if let first = searchResults.first {
+                cameraPosition = .region(MKCoordinateRegion(
+                    center: first.coordinate,
+                    span: MKCoordinateSpan(latitudeDelta: 0.08, longitudeDelta: 0.08)
+                ))
+            }
+        } catch {
+            searchResults = []
+        }
+    }
+
+    private func choose(_ result: CpMapSearchResult) {
+        searchText = ""
+        isSearchPresented = false
+        searchResults = []
+        selectedCoordinate = result.coordinate
+        selectedAddress = [result.title, result.subtitle]
+            .filter { !$0.isEmpty }
+            .joined(separator: ", ")
+        cameraPosition = .region(MKCoordinateRegion(
+            center: result.coordinate,
+            span: MKCoordinateSpan(latitudeDelta: 0.012, longitudeDelta: 0.012)
+        ))
+    }
+
+    private func selectCoordinate(_ coordinate: CLLocationCoordinate2D) {
+        selectedCoordinate = coordinate
+        cameraPosition = .region(MKCoordinateRegion(
+            center: coordinate,
+            span: MKCoordinateSpan(latitudeDelta: 0.012, longitudeDelta: 0.012)
+        ))
+        Task {
+            let address = try? await MapServiceAPI.reverseGeocode(
+                latitude: coordinate.latitude,
+                longitude: coordinate.longitude
+            )
+            guard selectedCoordinate?.latitude == coordinate.latitude,
+                  selectedCoordinate?.longitude == coordinate.longitude
+            else { return }
+            selectedAddress = address ?? "Pinned location"
+        }
+    }
+}
+
+struct CpMapSearchResult: Identifiable {
+    let id: String
+    let title: String
+    let subtitle: String
+    let coordinate: CLLocationCoordinate2D
+    let types: [String]
+
+    init?(_ item: MapServiceAddressResult) {
+        guard let latitude = item.location?.lat, let longitude = item.location?.lng else { return nil }
+        title = item.name?.blankToNil ?? item.address?.blankToNil ?? "Location"
+        subtitle = item.address?.blankToNil ?? title
+        coordinate = CLLocationCoordinate2D(latitude: latitude, longitude: longitude)
+        types = item.types ?? []
+        id = item.placeId?.blankToNil ?? "\(title)|\(latitude)|\(longitude)"
+    }
+
+    var symbolName: String {
+        if types.contains("real_estate_agency") { return "building.2.crop.circle" }
+        if types.contains("general_contractor") { return "hammer.circle" }
+        return "mappin.circle"
+    }
+}
+
 private enum CpVisitCreateType: String, CaseIterable, Identifiable {
-    case direct = "direct_cp"
     case svCumCp = "sv_cum_cp"
     case followUp = "follow_up"
     case bookingCp = "booking_cp"
@@ -2149,17 +2858,12 @@ private enum CpVisitCreateType: String, CaseIterable, Identifiable {
 
     var id: String { rawValue }
 
-    var payloadValue: String? {
-        self == .direct ? nil : rawValue
-    }
-
     var requiresConfirmedBooking: Bool {
         self == .collectionCp || self == .bookingCp
     }
 
     var title: String {
         switch self {
-        case .direct: return "Direct CP"
         case .svCumCp: return "SV cum CP"
         case .followUp: return "Follow-up"
         case .bookingCp: return "Booking CP"
@@ -2171,7 +2875,6 @@ private enum CpVisitCreateType: String, CaseIterable, Identifiable {
 
     var subtitle: String {
         switch self {
-        case .direct: return "Regular client-place visit"
         case .svCumCp: return "Confirm a site visit"
         case .followUp: return "Continue a postponed client"
         case .bookingCp: return "Paperwork for active booking"

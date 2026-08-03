@@ -41,6 +41,8 @@ struct HomeView: View {
     @State private var showQRScanner = false
     @State private var showPendingTasksSheet = false
     @State private var showTaskManager = false
+    @State private var selectedTaskDestination: HomeTaskDestination?
+    @State private var webTaskLink: HomeWebTaskLink?
     @State private var showNotifications = false
     @State private var showProfile = false
     @State private var showDashboardDatePicker = false
@@ -197,6 +199,9 @@ struct HomeView: View {
             .navigationDestination(isPresented: $showTaskManager) {
                 TasksListView()
             }
+            .navigationDestination(item: $selectedTaskDestination) { destination in
+                destination.view
+            }
             .navigationDestination(isPresented: $showNotifications) {
                 NotificationsListView()
                     .toolbar(.hidden, for: .tabBar)
@@ -231,13 +236,18 @@ struct HomeView: View {
                     PendingTasksSheet(
                         tasks: pendingTaskNudgeTasks,
                         totalPending: pendingTaskNudgeTasks.count,
-                        onOpenTaskManager: openTaskManagerFromPendingSheet
+                        onOpenTask: openPendingTask
                     )
                 }
                 .presentationDetents([.height(680), .large])
                 .presentationCornerRadius(30)
-                .presentationBackground(Color.white)
+                .presentationBackground(.regularMaterial)
                 .presentationDragIndicator(.visible)
+            }
+            .sheet(item: $webTaskLink) { item in
+                HomeWebTaskLinkSheet(item: item)
+                    .presentationDetents([.medium])
+                    .presentationDragIndicator(.visible)
             }
             .sheet(isPresented: $showDashboardDatePicker) {
                 NavigationStack {
@@ -557,7 +567,7 @@ struct HomeView: View {
 
                     Text("Tap to open Front Desk Scanner")
                         .font(.system(size: 13, weight: .medium))
-                        .foregroundStyle(Color(hex: 0x94A3B8))
+                .foregroundStyle(.tertiary)
                 }
                 .padding(.horizontal, 40)
                 .padding(.vertical, 32)
@@ -680,10 +690,29 @@ struct HomeView: View {
 
     private var managementDashboardSection: some View {
         VStack(alignment: .leading, spacing: 14) {
-            Text("Overview")
-                .font(.system(size: 28, weight: .bold))
-                .foregroundStyle(Color(hex: 0x111827))
-                .padding(.bottom, 2)
+            HStack(spacing: 12) {
+                Text(selectedDashboardDate == nil ? "Today's Overview" : "Overview")
+                    .font(.system(size: 24, weight: .bold))
+                .foregroundStyle(.primary)
+
+                Spacer()
+
+                Button {
+                    dashboardPickerDate = selectedDashboardDate ?? Date()
+                    showDashboardDatePicker = true
+                } label: {
+                    Label(dashboardDateLabel, systemImage: "calendar")
+                        .font(.system(size: 12.5, weight: .semibold))
+                .foregroundStyle(.primary)
+                        .padding(.horizontal, 10)
+                        .frame(height: 34)
+                        .background(.white, in: Capsule())
+                        .overlay(Capsule().stroke(Color(hex: 0xE4E7EC), lineWidth: 1))
+                }
+                .buttonStyle(.plain)
+                .accessibilityHint("Choose the dashboard date")
+            }
+            .padding(.bottom, 2)
 
             managementDashboardTabs
 
@@ -762,17 +791,32 @@ struct HomeView: View {
                 }
             }
         } else {
-            LazyVGrid(columns: dashboardGridColumns, spacing: 12) {
-                ForEach(metrics) { metric in
-                    dashboardMetricCard(metric)
+            VStack(alignment: .leading, spacing: 16) {
+                LazyVGrid(columns: dashboardGridColumns, spacing: 12) {
+                    ForEach(metrics) { metric in
+                        dashboardMetricCard(metric)
+                    }
                 }
+
+                marketingFunnelCard(for: dashboard)
+                marketingConversionSection(for: dashboard)
             }
         }
     }
 
     @ViewBuilder
     private func dashboardMetricCard(_ metric: ManagementDashboardMetric) -> some View {
-        ManagementDashboardMetricCard(metric: metric)
+        if let destination = metric.destination {
+            NavigationLink {
+                dashboardDestination(destination)
+            } label: {
+                ManagementDashboardMetricCard(metric: metric)
+            }
+            .buttonStyle(.plain)
+            .accessibilityHint("Opens \(metric.title) details")
+        } else {
+            ManagementDashboardMetricCard(metric: metric)
+        }
     }
 
     private var managementDashboardSkeleton: some View {
@@ -791,7 +835,7 @@ struct HomeView: View {
                 }
                 .padding(14)
                 .frame(maxWidth: .infinity, minHeight: 145, alignment: .leading)
-                .background(Color.white.opacity(0.7), in: RoundedRectangle(cornerRadius: 14, style: .continuous))
+                .background(Color.appSurface.opacity(0.7), in: RoundedRectangle(cornerRadius: 14, style: .continuous))
                 .redacted(reason: .placeholder)
             }
         }
@@ -1201,16 +1245,16 @@ struct HomeView: View {
         let red = Color(hex: 0xDC2626)
         let orange = Color(hex: 0xEA580C)
         let gray = Color(hex: 0x64748B)
-        let blueBg = Color(hex: 0xF8FBFF)
-        let greenBg = Color(hex: 0xF5FFF9)
-        let redBg = Color(hex: 0xFFF8F8)
-        let orangeBg = Color(hex: 0xFFFCF7)
-        let grayBg = Color(hex: 0xF8FAFC)
-        let bluePill = Color(hex: 0xEAF1FF)
-        let greenPill = Color(hex: 0xE9FBF2)
-        let redPill = Color(hex: 0xFEF3F2)
-        let orangePill = Color(hex: 0xFFF4E8)
-        let grayPill = Color(hex: 0xEEF2F6)
+        let blueBg = blue.opacity(0.075)
+        let greenBg = green.opacity(0.075)
+        let redBg = red.opacity(0.07)
+        let orangeBg = orange.opacity(0.07)
+        let grayBg = gray.opacity(0.07)
+        let bluePill = blue.opacity(0.12)
+        let greenPill = green.opacity(0.12)
+        let redPill = red.opacity(0.11)
+        let orangePill = orange.opacity(0.11)
+        let grayPill = gray.opacity(0.11)
         let presentPercent = dashboard.totalStaff > 0
             ? Int((Double(dashboard.present) / Double(dashboard.totalStaff) * 100).rounded())
             : 0
@@ -1235,7 +1279,7 @@ struct HomeView: View {
                 .init(
                     title: "Present",
                     value: "\(dashboard.present)",
-                    pill: "↗ \(presentPercent)% of Total",
+                    pill: dashboard.totalStaff > 0 ? "\(presentPercent)% of Total" : nil,
                     systemImage: "calendar",
                     tint: green,
                     background: greenBg,
@@ -1323,7 +1367,7 @@ struct HomeView: View {
                 .init(
                     title: "Total Calls",
                     value: "\(dashboard.totalCalls)",
-                    pill: "↗ 12% vs last week",
+                    pill: dashboardTrend(current: dashboard.totalCalls, previous: dashboard.prevTotalCalls),
                     systemImage: "phone",
                     tint: blue,
                     background: blueBg,
@@ -1337,7 +1381,7 @@ struct HomeView: View {
                 .init(
                     title: "Incoming",
                     value: "\(dashboard.incomingCalls)",
-                    pill: "↗ 5% vs last week",
+                    pill: dashboardTrend(current: dashboard.incomingCalls, previous: dashboard.prevIncomingCalls),
                     systemImage: "phone.fill",
                     tint: green,
                     background: greenBg,
@@ -1351,7 +1395,7 @@ struct HomeView: View {
                 .init(
                     title: "Outgoing",
                     value: "\(dashboard.outboundCalls)",
-                    pill: "↘ 3% vs last week",
+                    pill: dashboardTrend(current: dashboard.outboundCalls, previous: dashboard.prevOutboundCalls),
                     systemImage: "phone",
                     tint: blue,
                     background: blueBg,
@@ -1434,6 +1478,140 @@ struct HomeView: View {
                 )
             ]
         }
+    }
+
+    private func dashboardTrend(current: Int, previous: Int?) -> String? {
+        guard let previous, previous != 0 || current != 0 else { return nil }
+        guard previous != 0 else { return "↗ new vs last week" }
+        let delta = Double(current - previous) * 100 / Double(previous)
+        let arrow = delta > 0 ? "↗" : delta < 0 ? "↘" : "→"
+        return "\(arrow) \(Int(abs(delta).rounded()))% vs last week"
+    }
+
+    private func marketingFunnelCard(for dashboard: ConvexMobileDashboard) -> some View {
+        let stages = marketingFunnelStages(for: dashboard)
+
+        return VStack(alignment: .leading, spacing: 14) {
+            HStack {
+                Text("TODAY'S FUNNEL")
+                    .font(.system(size: 14, weight: .bold))
+                .foregroundStyle(.primary)
+                Spacer()
+                Text(dashboardDateLabel.uppercased())
+                    .font(.system(size: 10, weight: .bold))
+                .foregroundStyle(.secondary)
+            }
+
+            HStack(alignment: .center, spacing: 14) {
+                VStack(spacing: 3) {
+                    ForEach(Array(stages.enumerated()), id: \.element.id) { index, stage in
+                        Text(stage.value)
+                            .font(.system(size: index < 4 ? 12 : 10, weight: .bold).monospacedDigit())
+                            .foregroundStyle(.white)
+                            .frame(width: max(38, 132 - CGFloat(index * 18)), height: 28)
+                            .background(
+                                LinearGradient(
+                                    colors: [stage.color.opacity(0.82), stage.color],
+                                    startPoint: .top,
+                                    endPoint: .bottom
+                                ),
+                                in: RoundedRectangle(cornerRadius: 8, style: .continuous)
+                            )
+                            .shadow(color: stage.color.opacity(0.18), radius: 3, y: 2)
+                    }
+                }
+                .frame(width: 136)
+
+                VStack(spacing: 0) {
+                    ForEach(stages) { stage in
+                        HStack(spacing: 7) {
+                            Circle()
+                                .fill(stage.color)
+                                .frame(width: 7, height: 7)
+                            Text(stage.title)
+                                .font(.system(size: 11, weight: .medium))
+                .foregroundStyle(.primary)
+                                .lineLimit(1)
+                            Spacer(minLength: 3)
+                            Text(stage.percentage)
+                                .font(.system(size: 11, weight: .bold).monospacedDigit())
+                .foregroundStyle(.primary)
+                        }
+                        .frame(height: 31)
+                    }
+                }
+            }
+        }
+        .padding(14)
+        .background(.white, in: RoundedRectangle(cornerRadius: 16, style: .continuous))
+        .overlay(RoundedRectangle(cornerRadius: 16).stroke(Color(hex: 0xE5E7EB), lineWidth: 1))
+        .shadow(color: Color(hex: 0x101828).opacity(0.06), radius: 10, y: 4)
+    }
+
+    private func marketingConversionSection(for dashboard: ConvexMobileDashboard) -> some View {
+        let interested = dashboard.hotLeadCount + dashboard.warmLeadCount
+        let booking = dashboard.bookingCount
+        let metrics = [
+            MarketingConversionMetric(
+                title: "Interest Rate",
+                value: conversionPercent(interested, from: dashboard.totalCalls),
+                systemImage: "person.crop.circle.badge.checkmark",
+                tint: Color(hex: 0x3B82F6)
+            ),
+            MarketingConversionMetric(
+                title: "Warm to Hot",
+                value: conversionPercent(dashboard.hotLeadCount, from: dashboard.warmLeadCount),
+                systemImage: "flame.fill",
+                tint: Color(hex: 0xEF4444)
+            ),
+            MarketingConversionMetric(
+                title: "Hot to Site Visit",
+                value: conversionPercent(dashboard.svVisitsFixed, from: dashboard.hotLeadCount),
+                systemImage: "mappin.and.ellipse",
+                tint: Color(hex: 0xF59E0B)
+            ),
+            MarketingConversionMetric(
+                title: "Site Visit to Booking",
+                value: booking.map { conversionPercent($0, from: dashboard.svVisitsFixed) } ?? "—",
+                systemImage: "house.fill",
+                tint: Color(hex: 0x10B981)
+            )
+        ]
+
+        return VStack(alignment: .leading, spacing: 9) {
+            Text("KEY CONVERSION KPIs")
+                .font(.system(size: 14, weight: .bold))
+                .foregroundStyle(.primary)
+
+            ScrollView(.horizontal) {
+                LazyHStack(spacing: 12) {
+                    ForEach(metrics) { metric in
+                        MarketingConversionCard(metric: metric)
+                    }
+                }
+                .padding(.vertical, 3)
+            }
+            .scrollIndicators(.hidden)
+        }
+    }
+
+    private func marketingFunnelStages(for dashboard: ConvexMobileDashboard) -> [MarketingFunnelStage] {
+        let interested = dashboard.hotLeadCount + dashboard.warmLeadCount
+        let booking = dashboard.bookingCount
+        return [
+            .init(title: "Total Calls", value: "\(dashboard.totalCalls)", percentage: "100%", color: Color(hex: 0x3B82F6)),
+            .init(title: "Interested", value: "\(interested)", percentage: conversionPercent(interested, from: dashboard.totalCalls), color: Color(hex: 0x06B6D4)),
+            .init(title: "Warm Leads", value: "\(dashboard.warmLeadCount)", percentage: conversionPercent(dashboard.warmLeadCount, from: dashboard.totalCalls), color: Color(hex: 0xF59E0B)),
+            .init(title: "Hot Leads", value: "\(dashboard.hotLeadCount)", percentage: conversionPercent(dashboard.hotLeadCount, from: dashboard.totalCalls), color: Color(hex: 0xEF4444)),
+            .init(title: "Site Visits", value: "\(dashboard.svVisitsFixed)", percentage: conversionPercent(dashboard.svVisitsFixed, from: dashboard.totalCalls), color: Color(hex: 0x8B5CF6)),
+            .init(title: "Bookings", value: booking.map(String.init) ?? "—", percentage: booking.map { conversionPercent($0, from: dashboard.totalCalls) } ?? "—", color: Color(hex: 0x10B981))
+        ]
+    }
+
+    private func conversionPercent(_ value: Int, from total: Int) -> String {
+        guard total > 0 else { return "0%" }
+        return (Double(value) * 100 / Double(total))
+            .formatted(.number.precision(.fractionLength(1))) + "%"
     }
 
     // MARK: - Data Mapping
@@ -1542,9 +1720,28 @@ struct HomeView: View {
         } catch {
             guard requestedDate == dashboardDateQuery else { return }
             if isCancellationError(error) { return }
-            managementDashboardError = error.localizedDescription
-            if managementDashboard == nil {
-                managementDashboard = nil
+            let fallbackDate = requestedDate ?? dashboardDateKey(for: Date())
+            async let cpResult = try? MarketingConvexAPIService.getMyMarketingCpVisits(
+                    token: token,
+                    fromDate: fallbackDate,
+                    toDate: fallbackDate
+                )
+            async let svResult = try? HRConvexAPIService.getMySiteVisits(
+                    token: token,
+                    fromDate: fallbackDate,
+                    toDate: fallbackDate
+                )
+            let (cp, sv) = await (cpResult, svResult)
+            guard requestedDate == dashboardDateQuery else { return }
+            if cp != nil || sv != nil {
+                managementDashboard = .visitFallback(
+                    date: fallbackDate,
+                    cpVisitsFixed: cp?.count ?? 0,
+                    svVisitsFixed: sv?.count ?? 0
+                )
+                managementDashboardError = "Some company-wide statistics are temporarily unavailable."
+            } else {
+                managementDashboardError = error.localizedDescription
             }
         }
     }
@@ -1714,14 +1911,31 @@ struct HomeView: View {
             taskNudgeTasks = []
             return
         }
+        async let taskManagerRequest = TasksConvexAPIService.getTaskManagerTasks(
+            token: token,
+            today: todayDateKey
+        )
+        async let reminderRequest = TasksConvexAPIService.getPendingTaskReminders(
+            token: token,
+            today: todayDateKey,
+            limit: 10
+        )
+
         do {
-            let payload = try await TasksConvexAPIService.getTaskManagerTasks(token: token, today: todayDateKey)
+            let payload = try await taskManagerRequest
             let sortedTasks = payload.tasks.sorted { ($0.creationTime ?? 0) > ($1.creationTime ?? 0) }
             dailyTasks = sortedTasks
-            taskNudgeTasks = scopedTaskNudgeTasks(sortedTasks)
-            presentPendingTasksSheetIfDue()
         } catch {
             dailyTasks = []
+        }
+
+        do {
+            taskNudgeTasks = try await reminderRequest
+            presentPendingTasksSheetIfDue()
+        } catch {
+            // Never fall back to the broad Task Manager list. For admins that
+            // scope contains organisation-wide tasks and would recreate the
+            // incorrect reminder dialogue this endpoint is designed to avoid.
             taskNudgeTasks = []
         }
     }
@@ -1748,13 +1962,21 @@ struct HomeView: View {
     }
 
     @MainActor
-    private func openTaskManagerFromPendingSheet() {
+    private func openPendingTask(_ task: DailyTask?) {
         pendingTaskSheetLastPresentedAt = Date().timeIntervalSince1970
         showPendingTasksSheet = false
 
         Task { @MainActor in
             try? await Task.sleep(nanoseconds: 250_000_000)
-            showTaskManager = true
+            guard let task else {
+                showTaskManager = true
+                return
+            }
+            if let destination = HomeTaskDestination(task: task) {
+                selectedTaskDestination = destination
+            } else {
+                webTaskLink = HomeWebTaskLink(task: task)
+            }
         }
     }
 
@@ -1877,13 +2099,6 @@ struct HomeView: View {
         return formatter
     }
 
-    private var pendingDailyTasks: [DailyTask] {
-        dailyTasks.filter { task in
-            let status = task.status?.lowercased() ?? "pending"
-            return status != "completed" && status != "cancelled"
-        }
-    }
-
     private var pendingTaskNudgeTasks: [DailyTask] {
         taskNudgeTasks
     }
@@ -1893,43 +2108,6 @@ struct HomeView: View {
             guard let deadline = task.deadline?.nilIfBlank else { return false }
             return deadline <= todayDateKey
         }.count
-    }
-
-    private func scopedTaskNudgeTasks(_ tasks: [DailyTask]) -> [DailyTask] {
-        let openTasks = tasks
-            .filter(isOpenTaskForNudge)
-            .sorted { ($0.creationTime ?? 0) > ($1.creationTime ?? 0) }
-
-        let role = authStore.currentSession?.user.role?.trimmingCharacters(in: .whitespacesAndNewlines).lowercased()
-        guard authStore.isAdmin == false && role != "super-admin" else {
-            return openTasks
-        }
-
-        let currentUserIDs = Set([
-            authStore.currentSession?.user.staffId,
-            authStore.currentSession?.user._id,
-            authStore.currentSession?.user.employeeId,
-            authStore.currentSession?.user.phone,
-        ].compactMap { value in
-            let trimmed = value?.trimmingCharacters(in: .whitespacesAndNewlines)
-            return trimmed?.isEmpty == false ? trimmed : nil
-        })
-
-        guard !currentUserIDs.isEmpty else { return [] }
-        return openTasks.filter { task in
-            guard let assignedTo = task.assignedTo?.trimmingCharacters(in: .whitespacesAndNewlines), !assignedTo.isEmpty else {
-                return false
-            }
-            return currentUserIDs.contains(assignedTo)
-        }
-    }
-
-    private func isOpenTaskForNudge(_ task: DailyTask) -> Bool {
-        let status = task.status?
-            .trimmingCharacters(in: .whitespacesAndNewlines)
-            .lowercased()
-            .replacingOccurrences(of: "_", with: "-") ?? "pending"
-        return !["completed", "complete", "cancelled", "canceled", "done", "closed"].contains(status)
     }
 
     private var todayPunchInRaw: String? {
@@ -2070,7 +2248,7 @@ private struct ManagementDashboardMetric: Identifiable {
     let id = UUID()
     let title: String
     let value: String
-    let pill: String
+    let pill: String?
     let systemImage: String
     let tint: Color
     let background: Color
@@ -2105,7 +2283,7 @@ private struct ManagementDashboardMetricCard: View {
 
                 Text(metric.title)
                     .font(.system(size: metric.size == .large ? 14 : 11, weight: .bold))
-                    .foregroundStyle(Color(hex: 0x111827))
+                .foregroundStyle(.primary)
                     .lineLimit(2)
                     .minimumScaleFactor(0.68)
                     .frame(maxWidth: .infinity, alignment: .leading)
@@ -2113,20 +2291,22 @@ private struct ManagementDashboardMetricCard: View {
 
                 Text(metric.value)
                     .font(.system(size: metric.size == .large ? 26 : 21, weight: .bold).monospacedDigit())
-                    .foregroundStyle(Color(hex: 0x111827))
+                .foregroundStyle(.primary)
                     .lineLimit(1)
                     .minimumScaleFactor(0.65)
                     .padding(.top, metric.size == .large ? 3 : 1)
 
-                Text(metric.pill)
-                    .font(.system(size: 8.2, weight: .bold))
-                    .foregroundStyle(metric.pillTextColor)
-                    .lineLimit(1)
-                    .minimumScaleFactor(0.64)
-                    .padding(.horizontal, metric.size == .large ? 5 : 4)
-                    .padding(.vertical, 2.5)
-                    .background(metric.pillBackground, in: RoundedRectangle(cornerRadius: 5, style: .continuous))
-                    .padding(.top, metric.size == .large ? 5 : 3)
+                if let pill = metric.pill {
+                    Text(pill)
+                        .font(.system(size: 8.2, weight: .bold))
+                        .foregroundStyle(metric.pillTextColor)
+                        .lineLimit(1)
+                        .minimumScaleFactor(0.64)
+                        .padding(.horizontal, metric.size == .large ? 5 : 4)
+                        .padding(.vertical, 2.5)
+                        .background(metric.pillBackground, in: RoundedRectangle(cornerRadius: 5, style: .continuous))
+                        .padding(.top, metric.size == .large ? 5 : 3)
+                }
             }
             .padding(metric.size == .large ? 11 : 9)
             .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
@@ -2144,9 +2324,62 @@ private struct ManagementDashboardMetricCard: View {
         .background(metric.background, in: RoundedRectangle(cornerRadius: 16, style: .continuous))
         .overlay {
             RoundedRectangle(cornerRadius: 16, style: .continuous)
-                .stroke(Color(hex: 0xE5E7EB), lineWidth: 1)
+                .stroke(Color.appSeparator, lineWidth: 1)
         }
         .shadow(color: Color(hex: 0x101828).opacity(0.03), radius: 1, x: 0, y: 1)
+    }
+}
+
+private struct MarketingFunnelStage: Identifiable {
+    let id = UUID()
+    let title: String
+    let value: String
+    let percentage: String
+    let color: Color
+}
+
+private struct MarketingConversionMetric: Identifiable {
+    let id = UUID()
+    let title: String
+    let value: String
+    let systemImage: String
+    let tint: Color
+}
+
+private struct MarketingConversionCard: View {
+    let metric: MarketingConversionMetric
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 10) {
+            HStack(spacing: 9) {
+                Image(systemName: metric.systemImage)
+                    .font(.system(size: 18, weight: .semibold))
+                    .foregroundStyle(metric.tint)
+                    .frame(width: 38, height: 38)
+                    .background(metric.tint.opacity(0.10), in: RoundedRectangle(cornerRadius: 11))
+
+                Text(metric.title)
+                    .font(.system(size: 12, weight: .semibold))
+                .foregroundStyle(.primary)
+                    .lineLimit(2)
+            }
+
+            Text(metric.value)
+                .font(.system(size: 23, weight: .bold).monospacedDigit())
+                .foregroundStyle(metric.tint)
+
+            HStack(spacing: 4) {
+                Image(systemName: "chart.line.uptrend.xyaxis")
+                Text("Live conversion")
+            }
+            .font(.system(size: 10, weight: .semibold))
+            .foregroundStyle(Color(hex: 0x059669))
+        }
+        .padding(13)
+        .frame(width: 154, height: 142, alignment: .topLeading)
+        .background(.white, in: RoundedRectangle(cornerRadius: 16, style: .continuous))
+        .overlay(RoundedRectangle(cornerRadius: 16).stroke(Color(hex: 0xE5E7EB), lineWidth: 1))
+        .shadow(color: Color(hex: 0x101828).opacity(0.05), radius: 8, y: 3)
     }
 }
 
@@ -2296,7 +2529,7 @@ private struct PendingTasksSheet: View {
 
     let tasks: [DailyTask]
     let totalPending: Int
-    let onOpenTaskManager: () -> Void
+    let onOpenTask: (DailyTask?) -> Void
 
     private var previewTasks: [DailyTask] {
         Array(tasks.prefix(5))
@@ -2308,7 +2541,7 @@ private struct PendingTasksSheet: View {
                 VStack(alignment: .leading, spacing: 5) {
                     Text("Task Pending")
                         .font(.system(size: 24, weight: .bold))
-                        .foregroundStyle(Color(hex: 0x101828))
+                .foregroundStyle(.primary)
 
                     Text("You have \(totalPending) pending task\(totalPending == 1 ? "" : "s")")
                         .font(.system(size: 18, weight: .medium))
@@ -2338,7 +2571,7 @@ private struct PendingTasksSheet: View {
                     systemImage: "checkmark.circle.fill",
                     description: Text("You're all caught up.")
                 )
-                .foregroundStyle(Color(hex: 0x667085))
+                .foregroundStyle(.secondary)
                 .frame(height: 430)
             } else {
                 GeometryReader { geometry in
@@ -2350,7 +2583,7 @@ private struct PendingTasksSheet: View {
                                     .frame(width: cardWidth, height: 430)
                                     .contentShape(RoundedRectangle(cornerRadius: 24, style: .continuous))
                                     .onTapGesture {
-                                        openTaskManager()
+                                        openTask(task)
                                     }
                                     .id(index)
                             }
@@ -2381,11 +2614,11 @@ private struct PendingTasksSheet: View {
                         Text("Swipe to view all tasks")
                             .font(.system(size: 14, weight: .medium))
                     }
-                    .foregroundStyle(Color(hex: 0x98A2B3))
+                .foregroundStyle(.tertiary)
                 }
 
                 Button {
-                    openTaskManager()
+                    openTask(selectedTask)
                 } label: {
                     Label(previewTasks.isEmpty ? "Open Tasks" : "Complete Task", systemImage: "checkmark.circle.fill")
                         .font(.system(size: 18, weight: .bold))
@@ -2409,19 +2642,133 @@ private struct PendingTasksSheet: View {
             .frame(maxWidth: .infinity)
             .background(
                 LinearGradient(
-                    colors: [Color.white.opacity(0.0), Color(hex: 0xFFF7F1)],
+                    colors: [Color.appSurface.opacity(0.0), Color.appFieldBackground],
                     startPoint: .top,
                     endPoint: .bottom
                 )
             )
         }
-        .background(Color.white.ignoresSafeArea())
+        .background(Color.appSurface.ignoresSafeArea())
         .navigationBarTitleDisplayMode(.inline)
     }
 
-    private func openTaskManager() {
+    private var selectedTask: DailyTask? {
+        guard !previewTasks.isEmpty else { return nil }
+        return previewTasks[min(max(selectedIndex ?? 0, 0), previewTasks.count - 1)]
+    }
+
+    private func openTask(_ task: DailyTask?) {
         dismiss()
-        onOpenTaskManager()
+        onOpenTask(task)
+    }
+}
+
+private enum HomeTaskDestination: String, Identifiable {
+    case attendance
+    case cpVisits
+    case siteVisits
+    case landInspection
+    case issues
+    case leaves
+    case permissions
+    case fines
+    case loanDesk
+    case loans
+    case bookings
+
+    var id: String { rawValue }
+
+    init?(task: DailyTask) {
+        let source = (task.sourceReferenceType ?? "")
+            .trimmingCharacters(in: .whitespacesAndNewlines)
+            .lowercased()
+            .replacingOccurrences(of: "-", with: "_")
+        switch source {
+        case "staff_attendance": self = .attendance
+        case "client_place_visit", "clientplacevisit": self = .cpVisits
+        case "site_visit", "sitevisit": self = .siteVisits
+        case "land_inspection", "landinspection", "landproperty": self = .landInspection
+        case "issue": self = .issues
+        case "leave": self = .leaves
+        case "permission": self = .permissions
+        case "fine", "fines": self = .fines
+        case "loan": self = .loans
+        default:
+            if source.hasPrefix("fine_") { self = .fines }
+            else if source.hasPrefix("loan_") { self = .loanDesk }
+            else if source.hasPrefix("loan") { self = .loans }
+            else if source.contains("booking") { self = .bookings }
+            else { return nil }
+        }
+    }
+
+    @ViewBuilder
+    var view: some View {
+        switch self {
+        case .attendance: ConvexAttendanceListView()
+        case .cpVisits: CpVisitsView()
+        case .siteVisits: SiteVisitsListView()
+        case .landInspection: LandInspectionView()
+        case .issues: IssuesView()
+        case .leaves: LeavesListView()
+        case .permissions: ConvexPermissionListView()
+        case .fines: FinesDeductionsView()
+        case .loanDesk: LoanDeskView()
+        case .loans: LoansView()
+        case .bookings: BookingsListView()
+        }
+    }
+}
+
+private struct HomeWebTaskLink: Identifiable {
+    let id: String
+    let title: String
+    let url: URL
+
+    init(task: DailyTask) {
+        id = task.id
+        title = task.displayTitle
+        let raw = task.actionUrl?.nonBlank ?? "https://mg.theairix.com"
+        if let absolute = URL(string: raw), absolute.scheme != nil {
+            url = absolute
+        } else {
+            let path = raw.hasPrefix("/") ? raw : "/\(raw)"
+            url = URL(string: "https://mg.theairix.com\(path)")!
+        }
+    }
+}
+
+private struct HomeWebTaskLinkSheet: View {
+    @Environment(\.dismiss) private var dismiss
+    @Environment(\.openURL) private var openURL
+    let item: HomeWebTaskLink
+
+    var body: some View {
+        NavigationStack {
+            VStack(alignment: .leading, spacing: 18) {
+                Label("This task is completed in the web app.", systemImage: "safari")
+                    .font(.headline)
+                Text(item.url.absoluteString)
+                    .font(.footnote.monospaced())
+                    .foregroundStyle(.secondary)
+                    .textSelection(.enabled)
+                Button("Open in Web", systemImage: "arrow.up.right.square") {
+                    openURL(item.url)
+                }
+                .buttonStyle(.borderedProminent)
+                .controlSize(.large)
+                .frame(maxWidth: .infinity)
+                Spacer()
+            }
+            .padding(20)
+            .navigationTitle(item.title)
+            .navigationBarTitleDisplayMode(.inline)
+            .toolbar {
+                ToolbarItem(placement: .cancellationAction) {
+                    Button("Close") { dismiss() }
+                }
+            }
+        }
     }
 }
 
@@ -2440,7 +2787,7 @@ private struct PendingTaskPreviewCard: View {
                     .font(.system(size: 14, weight: .bold).monospacedDigit())
                     .foregroundStyle(theme.main)
                     .frame(width: 32, height: 32)
-                    .background(Color.white, in: Circle())
+                    .background(Color.appElevatedSurface, in: Circle())
                     .overlay {
                         Circle().stroke(theme.main, lineWidth: 1.5)
                     }
@@ -2464,7 +2811,7 @@ private struct PendingTaskPreviewCard: View {
 
             Text(task.displayTitle)
                 .font(.system(size: 17, weight: .bold))
-                .foregroundStyle(Color(hex: 0x111827))
+                .foregroundStyle(.primary)
                 .lineLimit(1)
                 .minimumScaleFactor(0.72)
                 .padding(.top, 6)
@@ -2472,11 +2819,11 @@ private struct PendingTaskPreviewCard: View {
             HStack(spacing: 8) {
                 Text("For")
                     .font(.system(size: 12, weight: .semibold))
-                    .foregroundStyle(Color(hex: 0x111827))
+                .foregroundStyle(.primary)
 
                 Text(moduleLabel)
                     .font(.system(size: 11, weight: .medium))
-                    .foregroundStyle(Color(hex: 0x475467))
+                .foregroundStyle(.secondary)
                     .lineLimit(1)
                     .padding(.horizontal, 9)
                     .frame(height: 23)
@@ -2490,7 +2837,7 @@ private struct PendingTaskPreviewCard: View {
             VStack(alignment: .leading, spacing: 8) {
                 Text("Created by")
                     .font(.system(size: 11, weight: .medium))
-                    .foregroundStyle(Color(hex: 0x475467))
+                .foregroundStyle(.secondary)
 
                 HStack(spacing: 9) {
                     Text(creatorInitials)
@@ -2505,13 +2852,13 @@ private struct PendingTaskPreviewCard: View {
                     VStack(alignment: .leading, spacing: 2) {
                         Text(creatorName)
                             .font(.system(size: 13, weight: .bold))
-                            .foregroundStyle(Color(hex: 0x111827))
+                .foregroundStyle(.primary)
                             .lineLimit(1)
 
                         if let creatorRole {
                             Text(creatorRole)
                                 .font(.system(size: 10, weight: .medium))
-                                .foregroundStyle(Color(hex: 0x667085))
+                .foregroundStyle(.secondary)
                                 .lineLimit(1)
                         }
                     }
@@ -2525,7 +2872,7 @@ private struct PendingTaskPreviewCard: View {
             VStack(alignment: .leading, spacing: 8) {
                 Text("Created on")
                     .font(.system(size: 11, weight: .medium))
-                    .foregroundStyle(Color(hex: 0x475467))
+                .foregroundStyle(.secondary)
 
                 HStack(spacing: 9) {
                     Image(systemName: "calendar")
@@ -2534,7 +2881,7 @@ private struct PendingTaskPreviewCard: View {
 
                     Text(createdOnText)
                         .font(.system(size: 14, weight: .bold))
-                        .foregroundStyle(Color(hex: 0x111827))
+                .foregroundStyle(.primary)
                         .lineLimit(1)
                 }
             }
@@ -2542,7 +2889,7 @@ private struct PendingTaskPreviewCard: View {
         }
         .padding(.horizontal, 16)
         .padding(.vertical, 16)
-        .background(Color.white, in: RoundedRectangle(cornerRadius: 24, style: .continuous))
+        .background(Color.appSurface, in: RoundedRectangle(cornerRadius: 24, style: .continuous))
         .overlay {
             RoundedRectangle(cornerRadius: 24, style: .continuous)
                 .stroke(theme.main.opacity(index == (0) ? 1 : 0.18), lineWidth: index == 0 ? 2.5 : 1.2)

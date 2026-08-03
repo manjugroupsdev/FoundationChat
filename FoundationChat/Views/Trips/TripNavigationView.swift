@@ -15,11 +15,13 @@ import UIKit
 struct TripNavigationView: View {
     @Environment(AuthStore.self) private var authStore
     @Environment(\.dismiss) private var dismiss
+    @Environment(\.openURL) private var openURL
 
     let visitIdArg: String?
     let placeIdArg: String?
     let placeName: String
     let placeAddress: String?
+    let mapsLink: String?
     let destination: CLLocationCoordinate2D?
     let initialStatus: String?
     let tripType: String?
@@ -28,6 +30,10 @@ struct TripNavigationView: View {
     let cpOutcome: String?
     let cpVisitCategory: String?
     let cpType: String?
+    let lmoName: String?
+    let deadline: String?
+    let fleetOnSiteAt: Int64?
+    let usesAgencyFleetDriverAPI: Bool
     let requiresOpenAttendance: Bool
     let onTripChanged: (() -> Void)?
 
@@ -57,6 +63,8 @@ struct TripNavigationView: View {
     @State private var showDriverEndTripSheet = false
     @State private var pendingCompletionVisitId: String?
     @State private var driverStartKm: Double?
+    @State private var fleetDriverPhase = "scheduled"
+    @State private var fleetPickupSecondsRemaining = 0
     @State private var isDriverEndSubmitting = false
 
     @State private var showOtpSheet = false
@@ -66,6 +74,7 @@ struct TripNavigationView: View {
     @State private var showCpClientSeenSheet = false
     @State private var showCpTripCompletedSheet = false
     @State private var cpNoPathPhotoCapture = false
+    @State private var repairVerifiedArrivalProof = false
     @State private var completeWithClientNotSeenSheet = false
     @State private var otpPhoneMasked: String?
     @State private var otpExpiresIn: Int = 600
@@ -83,6 +92,7 @@ struct TripNavigationView: View {
         placeId: String? = nil,
         placeName: String,
         placeAddress: String? = nil,
+        mapsLink: String? = nil,
         destination: CLLocationCoordinate2D? = nil,
         initialStatus: String? = nil,
         tripType: String? = nil,
@@ -91,6 +101,10 @@ struct TripNavigationView: View {
         cpOutcome: String? = nil,
         cpVisitCategory: String? = nil,
         cpType: String? = nil,
+        lmoName: String? = nil,
+        deadline: String? = nil,
+        fleetOnSiteAt: Int64? = nil,
+        usesAgencyFleetDriverAPI: Bool = false,
         requiresOpenAttendance: Bool = false,
         onTripChanged: (() -> Void)? = nil
     ) {
@@ -98,6 +112,7 @@ struct TripNavigationView: View {
         self.placeIdArg = placeId
         self.placeName = placeName
         self.placeAddress = placeAddress
+        self.mapsLink = mapsLink
         self.destination = destination
         self.initialStatus = initialStatus
         self.tripType = tripType
@@ -106,6 +121,10 @@ struct TripNavigationView: View {
         self.cpOutcome = cpOutcome
         self.cpVisitCategory = cpVisitCategory
         self.cpType = cpType
+        self.lmoName = lmoName
+        self.deadline = deadline
+        self.fleetOnSiteAt = fleetOnSiteAt
+        self.usesAgencyFleetDriverAPI = usesAgencyFleetDriverAPI
         self.requiresOpenAttendance = requiresOpenAttendance
         self.onTripChanged = onTripChanged
     }
@@ -147,10 +166,19 @@ struct TripNavigationView: View {
                         }
                     }
                     if let errorMessage {
-                        Text(errorMessage)
-                            .font(.subheadline)
-                            .foregroundStyle(.red)
-                            .padding(.horizontal)
+                        VStack(spacing: 8) {
+                            Text(errorMessage)
+                                .font(.subheadline)
+                                .foregroundStyle(.red)
+                                .multilineTextAlignment(.center)
+                            if locationManager.needsSettings {
+                                Button("Open Location Settings") {
+                                    locationManager.openSettings()
+                                }
+                                .font(.subheadline.weight(.semibold))
+                            }
+                        }
+                        .padding(.horizontal)
                     }
                     actionButtons
                 }
@@ -160,7 +188,7 @@ struct TripNavigationView: View {
             }
             .scrollIndicators(.hidden)
         }
-        .background(Color(hex: 0xF2F5FA).ignoresSafeArea())
+        .background(Color.appScreenBackground.ignoresSafeArea())
         .navigationTitle("Trip Details")
         .navigationBarTitleDisplayMode(.inline)
         .toolbar(.hidden, for: .tabBar)
@@ -201,6 +229,7 @@ struct TripNavigationView: View {
                     initialResendCooldown: otpResendCooldown,
                     lat: otpLat,
                     lng: otpLng,
+                    arrivalPhotoStorageId: pendingStorageId,
                     onVerified: { otp in
                         showOtpSheet = false
                         Task { await completeVisitAfterOtp(otp: otp) }
@@ -238,7 +267,10 @@ struct TripNavigationView: View {
                     kind: kind,
                     cpVisitId: cpVisitId,
                     arrivalProofStorageId: pendingStorageId,
-                    onCompleted: {
+                    onCompleted: { replacementProofId in
+                        if let replacementProofId {
+                            pendingStorageId = replacementProofId
+                        }
                         Task { await completeVisitAfterCpOutcome() }
                     }
                 )
@@ -308,7 +340,9 @@ struct TripNavigationView: View {
         .onChange(of: capturedImage) { _, image in
             guard let image else { return }
             Task {
-                if cpNoPathPhotoCapture {
+                if repairVerifiedArrivalProof {
+                    await uploadAndRepairVerifiedArrival(image: image)
+                } else if cpNoPathPhotoCapture {
                     await uploadPhotoThenCompleteWithoutClient(image: image)
                 } else {
                     await uploadPhotoThenShowOtp(image: image)
@@ -332,7 +366,7 @@ struct TripNavigationView: View {
         ZStack {
             Text("Trip Details")
                 .font(.system(size: 18, weight: .semibold))
-                .foregroundStyle(Color(hex: 0x101828))
+                .foregroundStyle(.primary)
 
             HStack {
                 Button {
@@ -342,7 +376,7 @@ struct TripNavigationView: View {
                         .font(.system(size: 18, weight: .semibold))
                         .foregroundStyle(Color(hex: 0x0B61CA))
                         .frame(width: 32, height: 32)
-                        .background(Color.white, in: Circle())
+                        .background(Color.appSurface, in: Circle())
                 }
                 .buttonStyle(.plain)
                 .disabled(arrivalInProgress || isLoadingStart)
@@ -353,7 +387,7 @@ struct TripNavigationView: View {
             .padding(.horizontal, 16)
         }
         .frame(height: 60)
-        .background(.white)
+        .background(Color.appSurface)
     }
 
     private var mapSection: some View {
@@ -398,7 +432,24 @@ struct TripNavigationView: View {
                     }
             }
         }
-        .background(.white, in: RoundedRectangle(cornerRadius: 18))
+        .overlay(alignment: .topTrailing) {
+            if mapsLink?.nilIfBlank != nil || effectiveDestination != nil {
+                Button {
+                    openDestinationInMaps()
+                } label: {
+                    Label("Open Maps", systemImage: "arrow.triangle.turn.up.right.diamond.fill")
+                        .font(.caption.weight(.semibold))
+                        .padding(.horizontal, 11)
+                        .frame(height: 36)
+                        .background(.regularMaterial, in: Capsule())
+                }
+                .buttonStyle(.plain)
+                .foregroundStyle(Color(hex: 0x0B61CA))
+                .padding(10)
+                .accessibilityHint("Opens the saved destination in Maps")
+            }
+        }
+        .background(Color.appSurface, in: RoundedRectangle(cornerRadius: 18))
         .overlay(
             RoundedRectangle(cornerRadius: 18)
                 .stroke(Color(hex: 0xEEF0F5), lineWidth: 1)
@@ -410,18 +461,18 @@ struct TripNavigationView: View {
             HStack(spacing: 8) {
                 Text(String(clientDisplayName.prefix(1)).uppercased())
                     .font(.system(size: 17, weight: .semibold))
-                    .foregroundStyle(Color(hex: 0x475467))
+                    .foregroundStyle(.secondary)
                     .frame(width: 42, height: 42)
-                    .background(Color(hex: 0xF2F4F7), in: Circle())
+                    .background(Color.appFieldBackground, in: Circle())
 
                 VStack(alignment: .leading, spacing: 3) {
                     Text(clientDisplayName)
                         .font(.system(size: 13, weight: .semibold))
-                        .foregroundStyle(Color(hex: 0x111827))
+                        .foregroundStyle(.primary)
                         .lineLimit(1)
                     Text("Client")
                         .font(.system(size: 11))
-                        .foregroundStyle(Color(hex: 0x667085))
+                        .foregroundStyle(.secondary)
                 }
 
                 Spacer()
@@ -431,18 +482,24 @@ struct TripNavigationView: View {
 
             HStack(spacing: 10) {
                 VStack(spacing: 14) {
-                    tripMetric(icon: "building.2.fill", label: "Site/Client", value: placeName)
+                    tripMetric(icon: "building.2.fill", label: "Type", value: cpTypeDisplayLabel)
                     tripMetric(icon: "road.lanes", label: "Distance", value: distanceText)
+                    if let lmoName = lmoName?.nilIfBlank {
+                        tripMetric(icon: "person.badge.key.fill", label: "LMO", value: lmoName)
+                    }
                 }
                 .frame(maxWidth: .infinity)
 
                 Rectangle()
                     .fill(Color(hex: 0xE5E7EB))
-                    .frame(width: 1, height: 86)
+                    .frame(width: 1, height: (lmoName?.nilIfBlank != nil || deadline?.nilIfBlank != nil) ? 140 : 86)
 
                 VStack(spacing: 14) {
-                    tripMetric(icon: "location.fill", label: "From", value: originText)
+                    tripMetric(icon: "location.fill", label: "Location", value: destinationSummary)
                     tripMetric(icon: "timer", label: "ETA", value: etaText)
+                    if let deadline = deadline?.nilIfBlank {
+                        tripMetric(icon: "calendar.badge.clock", label: "Deadline", value: deadline)
+                    }
                 }
                 .frame(maxWidth: .infinity)
             }
@@ -457,10 +514,10 @@ struct TripNavigationView: View {
         .padding(.horizontal, 14)
         .padding(.top, 14)
         .padding(.bottom, 16)
-        .background(.white, in: RoundedRectangle(cornerRadius: 12))
+        .background(Color.appSurface, in: RoundedRectangle(cornerRadius: 12))
         .overlay(
             RoundedRectangle(cornerRadius: 12)
-                .stroke(Color(hex: 0xF2F4F7), lineWidth: 1)
+                .stroke(Color.appSeparator, lineWidth: 1)
         )
     }
 
@@ -482,17 +539,17 @@ struct TripNavigationView: View {
         HStack(spacing: 12) {
             Image(systemName: icon)
                 .font(.system(size: 15, weight: .semibold))
-                .foregroundStyle(Color(hex: 0x475467))
+                .foregroundStyle(.secondary)
                 .frame(width: 40, height: 40)
-                .background(Color(hex: 0xF2F4F7), in: Circle())
+                .background(Color.appFieldBackground, in: Circle())
 
             VStack(alignment: .leading, spacing: 5) {
                 Text(label)
                     .font(.system(size: 10))
-                    .foregroundStyle(Color(hex: 0x667085))
+                    .foregroundStyle(.secondary)
                 Text(value)
                     .font(.system(size: 11, weight: .medium))
-                    .foregroundStyle(Color(hex: 0x111827))
+                    .foregroundStyle(.primary)
                     .lineLimit(1)
                     .minimumScaleFactor(0.75)
             }
@@ -505,7 +562,7 @@ struct TripNavigationView: View {
             HStack {
                 Text("Trip Progress")
                     .font(.system(size: 13, weight: .medium))
-                    .foregroundStyle(Color(hex: 0x1C1C1E))
+                    .foregroundStyle(.primary)
                 Spacer()
                 Text(tripProgressStage.stateLabel)
                     .font(.system(size: 13, weight: .medium))
@@ -539,7 +596,7 @@ struct TripNavigationView: View {
             }
         }
         .padding(16)
-        .background(Color(hex: 0xF0F9F0), in: RoundedRectangle(cornerRadius: 8))
+        .background(Color.green.opacity(0.09), in: RoundedRectangle(cornerRadius: 8))
     }
 
     // MARK: - Action Buttons
@@ -555,8 +612,38 @@ struct TripNavigationView: View {
                     }
                     .frame(maxWidth: .infinity)
                     .frame(height: 48)
-                    .foregroundStyle(Color(hex: 0x475467))
-                    .background(Color(hex: 0xF2F4F7), in: Capsule())
+                    .foregroundStyle(.secondary)
+                    .background(Color.appFieldBackground, in: Capsule())
+                } else if isFleetDriverMode && !isCpVisit && fleetDriverPhase == "on_site" {
+                    Button {
+                        Task { await markFleetDriverPickedFromSite() }
+                    } label: {
+                        Label(
+                            fleetPickupSecondsRemaining > 0
+                                ? "Picked from Site in \(fleetPickupSecondsRemaining)s"
+                                : "Picked from Site",
+                            systemImage: "person.2.fill"
+                        )
+                            .font(.system(size: 14, weight: .semibold))
+                            .frame(maxWidth: .infinity)
+                            .frame(height: 48)
+                    }
+                    .buttonStyle(.borderedProminent)
+                    .buttonBorderShape(.capsule)
+                    .tint(Color(hex: 0x1BCA0B))
+                    .disabled(arrivalInProgress || fleetPickupSecondsRemaining > 0)
+                } else if isFleetDriverMode && !isCpVisit && fleetDriverPhase == "picked_from_site" {
+                    Button {
+                        if let id = resolvedVisitId { requestDriverEndProofThenComplete(visitId: id) }
+                    } label: {
+                        Label("End Trip", systemImage: "flag.checkered")
+                            .font(.system(size: 14, weight: .semibold))
+                            .frame(maxWidth: .infinity)
+                            .frame(height: 48)
+                    }
+                    .buttonStyle(.borderedProminent)
+                    .buttonBorderShape(.capsule)
+                    .tint(Color(hex: 0x1BCA0B))
                 } else if isCpVisit && tripProgressStage == .reached && shouldCollectCpOutcome {
                     Button {
                         showCpCompletionSheet = true
@@ -597,7 +684,11 @@ struct TripNavigationView: View {
                 }
             } else {
                 Button {
-                    showDriverStartTripSheet = true
+                    if isCpVisit {
+                        Task { await ensureCpVisitStarted() }
+                    } else {
+                        showDriverStartTripSheet = true
+                    }
                 } label: {
                     HStack {
                         if isLoadingStart {
@@ -632,6 +723,15 @@ struct TripNavigationView: View {
 
     private func initializeTripState() {
         let normalizedStatus = normalizedInitialStatus
+        fleetDriverPhase = normalizedStatus.replacingOccurrences(of: "-", with: "_")
+        if fleetDriverPhase == "on_site", let fleetOnSiteAt {
+            let timestampSeconds = fleetOnSiteAt > 10_000_000_000
+                ? TimeInterval(fleetOnSiteAt) / 1_000
+                : TimeInterval(fleetOnSiteAt)
+            let elapsed = max(0, Date().timeIntervalSince1970 - timestampSeconds)
+            fleetPickupSecondsRemaining = max(0, 60 - Int(elapsed))
+            if fleetPickupSecondsRemaining > 0 { beginFleetPickupCountdown() }
+        }
         resolvedVisitId = visitIdArg
         visitStarted = [
             "in-progress",
@@ -642,6 +742,10 @@ struct TripNavigationView: View {
             "arrived",
             "arrival_verified",
             "arrival-verified",
+            "on_site",
+            "on-site",
+            "picked_from_site",
+            "picked-from-site",
             "completed",
             "complete",
             "done",
@@ -706,21 +810,37 @@ struct TripNavigationView: View {
                 geoAPI.tokenProvider = { token }
                 let loc = locationManager.currentLocation
                 let photoId = try await uploadOdometerPhoto(startProof.image)
-                try await geoAPI.markMmsFleetDriverArrived(siteVisitId: effectiveVisitId)
-                try await geoAPI.startMmsFleetDriverTrip(
-                    siteVisitId: effectiveVisitId,
-                    photoIds: [photoId],
-                    startKm: startProof.km
-                )
-                try await geoAPI.startVisit(
-                    visitId: effectiveVisitId,
-                    lat: loc?.coordinate.latitude,
-                    lng: loc?.coordinate.longitude
-                )
-                await syncMarketingSiteVisitStarted(token: token, siteVisitId: effectiveVisitId)
+                if usesAgencyFleetDriverAPI {
+                    _ = try await FleetConvexAPIService.markArrived(
+                        token: token,
+                        scope: .agency,
+                        siteVisitId: effectiveVisitId
+                    )
+                    _ = try await FleetConvexAPIService.startTrip(
+                        token: token,
+                        scope: .agency,
+                        siteVisitId: effectiveVisitId,
+                        startKm: startProof.km,
+                        photoIds: [photoId]
+                    )
+                } else {
+                    try await geoAPI.markMmsFleetDriverArrived(siteVisitId: effectiveVisitId)
+                    try await geoAPI.startMmsFleetDriverTrip(
+                        siteVisitId: effectiveVisitId,
+                        photoIds: [photoId],
+                        startKm: startProof.km
+                    )
+                    try await geoAPI.startVisit(
+                        visitId: effectiveVisitId,
+                        lat: loc?.coordinate.latitude,
+                        lng: loc?.coordinate.longitude
+                    )
+                    await syncMarketingSiteVisitStarted(token: token, siteVisitId: effectiveVisitId)
+                }
             }
 
             driverStartKm = startProof.km
+            fleetDriverPhase = "in_progress"
             visitStarted = true
             statusLine = alreadyInFlight ? "In progress" : "On the way"
             isLoadingStart = false
@@ -729,6 +849,79 @@ struct TripNavigationView: View {
         } catch {
             startError = error.localizedDescription
             errorMessage = "Failed to start trip: \(error.localizedDescription)"
+            isLoadingStart = false
+        }
+    }
+
+    /// Android parity for field-staff CP visits: validate attendance, start
+    /// the CP visit directly, and begin tracking. Odometer/photo capture is
+    /// reserved for actual fleet-driver trips.
+    private func ensureCpVisitStarted() async {
+        guard !isLoadingStart else { return }
+        isLoadingStart = true
+        statusLine = "Starting…"
+
+        let normalizedStatus = normalizedInitialStatus
+        let alreadyInFlight = [
+            "in-progress", "in_progress", "ongoing", "started", "active",
+            "arrived", "arrival_verified", "arrival-verified", "on_site",
+            "on-site", "reaching"
+        ].contains(normalizedStatus)
+        let alreadyCompleted = ["completed", "complete", "done", "closed"].contains(normalizedStatus)
+
+        do {
+            guard !alreadyCompleted else {
+                resolvedVisitId = visitIdArg
+                visitStarted = true
+                isLoadingStart = false
+                return
+            }
+
+            let token = try requireToken()
+            if !alreadyInFlight {
+                let hasClockedInToday = await AttendanceTrackingGate.isClockedInForToday(token: token)
+                guard hasClockedInToday else {
+                    throw TripError.message("Please clock in before starting a trip.")
+                }
+            }
+
+            let effectiveVisitId: String
+            if let visitIdArg, !visitIdArg.isEmpty {
+                effectiveVisitId = visitIdArg
+            } else if let placeIdArg, !placeIdArg.isEmpty {
+                let formatter = DateFormatter()
+                formatter.dateFormat = "yyyy-MM-dd"
+                geoAPI.tokenProvider = { token }
+                effectiveVisitId = try await geoAPI.createVisit(
+                    clientPlaceId: placeIdArg,
+                    scheduledDate: formatter.string(from: Date()),
+                    notes: "Ad-hoc trip started from mobile"
+                )
+            } else {
+                throw TripError.message("Missing visit or place identifier")
+            }
+
+            resolvedVisitId = effectiveVisitId
+            if !alreadyInFlight {
+                geoAPI.tokenProvider = { token }
+                let location = try await locationManager.freshPreciseLocation()
+                try await geoAPI.startVisit(
+                    visitId: effectiveVisitId,
+                    lat: location.coordinate.latitude,
+                    lng: location.coordinate.longitude
+                )
+            }
+
+            visitStarted = true
+            statusLine = "On the way"
+            isLoadingStart = false
+            onTripChanged?()
+            await GeoTrackBootstrapCoordinator.shared.sync(reason: "cp-visit-started", force: true)
+            await refreshRouteIfPossible(force: true)
+        } catch {
+            startError = error.localizedDescription
+            errorMessage = "Failed to start trip: \(error.localizedDescription)"
+            statusLine = "Start"
             isLoadingStart = false
         }
     }
@@ -770,6 +963,10 @@ struct TripNavigationView: View {
         arrivalInProgress = true
         errorMessage = nil
         capturedImage = nil
+        if isFleetDriverMode && !isCpVisit {
+            Task { await markFleetDriverOnSite() }
+            return
+        }
         if isCpVisit {
             checkReachingAndAskClientSeen()
             return
@@ -777,28 +974,95 @@ struct TripNavigationView: View {
         Task { await requestArrivalOtpThenOpenCamera() }
     }
 
-    private func checkReachingAndAskClientSeen() {
-        locationManager.requestLocation()
-        Task {
-            try? await Task.sleep(for: .milliseconds(500))
-            guard let dest = effectiveDestination, let loc = locationManager.currentLocation else {
-                arrivalInProgress = false
-                errorMessage = "Could not verify you are near the client place."
-                resetArrivalSwipe()
-                return
+    @MainActor
+    private func markFleetDriverOnSite() async {
+        guard let id = resolvedVisitId else {
+            arrivalInProgress = false
+            resetArrivalSwipe()
+            return
+        }
+        arrivalStatusText = "Updating on-site…"
+        do {
+            let token = try requireToken()
+            geoAPI.tokenProvider = { token }
+            if usesAgencyFleetDriverAPI {
+                _ = try await FleetConvexAPIService.markOnSite(token: token, scope: .agency, siteVisitId: id)
+            } else {
+                try await geoAPI.markMmsFleetDriverOnSite(siteVisitId: id)
             }
-            let directDistance = CLLocation(latitude: loc.coordinate.latitude, longitude: loc.coordinate.longitude)
-                .distance(from: CLLocation(latitude: dest.latitude, longitude: dest.longitude))
-            await refreshRouteIfPossible(force: true)
-            let distance = distanceMeters ?? directDistance
-            guard distance <= 500 else {
-                arrivalInProgress = false
-                errorMessage = "You are \(formatDistance(distance)) away. Move within 500 m to complete."
-                resetArrivalSwipe()
-                return
-            }
+            fleetDriverPhase = "on_site"
+            fleetPickupSecondsRemaining = 60
+            beginFleetPickupCountdown()
+            statusLine = "On Site"
             arrivalStatusText = nil
-            showCpClientSeenSheet = true
+            arrivalInProgress = false
+            onTripChanged?()
+        } catch {
+            arrivalStatusText = nil
+            arrivalInProgress = false
+            errorMessage = "Failed to mark on-site: \(error.localizedDescription)"
+            resetArrivalSwipe()
+        }
+    }
+
+    @MainActor
+    private func markFleetDriverPickedFromSite() async {
+        guard let id = resolvedVisitId, !arrivalInProgress else { return }
+        arrivalInProgress = true
+        arrivalStatusText = "Updating return pickup…"
+        do {
+            let token = try requireToken()
+            geoAPI.tokenProvider = { token }
+            if usesAgencyFleetDriverAPI {
+                _ = try await FleetConvexAPIService.markPickedFromSite(token: token, scope: .agency, siteVisitId: id)
+            } else {
+                try await geoAPI.markMmsFleetDriverPickedFromSite(siteVisitId: id)
+            }
+            fleetDriverPhase = "picked_from_site"
+            statusLine = "Picked from Site"
+            arrivalStatusText = nil
+            arrivalInProgress = false
+            onTripChanged?()
+        } catch {
+            arrivalStatusText = nil
+            arrivalInProgress = false
+            errorMessage = "Failed to mark picked from site: \(error.localizedDescription)"
+        }
+    }
+
+    private func beginFleetPickupCountdown() {
+        Task { @MainActor in
+            while fleetPickupSecondsRemaining > 0 && fleetDriverPhase == "on_site" {
+                try? await Task.sleep(for: .seconds(1))
+                guard !Task.isCancelled else { return }
+                fleetPickupSecondsRemaining = max(0, fleetPickupSecondsRemaining - 1)
+            }
+        }
+    }
+
+    private func checkReachingAndAskClientSeen() {
+        Task {
+            do {
+                guard let dest = effectiveDestination else {
+                    throw TripLocationError.destinationUnavailable
+                }
+                let loc = try await locationManager.freshPreciseLocation()
+                let distance = CLLocation(
+                    latitude: loc.coordinate.latitude,
+                    longitude: loc.coordinate.longitude
+                )
+                .distance(from: CLLocation(latitude: dest.latitude, longitude: dest.longitude))
+                guard distance <= 500 else {
+                    throw TripLocationError.outsideArrivalRadius(distance)
+                }
+                await refreshRouteIfPossible(force: true)
+                arrivalStatusText = nil
+                showCpClientSeenSheet = true
+            } catch {
+                arrivalInProgress = false
+                errorMessage = error.localizedDescription
+                resetArrivalSwipe()
+            }
         }
     }
 
@@ -823,11 +1087,7 @@ struct TripNavigationView: View {
         arrivalStatusText = "Checking location..."
         do {
             let token = try requireToken()
-            locationManager.requestLocation()
-            try? await Task.sleep(for: .milliseconds(500))
-            guard let loc = locationManager.currentLocation else {
-                throw TripError.message("Could not read your GPS. Try again in open sky.")
-            }
+            let loc = try await locationManager.freshPreciseLocation()
 
             geoAPI.tokenProvider = { token }
             let resp = try await geoAPI.requestArrivalOtp(
@@ -840,10 +1100,37 @@ struct TripNavigationView: View {
             otpResendCooldown = resp.resendCooldownSeconds ?? 60
             otpLat = loc.coordinate.latitude
             otpLng = loc.coordinate.longitude
+            if specialCpCompletionKind == .giftDistribution {
+                // Android captures the gift handover after OTP. Avoid making
+                // staff take and upload an extra arrival selfie first.
+                pendingStorageId = nil
+                arrivalStatusText = nil
+                showOtpSheet = true
+                return
+            }
             arrivalStatusText = "Opening camera..."
             capturedImage = nil
             showCamera = true
         } catch {
+            let serverMessage = error.localizedDescription.lowercased()
+            if serverMessage.contains("already verified") || serverMessage.contains("finish the outcome") {
+                // Android resumes an interrupted CP at the outcome step rather
+                // than forcing another location/photo/OTP loop.
+                arrivalStatusText = nil
+                if isCpVisit,
+                   specialCpCompletionKind != .giftDistribution {
+                    if let pendingStorageId {
+                        await attachLegacyArrivalProofAndResume(storageId: pendingStorageId)
+                    } else {
+                        repairVerifiedArrivalProof = true
+                        capturedImage = nil
+                        showCamera = true
+                    }
+                    return
+                }
+                await completeVisitAfterOtp(otp: "")
+                return
+            }
             arrivalInProgress = false
             arrivalStatusText = nil
             errorMessage = error.localizedDescription
@@ -855,7 +1142,7 @@ struct TripNavigationView: View {
         arrivalStatusText = "Uploading photo…"
         do {
             let token = try requireToken()
-            guard let jpeg = image.jpegData(compressionQuality: 0.7) else {
+            guard let jpeg = await optimizedArrivalImageData(image) else {
                 throw TripError.message("Could not encode photo")
             }
             let storageId = try await HRConvexAPIService.uploadPhoto(token: token, imageData: jpeg)
@@ -881,7 +1168,7 @@ struct TripNavigationView: View {
         arrivalStatusText = "Uploading photo…"
         do {
             let token = try requireToken()
-            guard let jpeg = image.jpegData(compressionQuality: 0.7) else {
+            guard let jpeg = await optimizedArrivalImageData(image) else {
                 throw TripError.message("Could not encode photo")
             }
             let storageId = try await HRConvexAPIService.uploadPhoto(token: token, imageData: jpeg)
@@ -907,13 +1194,71 @@ struct TripNavigationView: View {
             )
             cpNoPathPhotoCapture = false
             completeWithClientNotSeenSheet = true
-            requestDriverEndProofThenComplete(visitId: id)
+            await completeVisitUsingCorrectFlow(visitId: id)
         } catch {
             arrivalInProgress = false
             cpNoPathPhotoCapture = false
             arrivalStatusText = nil
             errorMessage = error.localizedDescription
             capturedImage = nil
+            resetArrivalSwipe()
+        }
+    }
+
+    private func optimizedArrivalImageData(_ image: UIImage) async -> Data? {
+        await Task.detached(priority: .userInitiated) {
+            let longest = max(image.size.width, image.size.height)
+            let scale = longest > 0 ? min(1, 1_600 / longest) : 1
+            let target = CGSize(width: image.size.width * scale, height: image.size.height * scale)
+            let renderer = UIGraphicsImageRenderer(size: target)
+            let resized = renderer.image { _ in
+                image.draw(in: CGRect(origin: .zero, size: target))
+            }
+            return resized.jpegData(compressionQuality: 0.8)
+        }.value
+    }
+
+    private func uploadAndRepairVerifiedArrival(image: UIImage) async {
+        arrivalStatusText = "Repairing arrival proof…"
+        do {
+            let token = try requireToken()
+            guard let jpeg = await optimizedArrivalImageData(image) else {
+                throw TripError.message("Could not encode photo")
+            }
+            let storageId = try await HRConvexAPIService.uploadPhoto(token: token, imageData: jpeg)
+            pendingStorageId = storageId
+            await attachLegacyArrivalProofAndResume(storageId: storageId)
+        } catch {
+            repairVerifiedArrivalProof = false
+            arrivalInProgress = false
+            arrivalStatusText = nil
+            capturedImage = nil
+            errorMessage = error.localizedDescription
+            resetArrivalSwipe()
+        }
+    }
+
+    private func attachLegacyArrivalProofAndResume(storageId: String) async {
+        guard let id = resolvedVisitId else { return }
+        do {
+            let token = try requireToken()
+            geoAPI.tokenProvider = { token }
+            let coordinate = locationManager.currentLocation?.coordinate
+            try await geoAPI.completeVisit(
+                visitId: id,
+                lat: coordinate?.latitude ?? otpLat,
+                lng: coordinate?.longitude ?? otpLng,
+                remarks: "Arrival verified",
+                arrivalPhotoStorageId: storageId
+            )
+            repairVerifiedArrivalProof = false
+            arrivalStatusText = nil
+            await completeVisitAfterOtp(otp: "")
+        } catch {
+            repairVerifiedArrivalProof = false
+            arrivalInProgress = false
+            arrivalStatusText = nil
+            errorMessage = "Could not attach arrival selfie: \(error.localizedDescription)"
             resetArrivalSwipe()
         }
     }
@@ -935,23 +1280,74 @@ struct TripNavigationView: View {
             showSiteVisitOutcomeSheet = true
             return
         }
-        requestDriverEndProofThenComplete(visitId: id)
+        await completeVisitUsingCorrectFlow(visitId: id)
     }
 
     private func completeVisitAfterCpOutcome() async {
         guard let id = resolvedVisitId else { return }
-        requestDriverEndProofThenComplete(visitId: id)
+        await completeVisitUsingCorrectFlow(visitId: id)
     }
 
     private func completeVisitAfterSiteVisitOutcome() async {
         guard let id = resolvedVisitId else { return }
-        requestDriverEndProofThenComplete(visitId: id)
+        await completeVisitUsingCorrectFlow(visitId: id)
+    }
+
+    /// Android only asks for end-KM/odometer proof in `session.isDriverMode`.
+    /// CP and normal field-staff visits finish directly after their outcome.
+    private func completeVisitUsingCorrectFlow(visitId id: String) async {
+        if isFleetDriverMode && !isCpVisit {
+            requestDriverEndProofThenComplete(visitId: id)
+        } else {
+            await completeFieldVisit(visitId: id)
+        }
     }
 
     private func requestDriverEndProofThenComplete(visitId id: String) {
         pendingCompletionVisitId = id
         arrivalStatusText = nil
         showDriverEndTripSheet = true
+    }
+
+    /// Field-staff completion parity with Android `finalizeCompleteVisit()`.
+    /// Arrival photo and OTP are already recorded in their dedicated fields;
+    /// there is no vehicle odometer step for CP staff.
+    private func completeFieldVisit(visitId id: String) async {
+        arrivalStatusText = "Completing visit…"
+        do {
+            let token = try requireToken()
+            geoAPI.tokenProvider = { token }
+            // Arrival location was already freshly verified before OTP. Reuse
+            // it here instead of making completion wait for another GPS fix.
+            let location = locationManager.currentLocation?.coordinate
+            try await geoAPI.completeVisit(
+                visitId: id,
+                lat: location?.latitude ?? otpLat,
+                lng: location?.longitude ?? otpLng,
+                remarks: "Arrival verified",
+                arrivalPhotoStorageId: pendingStorageId
+            )
+
+            visitCompletedSuccessfully = true
+            arrivalStatusText = nil
+            arrivalInProgress = false
+            onTripChanged?()
+            Task {
+                await GeoTrackBootstrapCoordinator.shared.sync(reason: "field-visit-completed", force: true)
+            }
+
+            if completeWithClientNotSeenSheet {
+                completeWithClientNotSeenSheet = false
+                showCpTripCompletedSheet = true
+            } else {
+                dismiss()
+            }
+        } catch {
+            arrivalStatusText = nil
+            arrivalInProgress = false
+            errorMessage = "Failed to complete: \(error.localizedDescription)"
+            resetArrivalSwipe()
+        }
     }
 
     private func completeGeoTrackVisit(visitId id: String, endProof: DriverOdometerProof) async {
@@ -962,23 +1358,35 @@ struct TripNavigationView: View {
             geoAPI.tokenProvider = { token }
             let loc = locationManager.currentLocation
             let odometerPhotoId = try await uploadOdometerPhoto(endProof.image)
-            try await geoAPI.markMmsFleetDriverOnSite(siteVisitId: id)
-            try await geoAPI.endMmsFleetDriverTrip(
-                siteVisitId: id,
-                photoIds: [odometerPhotoId],
-                endKm: endProof.km
-            )
+            if usesAgencyFleetDriverAPI {
+                _ = try await FleetConvexAPIService.endTrip(
+                    token: token,
+                    scope: .agency,
+                    siteVisitId: id,
+                    endKm: endProof.km,
+                    photoIds: [odometerPhotoId]
+                )
+            } else {
+                try await geoAPI.endMmsFleetDriverTrip(
+                    siteVisitId: id,
+                    photoIds: [odometerPhotoId],
+                    endKm: endProof.km
+                )
+            }
             // Keep parity with Android by sending the photo id as a dedicated field.
             // The OTP itself is verified before completion, so remarks stay user-readable.
             let remarks = "Arrival verified"
-            try await geoAPI.completeVisit(
-                visitId: id,
-                lat: loc?.coordinate.latitude,
-                lng: loc?.coordinate.longitude,
-                remarks: remarks,
-                arrivalPhotoStorageId: pendingStorageId
-            )
+            if !usesAgencyFleetDriverAPI {
+                try await geoAPI.completeVisit(
+                    visitId: id,
+                    lat: loc?.coordinate.latitude,
+                    lng: loc?.coordinate.longitude,
+                    remarks: remarks,
+                    arrivalPhotoStorageId: pendingStorageId
+                )
+            }
             visitCompletedSuccessfully = true
+            fleetDriverPhase = "completed"
             arrivalStatusText = nil
             pendingCompletionVisitId = nil
             isDriverEndSubmitting = false
@@ -1004,6 +1412,9 @@ struct TripNavigationView: View {
         guard let jpeg = image.jpegData(compressionQuality: 0.7) else {
             throw TripError.message("Could not encode odometer photo")
         }
+        if usesAgencyFleetDriverAPI {
+            return try await FleetDispatchAPIService.uploadAgencyPhoto(token: token, data: jpeg)
+        }
         return try await HRConvexAPIService.uploadPhoto(token: token, imageData: jpeg)
     }
 
@@ -1013,7 +1424,11 @@ struct TripNavigationView: View {
 
     // MARK: - Maps + helpers
 
-    private func openInAppleMaps() {
+    private func openDestinationInMaps() {
+        if let mapsLink = mapsLink?.nilIfBlank, let url = URL(string: mapsLink) {
+            openURL(url)
+            return
+        }
         guard let dest = effectiveDestination else { return }
         let placemark = MKPlacemark(coordinate: dest)
         let item = MKMapItem(placemark: placemark)
@@ -1071,6 +1486,25 @@ struct TripNavigationView: View {
         return "Address not available"
     }
 
+    private var destinationSummary: String {
+        placeAddress?.nilIfBlank ?? placeName.nilIfBlank ?? "Location not set"
+    }
+
+    private var cpTypeDisplayLabel: String {
+        switch cpType?.normalizedTripCpMarker {
+        case "sv_cum_cp": return "SV cum CP"
+        case "follow_up": return "Follow-up"
+        case "booking_cp": return "Booking CP"
+        case "collection_cp": return "Collection CP"
+        case "old_client": return "Old Client"
+        case "gift_distribution": return "Gift Distribution"
+        default:
+            return cpVisitCategory?.normalizedTripCpMarker == "sv_cum_cp"
+                ? "SV confirmation CP"
+                : isCpVisit ? "Direct CP" : "Site Visit"
+        }
+    }
+
     private var shouldCollectCpOutcome: Bool {
         guard let clientPlaceVisitId, !clientPlaceVisitId.isEmpty else { return false }
         guard cpClientMet != true || (cpOutcome ?? "").isEmpty else { return false }
@@ -1084,6 +1518,10 @@ struct TripNavigationView: View {
     private var isCpVisit: Bool {
         guard clientPlaceVisitId?.isEmpty == false else { return false }
         return true
+    }
+
+    private var isFleetDriverMode: Bool {
+        authStore.currentSession?.user.isFleetDriverMode == true
     }
 
     private var shouldSyncMarketingSiteVisitLifecycle: Bool {
@@ -1207,6 +1645,9 @@ struct TripNavigationView: View {
         if isLoadingStart { return "Starting..." }
         if arrivalInProgress { return "Working..." }
         if !hasActiveVisit { return "Start Trip" }
+        if isFleetDriverMode && !isCpVisit {
+            return fleetDriverPhase == "in_progress" ? "Swipe if Onsite Reached" : "Continue Trip"
+        }
         if isCpVisit && tripProgressStage == .reached && shouldCollectCpOutcome {
             return cpOutcomeActionTitle
         }
@@ -1235,7 +1676,7 @@ struct TripNavigationView: View {
         switch tripProgressStage {
         case .notStarted: return Color(hex: 0xE8F7EC)
         case .started, .reaching, .reached: return Color(hex: 0xFFF4E5)
-        case .complete: return Color(hex: 0xF2F4F7)
+        case .complete: return Color.appFieldBackground
         }
     }
 
@@ -1319,7 +1760,7 @@ private enum TripProgressStepState {
         switch self {
         case .done: return Color(hex: 0x19B900)
         case .active: return .white
-        case .inactive: return Color(hex: 0xF2F4F7)
+        case .inactive: return Color.appFieldBackground
         }
     }
 
@@ -1462,6 +1903,40 @@ private enum TripError: LocalizedError {
     }
 }
 
+private enum TripLocationError: LocalizedError {
+    case servicesDisabled
+    case permissionDenied
+    case preciseLocationDisabled
+    case fixTimedOut
+    case destinationUnavailable
+    case outsideArrivalRadius(CLLocationDistance)
+    case unavailable(String)
+
+    var errorDescription: String? {
+        switch self {
+        case .servicesDisabled:
+            return "Location Services are off. Turn them on in Settings to continue."
+        case .permissionDenied:
+            return "Location access is required. Open Settings and allow location while using the app."
+        case .preciseLocationDisabled:
+            return "Precise Location is required to verify that you are within 500 m of the client."
+        case .fixTimedOut:
+            return "Could not get a fresh GPS location. Move to open sky and try again."
+        case .destinationUnavailable:
+            return "The client location is missing. Add an exact map location before completing this visit."
+        case .outsideArrivalRadius(let distance):
+            if distance >= 1_000 {
+                let value = (distance / 1_000).formatted(.number.precision(.fractionLength(1)))
+                return "You are \(value) km away. Move within 500 m to complete."
+            }
+            let value = distance.formatted(.number.precision(.fractionLength(0)))
+            return "You are \(value) m away. Move within 500 m to complete."
+        case .unavailable(let message):
+            return message
+        }
+    }
+}
+
 private struct DriverOdometerProof {
     let km: Double
     let image: UIImage
@@ -1577,15 +2052,15 @@ private struct DriverOdometerSheet: View {
                 .font(.system(size: 24, weight: .semibold))
                 .foregroundStyle(Color(hex: 0x0B61CA))
                 .frame(width: 50, height: 50)
-                .background(Color(hex: 0xEAF3FF), in: Circle())
+                .background(Color(hex: 0x0B61CA).opacity(0.10), in: Circle())
 
             VStack(alignment: .leading, spacing: 4) {
                 Text(phase.title)
                     .font(.system(size: 18, weight: .semibold))
-                    .foregroundStyle(Color(hex: 0x101828))
+                    .foregroundStyle(.primary)
                 Text(phase.helperText)
                     .font(.system(size: 12))
-                    .foregroundStyle(Color(hex: 0x667085))
+                    .foregroundStyle(.secondary)
             }
         }
     }
@@ -1594,14 +2069,14 @@ private struct DriverOdometerSheet: View {
         VStack(alignment: .leading, spacing: 8) {
             Text(phase.kmTitle)
                 .font(.system(size: 13, weight: .semibold))
-                .foregroundStyle(Color(hex: 0x344054))
+                .foregroundStyle(.primary)
 
             TextField("Enter Details", text: $kmText)
                 .keyboardType(.decimalPad)
                 .textInputAutocapitalization(.never)
                 .padding(.horizontal, 14)
                 .frame(height: 48)
-                .background(Color(hex: 0xF9FAFB), in: RoundedRectangle(cornerRadius: 12))
+                .background(Color.appFieldBackground, in: RoundedRectangle(cornerRadius: 12))
                 .overlay(
                     RoundedRectangle(cornerRadius: 12)
                         .stroke(Color(hex: 0xD0D5DD), lineWidth: 1)
@@ -1610,7 +2085,7 @@ private struct DriverOdometerSheet: View {
             if let minimumKm, phase == .end {
                 Text("Starting KM: \(formatKm(minimumKm))")
                     .font(.system(size: 11))
-                    .foregroundStyle(Color(hex: 0x667085))
+                    .foregroundStyle(.secondary)
             }
         }
     }
@@ -1619,7 +2094,7 @@ private struct DriverOdometerSheet: View {
         VStack(alignment: .leading, spacing: 10) {
             Text(phase.photoTitle)
                 .font(.system(size: 13, weight: .semibold))
-                .foregroundStyle(Color(hex: 0x344054))
+                .foregroundStyle(.primary)
 
             Button {
                 showCamera = true
@@ -1636,16 +2111,16 @@ private struct DriverOdometerSheet: View {
                             .font(.system(size: 22, weight: .semibold))
                             .foregroundStyle(Color(hex: 0x0B61CA))
                             .frame(width: 58, height: 58)
-                            .background(Color(hex: 0xEAF3FF), in: RoundedRectangle(cornerRadius: 12))
+                            .background(Color(hex: 0x0B61CA).opacity(0.10), in: RoundedRectangle(cornerRadius: 12))
                     }
 
                     VStack(alignment: .leading, spacing: 4) {
                         Text(capturedImage == nil ? "Upload Image" : "Retake Image")
                             .font(.system(size: 13, weight: .semibold))
-                            .foregroundStyle(Color(hex: 0x101828))
+                            .foregroundStyle(.primary)
                         Text(phase.photoHelp)
                             .font(.system(size: 11))
-                            .foregroundStyle(Color(hex: 0x667085))
+                            .foregroundStyle(.secondary)
                             .fixedSize(horizontal: false, vertical: true)
                     }
 
@@ -1655,10 +2130,10 @@ private struct DriverOdometerSheet: View {
                         .foregroundStyle(Color(hex: 0x98A2B3))
                 }
                 .padding(12)
-                .background(Color.white, in: RoundedRectangle(cornerRadius: 14))
+                .background(Color.appSurface, in: RoundedRectangle(cornerRadius: 14))
                 .overlay(
                     RoundedRectangle(cornerRadius: 14)
-                        .stroke(Color(hex: 0xEAECF0), lineWidth: 1)
+                        .stroke(Color.appSeparator, lineWidth: 1)
                 )
             }
             .buttonStyle(.plain)
@@ -1694,57 +2169,55 @@ private struct CpClientSeenSheet: View {
     let onNo: () -> Void
 
     var body: some View {
-        ZStack(alignment: .top) {
-            VStack(spacing: 14) {
-                Spacer()
-                    .frame(height: 32)
+        VStack(spacing: 18) {
+            Capsule()
+                .fill(Color.secondary.opacity(0.25))
+                .frame(width: 38, height: 5)
+                .padding(.top, 8)
 
-                Text("Have you seen the client?")
-                    .font(.system(size: 16, weight: .bold))
-                    .foregroundStyle(Color(hex: 0x1D2939))
+            Image(systemName: "person.2.fill")
+                .font(.system(size: 28, weight: .semibold))
+                .foregroundStyle(Color(hex: 0x0B61CA))
+                .frame(width: 60, height: 60)
+                .background(Color(hex: 0x0B61CA).opacity(0.10), in: Circle())
 
-                Text("Please confirm if you have seen or met the client at this location.")
-                    .font(.system(size: 12))
-                    .foregroundStyle(Color(hex: 0x475467))
+            VStack(spacing: 6) {
+                Text("Did you meet the client?")
+                    .font(.title3.weight(.semibold))
+
+                Text("Confirm whether the client is available at this location before continuing.")
+                    .font(.subheadline)
+                    .foregroundStyle(.secondary)
                     .multilineTextAlignment(.center)
-                    .lineSpacing(2)
-                    .frame(maxWidth: 280)
+                    .fixedSize(horizontal: false, vertical: true)
+            }
+            .padding(.horizontal, 24)
 
-                HStack(spacing: 12) {
-                    Button {
-                        onYes()
-                    } label: {
-                        Label("Yes, I saw", systemImage: "checkmark")
-                            .frame(maxWidth: .infinity)
-                    }
-                    .buttonStyle(.borderedProminent)
-
-                    Button {
-                        onNo()
-                    } label: {
-                        Label("No, I didn't", systemImage: "xmark")
-                            .frame(maxWidth: .infinity)
-                    }
-                    .buttonStyle(.bordered)
+            VStack(spacing: 10) {
+                Button(action: onYes) {
+                    Label("Yes, client met", systemImage: "checkmark.circle.fill")
+                        .font(.headline)
+                        .frame(maxWidth: .infinity)
                 }
+                .buttonStyle(.borderedProminent)
                 .controlSize(.large)
-                .padding(.horizontal, 20)
-                .padding(.top, 6)
-            }
-            .padding(.top, 32)
-            .padding(.bottom, 22)
-            .frame(maxWidth: .infinity)
-            .background(.white)
+                .tint(Color(hex: 0x2DAE12))
 
-            ZStack {
-                Circle()
-                    .fill(Color(hex: 0xEAF3FF))
-                    .frame(width: 64, height: 64)
-                Image(systemName: "person.2.fill")
-                    .font(.system(size: 30, weight: .semibold))
-                    .foregroundStyle(Color(hex: 0x0B61CA))
+                Button(action: onNo) {
+                    Label("No, client not available", systemImage: "xmark.circle")
+                        .font(.headline)
+                        .frame(maxWidth: .infinity)
+                }
+                .buttonStyle(.bordered)
+                .controlSize(.large)
+                .tint(Color(hex: 0xB42318))
             }
+            .padding(.horizontal, 20)
+
+            Spacer(minLength: 8)
         }
+        .frame(maxWidth: .infinity)
+        .background(Color(.systemBackground))
     }
 }
 
@@ -1752,42 +2225,38 @@ private struct CpTripCompletedSheet: View {
     let onBackHome: () -> Void
 
     var body: some View {
-        VStack(spacing: 14) {
-            ZStack {
-                Circle()
-                    .fill(Color(hex: 0xEAF8E8))
-                    .frame(width: 68, height: 68)
-                Image(systemName: "checkmark.circle.fill")
-                    .font(.system(size: 34, weight: .semibold))
-                    .foregroundStyle(Color(hex: 0x19B900))
-            }
+        VStack(spacing: 16) {
+            Image(systemName: "checkmark.circle.fill")
+                .font(.system(size: 38, weight: .semibold))
+                .foregroundStyle(Color(hex: 0x2DAE12))
+                .frame(width: 72, height: 72)
+                .background(Color(hex: 0x2DAE12).opacity(0.10), in: Circle())
             .padding(.top, 22)
 
             Text("CP Visit Completed")
-                .font(.system(size: 17, weight: .bold))
-                .foregroundStyle(Color(hex: 0x1D2939))
+                .font(.title3.weight(.semibold))
 
-            Text("Client not seen flow has been recorded.")
-                .font(.system(size: 12))
-                .foregroundStyle(Color(hex: 0x475467))
+            Text("The client-not-available outcome has been recorded and the trip is closed.")
+                .font(.subheadline)
+                .foregroundStyle(.secondary)
                 .multilineTextAlignment(.center)
                 .frame(maxWidth: 280)
 
             Button(action: onBackHome) {
                 Label("Back Home", systemImage: "house.fill")
-                    .font(.system(size: 14, weight: .semibold))
-                    .frame(maxWidth: .infinity, minHeight: 46)
+                    .font(.headline)
+                    .frame(maxWidth: .infinity)
             }
-            .buttonStyle(.plain)
-            .foregroundStyle(.white)
-            .background(Color(hex: 0x19B900), in: RoundedRectangle(cornerRadius: 12))
-            .padding(.horizontal, 18)
+            .buttonStyle(.borderedProminent)
+            .controlSize(.large)
+            .tint(Color(hex: 0x2DAE12))
+            .padding(.horizontal, 20)
             .padding(.top, 6)
 
             Spacer(minLength: 0)
         }
         .padding(.bottom, 14)
-        .background(.white)
+        .background(Color.appSurface)
     }
 }
 
@@ -1855,16 +2324,21 @@ private struct SpecialCpCompletionSheet: View {
     let kind: CpSpecialCompletionKind
     let cpVisitId: String
     let arrivalProofStorageId: String?
-    let onCompleted: () -> Void
+    let onCompleted: (String?) -> Void
 
     @State private var cpVisit: CpVisitDetail?
     @State private var cases: [PostSaleCaseSummary] = []
     @State private var selectedCaseId = ""
     @State private var amount = ""
-    @State private var paymentMode = "cash"
+    @State private var paymentMode = "upi"
     @State private var reference = ""
     @State private var bankName = ""
+    @State private var branchName = ""
+    @State private var paymentInstrumentDate = Date()
     @State private var remarks = ""
+    @State private var proofImage: UIImage?
+    @State private var collectionNotCollected = false
+    @State private var showProofCamera = false
     @State private var isLoading = false
     @State private var isSaving = false
     @State private var errorMessage: String?
@@ -1897,8 +2371,11 @@ private struct SpecialCpCompletionSheet: View {
 
             footer
         }
-        .background(Color.white.ignoresSafeArea())
+        .background(Color.appScreenBackground.ignoresSafeArea())
         .task { await load() }
+        .fullScreenCover(isPresented: $showProofCamera) {
+            PunchCameraView(capturedImage: $proofImage)
+        }
     }
 
     private var header: some View {
@@ -1906,10 +2383,10 @@ private struct SpecialCpCompletionSheet: View {
             VStack(alignment: .leading, spacing: 5) {
                 Text(kind.title)
                     .font(.system(size: 22, weight: .bold))
-                    .foregroundStyle(Color(hex: 0x101828))
+                    .foregroundStyle(.primary)
                 Text(kind.subtitle)
                     .font(.system(size: 13, weight: .medium))
-                    .foregroundStyle(Color(hex: 0x667085))
+                    .foregroundStyle(.secondary)
             }
             Spacer()
             Button {
@@ -1917,7 +2394,7 @@ private struct SpecialCpCompletionSheet: View {
             } label: {
                 Image(systemName: "xmark")
                     .font(.system(size: 15, weight: .semibold))
-                    .foregroundStyle(Color(hex: 0x344054))
+                    .foregroundStyle(.primary)
                     .frame(width: 44, height: 44)
             }
             .buttonStyle(TripGlassCircleButtonStyle())
@@ -1935,12 +2412,18 @@ private struct SpecialCpCompletionSheet: View {
                     .foregroundStyle(Color(hex: 0xB42318))
                     .padding(14)
                     .frame(maxWidth: .infinity, alignment: .leading)
-                    .background(Color(hex: 0xFEF3F2), in: RoundedRectangle(cornerRadius: 14, style: .continuous))
+                    .background(Color(hex: 0xB42318).opacity(0.12), in: RoundedRectangle(cornerRadius: 14, style: .continuous))
             } else {
+                Picker("Collection result", selection: $collectionNotCollected) {
+                    Text("Collected").tag(false)
+                    Text("Not Collected").tag(true)
+                }
+                .pickerStyle(.segmented)
+
                 VStack(alignment: .leading, spacing: 6) {
                     Text("Booking")
                         .font(.system(size: 13, weight: .semibold))
-                        .foregroundStyle(Color(hex: 0x344054))
+                        .foregroundStyle(.primary)
                     Menu {
                         ForEach(cases) { item in
                             Button(item.title) {
@@ -1953,23 +2436,60 @@ private struct SpecialCpCompletionSheet: View {
                 }
             }
 
-            sheetTextField("Amount *", text: $amount, placeholder: "Enter amount", keyboard: .decimalPad)
+            if collectionNotCollected {
+                sheetTextField("Remarks", text: $remarks, placeholder: "Why was no amount collected?", axis: .vertical)
+            } else {
+                sheetTextField("Amount *", text: $amount, placeholder: "Enter amount", keyboard: .decimalPad)
 
-            VStack(alignment: .leading, spacing: 6) {
-                Text("Payment Mode")
-                    .font(.system(size: 13, weight: .semibold))
-                    .foregroundStyle(Color(hex: 0x344054))
-                Picker("Payment Mode", selection: $paymentMode) {
-                    ForEach(["cash", "upi", "neft", "rtgs", "cheque", "dd", "bank"], id: \.self) { mode in
-                        Text(mode.uppercased()).tag(mode)
+                VStack(alignment: .leading, spacing: 6) {
+                    Text("Payment Mode")
+                        .font(.system(size: 13, weight: .semibold))
+                        .foregroundStyle(.primary)
+                    Menu {
+                        Picker("Payment Mode", selection: $paymentMode) {
+                            ForEach(collectionPaymentModes, id: \.id) { mode in
+                                Text(mode.label).tag(mode.id)
+                            }
+                        }
+                    } label: {
+                        pickerRow(selectedPaymentModeLabel, subtitle: nil)
                     }
                 }
-                .pickerStyle(.segmented)
-            }
 
-            sheetTextField("Transaction Reference", text: $reference, placeholder: "UPI / cheque / transfer reference")
-            sheetTextField("Bank Name", text: $bankName, placeholder: "Bank name")
-            sheetTextField("Notes", text: $remarks, placeholder: "Payment notes", axis: .vertical)
+                sheetTextField(
+                    paymentReferenceTitle,
+                    text: $reference,
+                    placeholder: paymentReferencePlaceholder
+                )
+                if isInstrumentPayment {
+                    sheetTextField("Bank Name *", text: $bankName, placeholder: "Enter bank name")
+                    sheetTextField("Branch Name *", text: $branchName, placeholder: "Enter branch name")
+                    VStack(alignment: .leading, spacing: 6) {
+                        Text("Cheque / DD Date *")
+                            .font(.system(size: 13, weight: .semibold))
+                            .foregroundStyle(.primary)
+                        DatePicker(
+                            "Cheque / DD Date",
+                            selection: $paymentInstrumentDate,
+                            displayedComponents: .date
+                        )
+                        .labelsHidden()
+                        .frame(maxWidth: .infinity, alignment: .leading)
+                        .padding(.horizontal, 14)
+                        .frame(minHeight: 54)
+                        .background(Color.appSurface, in: RoundedRectangle(cornerRadius: 14, style: .continuous))
+                        .overlay {
+                            RoundedRectangle(cornerRadius: 14, style: .continuous)
+                                .stroke(Color(hex: 0xD0D5DD), lineWidth: 1)
+                        }
+                    }
+                }
+                proofCapture(
+                    title: "Payment Proof",
+                    help: "Capture the receipt, cheque, or transfer confirmation."
+                )
+                sheetTextField("Notes", text: $remarks, placeholder: "Payment notes", axis: .vertical)
+            }
         }
     }
 
@@ -1977,18 +2497,70 @@ private struct SpecialCpCompletionSheet: View {
         VStack(alignment: .leading, spacing: 14) {
             Text(kind == .giftDistribution ? "Gift handover will be marked completed for this CP visit." : "Remarks are saved against this CP visit.")
                 .font(.system(size: 13, weight: .medium))
-                .foregroundStyle(Color(hex: 0x475467))
+                .foregroundStyle(.secondary)
                 .padding(14)
                 .frame(maxWidth: .infinity, alignment: .leading)
-                .background(Color(hex: 0xF2F4F7), in: RoundedRectangle(cornerRadius: 14, style: .continuous))
+                .background(Color.appFieldBackground, in: RoundedRectangle(cornerRadius: 14, style: .continuous))
+            if kind == .giftDistribution {
+                proofCapture(
+                    title: "Gift Handover Photo *",
+                    help: "Capture the gift being handed to the OTP-verified client."
+                )
+            }
             sheetTextField(kind == .giftDistribution ? "Notes" : "Remarks *", text: $remarks, placeholder: kind == .giftDistribution ? "Optional handover notes" : "Enter visit remarks", axis: .vertical)
+        }
+    }
+
+    private func proofCapture(title: String, help: String) -> some View {
+        VStack(alignment: .leading, spacing: 6) {
+            Text(title)
+                .font(.system(size: 13, weight: .semibold))
+                .foregroundStyle(.primary)
+            Button {
+                showProofCamera = true
+            } label: {
+                HStack(spacing: 12) {
+                    if let proofImage {
+                        Image(uiImage: proofImage)
+                            .resizable()
+                            .scaledToFill()
+                            .frame(width: 58, height: 58)
+                            .clipShape(.rect(cornerRadius: 12))
+                    } else {
+                        Image(systemName: "camera.fill")
+                            .font(.system(size: 22, weight: .semibold))
+                            .foregroundStyle(Color(hex: 0x0B61CA))
+                            .frame(width: 58, height: 58)
+                            .background(Color(hex: 0x0B61CA).opacity(0.10), in: RoundedRectangle(cornerRadius: 12))
+                    }
+                    VStack(alignment: .leading, spacing: 4) {
+                        Text(proofImage == nil ? "Capture photo" : "Retake photo")
+                            .font(.system(size: 13, weight: .semibold))
+                            .foregroundStyle(.primary)
+                        Text(help)
+                            .font(.system(size: 11))
+                            .foregroundStyle(.secondary)
+                            .fixedSize(horizontal: false, vertical: true)
+                    }
+                    Spacer()
+                    Image(systemName: "chevron.right")
+                        .foregroundStyle(Color(hex: 0x98A2B3))
+                }
+                .padding(12)
+                .background(Color.appSurface, in: RoundedRectangle(cornerRadius: 14))
+                .overlay {
+                    RoundedRectangle(cornerRadius: 14)
+                        .stroke(Color(hex: 0xD0D5DD), lineWidth: 1)
+                }
+            }
+            .buttonStyle(.plain)
         }
     }
 
     private var footer: some View {
         VStack(spacing: 0) {
             Divider()
-                .overlay(Color(hex: 0xEAECF0))
+                .overlay(Color.appSeparator)
             Button {
                 Task { await submit() }
             } label: {
@@ -1996,7 +2568,7 @@ private struct SpecialCpCompletionSheet: View {
                     ProgressView()
                         .tint(.white)
                 } else {
-                    Text(kind.primaryTitle)
+                    Text(kind == .collection && collectionNotCollected ? "Mark Not Collected" : kind.primaryTitle)
                 }
             }
             .font(.system(size: 16, weight: .bold))
@@ -2004,10 +2576,14 @@ private struct SpecialCpCompletionSheet: View {
             .frame(maxWidth: .infinity)
             .frame(height: 54)
             .background(Color(hex: 0x1BCA0B), in: Capsule())
-            .disabled(isSaving || isLoading || (kind == .collection && (selectedCaseId.isEmpty || Double(amount) == nil)))
+            .disabled(
+                isSaving || isLoading ||
+                    (kind == .collection && !collectionNotCollected && selectedCaseId.isEmpty) ||
+                    (kind == .collection && !collectionNotCollected && !hasValidCollectionPayment)
+            )
             .padding(.horizontal, 24)
             .padding(.vertical, 14)
-            .background(Color.white)
+            .background(Color.appSurface)
         }
     }
 
@@ -2015,28 +2591,72 @@ private struct SpecialCpCompletionSheet: View {
         cases.first { $0.id == selectedCaseId }
     }
 
+    private var collectionPaymentModes: [(id: String, label: String)] {
+        [
+            ("upi", "UPI"),
+            ("cash", "Cash"),
+            ("neft", "NEFT"),
+            ("rtgs", "RTGS"),
+            ("cheque", "Cheque"),
+            ("dd", "DD"),
+            ("bank", "Bank")
+        ]
+    }
+
+    private var selectedPaymentModeLabel: String {
+        collectionPaymentModes.first { $0.id == paymentMode }?.label ?? paymentMode.uppercased()
+    }
+
+    private var isCashPayment: Bool { paymentMode == "cash" }
+
+    private var isInstrumentPayment: Bool { paymentMode == "cheque" || paymentMode == "dd" }
+
+    private var paymentReferenceTitle: String {
+        if isCashPayment { return "Reference (optional)" }
+        if isInstrumentPayment { return "\(selectedPaymentModeLabel) Number *" }
+        return "Transaction ID *"
+    }
+
+    private var paymentReferencePlaceholder: String {
+        if isCashPayment { return "Optional receipt / reference" }
+        if isInstrumentPayment { return "Enter \(selectedPaymentModeLabel) number" }
+        return "UTR / transaction reference"
+    }
+
+    private var hasValidCollectionPayment: Bool {
+        guard (Double(amount) ?? 0) > 0 else { return false }
+        if !isCashPayment && reference.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
+            return false
+        }
+        if isInstrumentPayment {
+            return !bankName.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
+                && !branchName.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
+        }
+        return true
+    }
+
     private func pickerRow(_ title: String, subtitle: String?) -> some View {
         HStack(spacing: 10) {
             VStack(alignment: .leading, spacing: 2) {
                 Text(title)
                     .font(.system(size: 14, weight: .semibold))
-                    .foregroundStyle(Color(hex: 0x101828))
+                    .foregroundStyle(.primary)
                     .lineLimit(1)
                 if let subtitle, !subtitle.isEmpty {
                     Text(subtitle)
                         .font(.system(size: 11, weight: .medium))
-                        .foregroundStyle(Color(hex: 0x667085))
+                        .foregroundStyle(.secondary)
                         .lineLimit(1)
                 }
             }
             Spacer()
             Image(systemName: "chevron.down")
                 .font(.system(size: 13, weight: .bold))
-                .foregroundStyle(Color(hex: 0x667085))
+                .foregroundStyle(.secondary)
         }
         .padding(.horizontal, 14)
         .frame(height: 54)
-        .background(Color.white, in: RoundedRectangle(cornerRadius: 14, style: .continuous))
+        .background(Color.appSurface, in: RoundedRectangle(cornerRadius: 14, style: .continuous))
         .overlay(
             RoundedRectangle(cornerRadius: 14, style: .continuous)
                 .stroke(Color(hex: 0xD0D5DD), lineWidth: 1)
@@ -2053,7 +2673,7 @@ private struct SpecialCpCompletionSheet: View {
         VStack(alignment: .leading, spacing: 6) {
             Text(title)
                 .font(.system(size: 13, weight: .semibold))
-                .foregroundStyle(Color(hex: 0x344054))
+                .foregroundStyle(.primary)
             TextField(placeholder, text: text, axis: axis)
                 .font(.system(size: 15, weight: .medium))
                 .keyboardType(keyboard)
@@ -2061,7 +2681,7 @@ private struct SpecialCpCompletionSheet: View {
                 .padding(.horizontal, 14)
                 .padding(.vertical, axis == .vertical ? 12 : 0)
                 .frame(minHeight: axis == .vertical ? 92 : 54, alignment: axis == .vertical ? .top : .center)
-                .background(Color.white, in: RoundedRectangle(cornerRadius: 14, style: .continuous))
+                .background(Color.appSurface, in: RoundedRectangle(cornerRadius: 14, style: .continuous))
                 .overlay(
                     RoundedRectangle(cornerRadius: 14, style: .continuous)
                         .stroke(Color(hex: 0xD0D5DD), lineWidth: 1)
@@ -2094,6 +2714,8 @@ private struct SpecialCpCompletionSheet: View {
             cases = try await PostSalesConvexAPIService.getCasesByMobile(token: token, mobile: phone)
             if let first = cases.first {
                 selectedCaseId = first.id
+            } else {
+                await closeCollectionAsIneligible(token: token)
             }
         } catch {
             errorMessage = error.localizedDescription
@@ -2107,6 +2729,96 @@ private struct SpecialCpCompletionSheet: View {
             errorMessage = "Please enter visit remarks."
             return
         }
+        if kind == .giftDistribution, proofImage == nil {
+            errorMessage = "Capture the gift handover photo."
+            return
+        }
+        isSaving = true
+        defer { isSaving = false }
+        do {
+            var notes = remarks.trimmingCharacters(in: .whitespacesAndNewlines)
+            var replacementProofId: String?
+            if kind == .collection {
+                if collectionNotCollected {
+                    notes = notes.isEmpty ? "Not collected" : "Not collected — \(notes)"
+                } else {
+                    guard !selectedCaseId.isEmpty else {
+                        errorMessage = "Select the booking you collected against."
+                        return
+                    }
+                    guard let amountValue = Double(amount), amountValue > 0 else {
+                        errorMessage = "Enter the amount received (greater than zero)."
+                        return
+                    }
+                    let trimmedReference = reference.trimmingCharacters(in: .whitespacesAndNewlines)
+                    if !isCashPayment && trimmedReference.isEmpty {
+                        errorMessage = "Transaction ID is required (UTR / Cheque / Ref no)."
+                        return
+                    }
+                    let trimmedBankName = bankName.trimmingCharacters(in: .whitespacesAndNewlines)
+                    let trimmedBranchName = branchName.trimmingCharacters(in: .whitespacesAndNewlines)
+                    if isInstrumentPayment && (trimmedBankName.isEmpty || trimmedBranchName.isEmpty) {
+                        errorMessage = "Enter bank, branch and cheque/DD date."
+                        return
+                    }
+                    let paymentProofId = try await uploadProofIfPresent(token: token)
+                    let submission = try await PostSalesConvexAPIService.submitCollection(
+                        token: token,
+                        request: SubmitCollectionRequest(
+                            cpVisitId: cpVisitId,
+                            caseId: selectedCaseId,
+                            amount: amountValue,
+                            paymentMode: paymentMode,
+                            transactionReference: trimmedReference.nilIfEmpty,
+                            bankName: isInstrumentPayment ? trimmedBankName.nilIfEmpty : nil,
+                            branchName: isInstrumentPayment ? trimmedBranchName.nilIfEmpty : nil,
+                            paymentInstrumentDate: isInstrumentPayment ? collectionDateString(paymentInstrumentDate) : nil,
+                            proofStorageId: paymentProofId,
+                            proofFileName: paymentProofId == nil ? nil : "cp-collection-proof.jpg",
+                            notes: notes.nilIfEmpty
+                        )
+                    )
+                    notes = [
+                        "Collection submitted: \(AppModuleFormatters.rupees(amountValue))",
+                        submission.reference.isEmpty ? nil : "Receipt: \(submission.reference)",
+                        submission.alreadySubmitted ? "Collection was already submitted" : nil,
+                        trimmedReference.nilIfEmpty,
+                        notes.nilIfEmpty
+                    ]
+                    .compactMap { $0 }
+                    .joined(separator: "\n")
+                }
+            } else if kind == .giftDistribution {
+                replacementProofId = try await uploadProofIfPresent(token: token)
+                notes = notes.isEmpty
+                    ? "Gift distributed — handover photo attached"
+                    : "Gift distributed — handover photo attached\n\(notes)"
+            }
+
+            try await MarketingConvexAPIService.markClientMet(
+                token: token,
+                request: MarkClientMetRequest(id: cpVisitId, clientMet: true)
+            )
+            try await MarketingConvexAPIService.setCpVisitOutcome(
+                token: token,
+                request: SetCpVisitOutcomeRequest(
+                    id: cpVisitId,
+                    outcome: kind == .collection && collectionNotCollected ? "not_collected" : kind.terminalOutcome,
+                    postponeReasons: nil,
+                    notes: notes.nilIfEmpty,
+                    arrivalPhotoStorageId: kind == .giftDistribution ? replacementProofId : nil
+                )
+            )
+            onCompleted(replacementProofId)
+            dismiss()
+        } catch {
+            errorMessage = error.localizedDescription
+        }
+    }
+
+    @MainActor
+    private func closeCollectionAsIneligible(token: String) async {
+        guard kind == .collection, !isSaving else { return }
         isSaving = true
         defer { isSaving = false }
         do {
@@ -2114,51 +2826,37 @@ private struct SpecialCpCompletionSheet: View {
                 token: token,
                 request: MarkClientMetRequest(id: cpVisitId, clientMet: true)
             )
-            var notes = remarks.trimmingCharacters(in: .whitespacesAndNewlines)
-            if kind == .collection {
-                guard let amountValue = Double(amount), !selectedCaseId.isEmpty else {
-                    errorMessage = "Select booking and enter a valid amount."
-                    return
-                }
-                let refNo = try await PostSalesConvexAPIService.submitCollection(
-                    token: token,
-                    request: SubmitCollectionRequest(
-                        caseId: selectedCaseId,
-                        amount: amountValue,
-                        paymentMode: paymentMode,
-                        transactionReference: reference.trimmingCharacters(in: .whitespacesAndNewlines).nilIfEmpty,
-                        bankName: bankName.trimmingCharacters(in: .whitespacesAndNewlines).nilIfEmpty,
-                        proofStorageId: arrivalProofStorageId,
-                        proofFileName: arrivalProofStorageId == nil ? nil : "cp-arrival-proof.jpg",
-                        notes: notes.nilIfEmpty
-                    )
-                )
-                notes = [
-                    "Collection submitted: \(AppModuleFormatters.rupees(amountValue))",
-                    refNo.isEmpty ? nil : "Receipt: \(refNo)",
-                    reference.trimmingCharacters(in: .whitespacesAndNewlines).nilIfEmpty,
-                    notes.nilIfEmpty
-                ]
-                .compactMap { $0 }
-                .joined(separator: "\n")
-            } else if kind == .giftDistribution, notes.isEmpty {
-                notes = "Gift distributed to client"
-            }
-
             try await MarketingConvexAPIService.setCpVisitOutcome(
                 token: token,
                 request: SetCpVisitOutcomeRequest(
                     id: cpVisitId,
-                    outcome: kind.terminalOutcome,
+                    outcome: "rejected",
                     postponeReasons: nil,
-                    notes: notes.nilIfEmpty
+                    notes: "Collection CP not eligible — client has no confirmed booking"
                 )
             )
-            onCompleted()
+            onCompleted(nil)
             dismiss()
         } catch {
             errorMessage = error.localizedDescription
         }
+    }
+
+    private func uploadProofIfPresent(token: String) async throws -> String? {
+        guard let proofImage else { return nil }
+        guard let data = proofImage.jpegData(compressionQuality: 0.72) else {
+            throw TripError.message("Could not encode proof photo")
+        }
+        return try await HRConvexAPIService.uploadPhoto(token: token, imageData: data)
+    }
+
+    private func collectionDateString(_ date: Date) -> String {
+        let formatter = DateFormatter()
+        formatter.calendar = Calendar(identifier: .gregorian)
+        formatter.locale = Locale(identifier: "en_US_POSIX")
+        formatter.timeZone = .current
+        formatter.dateFormat = "yyyy-MM-dd"
+        return formatter.string(from: date)
     }
 }
 
@@ -2207,6 +2905,11 @@ private extension String {
     var nilIfEmpty: String? {
         isEmpty ? nil : self
     }
+
+    var nilIfBlank: String? {
+        let value = trimmingCharacters(in: .whitespacesAndNewlines)
+        return value.isEmpty ? nil : value
+    }
 }
 
 // MARK: - Location
@@ -2218,6 +2921,8 @@ final class TripLocationManager: NSObject, CLLocationManagerDelegate {
     var authorizationStatus: CLAuthorizationStatus = .notDetermined
 
     private let manager = CLLocationManager()
+    private var pendingLocation: CheckedContinuation<CLLocation, any Error>?
+    private var locationTimeoutTask: Task<Void, Never>?
 
     override init() {
         super.init()
@@ -2235,13 +2940,83 @@ final class TripLocationManager: NSObject, CLLocationManagerDelegate {
         }
     }
 
+    var needsSettings: Bool {
+        !CLLocationManager.locationServicesEnabled()
+            || authorizationStatus == .denied
+            || authorizationStatus == .restricted
+            || (
+                (authorizationStatus == .authorizedWhenInUse || authorizationStatus == .authorizedAlways)
+                    && manager.accuracyAuthorization == .reducedAccuracy
+            )
+    }
+
+    func openSettings() {
+        guard let url = URL(string: UIApplication.openSettingsURLString) else { return }
+        UIApplication.shared.open(url)
+    }
+
+    /// Android uses FusedLocationProvider.getCurrentLocation(HIGH_ACCURACY)
+    /// before proximity checks. Mirror that behavior by waiting for a fresh,
+    /// precise Core Location fix instead of sleeping and reading stale state.
+    func freshPreciseLocation() async throws -> CLLocation {
+        guard CLLocationManager.locationServicesEnabled() else {
+            throw TripLocationError.servicesDisabled
+        }
+
+        let status = manager.authorizationStatus
+        authorizationStatus = status
+        guard status != .denied && status != .restricted else {
+            throw TripLocationError.permissionDenied
+        }
+
+        if status == .authorizedWhenInUse || status == .authorizedAlways,
+           manager.accuracyAuthorization == .reducedAccuracy {
+            throw TripLocationError.preciseLocationDisabled
+        }
+
+        pendingLocation?.resume(throwing: TripLocationError.unavailable("A newer location request replaced the previous one."))
+        pendingLocation = nil
+        locationTimeoutTask?.cancel()
+
+        return try await withCheckedThrowingContinuation { continuation in
+            pendingLocation = continuation
+
+            if status == .notDetermined {
+                manager.requestWhenInUseAuthorization()
+            } else {
+                manager.requestLocation()
+            }
+
+            locationTimeoutTask = Task { [weak self] in
+                try? await Task.sleep(for: .seconds(10))
+                guard !Task.isCancelled else { return }
+                await MainActor.run {
+                    guard let self, let pending = self.pendingLocation else { return }
+                    self.pendingLocation = nil
+                    pending.resume(throwing: TripLocationError.fixTimedOut)
+                }
+            }
+        }
+    }
+
     nonisolated func locationManager(_ manager: CLLocationManager, didUpdateLocations locations: [CLLocation]) {
-        guard let loc = locations.last else { return }
-        Task { @MainActor in currentLocation = loc }
+        guard let loc = locations.last, loc.horizontalAccuracy >= 0 else { return }
+        Task { @MainActor in
+            currentLocation = loc
+            locationTimeoutTask?.cancel()
+            locationTimeoutTask = nil
+            pendingLocation?.resume(returning: loc)
+            pendingLocation = nil
+        }
     }
 
     nonisolated func locationManager(_ manager: CLLocationManager, didFailWithError error: Error) {
-        // Swallow: ETA/distance fall back to "—" when no fix available.
+        Task { @MainActor in
+            locationTimeoutTask?.cancel()
+            locationTimeoutTask = nil
+            pendingLocation?.resume(throwing: TripLocationError.unavailable(error.localizedDescription))
+            pendingLocation = nil
+        }
     }
 
     nonisolated func locationManagerDidChangeAuthorization(_ manager: CLLocationManager) {
@@ -2249,7 +3024,19 @@ final class TripLocationManager: NSObject, CLLocationManagerDelegate {
         Task { @MainActor in
             authorizationStatus = status
             if status == .authorizedWhenInUse || status == .authorizedAlways {
-                manager.requestLocation()
+                if manager.accuracyAuthorization == .reducedAccuracy {
+                    locationTimeoutTask?.cancel()
+                    locationTimeoutTask = nil
+                    pendingLocation?.resume(throwing: TripLocationError.preciseLocationDisabled)
+                    pendingLocation = nil
+                } else {
+                    manager.requestLocation()
+                }
+            } else if status == .denied || status == .restricted {
+                locationTimeoutTask?.cancel()
+                locationTimeoutTask = nil
+                pendingLocation?.resume(throwing: TripLocationError.permissionDenied)
+                pendingLocation = nil
             }
         }
     }

@@ -521,6 +521,22 @@ enum MarketingConvexAPIService {
         return wrapper
     }
 
+    static func parseAddress(token: String, raw: String) async throws -> ParsedAddressFields {
+        let data = try await post(
+            path: "/api/address/parse",
+            token: token,
+            body: AddressParseRequest(raw: raw)
+        )
+        let wrapper = try decode(AddressParseResponse.self, from: data)
+        guard wrapper.success else {
+            throw MarketingAPIError.server(wrapper.error ?? "Could not split address")
+        }
+        guard let fields = wrapper.fields else {
+            throw MarketingAPIError.server("Address fields missing")
+        }
+        return fields
+    }
+
     static func markClientMet(token: String, request: MarkClientMetRequest) async throws {
         let data = try await post(path: "/api/marketing/clientPlaceVisits/markClientMet", token: token, body: request)
         let wrapper = try decode(BaseMutationResponse.self, from: data)
@@ -537,6 +553,55 @@ enum MarketingConvexAPIService {
         let data = try await post(path: "/api/marketing/siteVisits/setOutcome", token: token, body: request)
         let wrapper = try decode(BaseMutationResponse.self, from: data)
         guard wrapper.success else { throw MarketingAPIError.server(wrapper.error ?? "Failed to set site visit outcome") }
+    }
+
+    static func scanSiteVisitQR(token: String, qrData: String) async throws -> ScannedSiteVisit {
+        let data = try await post(
+            path: "/api/marketing/siteVisits/scanQr",
+            token: token,
+            body: SiteVisitQRScanRequest(qrData: qrData)
+        )
+        let wrapper = try decode(SiteVisitQRScanResponse.self, from: data)
+        guard wrapper.success, let visit = wrapper.visit else {
+            throw MarketingAPIError.server(wrapper.error ?? "Unable to validate this SV QR")
+        }
+        return visit
+    }
+
+    static func markSiteVisitOnCounselling(token: String, id: String) async throws {
+        let data = try await post(
+            path: "/api/marketing/siteVisits/markOnCounselling",
+            token: token,
+            body: SiteVisitIDRequest(id: id)
+        )
+        let wrapper = try decode(BaseMutationResponse.self, from: data)
+        guard wrapper.success else {
+            throw MarketingAPIError.server(wrapper.error ?? "Couldn't start counselling")
+        }
+    }
+
+    static func postponeSiteVisit(token: String, request: PostponeSiteVisitRequest) async throws {
+        let data = try await post(
+            path: "/api/marketing/siteVisits/postpone",
+            token: token,
+            body: request
+        )
+        let wrapper = try decode(BaseMutationResponse.self, from: data)
+        guard wrapper.success else {
+            throw MarketingAPIError.server(wrapper.error ?? "Unable to postpone site visit")
+        }
+    }
+
+    static func cancelSiteVisit(token: String, request: CancelSiteVisitRequest) async throws {
+        let data = try await post(
+            path: "/api/marketing/siteVisits/cancel",
+            token: token,
+            body: request
+        )
+        let wrapper = try decode(BaseMutationResponse.self, from: data)
+        guard wrapper.success else {
+            throw MarketingAPIError.server(wrapper.error ?? "Unable to cancel site visit")
+        }
     }
 
     static func markSiteVisitPickedUp(token: String, id: String) async throws {

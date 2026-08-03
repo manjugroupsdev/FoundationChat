@@ -199,7 +199,7 @@ struct ConvexAttendanceListView: View {
             }
             content
         }
-        .background(Color(hex: 0xF6F7FB).ignoresSafeArea())
+        .background(Color.appScreenBackground.ignoresSafeArea())
         .navigationTitle("Attendance")
         .navigationBarTitleDisplayMode(.inline)
         .searchable(
@@ -209,14 +209,14 @@ struct ConvexAttendanceListView: View {
         )
         .textInputAutocapitalization(.never)
         .autocorrectionDisabled()
-        .toolbarBackground(Color.white, for: .navigationBar)
+        .toolbarBackground(Color.appElevatedSurface, for: .navigationBar)
         .toolbarBackground(.visible, for: .navigationBar)
         .toolbar {
             ToolbarItem(placement: .principal) {
                 VStack(spacing: 1) {
                     Text("Attendance")
                         .font(.system(size: 18, weight: .bold))
-                        .foregroundStyle(Color(hex: 0x101828))
+                .foregroundStyle(.primary)
                     Text(filter.rangeLabel)
                         .font(.system(size: 12, weight: .medium))
                         .foregroundStyle(Color(hex: 0x0B61CA))
@@ -301,7 +301,7 @@ struct ConvexAttendanceListView: View {
             HStack(spacing: 8) {
                 Text("Status: \(filter.statuses.map { $0.capitalized }.sorted().joined(separator: ", "))")
                     .font(.system(size: 12, weight: .medium))
-                    .foregroundStyle(Color(hex: 0x667085))
+                .foregroundStyle(.secondary)
                 Button("Clear") {
                     filter.statuses.removeAll()
                 }
@@ -313,7 +313,7 @@ struct ConvexAttendanceListView: View {
             .padding(.horizontal, 20)
             .padding(.bottom, 10)
             .frame(maxWidth: .infinity)
-            .background(Color.white)
+            .background(Color.appSurface)
         }
     }
 
@@ -325,7 +325,7 @@ struct ConvexAttendanceListView: View {
         .padding(.horizontal, 12)
         .padding(.top, 6)
         .padding(.bottom, 8)
-        .background(Color(hex: 0xF6F7FB))
+        .background(Color.appScreenBackground)
     }
 
     private func statCard(value: String, label: String, icon: String, tint: Color) -> some View {
@@ -349,7 +349,7 @@ struct ConvexAttendanceListView: View {
         .frame(maxWidth: .infinity, alignment: .leading)
         .frame(height: 72)
         .padding(.horizontal, 16)
-        .background(Color.white, in: RoundedRectangle(cornerRadius: 7, style: .continuous))
+        .background(Color.appSurface, in: RoundedRectangle(cornerRadius: 7, style: .continuous))
     }
 
     private var attendanceTabStrip: some View {
@@ -368,7 +368,7 @@ struct ConvexAttendanceListView: View {
             .padding(.horizontal, 12)
         }
         .frame(height: 42)
-        .background(Color(hex: 0xF0F3F8))
+        .background(Color.appFieldBackground)
     }
 
     private var approvalSubTabStrip: some View {
@@ -400,10 +400,10 @@ struct ConvexAttendanceListView: View {
             }
         }
         .padding(4)
-        .background(Color.white, in: RoundedRectangle(cornerRadius: 9, style: .continuous))
+        .background(Color.appSurface, in: RoundedRectangle(cornerRadius: 9, style: .continuous))
         .padding(.horizontal, 12)
         .padding(.vertical, 8)
-        .background(Color(hex: 0xF0F3F8))
+        .background(Color.appFieldBackground)
     }
 
     private func approvalSubTabCount(for tab: AttendanceApprovalSubTab) -> Int {
@@ -854,7 +854,7 @@ private struct AttendanceHistoryCard: View {
 
                 Text(displayDate)
                     .font(.system(size: 15, weight: .semibold))
-                    .foregroundStyle(Color(hex: 0x101828))
+                .foregroundStyle(.primary)
 
                 Spacer()
 
@@ -898,10 +898,10 @@ private struct AttendanceHistoryCard: View {
                 VStack(alignment: .leading, spacing: 4) {
                     Text("Total Hours")
                         .font(.system(size: 12, weight: .medium))
-                        .foregroundStyle(Color(hex: 0x475467))
+                .foregroundStyle(.secondary)
                     Text(totalHoursHMS)
                         .font(.system(size: 16, weight: .medium))
-                        .foregroundStyle(Color(hex: 0x344054))
+                .foregroundStyle(.primary)
                         .lineLimit(1)
                         .minimumScaleFactor(0.75)
                 }
@@ -910,10 +910,10 @@ private struct AttendanceHistoryCard: View {
                 VStack(alignment: .leading, spacing: 4) {
                     Text("Clock in & Out")
                         .font(.system(size: 12, weight: .medium))
-                        .foregroundStyle(Color(hex: 0x475467))
+                .foregroundStyle(.secondary)
                     Text(clockRange)
                         .font(.system(size: 15, weight: .medium))
-                        .foregroundStyle(Color(hex: 0x344054))
+                .foregroundStyle(.primary)
                         .lineLimit(1)
                         .minimumScaleFactor(0.72)
                 }
@@ -948,22 +948,22 @@ private struct AttendanceHistoryCard: View {
                     Spacer()
                     Text("By")
                         .font(.system(size: 12))
-                        .foregroundStyle(Color(hex: 0x101828))
+                .foregroundStyle(.primary)
                     Text(approverInitial)
                         .font(.system(size: 10, weight: .semibold))
-                        .foregroundStyle(Color(hex: 0x98A2B3))
+                .foregroundStyle(.tertiary)
                         .frame(width: 22, height: 22)
                         .background(Color(hex: 0xF2F4F7), in: Circle())
                     Text(record.approvedByName?.trimmingCharacters(in: .whitespacesAndNewlines).nilIfBlank ?? "HR")
                         .font(.system(size: 12, weight: .medium))
-                        .foregroundStyle(Color(hex: 0x101828))
+                .foregroundStyle(.primary)
                         .lineLimit(1)
                 }
             }
         }
         .padding(.horizontal, 16)
         .padding(.vertical, 14)
-        .background(Color.white, in: RoundedRectangle(cornerRadius: 8, style: .continuous))
+        .background(Color.appSurface, in: RoundedRectangle(cornerRadius: 8, style: .continuous))
     }
 
     private func fineBanner(icon: String, title: String, amount: Double, tint: Color, background: Color) -> some View {
@@ -1233,7 +1233,7 @@ private struct AttendanceSkeletonCard: View {
         }
         .padding(.horizontal, 16)
         .padding(.vertical, 14)
-        .background(Color.white, in: RoundedRectangle(cornerRadius: 8, style: .continuous))
+        .background(Color.appSurface, in: RoundedRectangle(cornerRadius: 8, style: .continuous))
         .redacted(reason: .placeholder)
     }
 
@@ -1272,11 +1272,11 @@ private struct TeamAttendanceCard: View {
                 VStack(alignment: .leading, spacing: 2) {
                     Text(staffName)
                         .font(.system(size: 15, weight: .semibold))
-                        .foregroundStyle(Color(hex: 0x101828))
+                .foregroundStyle(.primary)
                         .lineLimit(1)
                     Text(staffMeta)
                         .font(.system(size: 11, weight: .medium))
-                        .foregroundStyle(Color(hex: 0x667085))
+                .foregroundStyle(.secondary)
                         .lineLimit(1)
                 }
 
@@ -1305,7 +1305,7 @@ private struct TeamAttendanceCard: View {
                     .foregroundStyle(Color(hex: 0x0B61CA))
                 Text(displayDate)
                     .font(.system(size: 14, weight: .semibold))
-                    .foregroundStyle(Color(hex: 0x101828))
+                .foregroundStyle(.primary)
                 Spacer()
             }
 
@@ -1358,7 +1358,7 @@ private struct TeamAttendanceCard: View {
         }
         .padding(.horizontal, 16)
         .padding(.vertical, 14)
-        .background(Color.white, in: RoundedRectangle(cornerRadius: 8, style: .continuous))
+        .background(Color.appSurface, in: RoundedRectangle(cornerRadius: 8, style: .continuous))
     }
 
     private var staffAvatar: some View {
@@ -1391,10 +1391,10 @@ private struct TeamAttendanceCard: View {
         VStack(alignment: .leading, spacing: 4) {
             Text(title)
                 .font(.system(size: 12, weight: .medium))
-                .foregroundStyle(Color(hex: 0x475467))
+                .foregroundStyle(.secondary)
             Text(value)
                 .font(.system(size: 15, weight: .medium))
-                .foregroundStyle(Color(hex: 0x344054))
+                .foregroundStyle(.primary)
                 .lineLimit(1)
                 .minimumScaleFactor(0.72)
         }
@@ -1555,7 +1555,7 @@ private struct AttendanceApprovalReviewSheet: View {
                         Color.white.ignoresSafeArea(.container, edges: .bottom)
                     }
             }
-            .background(Color.white)
+            .background(Color.appSurface)
             .navigationTitle("Attendance Review")
             .navigationBarTitleDisplayMode(.inline)
             .toolbar {
@@ -1578,7 +1578,7 @@ private struct AttendanceApprovalReviewSheet: View {
         HStack {
             Text(AttendanceSheetFormat.displayDate(record.date, style: .reviewSubtitle))
                 .font(.system(size: 14, weight: .medium))
-                .foregroundStyle(Color(hex: 0x667085))
+                .foregroundStyle(.secondary)
             Spacer()
             statusPill
         }
@@ -1680,7 +1680,7 @@ private struct AttendanceApprovalReviewSheet: View {
                 }
                 .foregroundStyle(Color(hex: 0x0B61CA))
                 .padding(14)
-                .background(Color.white)
+            .background(Color.appSurface)
 
                 if routeData != nil && isReplayExpanded {
                     VStack(spacing: 14) {
@@ -1738,7 +1738,7 @@ private struct AttendanceApprovalReviewSheet: View {
                     }
                     .padding(.horizontal, 14)
                     .padding(.bottom, 14)
-                    .background(Color.white)
+            .background(Color.appSurface)
                     .transition(.move(edge: .top).combined(with: .opacity))
                 }
             }
@@ -1776,7 +1776,7 @@ private struct AttendanceApprovalReviewSheet: View {
                 }
             }
             .padding(14)
-            .background(Color.white, in: RoundedRectangle(cornerRadius: 9, style: .continuous))
+        .background(Color.appSurface, in: RoundedRectangle(cornerRadius: 9, style: .continuous))
             .overlay(RoundedRectangle(cornerRadius: 9).stroke(Color(hex: 0xE4E7EC), lineWidth: 1))
         }
     }
@@ -1790,7 +1790,7 @@ private struct AttendanceApprovalReviewSheet: View {
                 .frame(height: 88)
                 .padding(8)
                 .scrollContentBackground(.hidden)
-                .background(Color.white, in: RoundedRectangle(cornerRadius: 10))
+        .background(Color.appSurface, in: RoundedRectangle(cornerRadius: 10))
                 .overlay(RoundedRectangle(cornerRadius: 10).stroke(Color(hex: 0xE4E7EC), lineWidth: 1))
         }
     }
@@ -1863,7 +1863,7 @@ private struct AttendanceApprovalReviewSheet: View {
                 .foregroundStyle(Color(hex: 0x0B61CA))
             Text(title)
                 .font(.system(size: 15, weight: .bold))
-                .foregroundStyle(Color(hex: 0x101828))
+                .foregroundStyle(.primary)
         }
     }
 
@@ -1879,7 +1879,7 @@ private struct AttendanceApprovalReviewSheet: View {
                     VStack(alignment: .leading, spacing: 3) {
                         Text(item.1)
                             .font(.system(size: 11, weight: .medium))
-                            .foregroundStyle(Color(hex: 0x667085))
+                .foregroundStyle(.secondary)
                         Text(item.2)
                             .font(.system(size: 15, weight: .bold))
                             .foregroundStyle(item.3)
@@ -1890,7 +1890,7 @@ private struct AttendanceApprovalReviewSheet: View {
                 }
                 .padding(12)
                 .frame(minHeight: 72)
-                .background(Color.white)
+            .background(Color.appSurface)
                 .overlay(RoundedRectangle(cornerRadius: 0).stroke(Color(hex: 0xE4E7EC), lineWidth: 0.5))
             }
         }
@@ -1912,16 +1912,16 @@ private struct AttendanceApprovalReviewSheet: View {
             }
             Text(time)
                 .font(.system(size: 13, weight: .semibold))
-                .foregroundStyle(Color(hex: 0x344054))
+                .foregroundStyle(.primary)
                 .frame(width: 78, alignment: .leading)
             VStack(alignment: .leading, spacing: 4) {
                 Text(title)
                     .font(.system(size: 14, weight: .semibold))
-                    .foregroundStyle(Color(hex: 0x101828))
+                .foregroundStyle(.primary)
                 if !subtitle.isEmpty {
                     Text(subtitle)
                         .font(.system(size: 12, weight: .medium))
-                        .foregroundStyle(Color(hex: 0x667085))
+                .foregroundStyle(.secondary)
                 }
             }
             Spacer()
@@ -2903,7 +2903,7 @@ private struct AttendanceRequestSheet: View {
         VStack(alignment: .leading, spacing: 0) {
             Text("Remarks My Attendance")
                 .font(.system(size: 16, weight: .bold))
-                .foregroundStyle(Color(hex: 0x101828))
+                .foregroundStyle(.primary)
 
             Text("Want to Remark Todays Attendance")
                 .font(.system(size: 12, weight: .medium))
@@ -2914,18 +2914,19 @@ private struct AttendanceRequestSheet: View {
             sectionLabel("Request Type")
             Menu {
                 Button("Remark") { requestType = "remark" }
-                Button("Time Correction") {
-                    requestType = "correction"
+                Button("Time Correction (Unavailable)") {
+                    requestType = "remark"
+                    errorMessage = "Time Correction is currently unavailable. Submit a remark instead."
                 }
             } label: {
                 fieldShell {
                     Text(requestType == "correction" ? "Time Correction" : "Remark")
                         .font(.system(size: 15, weight: .semibold))
-                        .foregroundStyle(Color(hex: 0x101828))
+                .foregroundStyle(.primary)
                     Spacer()
                     Image(systemName: "chevron.down")
                         .font(.system(size: 12, weight: .semibold))
-                        .foregroundStyle(Color(hex: 0x667085))
+                .foregroundStyle(.secondary)
                 }
             }
             .buttonStyle(.plain)
@@ -2952,18 +2953,18 @@ private struct AttendanceRequestSheet: View {
 
             ZStack(alignment: .topLeading) {
                 RoundedRectangle(cornerRadius: 10, style: .continuous)
-                    .fill(Color.white)
+                    .fill(Color.appSurface)
                     .overlay(RoundedRectangle(cornerRadius: 10, style: .continuous).stroke(Color(hex: 0xD0D5DD), lineWidth: 1))
                 if remarks.isEmpty {
                     Text("Enter Remarks")
                         .font(.system(size: 14, weight: .medium))
-                        .foregroundStyle(Color(hex: 0x98A2B3))
+                .foregroundStyle(.tertiary)
                         .padding(.horizontal, 12)
                         .padding(.top, 12)
                 }
                 TextEditor(text: $remarks)
                     .font(.system(size: 14, weight: .medium))
-                    .foregroundStyle(Color(hex: 0x101828))
+                .foregroundStyle(.primary)
                     .scrollContentBackground(.hidden)
                     .frame(minHeight: 90, maxHeight: 104)
                     .padding(.horizontal, 8)
@@ -2997,7 +2998,7 @@ private struct AttendanceRequestSheet: View {
         .padding(.top, 12)
         .padding(.bottom, 20)
         .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
-        .background(Color.white)
+            .background(Color.appSurface)
         .clipShape(
             UnevenRoundedRectangle(
                 topLeadingRadius: 28,
@@ -3020,7 +3021,7 @@ private struct AttendanceRequestSheet: View {
     private func sectionLabel(_ title: String) -> some View {
         Text(title)
             .font(.system(size: 12, weight: .medium))
-            .foregroundStyle(Color(hex: 0x475467))
+                .foregroundStyle(.secondary)
     }
 
     private func fieldShell<Content: View>(@ViewBuilder content: () -> Content) -> some View {
@@ -3029,7 +3030,7 @@ private struct AttendanceRequestSheet: View {
         }
         .frame(height: 52)
         .padding(.horizontal, 12)
-        .background(Color.white, in: RoundedRectangle(cornerRadius: 10, style: .continuous))
+        .background(Color.appSurface, in: RoundedRectangle(cornerRadius: 10, style: .continuous))
         .overlay(RoundedRectangle(cornerRadius: 10, style: .continuous).stroke(Color(hex: 0xD0D5DD), lineWidth: 1))
     }
 
@@ -3042,7 +3043,7 @@ private struct AttendanceRequestSheet: View {
         fieldShell {
             Image(systemName: "clock")
                 .font(.system(size: 15, weight: .medium))
-                .foregroundStyle(Color(hex: 0x475467))
+                .foregroundStyle(.secondary)
             DatePicker(title, selection: selection, displayedComponents: .hourAndMinute)
                 .labelsHidden()
                 .datePickerStyle(.compact)
@@ -3052,12 +3053,12 @@ private struct AttendanceRequestSheet: View {
             if !isSelected {
                 Text(title)
                     .font(.system(size: 15, weight: .semibold))
-                    .foregroundStyle(Color(hex: 0x98A2B3))
+                .foregroundStyle(.tertiary)
             }
             Spacer()
             Image(systemName: "chevron.down")
                 .font(.system(size: 12, weight: .semibold))
-                .foregroundStyle(Color(hex: 0x667085))
+                .foregroundStyle(.secondary)
         }
     }
 

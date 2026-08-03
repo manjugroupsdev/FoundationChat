@@ -9,6 +9,7 @@ struct ConvexSiteVisit: Decodable, Identifiable, Equatable, Sendable {
     let clientPlaceId: String?
     let scheduledDate: String?
     let status: String?
+    let rawStatus: String?
     let placeName: String?
     let placeAddress: String?
     let placeType: String?
@@ -25,19 +26,25 @@ struct ConvexSiteVisit: Decodable, Identifiable, Equatable, Sendable {
     let convertedBookingId: String?
     let convertedSiteVisitId: String?
     let completedAt: Int64?
+    let completedOffline: Bool?
     let creationTime: Double?
     let travelMode: String?
     let vehiclePreference: String?
     let vehicleAssigned: Bool?
+    let confirmationStatus: String?
     let visitCategory: String?
+    let lmoName: String?
+    let bdoName: String?
+    let staffName: String?
 
     var id: String { _id }
 
     enum CodingKeys: String, CodingKey {
-        case _id, clientPlaceId, scheduledDate, status, placeName, placeAddress, placeType
+        case _id, clientPlaceId, scheduledDate, status, rawStatus, placeName, placeAddress, placeType
         case placeLat, placeLng, tripType, clientPlaceVisitId, leadName, leadPhone, cpVisit
-        case outcome, convertedBookingId, convertedSiteVisitId, completedAt
-        case creationTime, travelMode, vehiclePreference, vehicleAssigned, visitCategory
+        case outcome, convertedBookingId, convertedSiteVisitId, completedAt, completedOffline
+        case creationTime, travelMode, vehiclePreference, vehicleAssigned, confirmationStatus, visitCategory
+        case lmoName, bdoName, staffName
         case scheduledStartTime, scheduledEndTime
         case startTime, endTime, scheduledTime, scheduledFrom, scheduledTo
     }
@@ -48,6 +55,7 @@ struct ConvexSiteVisit: Decodable, Identifiable, Equatable, Sendable {
         clientPlaceId = try container.decodeIfPresent(String.self, forKey: .clientPlaceId)
         scheduledDate = try container.decodeIfPresent(String.self, forKey: .scheduledDate)
         status = try container.decodeIfPresent(String.self, forKey: .status)
+        rawStatus = try container.decodeIfPresent(String.self, forKey: .rawStatus)
         placeName = try container.decodeIfPresent(String.self, forKey: .placeName)
         placeAddress = try container.decodeIfPresent(String.self, forKey: .placeAddress)
         placeType = try container.decodeIfPresent(String.self, forKey: .placeType)
@@ -62,11 +70,16 @@ struct ConvexSiteVisit: Decodable, Identifiable, Equatable, Sendable {
         convertedBookingId = try container.decodeIfPresent(String.self, forKey: .convertedBookingId)
         convertedSiteVisitId = try container.decodeIfPresent(String.self, forKey: .convertedSiteVisitId)
         completedAt = try container.decodeIfPresent(Int64.self, forKey: .completedAt)
+        completedOffline = try container.decodeIfPresent(Bool.self, forKey: .completedOffline)
         creationTime = try container.decodeIfPresent(Double.self, forKey: .creationTime)
         travelMode = try container.decodeIfPresent(String.self, forKey: .travelMode)
         vehiclePreference = try container.decodeIfPresent(String.self, forKey: .vehiclePreference)
         vehicleAssigned = try container.decodeIfPresent(Bool.self, forKey: .vehicleAssigned)
+        confirmationStatus = try container.decodeIfPresent(String.self, forKey: .confirmationStatus)
         visitCategory = try container.decodeIfPresent(String.self, forKey: .visitCategory)
+        lmoName = try container.decodeIfPresent(String.self, forKey: .lmoName)
+        bdoName = try container.decodeIfPresent(String.self, forKey: .bdoName)
+        staffName = try container.decodeIfPresent(String.self, forKey: .staffName)
         scheduledStartTime = try container.decodeFirstPresentString(for: [.scheduledStartTime, .startTime, .scheduledTime, .scheduledFrom])
         scheduledEndTime = try container.decodeFirstPresentString(for: [.scheduledEndTime, .endTime, .scheduledTo])
     }
@@ -80,7 +93,8 @@ struct ConvexSiteVisit: Decodable, Identifiable, Equatable, Sendable {
         case "picked_up":
             return .pickedUp
         case "on_site", "dropped", "in-progress", "in_progress",
-             "ongoing", "active", "arrived":
+             "ongoing", "active", "arrived", "consulting", "on_counselling",
+             "picked_from_site":
             return .inProgress
         case "cancelled", "canceled", "no_show": return .cancelled
         default: return .scheduled
@@ -96,6 +110,67 @@ struct ConvexSiteVisit: Decodable, Identifiable, Equatable, Sendable {
             || booking?.isEmpty == false
             || completedAt != nil
     }
+}
+
+struct SiteVisitQRScanResponse: Decodable, Sendable {
+    let success: Bool
+    let visit: ScannedSiteVisit?
+    let error: String?
+}
+
+struct ScannedSiteVisit: Decodable, Identifiable, Sendable {
+    let _id: String
+    let status: String?
+    let outcome: String?
+    let notes: String?
+    let scheduledDate: String?
+    let scheduledTime: String?
+    let canStartCounselling: Bool?
+    let canRecordOutcome: Bool?
+    let expectedAttendeeCount: Int?
+    let attendees: [ScannedSiteVisitAttendee]?
+    let foodPreferences: String?
+    let project: ScannedSiteVisitProject?
+    let lead: ScannedSiteVisitLead?
+    let client: ScannedSiteVisitClient?
+    let bdoStaff: ScannedSiteVisitStaff?
+    let telecallerStaff: ScannedSiteVisitStaff?
+    let inchargeStaff: ScannedSiteVisitStaff?
+
+    var id: String { _id }
+}
+
+struct ScannedSiteVisitProject: Decodable, Sendable {
+    let name: String?
+    let projectName: String?
+}
+
+struct ScannedSiteVisitLead: Decodable, Sendable {
+    let clientName: String?
+    let contactName: String?
+    let mobileNumber: String?
+    let mobileNumberNormalized: String?
+    let profession: String?
+    let temperature: String?
+}
+
+struct ScannedSiteVisitClient: Decodable, Sendable {
+    let clientName: String?
+    let mobileNumber: String?
+    let mobileNumberNormalized: String?
+    let profession: String?
+}
+
+struct ScannedSiteVisitStaff: Decodable, Sendable {
+    let name: String?
+}
+
+struct ScannedSiteVisitAttendee: Decodable, Sendable {
+    let name: String?
+    let relation: String?
+    let age: String?
+    let isVeg: Bool?
+    let notes: String?
 }
 
 struct CpVisitDetailResponse: Decodable, Sendable {
@@ -133,6 +208,7 @@ struct CpVisitDetail: Decodable, Identifiable, Sendable {
     let fieldVisitId: String?
     let notes: String?
     let completedAt: Int64?
+    let completedOffline: Bool?
     let cancelledAt: Int64?
     let expectedAttendeeCount: Int?
     let foodPreferences: String?
@@ -159,7 +235,7 @@ struct CpVisitDetail: Decodable, Identifiable, Sendable {
         case leadId, clientId, clientPlaceId, origin, telecallerStaffId, assignedStaffId
         case assignedAt, scheduledDate, scheduledTime, status, clientMet, clientMetAt
         case clientNoShowReason, outcome, postponeReasons, convertedSiteVisitId
-        case convertedBookingId, fieldVisitId, notes, completedAt, cancelledAt
+        case convertedBookingId, fieldVisitId, notes, completedAt, completedOffline, cancelledAt
         case expectedAttendeeCount, foodPreferences, vehiclePreference, cpType, projectId, isBookingCompleted
         case createdAt, updatedAt, lead, client, telecaller, assignedStaff, clientPlace
         case proposedSiteVisit, attendees, fieldVisit, arrivalProof, project, inchargeStaff
@@ -195,7 +271,9 @@ struct ProposedSiteVisit: Decodable, Sendable {
     let droppedAt: Int64?
     let completedAt: Int64?
     let travelDeskStartedAt: Int64?
+    let travelDeskArrivedAt: Int64?
     let travelDeskOnSiteAt: Int64?
+    let travelDeskPickedFromSiteAt: Int64?
     let travelDeskEndedAt: Int64?
 
     var isMeaningful: Bool {
@@ -222,11 +300,16 @@ struct CpVisitLead: Decodable, Sendable {
     let city: String?
     let preferredArea: String?
     let followUpStatus: String?
+    let manualProfile: CpVisitLeadManualProfile?
 
     enum CodingKeys: String, CodingKey {
         case id = "_id"
-        case contactName, mobileNumber, city, preferredArea, followUpStatus
+        case contactName, mobileNumber, city, preferredArea, followUpStatus, manualProfile
     }
+}
+
+struct CpVisitLeadManualProfile: Decodable, Sendable {
+    let clientName: String?
 }
 
 struct CpVisitClient: Decodable, Sendable {
@@ -264,13 +347,14 @@ struct CpVisitPlace: Decodable, Sendable {
     let pincode: String?
     let lat: Double?
     let lng: Double?
+    let googleMapsLink: String?
     let contactPerson: String?
     let contactPhone: String?
 
     enum CodingKeys: String, CodingKey {
         case id = "_id"
         case name, address, formattedAddress, landmark, city, state, pincode
-        case lat, lng, contactPerson, contactPhone
+        case lat, lng, googleMapsLink, contactPerson, contactPhone
     }
 }
 
@@ -296,6 +380,26 @@ struct CpVisitArrivalProof: Decodable, Sendable {
     let gpsLat: Double?
     let gpsLng: Double?
     let distanceFromPlaceMeters: Double?
+}
+
+struct AddressParseRequest: Encodable, Sendable {
+    let raw: String
+}
+
+struct AddressParseResponse: Decodable, Sendable {
+    let success: Bool
+    let fields: ParsedAddressFields?
+    let error: String?
+}
+
+struct ParsedAddressFields: Decodable, Equatable, Sendable {
+    let doorNo: String?
+    let street: String?
+    let addressLine1: String?
+    let addressLine2: String?
+    let city: String?
+    let state: String?
+    let pincode: String?
 }
 
 struct ConvexCPVisitState: Decodable, Equatable, Sendable {

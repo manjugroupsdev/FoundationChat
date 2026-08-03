@@ -64,6 +64,17 @@ struct BookingCreateView: View {
     @State private var homeCoordinateAddressQuery: String?
     @State private var isGeocodingHomeAddress = false
     @State private var hasRestoredDraft = false
+    @State private var isRecalculatingPayments = false
+    @State private var allotmentAmountEdited = false
+    @State private var secondPaymentAmountEdited = false
+    @State private var thirdPaymentAmountEdited = false
+    @State private var fourthPaymentAmountEdited = false
+    @State private var lastAutoAllotmentAmount = ""
+    @State private var lastAutoAllotmentDate = ""
+    @State private var lastAutoSecondPaymentAmount = ""
+    @State private var lastAutoThirdPaymentAmount = ""
+    @State private var lastAutoFourthPaymentAmount = ""
+    @State private var lastAutoThirdPaymentDate = ""
 
     init(initialProject: MarketingProject? = nil, initialUnit: InventoryUnit? = nil) {
         self.initialProject = initialProject
@@ -138,6 +149,9 @@ struct BookingCreateView: View {
         .onChange(of: booking.paymentPlan) { _, value in
             booking.freePayment = value == "Flexi"
         }
+        .onChange(of: paymentCalculationKey) { _, _ in
+            recalculatePaymentFields()
+        }
     }
 
     private var bookingStaffTrackingView: some View {
@@ -170,6 +184,7 @@ struct BookingCreateView: View {
         scheduleClientImageURLResolution(for: booking.clientImageStorageId)
         await Task.yield()
         await loadInitialData()
+        await loadStaffIfNeeded()
         await resolveSelectedProjectSpecialPaymentIfNeeded()
         scheduleBookingTypeAutofill()
         guard let initialUnit else { return }
@@ -1247,6 +1262,329 @@ struct BookingCreateView: View {
         selectedProject?.minimumAdvanceAmount ?? plotPrefill?.fields.advanceAmount
     }
 
+    private var usesDynamicPaymentSchedule: Bool {
+        booking.freePayment || booking.customerPaymentCategory == "A"
+    }
+
+    private var projectAllotmentDays: Int? {
+        selectedProject?.allotmentDueDays ?? plotPrefill?.project?.allotmentDueDays
+    }
+
+    private var projectScheduleMaxDays: Int {
+        max(
+            projectAllotmentDays ?? 0,
+            plotPrefill?.schedules.compactMap(\.daysFromBooking).max() ?? 0
+        )
+    }
+
+    private var minimumAllotmentAmount: Double? {
+        guard let configured = plotPrefill?.fields.allotmentDueAmount else { return nil }
+        if booking.customerPaymentCategory == "A" {
+            return max(configured - booking.numericAmount(booking.advanceAmount), 0)
+        }
+        return configured
+    }
+
+    private var outstandingAfterAllotment: Double? {
+        guard let customerPayable = booking.customerPayableAmount else { return nil }
+        return max(
+            customerPayable
+                - booking.numericAmount(booking.advanceAmount)
+                - booking.conversionCreditAmount
+                - booking.numericAmount(booking.allotmentDueAmount),
+            0
+        )
+    }
+
+    private var remainingAfterSecondPayment: Double {
+        max(
+            (outstandingAfterAllotment ?? 0)
+                - booking.numericAmount(booking.secondPaymentAmount),
+            0
+        )
+    }
+
+    private var needsThirdPayment: Bool {
+        remainingAfterSecondPayment > 0
+    }
+
+    private var remainingAfterThirdPayment: Double {
+        max(
+            (outstandingAfterAllotment ?? 0)
+                - booking.numericAmount(booking.secondPaymentAmount)
+                - booking.numericAmount(booking.thirdPaymentAmount),
+            0
+        )
+    }
+
+    private var needsFourthPayment: Bool {
+        needsThirdPayment
+            && booking.thirdPaymentAmount.directBookingNilIfBlank != nil
+            && remainingAfterThirdPayment > 0
+    }
+
+    private var standardScheduledPaymentAmount: Double {
+        booking.numericAmount(booking.secondPaymentAmount)
+            + (needsThirdPayment ? booking.numericAmount(booking.thirdPaymentAmount) : 0)
+            + (needsFourthPayment ? booking.numericAmount(booking.fourthPaymentAmount) : 0)
+    }
+
+    private var dynamicScheduledPaymentAmount: Double {
+        booking.flexiPaymentRows.reduce(0) {
+            $0 + booking.numericAmount($1.amount)
+        }
+    }
+
+    private var paymentCalculationKey: String {
+        let schedule = plotPrefill?.schedules.map {
+            "\($0.amount ?? -1):\($0.daysFromBooking ?? -1):\($0.dueDate ?? "")"
+        }.joined(separator: ",") ?? ""
+        return [
+            booking.bookingDate, booking.bookingCost, booking.guidelineValue,
+            booking.specialConsideration, booking.registrationCharges, booking.gstApplicable.description,
+            booking.documentCharges, booking.pattaCharges, booking.otherCharges,
+            booking.otherChargesApplicable.description, booking.bookingType,
+            booking.exchangeOldRegisteredValue, booking.conversionManualEntry.description,
+            booking.manualConversionCredit, booking.linkedConversionCredit ?? "",
+            booking.customerPaymentCategory, booking.loanAmountRequested, booking.advanceAmount,
+            booking.allotmentDueAmount, booking.allotmentDueDate, booking.paymentPlan,
+            booking.freePayment.description, booking.secondPaymentAmount, booking.secondPaymentDate,
+            booking.thirdPaymentAmount, booking.thirdPaymentDate,
+            booking.fourthPaymentAmount, booking.fourthPaymentDate,
+            selectedProject?.gstPercent.map { String($0) } ?? "",
+            String(projectAllotmentDays ?? -1), schedule
+        ].joined(separator: "|")
+    }
+
+    @MainActor
+    private func recalculatePaymentFields() {
+        guard !isRecalculatingPayments else { return }
+        isRecalculatingPayments = true
+        defer { isRecalculatingPayments = false }
+
+        if booking.gstApplicable,
+           let agreed = booking.agreedAmount,
+           let guideline = Double(booking.guidelineValue),
+           let gstPercent = selectedProject?.gstPercent ?? plotPrefill?.project?.gstPercent {
+            let taxable = agreed - guideline
+            let next = taxable > 0
+                ? DirectBookingDraft.amountInputText((taxable * gstPercent / 100).rounded())
+                : ""
+            if booking.gstAmount != next { booking.gstAmount = next }
+        }
+
+        if let minimumAllotmentAmount {
+            let next = DirectBookingDraft.amountInputText(minimumAllotmentAmount.rounded())
+            if !allotmentAmountEdited
+                || booking.allotmentDueAmount == lastAutoAllotmentAmount {
+                lastAutoAllotmentAmount = next
+                if booking.allotmentDueAmount != next { booking.allotmentDueAmount = next }
+            }
+        }
+
+        if let projectAllotmentDays,
+           let next = paymentDateText(days: projectAllotmentDays),
+           booking.allotmentDueDate.isEmpty || booking.allotmentDueDate == lastAutoAllotmentDate {
+            lastAutoAllotmentDate = next
+            if booking.allotmentDueDate != next { booking.allotmentDueDate = next }
+        }
+
+        guard let outstanding = outstandingAfterAllotment else { return }
+        let schedules = plotPrefill?.schedules ?? []
+        let secondTarget = min(schedules[safe: 0]?.amount ?? outstanding, outstanding)
+        updateAutoAmount(
+            current: &booking.secondPaymentAmount,
+            edited: secondPaymentAmountEdited,
+            lastAuto: &lastAutoSecondPaymentAmount,
+            target: secondTarget,
+            maximum: outstanding
+        )
+
+        let remainingAfterSecond = max(outstanding - booking.numericAmount(booking.secondPaymentAmount), 0)
+        let hasFourthSchedule = schedules[safe: 2]?.amount != nil
+        let thirdTarget = hasFourthSchedule
+            ? min(schedules[safe: 1]?.amount ?? remainingAfterSecond, remainingAfterSecond)
+            : remainingAfterSecond
+        updateAutoAmount(
+            current: &booking.thirdPaymentAmount,
+            edited: thirdPaymentAmountEdited,
+            lastAuto: &lastAutoThirdPaymentAmount,
+            target: thirdTarget,
+            maximum: remainingAfterSecond
+        )
+
+        let remainingAfterThird = max(
+            outstanding
+                - booking.numericAmount(booking.secondPaymentAmount)
+                - booking.numericAmount(booking.thirdPaymentAmount),
+            0
+        )
+        updateAutoAmount(
+            current: &booking.fourthPaymentAmount,
+            edited: fourthPaymentAmountEdited,
+            lastAuto: &lastAutoFourthPaymentAmount,
+            target: remainingAfterThird,
+            maximum: remainingAfterThird
+        )
+
+        let needsThird = remainingAfterSecond > 0
+        let needsFourth = needsThird
+            && booking.thirdPaymentAmount.directBookingNilIfBlank != nil
+            && remainingAfterThird > 0
+        if let next = needsThird ? paymentDateText(days: paymentPlanDays) : "" {
+            if booking.thirdPaymentDate.isEmpty
+                || booking.thirdPaymentDate == lastAutoThirdPaymentDate
+                || !needsThird {
+                lastAutoThirdPaymentDate = next
+                booking.thirdPaymentDate = next
+            }
+        }
+        if !needsFourth {
+            booking.fourthPaymentAmount = ""
+            booking.fourthPaymentDate = ""
+        }
+
+        if !usesDynamicPaymentSchedule {
+            clampPaymentDate(&booking.secondPaymentDate, maximumDays: paymentPlanDays)
+            if needsThird { clampPaymentDate(&booking.thirdPaymentDate, maximumDays: paymentPlanDays) }
+            if needsFourth { clampPaymentDate(&booking.fourthPaymentDate, maximumDays: paymentPlanDays) }
+        } else if booking.customerPaymentCategory == "A" {
+            if booking.flexiPaymentRows.count == 1,
+               booking.flexiPaymentRows[0].amount.isEmpty {
+                let legacyRows = [
+                    DirectBookingPaymentDraft(amount: booking.secondPaymentAmount, dueDate: booking.secondPaymentDate),
+                    DirectBookingPaymentDraft(amount: booking.thirdPaymentAmount, dueDate: booking.thirdPaymentDate),
+                    DirectBookingPaymentDraft(amount: booking.fourthPaymentAmount, dueDate: booking.fourthPaymentDate)
+                ].filter { !$0.amount.isEmpty || !$0.dueDate.isEmpty }
+                if !legacyRows.isEmpty { booking.flexiPaymentRows = legacyRows }
+            }
+            booking.flexiPaymentRows.rebalanceFinalPayment(to: outstanding)
+        }
+    }
+
+    private func updateAutoAmount(
+        current: inout String,
+        edited: Bool,
+        lastAuto: inout String,
+        target: Double,
+        maximum: Double
+    ) {
+        let next = target > 0 ? DirectBookingDraft.amountInputText(target.rounded()) : ""
+        if !edited || current == lastAuto || (Double(current) ?? 0) > maximum {
+            lastAuto = next
+            current = next
+        }
+    }
+
+    private func paymentDateText(days: Int) -> String? {
+        guard let base = AppModuleFormatters.ymd.date(from: booking.bookingDate),
+              let date = Calendar.current.date(byAdding: .day, value: days, to: base) else {
+            return nil
+        }
+        return AppModuleFormatters.ymd.string(from: date)
+    }
+
+    private func paymentDays(from dateText: String) -> Int? {
+        guard let bookingDate = AppModuleFormatters.ymd.date(from: booking.bookingDate),
+              let date = AppModuleFormatters.ymd.date(from: dateText) else { return nil }
+        return Calendar.current.dateComponents([.day], from: bookingDate, to: date).day
+    }
+
+    private func clampPaymentDate(_ date: inout String, maximumDays: Int) {
+        guard let days = paymentDays(from: date), days > maximumDays,
+              let maximumDate = paymentDateText(days: maximumDays) else { return }
+        date = maximumDate
+    }
+
+    private func trackedPaymentAmountBinding(
+        _ keyPath: WritableKeyPath<DirectBookingDraft, String>,
+        markEdited: @escaping () -> Void
+    ) -> Binding<String> {
+        Binding(
+            get: { booking[keyPath: keyPath] },
+            set: { value in
+                markEdited()
+                booking[keyPath: keyPath] = value
+            }
+        )
+    }
+
+    @MainActor
+    private func addDynamicPaymentRow() {
+        guard let outstanding = outstandingAfterAllotment else {
+            booking.flexiPaymentRows.append(DirectBookingPaymentDraft())
+            return
+        }
+        booking.flexiPaymentRows.rebalanceFinalPayment(to: outstanding)
+        guard let final = booking.flexiPaymentRows.last else { return }
+        let finalAmount = booking.numericAmount(final.amount)
+        if finalAmount <= 0 {
+            booking.flexiPaymentRows.append(DirectBookingPaymentDraft())
+            return
+        }
+        let firstPart = floor(finalAmount / 2)
+        booking.flexiPaymentRows[booking.flexiPaymentRows.count - 1].amount =
+            DirectBookingDraft.amountInputText(firstPart)
+        booking.flexiPaymentRows.append(
+            DirectBookingPaymentDraft(
+                amount: DirectBookingDraft.amountInputText(finalAmount - firstPart),
+                dueDate: ""
+            )
+        )
+    }
+
+    @MainActor
+    private func removeDynamicPaymentRow(at index: Int) {
+        guard booking.flexiPaymentRows.indices.contains(index) else { return }
+        if booking.flexiPaymentRows.count == 1 {
+            booking.flexiPaymentRows[0] = DirectBookingPaymentDraft()
+        } else {
+            booking.flexiPaymentRows.remove(at: index)
+        }
+        if let outstanding = outstandingAfterAllotment {
+            booking.flexiPaymentRows.rebalanceFinalPayment(to: outstanding)
+        }
+    }
+
+    @MainActor
+    private func updateDynamicPaymentAmount(at index: Int, value: String) {
+        guard booking.flexiPaymentRows.indices.contains(index) else { return }
+        guard let outstanding = outstandingAfterAllotment else {
+            booking.flexiPaymentRows[index].amount = value
+            return
+        }
+        let lastIndex = booking.flexiPaymentRows.count - 1
+        let otherManualTotal = booking.flexiPaymentRows.enumerated().reduce(0.0) { partial, entry in
+            let (rowIndex, row) = entry
+            guard rowIndex != index, rowIndex != lastIndex else { return partial }
+            return partial + booking.numericAmount(row.amount)
+        }
+        let maximum = max(outstanding - otherManualTotal, 0)
+        let next: String
+        if value.isEmpty {
+            next = ""
+        } else if let parsed = Double(value), parsed.isFinite {
+            next = DirectBookingDraft.amountInputText(min(max(parsed, 0), maximum.rounded()))
+        } else {
+            next = value
+        }
+        booking.flexiPaymentRows[index].amount = next
+
+        if index != lastIndex {
+            booking.flexiPaymentRows.rebalanceFinalPayment(to: outstanding)
+        } else if !next.isEmpty {
+            let remainder = max(maximum - booking.numericAmount(next), 0)
+            if remainder > 0 {
+                booking.flexiPaymentRows.append(
+                    DirectBookingPaymentDraft(
+                        amount: DirectBookingDraft.amountInputText(remainder.rounded()),
+                        dueDate: ""
+                    )
+                )
+            }
+        }
+    }
+
     private func bookingApplicabilityControl(isOn: Binding<Bool>) -> some View {
         Button {
             isOn.wrappedValue.toggle()
@@ -1319,14 +1657,26 @@ struct BookingCreateView: View {
         VStack(alignment: .leading, spacing: 10) {
             sectionTitle("Payment Schedule")
             DirectBookingOptionPicker("Payment Plan *", value: $booking.paymentPlan, placeholder: "Select Plan", icon: "calendar", options: paymentPlanOptions)
-            DirectBookingTextField("Allotment Due Amount *", text: $booking.allotmentDueAmount, placeholder: "Enter Cost", icon: "indianrupeesign", keyboard: .decimalPad)
-            DirectBookingDateField("Allotment Due Date *", text: $booking.allotmentDueDate, maxDate: paymentDateLimit(days: 10))
-            if booking.freePayment {
+            DirectBookingTextField(
+                "Allotment Due Amount *",
+                text: trackedPaymentAmountBinding(\.allotmentDueAmount) {
+                    allotmentAmountEdited = true
+                },
+                placeholder: "Enter Cost",
+                icon: "indianrupeesign",
+                keyboard: .decimalPad
+            )
+            DirectBookingDateField(
+                "Allotment Due Date *",
+                text: $booking.allotmentDueDate,
+                maxDate: paymentDateLimit(days: projectAllotmentDays ?? 10)
+            )
+            if usesDynamicPaymentSchedule {
                 HStack {
                     sectionTitle("Flexi Payment Schedule")
                     Spacer()
                     Button("Add Payment", systemImage: "plus") {
-                        booking.flexiPaymentRows.append(DirectBookingPaymentDraft())
+                        addDynamicPaymentRow()
                     }
                     .font(.system(size: 12, weight: .semibold))
                     .buttonStyle(.bordered)
@@ -1339,11 +1689,7 @@ struct BookingCreateView: View {
                                 .font(.system(size: 13, weight: .bold))
                             Spacer()
                             Button(role: .destructive) {
-                                if booking.flexiPaymentRows.count == 1 {
-                                    booking.flexiPaymentRows[0] = DirectBookingPaymentDraft()
-                                } else {
-                                    booking.flexiPaymentRows.remove(at: index)
-                                }
+                                removeDynamicPaymentRow(at: index)
                             } label: {
                                 Image(systemName: "trash")
                             }
@@ -1353,7 +1699,7 @@ struct BookingCreateView: View {
                             "\(ordinalPaymentLabel(index + 2)) Payment Amount *",
                             text: Binding(
                                 get: { booking.flexiPaymentRows[index].amount },
-                                set: { booking.flexiPaymentRows[index].amount = $0 }
+                                set: { updateDynamicPaymentAmount(at: index, value: $0) }
                             ),
                             placeholder: "Enter Cost",
                             icon: "indianrupeesign",
@@ -1365,18 +1711,42 @@ struct BookingCreateView: View {
                                 get: { booking.flexiPaymentRows[index].dueDate },
                                 set: { booking.flexiPaymentRows[index].dueDate = $0 }
                             ),
-                            maxDate: paymentDateLimit(days: paymentPlanDays)
+                            maxDate: dynamicPaymentDateLimit
                         )
                     }
                     .padding(12)
                     .background(Color(hex: 0xF8FAFC), in: RoundedRectangle(cornerRadius: 12))
                 }
             } else {
-                DirectBookingTextField("2nd Payment Amount *", text: $booking.secondPaymentAmount, placeholder: "Enter Cost", icon: "indianrupeesign", keyboard: .decimalPad)
+                DirectBookingTextField(
+                    "2nd Payment Amount *",
+                    text: trackedPaymentAmountBinding(\.secondPaymentAmount) {
+                        secondPaymentAmountEdited = true
+                    },
+                    placeholder: "Enter Cost",
+                    icon: "indianrupeesign",
+                    keyboard: .decimalPad
+                )
                 DirectBookingDateField("2nd Payment Date *", text: $booking.secondPaymentDate, maxDate: paymentDateLimit(days: paymentPlanDays))
-                DirectBookingTextField("3rd Payment Amount *", text: $booking.thirdPaymentAmount, placeholder: "Enter Cost", icon: "indianrupeesign", keyboard: .decimalPad)
+                DirectBookingTextField(
+                    "3rd Payment Amount *",
+                    text: trackedPaymentAmountBinding(\.thirdPaymentAmount) {
+                        thirdPaymentAmountEdited = true
+                    },
+                    placeholder: "Enter Cost",
+                    icon: "indianrupeesign",
+                    keyboard: .decimalPad
+                )
                 DirectBookingDateField("3rd Payment Date *", text: $booking.thirdPaymentDate, maxDate: paymentDateLimit(days: paymentPlanDays))
-                DirectBookingTextField("4th Payment Amount *", text: $booking.fourthPaymentAmount, placeholder: "Enter Cost", icon: "indianrupeesign", keyboard: .decimalPad)
+                DirectBookingTextField(
+                    "4th Payment Amount *",
+                    text: trackedPaymentAmountBinding(\.fourthPaymentAmount) {
+                        fourthPaymentAmountEdited = true
+                    },
+                    placeholder: "Enter Cost",
+                    icon: "indianrupeesign",
+                    keyboard: .decimalPad
+                )
                 DirectBookingDateField("4th Payment Date *", text: $booking.fourthPaymentDate, maxDate: paymentDateLimit(days: paymentPlanDays))
             }
             DirectBookingDateField("Preferred Registration Date *", text: $booking.preferredRegistrationDate)
@@ -1783,6 +2153,7 @@ struct BookingCreateView: View {
     private func loadStaff() async {
         guard let token = authStore.currentSession?.token else { return }
         staff = ((try? await HRConvexAPIService.listAllStaff(token: token)) ?? []).filter(\.isActive)
+        applyOriginalStaffDefaults(seedStaffId: selectedLead?.assignedToStaffId)
     }
 
     @MainActor
@@ -2239,10 +2610,17 @@ struct BookingCreateView: View {
         booking.pattaCharges = fields.pattaCharges.map(DirectBookingDraft.amountInputText) ?? booking.pattaCharges
         booking.otherCharges = fields.otherCharges.map(DirectBookingDraft.amountInputText) ?? booking.otherCharges
         booking.advanceAmount = fields.advanceAmount.map(DirectBookingDraft.amountInputText) ?? booking.advanceAmount
+        allotmentAmountEdited = false
         booking.allotmentDueAmount = fields.allotmentDueAmount.map(DirectBookingDraft.amountInputText) ?? booking.allotmentDueAmount
         booking.allotmentDueDate = fields.allotmentDueDate?.directBookingNilIfBlank ?? booking.allotmentDueDate
 
         let schedules = prefill.schedules
+        secondPaymentAmountEdited = false
+        thirdPaymentAmountEdited = false
+        fourthPaymentAmountEdited = false
+        lastAutoSecondPaymentAmount = ""
+        lastAutoThirdPaymentAmount = ""
+        lastAutoFourthPaymentAmount = ""
         booking.secondPaymentAmount = ""
         booking.secondPaymentDate = schedules[safe: 0]?.dueDate?.directBookingNilIfBlank ?? ""
         booking.thirdPaymentAmount = ""
@@ -2255,6 +2633,7 @@ struct BookingCreateView: View {
                 dueDate: schedules.first?.dueDate?.directBookingNilIfBlank ?? ""
             )
         ]
+        recalculatePaymentFields()
     }
 
     @MainActor
@@ -2466,6 +2845,7 @@ struct BookingCreateView: View {
     @MainActor
     private func applyLead(_ lead: TelecallerLeadSearchData) {
         selectedLead = lead
+        applyOriginalStaffDefaults(seedStaffId: lead.assignedToStaffId)
         if booking.name.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
             booking.name = lead.displayName
         }
@@ -2570,7 +2950,19 @@ struct BookingCreateView: View {
         booking.aadhaar.directBookingFillIfBlank(
             with: client.aadhaar.map { String($0.filter(\.isNumber).prefix(12)) }
         )
+        booking.aadhaarDocumentStorageId.directBookingFillIfBlank(
+            with: client.aadhaarDocumentStorageId
+        )
+        booking.aadhaarDocumentFileName.directBookingFillIfBlank(
+            with: client.aadhaarDocumentFileName
+        )
         booking.pan.directBookingFillIfBlank(with: client.pan?.uppercased())
+        booking.panDocumentStorageId.directBookingFillIfBlank(
+            with: client.panDocumentStorageId
+        )
+        booking.panDocumentFileName.directBookingFillIfBlank(
+            with: client.panDocumentFileName
+        )
         booking.referenceName1.directBookingFillIfBlank(with: client.referenceName1)
         booking.referenceMobile1.directBookingFillIfBlank(with: client.referenceMobile1)
         booking.referenceProfession1.directBookingFillIfBlank(with: client.referenceProfession1)
@@ -2581,6 +2973,37 @@ struct BookingCreateView: View {
         if booking.isAgainstSV {
             booking.svName.directBookingFillIfBlank(with: client.clientName)
             booking.svMobileNo.directBookingFillIfBlank(with: client.mobileNumber)
+        }
+    }
+
+    @MainActor
+    private func applyOriginalStaffDefaults(seedStaffId: String?) {
+        guard !staff.isEmpty, let seedStaffId = seedStaffId?.directBookingNilIfBlank else { return }
+        let staffById = Dictionary(uniqueKeysWithValues: staff.map { ($0.id, $0) })
+        var cursor: String? = seedStaffId
+        var seen = Set<String>()
+        var depth = 0
+
+        while let id = cursor, !seen.contains(id), depth < 12 {
+            seen.insert(id)
+            guard let member = staffById[id] else { break }
+            if booking.originalTelecallerStaffId.isEmpty, member.matchesOriginalBookingRole(.telecaller) {
+                booking.originalTelecallerStaffId = member.id
+            }
+            if booking.originalBdoStaffId.isEmpty, member.matchesOriginalBookingRole(.bdo) {
+                booking.originalBdoStaffId = member.id
+            }
+            if booking.originalSeniorManagerStaffId.isEmpty, member.matchesOriginalBookingRole(.seniorManager) {
+                booking.originalSeniorManagerStaffId = member.id
+            }
+            if booking.originalGmStaffId.isEmpty, member.matchesOriginalBookingRole(.generalManager) {
+                booking.originalGmStaffId = member.id
+            }
+            if booking.originalAvpStaffId.isEmpty, member.matchesOriginalBookingRole(.avp) {
+                booking.originalAvpStaffId = member.id
+            }
+            cursor = member.reportingTo?.directBookingNilIfBlank
+            depth += 1
         }
     }
 
@@ -2715,11 +3138,9 @@ struct BookingCreateView: View {
 
     private func requiredClientAddressValidation() -> BookingValidationIssue? {
         firstMissingRequired([
-            ("Home Address — Door No", booking.homeDoorNo),
-            ("Home Address — Street Name", booking.homeStreetName),
+            ("Home Address", booking.composedHomeAddress ?? ""),
             ("Pincode", booking.pincode),
-            ("District", booking.district),
-            ("Home Address — Address Line 1", booking.homeAddressLine1)
+            ("District", booking.district)
         ], tab: .client)
     }
 
@@ -2729,9 +3150,7 @@ struct BookingCreateView: View {
             ("Designation", booking.designation),
             ("Income Per Annum", booking.incomePerAnnum),
             ("Office Name", booking.officeName),
-            ("Office Door No", booking.officeDoorNo),
-            ("Office Street Name", booking.officeStreetName),
-            ("Office Address Line 1", booking.officeAddressLine1)
+            ("Office / Alternate Address", booking.composedOfficeAddress ?? "")
         ], tab: .client)
     }
 
@@ -2878,6 +3297,13 @@ struct BookingCreateView: View {
 
     private func paymentAmountValidation() -> BookingValidationIssue? {
         let advanceAmount = Double(booking.advanceAmount) ?? 0
+        if let minimumAllotmentAmount,
+           booking.numericAmount(booking.allotmentDueAmount) < minimumAllotmentAmount {
+            return (
+                "Allotment Due Amount must be at least \(AppModuleFormatters.rupees(minimumAllotmentAmount.rounded()))",
+                .paymentStaff
+            )
+        }
         if let minimumAdvanceAmount = configuredMinimumAdvance,
            advanceAmount < minimumAdvanceAmount {
             return ("Advance must be at least \(AppModuleFormatters.rupees(minimumAdvanceAmount)) as set in Project Details", .bookingFinance)
@@ -2897,18 +3323,90 @@ struct BookingCreateView: View {
                 return ("Advance cannot exceed the Customer Payable Amount after excluding the bank loan", .bookingFinance)
             }
         }
+        let customerBalanceAfterAdvance = max(
+            (booking.customerPayableAmount ?? 0)
+                - advanceAmount
+                - booking.conversionCreditAmount,
+            0
+        )
+        if booking.numericAmount(booking.allotmentDueAmount) > customerBalanceAfterAdvance {
+            return (
+                "Allotment payment cannot exceed the remaining Customer Payable Amount",
+                .paymentStaff
+            )
+        }
+        if let projectAllotmentDays,
+           let days = paymentDays(from: booking.allotmentDueDate),
+           days > projectAllotmentDays {
+            return (
+                "Allotment Due Date cannot exceed \(projectAllotmentDays) days from booking date",
+                .paymentStaff
+            )
+        }
         return nil
     }
 
     private func paymentScheduleValidation() -> BookingValidationIssue? {
-        if !booking.freePayment {
+        let outstanding = outstandingAfterAllotment ?? 0
+        let scheduledAmount = usesDynamicPaymentSchedule
+            ? dynamicScheduledPaymentAmount
+            : standardScheduledPaymentAmount
+        if scheduledAmount > outstanding + 0.01 {
+            return (
+                "Payment schedule cannot exceed \(AppModuleFormatters.rupees(outstanding.rounded()))",
+                .paymentStaff
+            )
+        }
+
+        if booking.customerPaymentCategory == "A"
+            && (!booking.freePayment || booking.saveAs == .confirmed) {
+            if outstanding > 0 {
+                if let _ = booking.flexiPaymentRows.first(where: {
+                    $0.amount.directBookingNilIfBlank == nil || $0.dueDate.directBookingNilIfBlank == nil
+                }) {
+                    return ("Every self-cash payment requires both an amount and a date", .paymentStaff)
+                }
+                if booking.flexiPaymentRows.contains(where: { booking.numericAmount($0.amount) <= 0 }) {
+                    return ("Every self-cash payment amount must be greater than zero", .paymentStaff)
+                }
+            }
+            if booking.saveAs == .confirmed, abs(scheduledAmount - outstanding) > 0.01 {
+                return (
+                    "Payment schedule must total \(AppModuleFormatters.rupees(outstanding.rounded()))",
+                    .paymentStaff
+                )
+            }
+        }
+
+        if !usesDynamicPaymentSchedule {
             let schedule = [
-                ("2nd Payment", booking.secondPaymentAmount, booking.secondPaymentDate),
-                ("3rd Payment", booking.thirdPaymentAmount, booking.thirdPaymentDate),
-                ("4th Payment", booking.fourthPaymentAmount, booking.fourthPaymentDate)
+                ("2nd Payment", booking.secondPaymentAmount, booking.secondPaymentDate, outstanding > 0),
+                ("3rd Payment", booking.thirdPaymentAmount, booking.thirdPaymentDate, needsThirdPayment),
+                ("4th Payment", booking.fourthPaymentAmount, booking.fourthPaymentDate, needsFourthPayment)
             ]
-            if let incomplete = schedule.first(where: { $0.1.directBookingNilIfBlank == nil || $0.2.directBookingNilIfBlank == nil }) {
+            if let incomplete = schedule.first(where: {
+                $0.3 && ($0.1.directBookingNilIfBlank == nil || $0.2.directBookingNilIfBlank == nil)
+            }) {
                 return ("\(incomplete.0) amount and date are required", .paymentStaff)
+            }
+            if let invalid = schedule.first(where: {
+                $0.3 && (paymentDays(from: $0.2) ?? 0) > paymentPlanDays
+            }) {
+                return (
+                    "\(booking.normalizedPaymentPlan) plan \(invalid.0.lowercased()) date cannot exceed \(paymentPlanDays) days",
+                    .paymentStaff
+                )
+            }
+        } else {
+            let maximumDays = booking.freePayment ? projectScheduleMaxDays : paymentPlanDays
+            if maximumDays > 0,
+               booking.flexiPaymentRows.contains(where: {
+                   (paymentDays(from: $0.dueDate) ?? 0) > maximumDays
+               }) {
+                return (
+                    "Payment dates cannot exceed \(maximumDays) days from booking",
+                    .paymentStaff
+                )
             }
         }
         return nil
@@ -3129,6 +3627,11 @@ struct BookingCreateView: View {
         let base = AppModuleFormatters.ymd.date(from: booking.bookingDate) ?? Date()
         return Calendar.current.date(byAdding: .day, value: days, to: base)
     }
+
+    private var dynamicPaymentDateLimit: Date? {
+        let maximumDays = booking.freePayment ? projectScheduleMaxDays : paymentPlanDays
+        return maximumDays > 0 ? paymentDateLimit(days: maximumDays) : nil
+    }
 }
 
 private enum DirectBookingTab: String, CaseIterable, Identifiable {
@@ -3166,6 +3669,43 @@ private enum DirectBookingStaffField: String, Identifiable {
     }
 }
 
+private extension ConvexStaffListItem {
+    func matchesOriginalBookingRole(_ role: DirectBookingStaffField) -> Bool {
+        let designation = (designation ?? "").trimmingCharacters(in: .whitespacesAndNewlines).lowercased()
+        let department = (department ?? "").trimmingCharacters(in: .whitespacesAndNewlines).lowercased()
+        let matches: (String) -> Bool = {
+            designation.range(of: $0, options: .regularExpression) != nil
+        }
+        let isGM = {
+            if matches(#"assistant\s+general\s+manager|asst\.?\s*general\s+manager|\bagm\b"#) {
+                return true
+            }
+            if matches(#"senior\s+general\s+manager|\bsgm\b"#) { return false }
+            return matches(#"\bgm\b|general\s+manager"#)
+        }()
+        let isSeniorManager =
+            matches(#"senior\s+manager|\bsr\.?\s*manager\b"#)
+            && !matches(#"senior\s+general"#)
+
+        switch role {
+        case .avp:
+            return matches(#"\bavp\b|assistant\s+vice\s+president|vice\s+president|\bvp\b"#)
+                && !isGM && !isSeniorManager
+        case .generalManager:
+            return isGM
+        case .seniorManager:
+            return isSeniorManager
+        case .bdo:
+            return !matches(#"senior\s+business\s+development\s+executive"#)
+                && matches(#"\bbdo\b|business\s+development\s+executive"#)
+        case .telecaller:
+            return matches(#"\btelesales\b|lead\s+management\s+(executive|officer)|\blm[eo]\b"#)
+                || department == "telesales"
+                || department.contains("telesales")
+        }
+    }
+}
+
 private enum DirectBookingUploadKind {
     case advanceProof
     case aadhaar
@@ -3181,6 +3721,22 @@ private enum DirectBookingSaveAs: String, Codable, Hashable {
 private struct DirectBookingPaymentDraft: Codable, Equatable, Sendable {
     var amount = ""
     var dueDate = ""
+}
+
+private extension Array where Element == DirectBookingPaymentDraft {
+    mutating func rebalanceFinalPayment(to outstanding: Double) {
+        if isEmpty { append(DirectBookingPaymentDraft()) }
+        let earlierTotal = dropLast().reduce(0) { partial, row in
+            partial + Swift.max(Double(row.amount) ?? 0, 0)
+        }
+        let finalAmount = Swift.max(outstanding - earlierTotal, 0)
+        let next = finalAmount > 0
+            ? DirectBookingDraft.amountInputText(finalAmount.rounded())
+            : ""
+        if self[count - 1].amount != next {
+            self[count - 1].amount = next
+        }
+    }
 }
 
 private struct DirectBookingFieldLabel: View {
@@ -3499,12 +4055,14 @@ private struct DirectBookingDraft: Codable, Equatable, Sendable {
         return max(payableAmountForBooking - bankLoan, 0)
     }
 
+    var conversionCreditAmount: Double {
+        guard bookingType == "CONVERSION" else { return 0 }
+        return numericAmount(conversionManualEntry ? manualConversionCredit : (linkedConversionCredit ?? ""))
+    }
+
     var balanceAfterAdvance: Double? {
         guard let payableAmountForBooking else { return nil }
-        let conversionCredit = bookingType == "CONVERSION"
-            ? numericAmount(conversionManualEntry ? manualConversionCredit : (linkedConversionCredit ?? ""))
-            : 0
-        return max(payableAmountForBooking - numericAmount(advanceAmount) - conversionCredit, 0)
+        return max(payableAmountForBooking - numericAmount(advanceAmount) - conversionCreditAmount, 0)
     }
 
     var isEmpty: Bool {
@@ -3531,7 +4089,8 @@ private struct DirectBookingDraft: Codable, Equatable, Sendable {
         let isOnlinePayment = ["UPI", "NEFT", "RTGS"].contains(bookingMode)
         let isInstrumentPayment = ["CHEQUE", "DD"].contains(bookingMode)
         let includesPaymentProof = isOnlinePayment || bookingMode == "CHEQUE"
-        let flexiSchedule = freePayment
+        let usesDynamicPaymentSchedule = freePayment || category == "A"
+        let flexiSchedule = usesDynamicPaymentSchedule
             ? flexiPaymentRows.compactMap { row -> BookingPaymentScheduleItem? in
                 guard let amount = Double(row.amount), let dueDate = row.dueDate.directBookingNilIfBlank else { return nil }
                 return BookingPaymentScheduleItem(amount: amount, dueDate: dueDate)
@@ -3623,12 +4182,12 @@ private struct DirectBookingDraft: Codable, Equatable, Sendable {
             freePayment: plan == "Flexi",
             allotmentDueAmount: Double(allotmentDueAmount),
             allotmentDueDate: allotmentDueDate.directBookingNilIfBlank,
-            secondPaymentAmount: freePayment ? flexiSchedule.first?.amount : Double(secondPaymentAmount),
-            secondPaymentDate: freePayment ? flexiSchedule.first?.dueDate : secondPaymentDate.directBookingNilIfBlank,
-            thirdPaymentAmount: freePayment ? flexiSchedule.dropFirst().first?.amount : Double(thirdPaymentAmount),
-            thirdPaymentDate: freePayment ? flexiSchedule.dropFirst().first?.dueDate : thirdPaymentDate.directBookingNilIfBlank,
-            fourthPaymentAmount: freePayment ? flexiSchedule.dropFirst(2).first?.amount : Double(fourthPaymentAmount),
-            fourthPaymentDate: freePayment ? flexiSchedule.dropFirst(2).first?.dueDate : fourthPaymentDate.directBookingNilIfBlank,
+            secondPaymentAmount: usesDynamicPaymentSchedule ? flexiSchedule.first?.amount : Double(secondPaymentAmount),
+            secondPaymentDate: usesDynamicPaymentSchedule ? flexiSchedule.first?.dueDate : secondPaymentDate.directBookingNilIfBlank,
+            thirdPaymentAmount: usesDynamicPaymentSchedule ? flexiSchedule.dropFirst().first?.amount : Double(thirdPaymentAmount),
+            thirdPaymentDate: usesDynamicPaymentSchedule ? flexiSchedule.dropFirst().first?.dueDate : thirdPaymentDate.directBookingNilIfBlank,
+            fourthPaymentAmount: usesDynamicPaymentSchedule ? flexiSchedule.dropFirst(2).first?.amount : Double(fourthPaymentAmount),
+            fourthPaymentDate: usesDynamicPaymentSchedule ? flexiSchedule.dropFirst(2).first?.dueDate : fourthPaymentDate.directBookingNilIfBlank,
             flexiPaymentSchedule: flexiSchedule.isEmpty ? nil : flexiSchedule,
             preferredRegistrationDate: preferredRegistrationDate.directBookingNilIfBlank,
             originalAvpStaffId: originalAvpStaffId.directBookingNilIfBlank,

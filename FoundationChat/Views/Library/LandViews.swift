@@ -12,8 +12,11 @@ struct LandInspectionView: View {
     @State private var isLoading = false
     @State private var hasLoaded = false
     @State private var errorMessage: String?
+    @State private var viewingInspection: LandInspection?
     @State private var editingInspection: LandInspection?
     @State private var reschedulingInspection: LandInspection?
+    @State private var inspectionToEditAfterDetails: LandInspection?
+    @State private var inspectionToRescheduleAfterDetails: LandInspection?
     @State private var showingDateFilter = false
     @State private var acceptingInspectionIDs: Set<String> = []
     @State private var actionMessage: String?
@@ -67,6 +70,25 @@ struct LandInspectionView: View {
             }
             .appLibraryNativeSheet([.height(470)])
             .presentationBackground(Color.white)
+        }
+        .sheet(item: $viewingInspection, onDismiss: presentPendingInspectionAction) { inspection in
+            LandIdentificationDetailsSheet(
+                inspection: inspection,
+                onFillInspection: inspection.canOpenInspectionForm ? {
+                    inspectionToEditAfterDetails = inspection
+                    viewingInspection = nil
+                } : nil,
+                onReschedule: inspection.showsPendingActions ? {
+                    inspectionToRescheduleAfterDetails = inspection
+                    viewingInspection = nil
+                } : nil,
+                onAccept: inspection.showsPendingActions ? {
+                    viewingInspection = nil
+                    Task { await accept(inspection) }
+                } : nil
+            )
+            .appLibraryNativeSheet([.height(650), .large])
+            .presentationBackground(Color(.systemGroupedBackground))
         }
         .sheet(item: $editingInspection) { inspection in
             LandInspectionSheet(inspection: inspection) {
@@ -280,10 +302,16 @@ struct LandInspectionView: View {
     }
 
     private func handleCardTap(_ inspection: LandInspection) {
-        if inspection.canOpenInspectionForm {
+        viewingInspection = inspection
+    }
+
+    private func presentPendingInspectionAction() {
+        if let inspection = inspectionToEditAfterDetails {
+            inspectionToEditAfterDetails = nil
             editingInspection = inspection
-        } else {
-            actionMessage = "Accept the inspection before filling the form."
+        } else if let inspection = inspectionToRescheduleAfterDetails {
+            inspectionToRescheduleAfterDetails = nil
+            reschedulingInspection = inspection
         }
     }
 
@@ -372,6 +400,39 @@ private extension LandInspection {
         "\(inspectionAreaLabel) • \(inspectionFormattedDate)"
     }
 
+    var googleMapsURL: URL? {
+        if let latitude, let longitude,
+           (-90...90).contains(latitude), (-180...180).contains(longitude) {
+            return URL(string: "https://www.google.com/maps/search/?api=1&query=\(latitude),\(longitude)")
+        }
+
+        guard let value = (googleMapsLink ?? latLong)?.landNilIfBlank else { return nil }
+        if let url = URL(string: value),
+           let scheme = url.scheme?.lowercased(),
+           scheme == "https" || scheme == "http" {
+            return url
+        }
+
+        let coordinateParts = value
+            .split(separator: ",", maxSplits: 1)
+            .map { $0.trimmingCharacters(in: .whitespacesAndNewlines) }
+        if coordinateParts.count == 2,
+           let latitude = Double(coordinateParts[0]),
+           let longitude = Double(coordinateParts[1]),
+           (-90...90).contains(latitude), (-180...180).contains(longitude) {
+            return URL(string: "https://www.google.com/maps/search/?api=1&query=\(latitude),\(longitude)")
+        }
+
+        return URL(string: "https://\(value)")
+    }
+
+    var inspectionMapLink: String {
+        googleMapsLink?.landNilIfBlank
+            ?? latLong?.landNilIfBlank
+            ?? googleMapsURL?.absoluteString
+            ?? ""
+    }
+
     var isRescheduleRequested: Bool {
         inspectionAcceptanceStatus == "date_change_requested"
     }
@@ -408,69 +469,81 @@ private struct LandInspectionRow: View {
 
     var body: some View {
         VStack(alignment: .leading, spacing: 12) {
-            HStack(spacing: 12) {
-                Image(systemName: "doc.text.magnifyingglass")
-                    .font(.system(size: 20, weight: .semibold))
-                    .foregroundStyle(.white)
-                    .frame(width: 44, height: 44)
-                    .background(
-                        LinearGradient(
-                            colors: [Color(hex: 0x0B61CA), Color(hex: 0x3B82F6)],
-                            startPoint: .topLeading,
-                            endPoint: .bottomTrailing
-                        ),
-                        in: Circle()
-                    )
+            Button(action: onOpen) {
+                VStack(alignment: .leading, spacing: 12) {
+                    HStack(spacing: 12) {
+                        Image(systemName: "doc.text.magnifyingglass")
+                            .font(.system(size: 20, weight: .semibold))
+                            .foregroundStyle(.white)
+                            .frame(width: 44, height: 44)
+                            .background(
+                                LinearGradient(
+                                    colors: [Color(hex: 0x0B61CA), Color(hex: 0x3B82F6)],
+                                    startPoint: .topLeading,
+                                    endPoint: .bottomTrailing
+                                ),
+                                in: Circle()
+                            )
 
-                VStack(alignment: .leading, spacing: 4) {
-                    Text(inspection.title)
-                        .font(.system(size: 15, weight: .semibold))
-                        .foregroundStyle(Color(hex: 0x101828))
-                        .lineLimit(1)
-                    Text(inspection.inspectionPhone)
-                        .font(.system(size: 12))
-                        .foregroundStyle(Color(hex: 0x9CA3AF))
-                        .lineLimit(1)
-                }
-                Spacer()
-                Text(inspection.inspectionStatusLabel)
-                    .font(.system(size: 11, weight: .semibold))
-                    .foregroundStyle(statusStyle.foreground)
-                    .padding(.horizontal, 12)
-                    .padding(.vertical, 6)
-                    .background(statusStyle.background, in: Capsule())
-            }
+                        VStack(alignment: .leading, spacing: 4) {
+                            Text(inspection.title)
+                                .font(.system(size: 15, weight: .semibold))
+                                .foregroundStyle(Color(hex: 0x101828))
+                                .lineLimit(1)
+                            Text(inspection.inspectionPhone)
+                                .font(.system(size: 12))
+                                .foregroundStyle(Color(hex: 0x9CA3AF))
+                                .lineLimit(1)
+                        }
+                        Spacer()
+                        Text(inspection.inspectionStatusLabel)
+                            .font(.system(size: 11, weight: .semibold))
+                            .foregroundStyle(statusStyle.foreground)
+                            .padding(.horizontal, 12)
+                            .padding(.vertical, 6)
+                            .background(statusStyle.background, in: Capsule())
+                    }
 
-            Divider()
-                .overlay(Color(hex: 0xF2F4F7))
+                    Divider()
+                        .overlay(Color(hex: 0xF2F4F7))
 
-            HStack(alignment: .center, spacing: 12) {
-                VStack(alignment: .leading, spacing: 8) {
-                    Label(inspection.inspectionAreaDateLabel, systemImage: "arrow.left.arrow.right")
-                        .font(.system(size: 12, weight: .medium))
-                        .foregroundStyle(Color(hex: 0x475467))
-                        .lineLimit(1)
+                    HStack(alignment: .center, spacing: 12) {
+                        VStack(alignment: .leading, spacing: 8) {
+                            Label(inspection.inspectionAreaDateLabel, systemImage: "arrow.left.arrow.right")
+                                .font(.system(size: 12, weight: .medium))
+                                .foregroundStyle(Color(hex: 0x475467))
+                                .lineLimit(1)
 
-                    Label(inspection.inspectionPlace, systemImage: "mappin")
-                        .font(.system(size: 11, weight: .semibold))
-                        .foregroundStyle(Color(hex: 0x065F46))
-                        .lineLimit(1)
-                        .padding(.horizontal, 10)
-                        .padding(.vertical, 5)
-                        .background(Color(hex: 0xDFF7E8), in: Capsule())
-                }
-                Spacer()
+                            Label(inspection.inspectionPlace, systemImage: "mappin")
+                                .font(.system(size: 11, weight: .semibold))
+                                .foregroundStyle(Color(hex: 0x065F46))
+                                .lineLimit(1)
+                                .padding(.horizontal, 10)
+                                .padding(.vertical, 5)
+                                .background(Color(hex: 0xDFF7E8), in: Capsule())
+                        }
+                        Spacer()
 
-                if inspection.showsOpenArrow {
-                    Button(action: onOpen) {
                         Image(systemName: "arrow.right")
                             .font(.system(size: 18, weight: .bold))
                             .foregroundStyle(Color(hex: 0x0B61CA))
                             .frame(width: 44, height: 44)
                             .background(Color(hex: 0xEAF3FF), in: Circle())
                     }
-                    .buttonStyle(.plain)
                 }
+            }
+            .buttonStyle(.plain)
+
+            if let mapURL = inspection.googleMapsURL {
+                Link(destination: mapURL) {
+                    Label("Open in Google Maps", systemImage: "map.fill")
+                        .font(.system(size: 13, weight: .semibold))
+                        .foregroundStyle(Color(hex: 0x0B61CA))
+                        .frame(maxWidth: .infinity, minHeight: 44)
+                        .background(Color(hex: 0xEAF3FF), in: RoundedRectangle(cornerRadius: 12))
+                }
+                .buttonStyle(.plain)
+                .padding(.horizontal, 4)
             }
 
             actionRow
@@ -481,7 +554,6 @@ private struct LandInspectionRow: View {
         .shadow(color: .black.opacity(0.04), radius: 5, y: 1)
         .padding(.vertical, 8)
         .contentShape(Rectangle())
-        .onTapGesture(perform: onOpen)
     }
 
     @ViewBuilder
@@ -552,6 +624,247 @@ private struct LandInspectionRow: View {
         default:
             return (Color(hex: 0x991B1B), Color(hex: 0xFEE2E2))
         }
+    }
+}
+
+private struct LandIdentificationDetailsSheet: View {
+    @Environment(\.dismiss) private var dismiss
+
+    let inspection: LandInspection
+    let onFillInspection: (() -> Void)?
+    let onReschedule: (() -> Void)?
+    let onAccept: (() -> Void)?
+
+    var body: some View {
+        NavigationStack {
+            ScrollView {
+                VStack(alignment: .leading, spacing: 14) {
+                    summaryCard
+                    detailsSection("Property Information", systemImage: "building.2") {
+                        detailRow("Reference No.", inspection.referenceNo)
+                        detailRow("Property Name", inspection.propertyName)
+                        detailRow("Property Type", displayValue(inspection.propertyType))
+                        detailRow("Sub Type", inspection.subType)
+                        detailRow("Survey No.", inspection.surveyNo)
+                        detailRow("Owner", inspection.ownerName)
+                        detailRow("Customer Number", inspection.customerNumber ?? inspection.referrerContact)
+                        detailRow("Inspection Date", inspection.inspectionFormattedDate)
+                    }
+
+                    detailsSection("Address", systemImage: "mappin.and.ellipse") {
+                        detailRow("Full Address", identificationAddress)
+                        detailRow("Door No.", inspection.doorNo)
+                        detailRow("Locality", inspection.locality)
+                        detailRow("Village", inspection.village)
+                        detailRow("Taluk", inspection.taluk)
+                        detailRow("District", inspection.district)
+                        detailRow("City", inspection.city)
+                        detailRow("State", inspection.state)
+                        detailRow("Pincode", inspection.pincode)
+                    }
+
+                    detailsSection("Area & Cost", systemImage: "ruler") {
+                        detailRow("Total Area", areaValue)
+                        detailRow("Cost Per Unit", costValue)
+                        detailRow("Payment Terms", displayValue(inspection.paymentTerms))
+                        detailRow("JV Ratio", inspection.jvRatio)
+                    }
+
+                    if hasLeadSourceDetails {
+                        detailsSection("Lead Source", systemImage: "person.crop.circle.badge.questionmark") {
+                            detailRow("Source", displayValue(inspection.leadSource))
+                            detailRow("Detail", inspection.leadSourceDetail)
+                            detailRow("Referrer", inspection.referrerName)
+                            detailRow("Contact", inspection.referrerContact)
+                        }
+                    }
+
+                    if let mapURL = inspection.googleMapsURL {
+                        Link(destination: mapURL) {
+                            HStack(spacing: 12) {
+                                Image(systemName: "map.fill")
+                                    .font(.system(size: 18, weight: .semibold))
+                                VStack(alignment: .leading, spacing: 2) {
+                                    Text("Open in Google Maps")
+                                        .font(.system(size: 15, weight: .semibold))
+                                    Text(inspection.inspectionMapLink)
+                                        .font(.system(size: 11))
+                                        .lineLimit(1)
+                                        .opacity(0.8)
+                                }
+                                Spacer()
+                                Image(systemName: "arrow.up.right")
+                                    .font(.system(size: 14, weight: .bold))
+                            }
+                            .foregroundStyle(Color(hex: 0x0B61CA))
+                            .padding(14)
+                            .background(Color(hex: 0xEAF3FF), in: RoundedRectangle(cornerRadius: 14))
+                        }
+                        .buttonStyle(.plain)
+                    }
+
+                    actionButtons
+                }
+                .padding(16)
+                .padding(.bottom, 16)
+            }
+            .background(Color(.systemGroupedBackground))
+            .navigationTitle("Identification Details")
+            .navigationBarTitleDisplayMode(.inline)
+            .toolbar {
+                ToolbarItem(placement: .confirmationAction) {
+                    Button("Done") { dismiss() }
+                }
+            }
+        }
+    }
+
+    private var summaryCard: some View {
+        HStack(spacing: 12) {
+            Image(systemName: "doc.text.magnifyingglass")
+                .font(.system(size: 22, weight: .semibold))
+                .foregroundStyle(.white)
+                .frame(width: 48, height: 48)
+                .background(Color(hex: 0x0B61CA), in: Circle())
+
+            VStack(alignment: .leading, spacing: 4) {
+                Text(inspection.title)
+                    .font(.system(size: 17, weight: .bold))
+                    .foregroundStyle(Color(hex: 0x101828))
+                Text(inspection.inspectionPlace)
+                    .font(.system(size: 13))
+                    .foregroundStyle(.secondary)
+                    .lineLimit(2)
+            }
+            Spacer()
+            Text(inspection.inspectionStatusLabel)
+                .font(.system(size: 11, weight: .semibold))
+                .foregroundStyle(Color(hex: 0x0B61CA))
+                .padding(.horizontal, 10)
+                .padding(.vertical, 6)
+                .background(Color(hex: 0xEAF3FF), in: Capsule())
+        }
+        .padding(14)
+        .background(Color.white, in: RoundedRectangle(cornerRadius: 16))
+    }
+
+    @ViewBuilder
+    private func detailsSection<Content: View>(
+        _ title: String,
+        systemImage: String,
+        @ViewBuilder content: () -> Content
+    ) -> some View {
+        VStack(alignment: .leading, spacing: 0) {
+            Label(title, systemImage: systemImage)
+                .font(.system(size: 15, weight: .bold))
+                .foregroundStyle(Color(hex: 0x101828))
+                .padding(.bottom, 10)
+            content()
+        }
+        .padding(14)
+        .background(Color.white, in: RoundedRectangle(cornerRadius: 16))
+    }
+
+    @ViewBuilder
+    private func detailRow(_ label: String, _ value: String?) -> some View {
+        if let value = value?.landNilIfBlank {
+            HStack(alignment: .top, spacing: 12) {
+                Text(label)
+                    .font(.system(size: 13))
+                    .foregroundStyle(.secondary)
+                    .frame(width: 112, alignment: .leading)
+                Text(value)
+                    .font(.system(size: 13, weight: .semibold))
+                    .foregroundStyle(Color(hex: 0x111827))
+                    .frame(maxWidth: .infinity, alignment: .leading)
+                    .textSelection(.enabled)
+            }
+            .padding(.vertical, 7)
+            Divider()
+                .overlay(Color.black.opacity(0.05))
+        }
+    }
+
+    @ViewBuilder
+    private var actionButtons: some View {
+        if let onFillInspection {
+            Button(action: onFillInspection) {
+                Label("Open Inspection Form", systemImage: "square.and.pencil")
+                    .font(.system(size: 15, weight: .semibold))
+                    .foregroundStyle(.white)
+                    .frame(maxWidth: .infinity, minHeight: 50)
+                    .background(Color(hex: 0x0B61CA), in: RoundedRectangle(cornerRadius: 14))
+            }
+            .buttonStyle(.plain)
+        } else if onAccept != nil || onReschedule != nil {
+            HStack(spacing: 10) {
+                if let onReschedule {
+                    Button(action: onReschedule) {
+                        Label("Reschedule", systemImage: "calendar.badge.clock")
+                            .font(.system(size: 14, weight: .semibold))
+                            .foregroundStyle(Color(hex: 0x16A34A))
+                            .frame(maxWidth: .infinity, minHeight: 50)
+                            .background(Color.white, in: RoundedRectangle(cornerRadius: 14))
+                            .overlay(
+                                RoundedRectangle(cornerRadius: 14)
+                                    .stroke(Color(hex: 0x16A34A), lineWidth: 1)
+                            )
+                    }
+                    .buttonStyle(.plain)
+                }
+                if let onAccept {
+                    Button(action: onAccept) {
+                        Label("Accept", systemImage: "checkmark")
+                            .font(.system(size: 14, weight: .semibold))
+                            .foregroundStyle(.white)
+                            .frame(maxWidth: .infinity, minHeight: 50)
+                            .background(Color(hex: 0x08BE00), in: RoundedRectangle(cornerRadius: 14))
+                    }
+                    .buttonStyle(.plain)
+                }
+            }
+        }
+    }
+
+    private var identificationAddress: String? {
+        inspection.fullAddress?.landNilIfBlank
+            ?? inspection.location?.landNilIfBlank
+            ?? [
+                inspection.doorNo,
+                inspection.locality,
+                inspection.village,
+                inspection.taluk,
+                inspection.district,
+                inspection.city,
+                inspection.state,
+                inspection.pincode,
+            ]
+            .compactMap { $0?.landNilIfBlank }
+            .joined(separator: ", ")
+            .landNilIfBlank
+    }
+
+    private var areaValue: String? {
+        guard let totalArea = inspection.totalArea else { return nil }
+        let unit = inspection.areaUnit?.landNilIfBlank ?? ""
+        return "\(totalArea.formatted(.number.precision(.fractionLength(0...2)))) \(unit)".landNilIfBlank
+    }
+
+    private var costValue: String? {
+        guard let cost = inspection.approxCostPerUnit else { return nil }
+        let unit = inspection.costUnit?.landNilIfBlank.map { " / \($0)" } ?? ""
+        return "₹\(cost.formatted(.number.precision(.fractionLength(0...2))))\(unit)"
+    }
+
+    private var hasLeadSourceDetails: Bool {
+        [inspection.leadSource, inspection.leadSourceDetail, inspection.referrerName, inspection.referrerContact]
+            .contains { $0?.landNilIfBlank != nil }
+    }
+
+    private func displayValue(_ value: String?) -> String? {
+        value?.landNilIfBlank?
+            .replacingOccurrences(of: "_", with: " ")
+            .capitalized
     }
 }
 
@@ -682,7 +995,7 @@ private struct LandInspectionSheet: View {
         _siteLocation = State(initialValue: inspection.fullAddress ?? inspection.location ?? "")
         _exactLocation = State(initialValue: inspection.exactLocation ?? "")
         _landmark = State(initialValue: inspection.landmark ?? "")
-        _mapLink = State(initialValue: inspection.latLong ?? "")
+        _mapLink = State(initialValue: inspection.inspectionMapLink)
         _population = State(initialValue: inspection.population ?? "")
         _selectedRoadTypes = State(initialValue: Set((inspection.roadType ?? []).map { $0.lowercased() }))
         _accessWidth = State(initialValue: inspection.accessibilityWidth ?? "")
@@ -841,6 +1154,16 @@ private struct LandInspectionSheet: View {
             fieldCard("Exact Location", text: $exactLocation, placeholder: "Enter Exact Location", icon: "mappin.circle", required: true, axis: .vertical)
             fieldCard("Land Mark", text: $landmark, placeholder: "Enter Landmark", icon: "point.3.connected.trianglepath.dotted", required: true)
             fieldCard("Google Map Link", text: $mapLink, placeholder: "Paste Map Link", icon: "link", required: true)
+            if let mapURL = editableGoogleMapsURL {
+                Link(destination: mapURL) {
+                    Label("Open in Google Maps", systemImage: "map.fill")
+                        .font(.system(size: 14, weight: .semibold))
+                        .foregroundStyle(.white)
+                        .frame(maxWidth: .infinity, minHeight: 46)
+                        .background(Color(hex: 0x0B61CA), in: RoundedRectangle(cornerRadius: 12))
+                }
+                .buttonStyle(.plain)
+            }
             fieldCard("Populations", text: $population, placeholder: "Enter Population", icon: "person.2", required: true)
 
             optionCard(title: "Road Type", options: roadTypes, selection: $selectedRoadTypes)
@@ -1010,6 +1333,28 @@ private struct LandInspectionSheet: View {
             )
         }
         .frame(maxWidth: .infinity)
+    }
+
+    private var editableGoogleMapsURL: URL? {
+        let value = mapLink.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !value.isEmpty else { return inspection.googleMapsURL }
+        if let url = URL(string: value),
+           let scheme = url.scheme?.lowercased(),
+           scheme == "https" || scheme == "http" {
+            return url
+        }
+
+        let coordinateParts = value
+            .split(separator: ",", maxSplits: 1)
+            .map { $0.trimmingCharacters(in: .whitespacesAndNewlines) }
+        if coordinateParts.count == 2,
+           let latitude = Double(coordinateParts[0]),
+           let longitude = Double(coordinateParts[1]),
+           (-90...90).contains(latitude), (-180...180).contains(longitude) {
+            return URL(string: "https://www.google.com/maps/search/?api=1&query=\(latitude),\(longitude)")
+        }
+
+        return URL(string: "https://\(value)")
     }
 
     private func menuCard(_ label: String, selection: Binding<String>, options: [String], icon: String) -> some View {

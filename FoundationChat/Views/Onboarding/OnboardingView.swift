@@ -107,7 +107,7 @@ struct OnboardingView: View {
 
             Text(pages[currentPage].subtitle)
                 .font(.system(size: 14, weight: .medium))
-                .foregroundStyle(Color(red: 0.28, green: 0.33, blue: 0.40))
+                .foregroundStyle(.secondary)
                 .fixedSize(horizontal: false, vertical: true)
                 .animation(.none, value: currentPage)
 
@@ -158,16 +158,16 @@ struct OnboardingView: View {
         .padding(.horizontal, 24)
         .padding(.top, 28)
         .padding(.bottom, geo.safeAreaInsets.bottom + 20)
-        .background(.regularMaterial, in: RoundedRectangle(cornerRadius: 28, style: .continuous))
+        .background(.ultraThinMaterial, in: RoundedRectangle(cornerRadius: 28, style: .continuous))
         .overlay(
             RoundedRectangle(cornerRadius: 28, style: .continuous)
-                .strokeBorder(.white.opacity(0.35), lineWidth: 1)
+                .strokeBorder(Color.appSeparator, lineWidth: 1)
         )
     }
 
     @ViewBuilder
     private func titleText(page: OnboardingPage) -> some View {
-        Text("\(Text(page.titlePrefix).foregroundStyle(Color(red: 0.06, green: 0.09, blue: 0.16)))\(Text(page.titleHighlight).foregroundStyle(Color(red: 0.04, green: 0.38, blue: 0.79)))")
+        Text("\(Text(page.titlePrefix).foregroundStyle(.primary))\(Text(page.titleHighlight).foregroundStyle(Color.accentColor))")
     }
 
     private func handleNext() {
