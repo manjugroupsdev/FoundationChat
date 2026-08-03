@@ -11,6 +11,18 @@ extension Color {
             opacity: alpha
         )
     }
+
+    /// Shared semantic surfaces for the operational modules. These keep the
+    /// Android-inspired hierarchy while allowing iOS to follow the user's
+    /// light/dark appearance instead of painting permanent white cards.
+    static let appScreenBackground = Color(uiColor: .systemGroupedBackground)
+    static let appSurface = Color(uiColor: .secondarySystemGroupedBackground)
+    static let appElevatedSurface = Color(uiColor: .systemBackground)
+    static let appFieldBackground = Color(uiColor: .tertiarySystemGroupedBackground)
+    static let appSeparator = Color(uiColor: .separator)
+    static let appPrimaryText = Color(uiColor: .label)
+    static let appSecondaryText = Color(uiColor: .secondaryLabel)
+    static let appTertiaryText = Color(uiColor: .tertiaryLabel)
 }
 
 extension String {

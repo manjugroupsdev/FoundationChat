@@ -64,19 +64,36 @@ extension AuthUser {
   }
 
   var isExternalFleetPrincipal: Bool {
+    let marker = designation?
+      .trimmingCharacters(in: .whitespacesAndNewlines)
+      .lowercased()
+    return marker == "external fleet"
+      || marker == "external fleet staff"
+      || marker == "external fleet driver"
+      || role?.trimmingCharacters(in: .whitespacesAndNewlines).lowercased() == "agency_staff"
+  }
+
+  var isExternalFleetDriver: Bool {
     designation?
       .trimmingCharacters(in: .whitespacesAndNewlines)
-      .localizedCaseInsensitiveCompare("External Fleet") == .orderedSame
+      .localizedCaseInsensitiveCompare("External Fleet Driver") == .orderedSame
+  }
+
+  var isExternalFleetAgencyOperator: Bool {
+    let marker = designation?.trimmingCharacters(in: .whitespacesAndNewlines).lowercased()
+    return marker == "external fleet"
+      || marker == "external fleet staff"
+      || role?.trimmingCharacters(in: .whitespacesAndNewlines).lowercased() == "agency_staff"
   }
 
   var isFleetPortalMode: Bool {
-    isExternalFleetPrincipal || isFleetAdminDriver
+    isExternalFleetAgencyOperator || isFleetAdminDriver
   }
 
   var isFleetDriverMode: Bool {
-    return !isFleetAdminDriver && designation?
+    isExternalFleetDriver || (!isExternalFleetPrincipal && !isFleetAdminDriver && designation?
       .trimmingCharacters(in: .whitespacesAndNewlines)
-      .localizedCaseInsensitiveCompare("Driver") == .orderedSame
+      .localizedCaseInsensitiveCompare("Driver") == .orderedSame)
   }
 
   /// Mirrors Android `SessionManager.canViewVpDashboard()`.

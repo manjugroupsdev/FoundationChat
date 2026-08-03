@@ -7,7 +7,6 @@ struct ProfileView: View {
   @AppStorage("notification_sounds_enabled") private var notificationSoundsEnabled = true
   @AppStorage("mention_notifications_enabled") private var mentionNotificationsEnabled = true
   @AppStorage("app.language") private var languagePreference = ProfileLanguage.english.rawValue
-  @AppStorage("app.appearance") private var appearancePreference = ProfileAppearance.system.rawValue
 
   @State private var remotePhotoURL: URL?
   @State private var isPresentingEdit = false
@@ -16,10 +15,6 @@ struct ProfileView: View {
 
   private var selectedLanguage: ProfileLanguage {
     ProfileLanguage(rawValue: languagePreference) ?? .english
-  }
-
-  private var selectedAppearance: ProfileAppearance {
-    ProfileAppearance(rawValue: appearancePreference) ?? .system
   }
 
   var body: some View {
@@ -45,15 +40,6 @@ struct ProfileView: View {
             title: "Language",
             value: selectedLanguage.title,
             systemImage: "globe",
-            showsChevron: false
-          )
-
-          ProfileDivider()
-
-          ProfileMenuRow(
-            title: "Appearance",
-            value: selectedAppearance.title,
-            systemImage: selectedAppearance.systemImage,
             showsChevron: false
           )
 
@@ -246,46 +232,6 @@ enum ProfileLanguage: String, CaseIterable, Identifiable {
   }
 }
 
-enum ProfileAppearance: String, CaseIterable, Identifiable {
-  case system
-  case light
-  case dark
-
-  var id: String { rawValue }
-
-  var title: String {
-    switch self {
-    case .system: return "System"
-    case .light: return "Light"
-    case .dark: return "Dark"
-    }
-  }
-
-  var subtitle: String {
-    switch self {
-    case .system: return "Follow device setting"
-    case .light: return "Use light mode"
-    case .dark: return "Use dark mode"
-    }
-  }
-
-  var systemImage: String {
-    switch self {
-    case .system: return "circle.lefthalf.filled"
-    case .light: return "sun.max"
-    case .dark: return "moon"
-    }
-  }
-
-  var colorScheme: ColorScheme? {
-    switch self {
-    case .system: return nil
-    case .light: return .light
-    case .dark: return .dark
-    }
-  }
-}
-
 private struct SettingsDisclosureRow: View {
   let title: String
   let value: String
@@ -386,39 +332,6 @@ private struct LanguageSettingsView: View {
       }
     }
     .navigationTitle("Language")
-    .navigationBarTitleDisplayMode(.inline)
-    .toolbar {
-      ToolbarItem(placement: .cancellationAction) {
-        Button("Close") { dismiss() }
-      }
-    }
-  }
-}
-
-private struct AppearanceSettingsView: View {
-  @Environment(\.dismiss) private var dismiss
-  @Binding var selection: String
-
-  var body: some View {
-    List {
-      Section {
-        ForEach(ProfileAppearance.allCases) { appearance in
-          Button {
-            selection = appearance.rawValue
-            dismiss()
-          } label: {
-            PreferenceOptionRow(
-              title: appearance.title,
-              subtitle: appearance.subtitle,
-              systemImage: appearance.systemImage,
-              isSelected: selection == appearance.rawValue
-            )
-          }
-          .buttonStyle(.plain)
-        }
-      }
-    }
-    .navigationTitle("Appearance")
     .navigationBarTitleDisplayMode(.inline)
     .toolbar {
       ToolbarItem(placement: .cancellationAction) {

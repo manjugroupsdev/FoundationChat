@@ -36,9 +36,10 @@ enum FleetDispatchAPIService {
         let trips: [Item]?
         let vehicles: [Item]?
         let drivers: [Item]?
+        let staff: [Item]?
         let error: String?
 
-        var rows: [Item] { trips ?? vehicles ?? drivers ?? data ?? [] }
+        var rows: [Item] { trips ?? vehicles ?? drivers ?? staff ?? data ?? [] }
     }
 
     private struct MutationResponse: Decodable {
@@ -101,6 +102,52 @@ enum FleetDispatchAPIService {
         let status: String
     }
 
+    private struct TripRequest: Encodable { let siteVisitId: String }
+
+    private struct CompleteOfflineRequest: Encodable {
+        let siteVisitId: String
+        let fleetType: String?
+        let vehicleId: String?
+        let agencyName: String?
+        let packageAmount: Double?
+        let kmRate: Double?
+        let distanceKm: Double?
+        let driverName: String?
+        let driverPhone: String?
+        let beta: Double?
+        let beta2: Double?
+        let tollAmount: Double?
+        let hillCharge: Double?
+        let outstationCharge: Double?
+        let permitCharge: Double?
+        let permitTax: Double?
+        let standingCharge: Double?
+        let standingTimeMinutes: Int?
+        let standingWithAc: Bool?
+        let startKm: Double?
+        let endKm: Double?
+    }
+
+    private struct AgencyStaffRequest: Encodable {
+        let id: String?
+        let name: String?
+        let phone: String?
+        let whatsapp: String?
+        let status: String?
+    }
+
+    private struct SettingsResponse: Decodable {
+        let success: Bool
+        let settings: FleetAgencySettings?
+        let error: String?
+    }
+
+    private struct StorageResponse: Decodable {
+        let success: Bool
+        let storageId: String?
+        let error: String?
+    }
+
     private struct MMSDriverStatusRequest: Encodable {
         let actingStaffId: String
         let id: String
@@ -161,6 +208,114 @@ enum FleetDispatchAPIService {
             token: token,
             body: body
         )
+    }
+
+    static func unassign(token: String, scope: FleetDispatchScope, tripId: String) async throws {
+        try await mutate(
+            path: scope == .mms ? "/api/mms-fleet/dispatch/unassign" : "/api/travel-desk/trips/unallocate",
+            token: token,
+            body: TripRequest(siteVisitId: tripId)
+        )
+    }
+
+    static func completeOffline(
+        token: String,
+        scope: FleetDispatchScope,
+        tripId: String,
+        draft: FleetOfflineCompletionDraft
+    ) async throws {
+        try await mutate(
+            path: scope == .mms ? "/api/mms-fleet/dispatch/complete-offline" : "/api/travel-desk/trips/complete-offline",
+            token: token,
+            body: CompleteOfflineRequest(
+                siteVisitId: tripId,
+                fleetType: draft.fleetType,
+                vehicleId: draft.vehicleId,
+                agencyName: draft.agencyName,
+                packageAmount: draft.packageAmount,
+                kmRate: draft.kmRate,
+                distanceKm: draft.distanceKm,
+                driverName: draft.driverName,
+                driverPhone: draft.driverPhone,
+                beta: draft.beta,
+                beta2: draft.beta2,
+                tollAmount: draft.tollAmount,
+                hillCharge: draft.hillCharge,
+                outstationCharge: draft.outstationCharge,
+                permitCharge: draft.permitCharge,
+                permitTax: draft.permitTax,
+                standingCharge: draft.standingCharge,
+                standingTimeMinutes: draft.standingTimeMinutes,
+                standingWithAc: draft.standingWithAc,
+                startKm: draft.startKm,
+                endKm: draft.endKm
+            )
+        )
+    }
+
+    static func listAgencyStaff(token: String) async throws -> [FleetAgencyStaff] {
+        try await list(path: "/api/travel-desk/staff", token: token)
+    }
+
+    static func createAgencyStaff(token: String, name: String, phone: String, whatsapp: String?) async throws {
+        try await mutate(
+            path: "/api/travel-desk/staff/create",
+            token: token,
+            body: AgencyStaffRequest(id: nil, name: name, phone: phone, whatsapp: whatsapp, status: nil)
+        )
+    }
+
+    static func updateAgencyStaff(
+        token: String,
+        id: String,
+        name: String? = nil,
+        phone: String? = nil,
+        whatsapp: String? = nil,
+        status: String? = nil
+    ) async throws {
+        try await mutate(
+            path: "/api/travel-desk/staff/update",
+            token: token,
+            body: AgencyStaffRequest(id: id, name: name, phone: phone, whatsapp: whatsapp, status: status)
+        )
+    }
+
+    static func getAgencySettings(token: String) async throws -> FleetAgencySettings {
+        let data = try await request(path: "/api/travel-desk/settings", token: token)
+        let response = try await BackgroundJSONDecoder.decode(SettingsResponse.self, from: data)
+        guard response.success else {
+            throw FleetDispatchAPIError.server(statusCode: 200, message: response.error ?? "Failed to load fleet settings.")
+        }
+        return response.settings ?? .empty
+    }
+
+    static func updateAgencySettings(token: String, settings: FleetAgencySettings) async throws -> FleetAgencySettings {
+        let data = try await request(
+            path: "/api/travel-desk/settings/update",
+            token: token,
+            method: "POST",
+            body: settings
+        )
+        let response = try await BackgroundJSONDecoder.decode(SettingsResponse.self, from: data)
+        guard response.success else {
+            throw FleetDispatchAPIError.server(statusCode: 200, message: response.error ?? "Failed to update fleet settings.")
+        }
+        return response.settings ?? settings
+    }
+
+    static func uploadAgencyPhoto(token: String, data: Data) async throws -> String {
+        let responseData = try await request(
+            path: "/api/travel-desk/storage/upload",
+            token: token,
+            method: "POST",
+            rawBody: data,
+            contentType: "image/jpeg"
+        )
+        let response = try await BackgroundJSONDecoder.decode(StorageResponse.self, from: responseData)
+        guard response.success, let storageId = response.storageId?.nonBlank else {
+            throw FleetDispatchAPIError.server(statusCode: 200, message: response.error ?? "Photo upload failed.")
+        }
+        return storageId
     }
 
     static func createDriver(
@@ -389,6 +544,22 @@ enum FleetDispatchAPIService {
         request.setValue("Bearer \(token)", forHTTPHeaderField: "Authorization")
         request.setValue("application/json", forHTTPHeaderField: "Content-Type")
         request.httpBody = try JSONEncoder().encode(body)
+        return try await perform(request)
+    }
+
+    private static func request(
+        path: String,
+        token: String,
+        method: String,
+        rawBody: Data,
+        contentType: String
+    ) async throws -> Data {
+        guard let url = URL(string: "\(baseURL)\(path)") else { throw FleetDispatchAPIError.badURL }
+        var request = URLRequest(url: url)
+        request.httpMethod = method
+        request.setValue("Bearer \(token)", forHTTPHeaderField: "Authorization")
+        request.setValue(contentType, forHTTPHeaderField: "Content-Type")
+        request.httpBody = rawBody
         return try await perform(request)
     }
 

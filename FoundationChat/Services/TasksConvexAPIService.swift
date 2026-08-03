@@ -89,6 +89,17 @@ enum TasksConvexAPIService {
         )
     }
 
+    static func getPendingTaskReminders(token: String, today: String, limit: Int = 10) async throws -> [DailyTask] {
+        let safeLimit = min(50, max(1, limit))
+        let path = "/api/dailyTasks/listPendingRemindersForStaff?today=\(urlEncode(today))&limit=\(safeLimit)"
+        let data = try await get(path: path, token: token)
+        let wrapper = try JSONDecoder().decode(DailyTaskManagerResponse.self, from: data)
+        guard wrapper.success else {
+            throw HRConvexAPIError.server(wrapper.error ?? "Failed to load pending task reminders")
+        }
+        return wrapper.tasks ?? []
+    }
+
     static func getMySummary(token: String) async throws -> ConvexTaskSummary {
         let data = try await get(path: "/api/tasks/my/summary", token: token)
         let wrapper = try JSONDecoder().decode(TaskSummaryResponse.self, from: data)

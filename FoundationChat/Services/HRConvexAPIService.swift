@@ -1,4 +1,6 @@
 import Foundation
+import ImageIO
+import UniformTypeIdentifiers
 
 /// HTTP client for Convex-based HR endpoints (leaves, permissions, attendance).
 enum HRConvexAPIService {
@@ -906,8 +908,44 @@ enum HRConvexAPIService {
 
     /// Convenience: upload a photo and return its storage ID.
     static func uploadPhoto(token: String, imageData: Data) async throws -> String {
+        let uploadData = await Task.detached(priority: .userInitiated) {
+            optimizedImageData(imageData)
+        }.value
         let uploadURL = try await generateUploadURL(token: token)
-        return try await uploadFile(uploadURL: uploadURL, data: imageData)
+        return try await uploadFile(uploadURL: uploadURL, data: uploadData)
+    }
+
+    /// Android parity for `ImageCompressor`: avoid pushing multi-megabyte
+    /// camera originals over mobile data. Small/already-compressed images and
+    /// any failed conversion fall back to their original bytes.
+    private nonisolated static func optimizedImageData(_ data: Data) -> Data {
+        guard data.count > 500_000,
+              let source = CGImageSourceCreateWithData(data as CFData, nil),
+              let thumbnail = CGImageSourceCreateThumbnailAtIndex(
+                source,
+                0,
+                [
+                    kCGImageSourceCreateThumbnailFromImageAlways: true,
+                    kCGImageSourceCreateThumbnailWithTransform: true,
+                    kCGImageSourceThumbnailMaxPixelSize: 1_600
+                ] as CFDictionary
+              ) else { return data }
+
+        let output = NSMutableData()
+        guard let destination = CGImageDestinationCreateWithData(
+            output,
+            UTType.jpeg.identifier as CFString,
+            1,
+            nil
+        ) else { return data }
+        CGImageDestinationAddImage(
+            destination,
+            thumbnail,
+            [kCGImageDestinationLossyCompressionQuality: 0.8] as CFDictionary
+        )
+        guard CGImageDestinationFinalize(destination) else { return data }
+        let compressed = output as Data
+        return compressed.count < data.count ? compressed : data
     }
 
     // MARK: - Staff profile (self)

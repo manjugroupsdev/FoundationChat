@@ -38,6 +38,8 @@ struct CustomerCollectionRow: Decodable, Identifiable, Equatable, Sendable {
     let paymentMode: String?
     let transactionReference: String?
     let bankName: String?
+    let branchName: String?
+    let paymentInstrumentDate: String?
     let notes: String?
     let collectedByName: String?
     let collectedByStaffId: String?
@@ -47,6 +49,7 @@ struct CustomerCollectionRow: Decodable, Identifiable, Equatable, Sendable {
     let verificationNotes: String?
     let verifiedByName: String?
     let verifiedAt: String?
+    let collectorEditedAt: String?
     let createdAt: String?
     let updatedAt: String?
     let customerName: String?
@@ -58,9 +61,10 @@ struct CustomerCollectionRow: Decodable, Identifiable, Equatable, Sendable {
     enum CodingKeys: String, CodingKey {
         case id = "_id"
         case collectionRefNo, caseId, bookingId, amount, collectionDate, paymentMode
-        case transactionReference, bankName, notes, collectedByName, collectedByStaffId
+        case transactionReference, bankName, branchName, paymentInstrumentDate, notes
+        case collectedByName, collectedByStaffId
         case proofStorageId, proofFileName, verificationStatus, verificationNotes
-        case verifiedByName, verifiedAt, createdAt, updatedAt, customerName
+        case verifiedByName, verifiedAt, collectorEditedAt, createdAt, updatedAt, customerName
         case bookingRefNo, projectName, plotNo, customerPaymentCategory
     }
 
@@ -69,14 +73,42 @@ struct CustomerCollectionRow: Decodable, Identifiable, Equatable, Sendable {
 }
 
 struct SubmitCollectionRequest: Encodable, Sendable {
+    let cpVisitId: String?
     let caseId: String
     let amount: Double
     let paymentMode: String
     let transactionReference: String?
     let bankName: String?
+    let branchName: String?
+    let paymentInstrumentDate: String?
     let proofStorageId: String?
     let proofFileName: String?
     let notes: String?
+}
+
+struct CorrectCollectionRequest: Encodable, Sendable {
+    let collectionId: String
+    let amount: Double?
+    let collectionDate: String?
+    let paymentMode: String?
+    let transactionReference: String?
+    let notes: String?
+
+    init(
+        collectionId: String,
+        amount: Double? = nil,
+        collectionDate: String? = nil,
+        paymentMode: String? = nil,
+        transactionReference: String? = nil,
+        notes: String? = nil
+    ) {
+        self.collectionId = collectionId
+        self.amount = amount
+        self.collectionDate = collectionDate
+        self.paymentMode = paymentMode
+        self.transactionReference = transactionReference
+        self.notes = notes
+    }
 }
 
 struct LoanCaseDocument: Codable, Identifiable, Equatable, Sendable {
@@ -165,17 +197,21 @@ struct AssignLoanRequest: Encodable, Sendable {
     let legalStaffName: String
 }
 
-struct FleetDriverTrip: Decodable, Identifiable, Equatable, Sendable {
+struct FleetDriverTrip: Decodable, Identifiable, Hashable, Sendable {
     let id: String
     let scheduledDate: String?
     let scheduledTime: String?
     let pickupAddress: String?
+    let pickupLat: Double?
+    let pickupLng: Double?
+    let pickupGoogleMapsLink: String?
     let pickupTime: String?
     let driverName: String?
     let driverPhone: String?
     let travelDeskArrivedAt: Int64?
     let travelDeskStartedAt: Int64?
     let travelDeskOnSiteAt: Int64?
+    let travelDeskPickedFromSiteAt: Int64?
     let travelDeskEndedAt: Int64?
     let travelDeskStartKm: Double?
     let travelDeskEndKm: Double?
@@ -189,8 +225,9 @@ struct FleetDriverTrip: Decodable, Identifiable, Equatable, Sendable {
 
     enum CodingKeys: String, CodingKey {
         case id = "_id"
-        case scheduledDate, scheduledTime, pickupAddress, pickupTime, driverName
-        case driverPhone, travelDeskArrivedAt, travelDeskStartedAt, travelDeskOnSiteAt
+        case scheduledDate, scheduledTime, pickupAddress, pickupLat, pickupLng
+        case pickupGoogleMapsLink, pickupTime, driverName
+        case driverPhone, travelDeskArrivedAt, travelDeskStartedAt, travelDeskOnSiteAt, travelDeskPickedFromSiteAt
         case travelDeskEndedAt, travelDeskStartKm, travelDeskEndKm
         case travelDeskStartPhotoIds, travelDeskEndPhotoIds, phase, canOperateToday
         case km, project, vehicle
@@ -202,12 +239,16 @@ struct FleetDriverTrip: Decodable, Identifiable, Equatable, Sendable {
         scheduledDate = try container.decodeIfPresent(String.self, forKey: .scheduledDate)
         scheduledTime = try container.decodeIfPresent(String.self, forKey: .scheduledTime)
         pickupAddress = try container.decodeIfPresent(String.self, forKey: .pickupAddress)
+        pickupLat = try container.decodeLossyDoubleIfPresent(forKey: .pickupLat)
+        pickupLng = try container.decodeLossyDoubleIfPresent(forKey: .pickupLng)
+        pickupGoogleMapsLink = try container.decodeIfPresent(String.self, forKey: .pickupGoogleMapsLink)
         pickupTime = try container.decodeIfPresent(String.self, forKey: .pickupTime)
         driverName = try container.decodeIfPresent(String.self, forKey: .driverName)
         driverPhone = try container.decodeIfPresent(String.self, forKey: .driverPhone)
         travelDeskArrivedAt = try container.decodeLossyInt64IfPresent(forKey: .travelDeskArrivedAt)
         travelDeskStartedAt = try container.decodeLossyInt64IfPresent(forKey: .travelDeskStartedAt)
         travelDeskOnSiteAt = try container.decodeLossyInt64IfPresent(forKey: .travelDeskOnSiteAt)
+        travelDeskPickedFromSiteAt = try container.decodeLossyInt64IfPresent(forKey: .travelDeskPickedFromSiteAt)
         travelDeskEndedAt = try container.decodeLossyInt64IfPresent(forKey: .travelDeskEndedAt)
         travelDeskStartKm = try container.decodeLossyDoubleIfPresent(forKey: .travelDeskStartKm)
         travelDeskEndKm = try container.decodeLossyDoubleIfPresent(forKey: .travelDeskEndKm)
@@ -224,7 +265,7 @@ struct FleetDriverTrip: Decodable, Identifiable, Equatable, Sendable {
     var displayPhase: String { (phase ?? "scheduled").replacingOccurrences(of: "_", with: " ").capitalized }
 }
 
-struct FleetDriverProject: Decodable, Equatable, Sendable {
+struct FleetDriverProject: Decodable, Hashable, Sendable {
     let id: String?
     let name: String?
 
@@ -234,7 +275,7 @@ struct FleetDriverProject: Decodable, Equatable, Sendable {
     }
 }
 
-struct FleetDriverVehicle: Decodable, Equatable, Sendable {
+struct FleetDriverVehicle: Decodable, Hashable, Sendable {
     let id: String?
     let vehicleNumber: String?
     let type: String?

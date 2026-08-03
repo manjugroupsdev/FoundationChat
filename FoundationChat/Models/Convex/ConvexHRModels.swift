@@ -459,6 +459,7 @@ struct ConvexStaffListItem: Decodable, Identifiable, Equatable, Sendable, Hashab
     let status: String?
     let employeeId: String?
     let department: String?
+    let reportingTo: String?
 
     var id: String { _id }
 
@@ -472,6 +473,7 @@ struct ConvexStaffListItem: Decodable, Identifiable, Equatable, Sendable, Hashab
         case status
         case employeeId
         case department
+        case reportingTo
     }
 
     init(from decoder: Decoder) throws {
@@ -486,6 +488,7 @@ struct ConvexStaffListItem: Decodable, Identifiable, Equatable, Sendable, Hashab
         status = try container.decodeIfPresent(String.self, forKey: .status)
         employeeId = try container.decodeIfPresent(String.self, forKey: .employeeId)
         department = try container.decodeIfPresent(String.self, forKey: .department)
+        reportingTo = try container.decodeIfPresent(String.self, forKey: .reportingTo)
     }
 
     var displayName: String {

@@ -55,6 +55,9 @@ struct AuthRootView: View {
             }
         }
         .onReceive(NotificationCenter.default.publisher(for: .didInvalidateSession)) { notification in
+            #if DEBUG
+            guard authStore.currentSession?.token != "FCQA_STUB_TOKEN" else { return }
+            #endif
             let message = notification.object as? String ?? "Session expired. Please sign in again."
             authStore.expireSession(message: message)
         }

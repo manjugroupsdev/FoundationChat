@@ -5,6 +5,7 @@ private enum FleetPortalTab: String, CaseIterable, Identifiable {
     case trips
     case vehicles
     case drivers
+    case staff
     case settings
 
     var id: String { rawValue }
@@ -14,6 +15,7 @@ private enum FleetPortalTab: String, CaseIterable, Identifiable {
         case .trips: "Trips"
         case .vehicles: "Vehicles"
         case .drivers: "Driver"
+        case .staff: "Staff"
         case .settings: "Settings"
         }
     }
@@ -23,6 +25,7 @@ private enum FleetPortalTab: String, CaseIterable, Identifiable {
         case .trips: "point.topleft.down.to.point.bottomright.curvepath"
         case .vehicles: "car.side.fill"
         case .drivers: "person.fill"
+        case .staff: "person.2.fill"
         case .settings: "gearshape"
         }
     }
@@ -34,7 +37,6 @@ struct FleetPortalExperienceView: View {
     let scope: FleetDispatchScope
 
     @State private var selectedTab: FleetPortalTab = .trips
-    @State private var previousTab: FleetPortalTab = .trips
     @State private var photoURL: URL?
     @State private var showNotifications = false
     @State private var showSettings = false
@@ -63,25 +65,20 @@ struct FleetPortalExperienceView: View {
                 .tabItem { Label(FleetPortalTab.drivers.title, systemImage: FleetPortalTab.drivers.systemImage) }
                 .tag(FleetPortalTab.drivers)
 
-            Color.clear
+            if scope == .agency {
+                FleetPortalStaffView()
+                    .tabItem { Label(FleetPortalTab.staff.title, systemImage: FleetPortalTab.staff.systemImage) }
+                    .tag(FleetPortalTab.staff)
+            }
+
+            FleetAgencySettingsView(scope: scope)
                 .tabItem { Label(FleetPortalTab.settings.title, systemImage: FleetPortalTab.settings.systemImage) }
                 .tag(FleetPortalTab.settings)
         }
         .tint(Color(hex: 0x19C90B))
         .fleetTabBarMinimizeOnScroll()
-        .onChange(of: selectedTab) { oldTab, newTab in
-            if newTab == .settings {
-                let returnTab = oldTab == .settings ? previousTab : oldTab
-                previousTab = returnTab
-                selectedTab = returnTab
-                showSettings = true
-            } else {
-                previousTab = newTab
-            }
-        }
         .fullScreenCover(isPresented: $showNotifications) {
             NotificationsListView(onClose: { showNotifications = false })
-                .preferredColorScheme(.light)
         }
         .fullScreenCover(isPresented: $showSettings) {
             NavigationStack {
@@ -92,9 +89,7 @@ struct FleetPortalExperienceView: View {
                 )
                 .navigationBarBackButtonHidden(true)
             }
-            .preferredColorScheme(.light)
         }
-        .preferredColorScheme(.light)
         .task(id: authStore.currentSession?.user.photo) {
             await refreshPhoto()
         }
@@ -108,11 +103,11 @@ struct FleetPortalExperienceView: View {
 
     private static func configureTabBarAppearance() {
         let active = UIColor(red: 0.106, green: 0.792, blue: 0.043, alpha: 1)
-        let inactive = UIColor(red: 0.60, green: 0.615, blue: 0.635, alpha: 1)
+        let inactive = UIColor.secondaryLabel
         let appearance = UITabBarAppearance()
         appearance.configureWithTransparentBackground()
-        appearance.backgroundEffect = UIBlurEffect(style: .systemUltraThinMaterialLight)
-        appearance.backgroundColor = UIColor.white.withAlphaComponent(0.68)
+        appearance.backgroundEffect = UIBlurEffect(style: .systemUltraThinMaterial)
+        appearance.backgroundColor = UIColor.systemBackground.withAlphaComponent(0.68)
         [appearance.stackedLayoutAppearance,
          appearance.inlineLayoutAppearance,
          appearance.compactInlineLayoutAppearance].forEach { itemAppearance in
@@ -164,6 +159,9 @@ private struct FleetPortalTripsView: View {
     @State private var hasLoaded = false
     @State private var errorMessage: String?
     @State private var allocationTrip: FleetDispatchTrip?
+    @State private var unassignTrip: FleetDispatchTrip?
+    @State private var offlineTrip: FleetDispatchTrip?
+    @State private var mutationTripIDs: Set<String> = []
     @State private var heroHeaderOpacity = 1.0
 
     private var filteredTrips: [FleetDispatchTrip] {
@@ -180,7 +178,7 @@ private struct FleetPortalTripsView: View {
     var body: some View {
         GeometryReader { proxy in
             ZStack(alignment: .top) {
-                Color(hex: 0xF1F3F8).ignoresSafeArea()
+                Color.appScreenBackground.ignoresSafeArea()
 
                 FleetPortalHero(
                     topInset: proxy.safeAreaInsets.top,
@@ -238,7 +236,36 @@ private struct FleetPortalTripsView: View {
             .appFormActivity()
             .presentationDetents([.large])
             .presentationDragIndicator(.visible)
-            .preferredColorScheme(.light)
+        }
+        .sheet(item: $offlineTrip) { trip in
+            FleetOfflineCompletionSheet(
+                token: authStore.currentSession?.token ?? "",
+                scope: scope,
+                trip: trip,
+                vehicles: vehicles.filter(\.isActive)
+            ) {
+                filter = .completed
+                await load()
+            }
+            .presentationDetents([.large])
+            .presentationDragIndicator(.visible)
+        }
+        .confirmationDialog(
+            "Remove this driver assignment?",
+            isPresented: Binding(
+                get: { unassignTrip != nil },
+                set: { if !$0 { unassignTrip = nil } }
+            ),
+            titleVisibility: .visible
+        ) {
+            Button("Unassign Driver", role: .destructive) {
+                guard let trip = unassignTrip else { return }
+                unassignTrip = nil
+                Task { await unassign(trip) }
+            }
+            Button("Cancel", role: .cancel) { unassignTrip = nil }
+        } message: {
+            Text("The trip returns to Pending so another vehicle and driver can be allocated.")
         }
         .alert("Fleet Trips", isPresented: Binding(
             get: { errorMessage != nil },
@@ -254,7 +281,7 @@ private struct FleetPortalTripsView: View {
         LazyVStack(alignment: .leading, spacing: 14) {
             Text("Today's Trips")
                 .font(.system(size: 24, weight: .bold))
-                .foregroundStyle(Color(hex: 0x101828))
+                .foregroundStyle(.primary)
 
             tripFilter
 
@@ -273,7 +300,11 @@ private struct FleetPortalTripsView: View {
                     FleetPortalTripCard(
                         trip: trip,
                         status: filter,
-                        onAllocate: { allocationTrip = trip }
+                        isMutating: mutationTripIDs.contains(trip.id),
+                        canCompleteOffline: canCompleteOffline(trip),
+                        onAllocate: { allocationTrip = trip },
+                        onUnassign: { unassignTrip = trip },
+                        onCompleteOffline: { offlineTrip = trip }
                     )
                 }
             }
@@ -283,7 +314,7 @@ private struct FleetPortalTripsView: View {
         .padding(.bottom, 28)
         .frame(maxWidth: .infinity, alignment: .leading)
         .background(
-            Color(hex: 0xF1F3F8),
+            Color.appScreenBackground,
             in: UnevenRoundedRectangle(
                 topLeadingRadius: 26,
                 bottomLeadingRadius: 0,
@@ -304,7 +335,7 @@ private struct FleetPortalTripsView: View {
                 } label: {
                     Text(item.rawValue)
                         .font(.system(size: 14, weight: .medium))
-                        .foregroundStyle(filter == item ? .white : Color(hex: 0x475467))
+                        .foregroundStyle(filter == item ? Color.white : Color.primary)
                         .frame(maxWidth: .infinity)
                         .frame(height: 40)
                         .background(filter == item ? Color(hex: 0x0B61CA) : .clear, in: Capsule())
@@ -313,8 +344,16 @@ private struct FleetPortalTripsView: View {
             }
         }
         .padding(3)
-        .background(Color.white, in: Capsule())
+        .background(Color.appSurface, in: Capsule())
         .sensoryFeedback(.selection, trigger: filter)
+    }
+
+    private func canCompleteOffline(_ trip: FleetDispatchTrip) -> Bool {
+        let role = authStore.currentSession?.user.role?.trimmingCharacters(in: .whitespacesAndNewlines).lowercased()
+        let permitted = scope == .agency
+            || role == "super-admin"
+            || authStore.hasPermission("marketing.fleet.completeOffline")
+        return permitted && trip.outcome?.nonBlank != nil && !trip.isCompleted
     }
 
     @MainActor
@@ -330,6 +369,20 @@ private struct FleetPortalTripsView: View {
             async let assigned = FleetDispatchAPIService.listAssigned(token: token, scope: scope)
             async let fleetVehicles = FleetDispatchAPIService.listVehicles(token: token, scope: scope)
             (pendingTrips, assignedTrips, vehicles) = try await (pending, assigned, fleetVehicles)
+        } catch {
+            errorMessage = error.localizedDescription
+        }
+    }
+
+    @MainActor
+    private func unassign(_ trip: FleetDispatchTrip) async {
+        guard let token = authStore.currentSession?.token else { return }
+        mutationTripIDs.insert(trip.id)
+        defer { mutationTripIDs.remove(trip.id) }
+        do {
+            try await FleetDispatchAPIService.unassign(token: token, scope: scope, tripId: trip.id)
+            filter = .pending
+            await load()
         } catch {
             errorMessage = error.localizedDescription
         }
@@ -494,11 +547,11 @@ private struct FleetHeroMetric: View {
         VStack(alignment: .leading, spacing: 2) {
             Text(title)
                 .font(.system(size: 8, weight: .semibold))
-                .foregroundStyle(Color(hex: 0x475467))
+                .foregroundStyle(.secondary)
             HStack(alignment: .center, spacing: 5) {
                 Text("\(value)")
                     .font(.system(size: 19, weight: .bold))
-                    .foregroundStyle(Color(hex: 0x101828))
+                .foregroundStyle(.primary)
                 Spacer(minLength: 0)
                 Image(systemName: icon)
                     .font(.system(size: 11, weight: .semibold))
@@ -509,7 +562,7 @@ private struct FleetHeroMetric: View {
         }
         .padding(8)
         .frame(height: 59)
-        .background(.white, in: RoundedRectangle(cornerRadius: 7, style: .continuous))
+        .background(Color.appSurface, in: RoundedRectangle(cornerRadius: 7, style: .continuous))
         .shadow(color: .black.opacity(0.08), radius: 5, y: 3)
     }
 }
@@ -517,7 +570,11 @@ private struct FleetHeroMetric: View {
 private struct FleetPortalTripCard: View {
     let trip: FleetDispatchTrip
     let status: FleetPortalTripFilter
+    let isMutating: Bool
+    let canCompleteOffline: Bool
     let onAllocate: () -> Void
+    let onUnassign: () -> Void
+    let onCompleteOffline: () -> Void
 
     var body: some View {
         HStack(alignment: .top, spacing: 12) {
@@ -536,7 +593,7 @@ private struct FleetPortalTripCard: View {
                         .foregroundStyle(Color(hex: 0x0B61CA))
                     Text(tripTime)
                         .font(.system(size: 13, weight: .medium))
-                        .foregroundStyle(Color(hex: 0x667085))
+                .foregroundStyle(.secondary)
                         .lineLimit(1)
                     Spacer(minLength: 4)
                     statusBadge
@@ -544,7 +601,7 @@ private struct FleetPortalTripCard: View {
 
                 Text(address)
                     .font(.system(size: 13, weight: .regular))
-                    .foregroundStyle(Color(hex: 0x344054))
+                .foregroundStyle(.primary)
                     .lineLimit(2)
                     .fixedSize(horizontal: false, vertical: true)
 
@@ -570,12 +627,29 @@ private struct FleetPortalTripCard: View {
                         }
                         .buttonStyle(.plain)
                     }
+                } else if status == .assigned && (!tripHasStarted || canCompleteOffline) {
+                    HStack(spacing: 10) {
+                        if !tripHasStarted {
+                            Button("Unassign", role: .destructive, action: onUnassign)
+                                .buttonStyle(.bordered)
+                                .tint(.red)
+                        }
+                        if canCompleteOffline {
+                            Button("Complete Details", action: onCompleteOffline)
+                                .buttonStyle(.borderedProminent)
+                                .tint(Color(hex: 0x0B61CA))
+                        }
+                        if isMutating { ProgressView().controlSize(.small) }
+                        Spacer(minLength: 0)
+                    }
+                    .font(.system(size: 13, weight: .semibold))
+                    .disabled(isMutating)
                 }
             }
             .frame(maxWidth: .infinity, alignment: .leading)
         }
         .padding(14)
-        .background(.white, in: RoundedRectangle(cornerRadius: 8, style: .continuous))
+        .background(Color.appSurface, in: RoundedRectangle(cornerRadius: 8, style: .continuous))
         .shadow(color: Color(hex: 0x0B61CA).opacity(0.09), radius: 8, y: 5)
     }
 
@@ -612,6 +686,13 @@ private struct FleetPortalTripCard: View {
             .map { $0.capitalized }
             .joined(separator: " ")
     }
+
+    private var tripHasStarted: Bool {
+        trip.travelDeskStartedAt != nil
+            || trip.travelDeskOnSiteAt != nil
+            || trip.travelDeskPickedFromSiteAt != nil
+            || trip.travelDeskEndedAt != nil
+    }
 }
 
 private struct FleetPortalTag: View {
@@ -621,12 +702,243 @@ private struct FleetPortalTag: View {
     var body: some View {
         Label(text, systemImage: icon)
             .font(.system(size: 11, weight: .medium))
-            .foregroundStyle(Color(hex: 0x1E3A8A))
+            .foregroundStyle(Color.accentColor)
             .lineLimit(1)
             .padding(.horizontal, 8)
             .frame(height: 25)
-            .background(Color(hex: 0xEFF6FF), in: Capsule())
-            .overlay { Capsule().stroke(Color(hex: 0xBFD3FF), lineWidth: 1) }
+            .background(Color.accentColor.opacity(0.1), in: Capsule())
+            .overlay { Capsule().stroke(Color.accentColor.opacity(0.25), lineWidth: 1) }
+    }
+}
+
+private struct FleetOfflineCompletionSheet: View {
+    @Environment(\.dismiss) private var dismiss
+
+    let token: String
+    let scope: FleetDispatchScope
+    let trip: FleetDispatchTrip
+    let vehicles: [FleetDispatchVehicle]
+    let onSaved: @MainActor () async -> Void
+
+    @State private var pricingMode: String
+    @State private var vehicleId: String
+    @State private var agencyName = ""
+    @State private var driverName: String
+    @State private var driverPhone: String
+    @State private var packageAmount: String
+    @State private var kmRate: String
+    @State private var distanceKm = ""
+    @State private var startKm: String
+    @State private var endKm: String
+    @State private var beta = ""
+    @State private var beta2 = ""
+    @State private var tollAmount = ""
+    @State private var hillCharge = ""
+    @State private var outstationCharge = ""
+    @State private var permitCharge = ""
+    @State private var permitTax = ""
+    @State private var standingCharge = ""
+    @State private var standingMinutes = ""
+    @State private var standingWithAc = false
+    @State private var isSaving = false
+    @State private var errorMessage: String?
+
+    init(
+        token: String,
+        scope: FleetDispatchScope,
+        trip: FleetDispatchTrip,
+        vehicles: [FleetDispatchVehicle],
+        onSaved: @escaping @MainActor () async -> Void
+    ) {
+        self.token = token
+        self.scope = scope
+        self.trip = trip
+        self.vehicles = vehicles
+        self.onSaved = onSaved
+        _pricingMode = State(initialValue: trip.travelDeskPricingMode == "km" ? "km" : "package")
+        _vehicleId = State(initialValue: trip.vehicleId ?? trip.vehicle?.id ?? "")
+        _driverName = State(initialValue: trip.driverName ?? "")
+        _driverPhone = State(initialValue: trip.driverPhone ?? "")
+        _packageAmount = State(initialValue: Self.text(trip.travelDeskPackageAmount))
+        _kmRate = State(initialValue: Self.text(trip.travelDeskKmRate))
+        _startKm = State(initialValue: Self.text(trip.travelDeskStartKm))
+        _endKm = State(initialValue: Self.text(trip.travelDeskEndKm))
+    }
+
+    var body: some View {
+        NavigationStack {
+            Form {
+                Section {
+                    LabeledContent("Client", value: trip.clientName?.nonBlank ?? "Site Visit")
+                    LabeledContent("Visit", value: trip.project?.name?.nonBlank ?? trip.pickupAddress?.nonBlank ?? "—")
+                } header: {
+                    Text("Trip")
+                } footer: {
+                    Text("The Site Visit outcome is already recorded. This form saves the remaining fleet and billing details, matching Android.")
+                }
+
+                Section(scope == .mms ? "Internal Fleet" : "External Fleet") {
+                    if scope == .mms {
+                        Picker("Vehicle", selection: $vehicleId) {
+                            Text("Select vehicle").tag("")
+                            ForEach(vehicles) { vehicle in
+                                Text(vehicle.vehicleNumber?.nonBlank ?? vehicle.model?.nonBlank ?? "Vehicle").tag(vehicle.id)
+                            }
+                        }
+                        Picker("Pricing", selection: $pricingMode) {
+                            Text("Package").tag("package")
+                            Text("Per km").tag("km")
+                        }
+                        .pickerStyle(.segmented)
+                    } else {
+                        TextField("Agency name", text: $agencyName)
+                    }
+                    TextField("Driver name", text: $driverName)
+                    TextField("Driver phone", text: $driverPhone)
+                        .keyboardType(.phonePad)
+                        .onChange(of: driverPhone) { _, value in driverPhone = sanitizedPhone(value) }
+                }
+
+                Section("Distance and rate") {
+                    if pricingMode == "package" {
+                        fleetNumberField("Package amount", text: $packageAmount)
+                    } else {
+                        fleetNumberField("Rate per km", text: $kmRate)
+                        fleetNumberField("Distance (km)", text: $distanceKm)
+                    }
+                    fleetNumberField("Start odometer", text: $startKm)
+                    fleetNumberField("End odometer", text: $endKm)
+                }
+
+                Section("Additional charges") {
+                    fleetNumberField("Beta", text: $beta)
+                    fleetNumberField("Beta 2", text: $beta2)
+                    fleetNumberField("Toll", text: $tollAmount)
+                    fleetNumberField("Hill charge", text: $hillCharge)
+                    fleetNumberField("Outstation charge", text: $outstationCharge)
+                    fleetNumberField("Permit charge", text: $permitCharge)
+                    fleetNumberField("Permit tax", text: $permitTax)
+                    fleetNumberField("Standing charge", text: $standingCharge)
+                    fleetNumberField("Standing time (minutes)", text: $standingMinutes)
+                    Toggle("Standing with AC", isOn: $standingWithAc)
+                        .disabled(standingMinutes.nonBlank == nil)
+                }
+
+                Section {
+                    LabeledContent("Estimated total") {
+                        Text(totalAmount, format: .currency(code: "INR").precision(.fractionLength(0...2)))
+                            .fontWeight(.semibold)
+                    }
+                }
+
+                if let errorMessage {
+                    Section {
+                        Label(errorMessage, systemImage: "exclamationmark.triangle.fill")
+                            .foregroundStyle(.red)
+                    }
+                }
+            }
+            .scrollDismissesKeyboard(.interactively)
+            .navigationTitle("Complete Trip Details")
+            .navigationBarTitleDisplayMode(.inline)
+            .toolbar {
+                ToolbarItem(placement: .cancellationAction) {
+                    Button("Cancel", role: .cancel) { dismiss() }
+                }
+                ToolbarItem(placement: .confirmationAction) {
+                    Button("Save") { Task { await save() } }
+                        .disabled(isSaving)
+                }
+            }
+            .overlay {
+                if isSaving {
+                    ProgressView("Saving…")
+                        .padding(18)
+                        .background(.regularMaterial, in: RoundedRectangle(cornerRadius: 12))
+                }
+            }
+        }
+    }
+
+    @ViewBuilder
+    private func fleetNumberField(_ title: String, text: Binding<String>) -> some View {
+        LabeledContent(title) {
+            TextField("0", text: text)
+                .keyboardType(.decimalPad)
+                .multilineTextAlignment(.trailing)
+        }
+    }
+
+    private var totalAmount: Double {
+        let base = pricingMode == "km"
+            ? (number(kmRate) ?? 0) * (number(distanceKm) ?? odometerDistance)
+            : (number(packageAmount) ?? 0)
+        return base + [beta, beta2, tollAmount, hillCharge, outstationCharge, permitCharge, permitTax, standingCharge]
+            .compactMap(number)
+            .reduce(0, +)
+    }
+
+    private var odometerDistance: Double {
+        guard let start = number(startKm), let end = number(endKm), end >= start else { return 0 }
+        return end - start
+    }
+
+    @MainActor
+    private func save() async {
+        errorMessage = validationMessage
+        guard errorMessage == nil else { return }
+        isSaving = true
+        defer { isSaving = false }
+        do {
+            let draft = FleetOfflineCompletionDraft(
+                fleetType: scope == .mms ? "internal" : "external",
+                vehicleId: scope == .mms ? vehicleId.nonBlank : nil,
+                agencyName: scope == .agency ? agencyName.nonBlank : nil,
+                packageAmount: pricingMode == "package" ? number(packageAmount) : nil,
+                kmRate: pricingMode == "km" ? number(kmRate) : nil,
+                distanceKm: pricingMode == "km" ? (number(distanceKm) ?? odometerDistance) : number(distanceKm),
+                driverName: driverName.nonBlank,
+                driverPhone: driverPhone.nonBlank,
+                beta: number(beta),
+                beta2: number(beta2),
+                tollAmount: number(tollAmount),
+                hillCharge: number(hillCharge),
+                outstationCharge: number(outstationCharge),
+                permitCharge: number(permitCharge),
+                permitTax: number(permitTax),
+                standingCharge: number(standingCharge),
+                standingTimeMinutes: number(standingMinutes).map(Int.init),
+                standingWithAc: standingMinutes.nonBlank == nil ? nil : standingWithAc,
+                startKm: number(startKm),
+                endKm: number(endKm)
+            )
+            try await FleetDispatchAPIService.completeOffline(token: token, scope: scope, tripId: trip.id, draft: draft)
+            await onSaved()
+            dismiss()
+        } catch {
+            errorMessage = error.localizedDescription
+        }
+    }
+
+    private var validationMessage: String? {
+        if scope == .mms && vehicleId.nonBlank == nil { return "Select the vehicle used for this trip." }
+        if scope == .agency && agencyName.nonBlank == nil { return "Enter the travel agency name." }
+        if driverName.nonBlank == nil { return "Enter the driver name." }
+        if let phone = driverPhone.nonBlank, !isValidMobile(phone) { return "Enter a valid 10-digit driver phone number." }
+        if pricingMode == "package", (number(packageAmount) ?? 0) <= 0 { return "Enter a valid package amount." }
+        if pricingMode == "km", (number(kmRate) ?? 0) <= 0 { return "Enter a valid per-km rate." }
+        if pricingMode == "km", (number(distanceKm) ?? odometerDistance) <= 0 { return "Enter the distance or valid start/end odometer readings." }
+        if let start = number(startKm), let end = number(endKm), end < start { return "End odometer cannot be less than start odometer." }
+        return nil
+    }
+
+    private func number(_ value: String) -> Double? {
+        Double(value.trimmingCharacters(in: .whitespacesAndNewlines))
+    }
+
+    private static func text(_ value: Double?) -> String {
+        guard let value else { return "" }
+        return value.rounded() == value ? String(Int(value)) : String(value)
     }
 }
 
@@ -657,7 +969,7 @@ private struct FleetPortalVehiclesView: View {
         NavigationStack {
             listContent
                 .frame(maxWidth: .infinity, maxHeight: .infinity)
-                .background(Color(hex: 0xF1F3F8))
+                .background(Color.appScreenBackground)
                 .navigationTitle("Vehicle List")
                 .navigationBarTitleDisplayMode(.inline)
                 .searchable(
@@ -674,7 +986,7 @@ private struct FleetPortalVehiclesView: View {
                     }
                 }
         }
-        .background(Color(hex: 0xF1F3F8).ignoresSafeArea())
+        .background(Color.appScreenBackground.ignoresSafeArea())
         .task {
             guard !hasLoaded else { return }
             await load()
@@ -691,7 +1003,6 @@ private struct FleetPortalVehiclesView: View {
             .appFormActivity()
             .presentationDetents([.large])
             .presentationDragIndicator(.visible)
-            .preferredColorScheme(.light)
         }
         .sheet(item: $selectedVehicle) { vehicle in
             FleetVehicleDetailSheet(
@@ -700,7 +1011,6 @@ private struct FleetPortalVehiclesView: View {
             )
             .presentationDetents([.large])
             .presentationDragIndicator(.visible)
-            .preferredColorScheme(.light)
         }
         .alert("Vehicles", isPresented: Binding(
             get: { errorMessage != nil },
@@ -770,11 +1080,11 @@ private struct FleetPortalVehicleRow: View {
             VStack(alignment: .leading, spacing: 4) {
                 Text(vehicle.vehicleNumber?.nonBlank ?? "Vehicle")
                     .font(.system(size: 15, weight: .bold))
-                    .foregroundStyle(Color(hex: 0x111827))
+                .foregroundStyle(.primary)
                     .lineLimit(1)
                 Text([vehicle.type?.nonBlank, vehicle.capacity.map { "\($0) seats" }].compactMap { $0 }.joined(separator: " / ").nonBlank ?? "Vehicle details pending")
                     .font(.system(size: 13))
-                    .foregroundStyle(Color(hex: 0x667085))
+                .foregroundStyle(.secondary)
                     .lineLimit(1)
                 HStack(spacing: 8) {
                     Label(vehicle.defaultDriverName?.nonBlank ?? "Unassigned", systemImage: "person")
@@ -784,18 +1094,18 @@ private struct FleetPortalVehicleRow: View {
                     }
                 }
                 .font(.system(size: 11))
-                .foregroundStyle(Color(hex: 0x667085))
+                .foregroundStyle(.secondary)
                 .lineLimit(1)
             }
 
             Spacer(minLength: 6)
             Image(systemName: "chevron.right")
                 .font(.system(size: 13, weight: .semibold))
-                .foregroundStyle(Color(hex: 0xD0D5DD))
+                .foregroundStyle(.tertiary)
         }
         .padding(16)
         .frame(minHeight: 102)
-        .background(.white, in: RoundedRectangle(cornerRadius: 8, style: .continuous))
+        .background(Color.appSurface, in: RoundedRectangle(cornerRadius: 8, style: .continuous))
         .overlay {
             RoundedRectangle(cornerRadius: 8, style: .continuous)
                 .stroke(Color(hex: 0xEAECF0), lineWidth: 1)
@@ -831,7 +1141,7 @@ private struct FleetPortalDriversView: View {
         NavigationStack {
             listContent
                 .frame(maxWidth: .infinity, maxHeight: .infinity)
-                .background(Color(hex: 0xF1F3F8))
+                .background(Color.appScreenBackground)
                 .navigationTitle("Drivers List")
                 .navigationBarTitleDisplayMode(.inline)
                 .searchable(
@@ -848,7 +1158,7 @@ private struct FleetPortalDriversView: View {
                     }
                 }
         }
-        .background(Color(hex: 0xF1F3F8).ignoresSafeArea())
+        .background(Color.appScreenBackground.ignoresSafeArea())
         .task {
             guard !hasLoaded else { return }
             await load()
@@ -863,7 +1173,6 @@ private struct FleetPortalDriversView: View {
             .appFormActivity()
             .presentationDetents([.large])
             .presentationDragIndicator(.visible)
-            .preferredColorScheme(.light)
         }
         .sheet(item: $editingDriver) { driver in
             FleetDriverFormSheet(
@@ -875,7 +1184,6 @@ private struct FleetPortalDriversView: View {
             .appFormActivity()
             .presentationDetents([.large])
             .presentationDragIndicator(.visible)
-            .preferredColorScheme(.light)
         }
         .alert("Drivers", isPresented: Binding(
             get: { errorMessage != nil },
@@ -953,7 +1261,7 @@ private struct FleetPortalDriverRow: View {
                 HStack(spacing: 8) {
                     Text(driver.name)
                         .font(.system(size: 16, weight: .semibold))
-                        .foregroundStyle(Color(hex: 0x111827))
+                .foregroundStyle(.primary)
                         .lineLimit(1)
 
                     Spacer(minLength: 4)
@@ -972,14 +1280,14 @@ private struct FleetPortalDriverRow: View {
                 if let phone = driver.phone?.nonBlank {
                     Label(phone, systemImage: "phone.fill")
                         .font(.system(size: 12, weight: .medium))
-                        .foregroundStyle(Color(hex: 0x667085))
+                .foregroundStyle(.secondary)
                         .lineLimit(1)
                 }
 
                 if let address = driver.address?.nonBlank {
                     Label(address, systemImage: "mappin.and.ellipse")
                         .font(.system(size: 11))
-                        .foregroundStyle(Color(hex: 0x667085))
+                .foregroundStyle(.secondary)
                         .lineLimit(1)
                 }
             }
@@ -987,17 +1295,237 @@ private struct FleetPortalDriverRow: View {
 
             Image(systemName: "chevron.right")
                 .font(.system(size: 13, weight: .semibold))
-                .foregroundStyle(Color(hex: 0xD0D5DD))
+                .foregroundStyle(.tertiary)
         }
         .padding(16)
         .frame(minHeight: 108)
         .contentShape(Rectangle())
-        .background(.white, in: RoundedRectangle(cornerRadius: 8, style: .continuous))
+        .background(Color.appSurface, in: RoundedRectangle(cornerRadius: 8, style: .continuous))
         .overlay {
             RoundedRectangle(cornerRadius: 8, style: .continuous)
                 .stroke(Color(hex: 0xEAECF0), lineWidth: 1)
         }
         .shadow(color: Color.black.opacity(0.06), radius: 8, y: 4)
+    }
+}
+
+private struct FleetPortalStaffView: View {
+    @Environment(AuthStore.self) private var authStore
+    @State private var staff: [FleetAgencyStaff] = []
+    @State private var editingStaff: FleetAgencyStaff?
+    @State private var showCreate = false
+    @State private var isLoading = false
+    @State private var errorMessage: String?
+
+    var body: some View {
+        NavigationStack {
+            Group {
+                if isLoading && staff.isEmpty {
+                    ProgressView("Loading staff…")
+                } else if staff.isEmpty {
+                    ContentUnavailableView("No Staff", systemImage: "person.2", description: Text("Add agency staff who can manage trips and vehicles."))
+                } else {
+                    List(staff) { member in
+                        Button {
+                            editingStaff = member
+                        } label: {
+                            HStack(spacing: 12) {
+                                Image(systemName: "person.crop.circle.fill")
+                                    .font(.title2)
+                                    .foregroundStyle(Color(hex: 0x0B61CA))
+                                VStack(alignment: .leading, spacing: 3) {
+                                    Text(member.name).font(.headline).foregroundStyle(.primary)
+                                    Text([member.phone.nonBlank, member.whatsapp?.nonBlank].compactMap { $0 }.joined(separator: " · "))
+                                        .font(.subheadline)
+                                        .foregroundStyle(.secondary)
+                                }
+                                Spacer()
+                                Text(member.status.capitalized)
+                                    .font(.caption.bold())
+                                    .foregroundStyle(member.status == "active" ? .green : .secondary)
+                            }
+                        }
+                        .buttonStyle(.plain)
+                    }
+                    .scrollContentBackground(.hidden)
+                }
+            }
+            .frame(maxWidth: .infinity, maxHeight: .infinity)
+            .background(Color.appScreenBackground)
+            .navigationTitle("Agency Staff")
+            .toolbar {
+                ToolbarItem(placement: .topBarTrailing) {
+                    Button("Add Staff", systemImage: "plus") { showCreate = true }
+                }
+            }
+        }
+        .task { await load() }
+        .refreshable { await load() }
+        .sheet(isPresented: $showCreate) {
+            FleetStaffFormSheet(member: nil) { await load() }
+        }
+        .sheet(item: $editingStaff) { member in
+            FleetStaffFormSheet(member: member) { await load() }
+        }
+        .alert("Fleet Staff", isPresented: Binding(get: { errorMessage != nil }, set: { if !$0 { errorMessage = nil } })) {
+            Button("OK", role: .cancel) {}
+        } message: { Text(errorMessage ?? "") }
+    }
+
+    @MainActor
+    private func load() async {
+        guard let token = authStore.currentSession?.token else { return }
+        isLoading = true
+        defer { isLoading = false }
+        do { staff = try await FleetDispatchAPIService.listAgencyStaff(token: token) }
+        catch { errorMessage = error.localizedDescription }
+    }
+}
+
+private struct FleetStaffFormSheet: View {
+    @Environment(AuthStore.self) private var authStore
+    @Environment(\.dismiss) private var dismiss
+    let member: FleetAgencyStaff?
+    let onSaved: () async -> Void
+
+    @State private var name: String
+    @State private var phone: String
+    @State private var whatsapp: String
+    @State private var isActive: Bool
+    @State private var isSaving = false
+    @State private var errorMessage: String?
+
+    init(member: FleetAgencyStaff?, onSaved: @escaping () async -> Void) {
+        self.member = member
+        self.onSaved = onSaved
+        _name = State(initialValue: member?.name ?? "")
+        _phone = State(initialValue: member?.phone ?? "")
+        _whatsapp = State(initialValue: member?.whatsapp ?? "")
+        _isActive = State(initialValue: member?.status != "inactive")
+    }
+
+    var body: some View {
+        NavigationStack {
+            Form {
+                Section("Staff details") {
+                    TextField("Name", text: $name).textContentType(.name)
+                    TextField("Phone", text: $phone).keyboardType(.phonePad)
+                        .onChange(of: phone) { _, value in phone = sanitizedPhone(value) }
+                    TextField("WhatsApp", text: $whatsapp).keyboardType(.phonePad)
+                        .onChange(of: whatsapp) { _, value in whatsapp = sanitizedPhone(value) }
+                    if member != nil { Toggle("Active", isOn: $isActive) }
+                }
+                if let errorMessage { Section { Text(errorMessage).foregroundStyle(.red) } }
+            }
+            .navigationTitle(member == nil ? "Add Staff" : "Edit Staff")
+            .navigationBarTitleDisplayMode(.inline)
+            .interactiveDismissDisabled(isSaving)
+            .toolbar {
+                ToolbarItem(placement: .cancellationAction) { Button("Cancel") { dismiss() }.disabled(isSaving) }
+                ToolbarItem(placement: .confirmationAction) {
+                    Button(isSaving ? "Saving…" : "Save") { Task { await save() } }
+                        .disabled(isSaving || name.nonBlank == nil || !isValidMobile(phone))
+                }
+            }
+        }
+    }
+
+    @MainActor
+    private func save() async {
+        guard let token = authStore.currentSession?.token else { return }
+        isSaving = true
+        defer { isSaving = false }
+        do {
+            if let member {
+                try await FleetDispatchAPIService.updateAgencyStaff(
+                    token: token, id: member.id, name: name.nonBlank,
+                    phone: sanitizedPhone(phone), whatsapp: whatsapp.nonBlank.map(sanitizedPhone),
+                    status: isActive ? "active" : "inactive"
+                )
+            } else {
+                try await FleetDispatchAPIService.createAgencyStaff(
+                    token: token, name: name.trimmingCharacters(in: .whitespacesAndNewlines),
+                    phone: sanitizedPhone(phone), whatsapp: whatsapp.nonBlank.map(sanitizedPhone)
+                )
+            }
+            await onSaved()
+            dismiss()
+        } catch { errorMessage = error.localizedDescription }
+    }
+}
+
+private struct FleetAgencySettingsView: View {
+    @Environment(AuthStore.self) private var authStore
+    let scope: FleetDispatchScope
+
+    @State private var settings = FleetAgencySettings.empty
+    @State private var isLoading = false
+    @State private var isSaving = false
+    @State private var errorMessage: String?
+    @State private var savedMessage: String?
+
+    var body: some View {
+        NavigationStack {
+            Group {
+                if scope == .mms {
+                    ContentUnavailableView("Managed by MFPL", systemImage: "building.2", description: Text("Internal fleet pricing is managed by the MFPL backend."))
+                } else {
+                    Form {
+                        Section("Base rates") {
+                            numberField("Per kilometre", value: $settings.kmRate)
+                            numberField("Package amount", value: $settings.packageAmount)
+                            numberField("Betta amount", value: $settings.bettaAmount)
+                            numberField("Toll charge", value: $settings.tollCharge)
+                        }
+                        Section("Permit and standing") {
+                            numberField("Permit charge", value: $settings.permitCharge)
+                            numberField("Permit tax", value: $settings.permitTax)
+                            numberField("Standing charge with AC", value: $settings.standingChargeWithAc)
+                            numberField("Standing duration (minutes)", value: $settings.standingChargeDurationMinutes)
+                        }
+                        Section("Allowances") {
+                            numberField("Waiting allowance", value: $settings.waitingAllowance)
+                            numberField("Cancellation allowance", value: $settings.cancellationAllowance)
+                        }
+                        if let savedMessage { Section { Label(savedMessage, systemImage: "checkmark.circle.fill").foregroundStyle(.green) } }
+                        if let errorMessage { Section { Text(errorMessage).foregroundStyle(.red) } }
+                    }
+                    .disabled(isLoading || isSaving)
+                }
+            }
+            .navigationTitle("Fleet Settings")
+            .toolbar {
+                if scope == .agency {
+                    ToolbarItem(placement: .topBarTrailing) {
+                        Button(isSaving ? "Saving…" : "Save") { Task { await save() } }
+                            .disabled(isLoading || isSaving)
+                    }
+                }
+            }
+        }
+        .task { if scope == .agency { await load() } }
+    }
+
+    private func numberField(_ title: String, value: Binding<Double>) -> some View {
+        TextField(title, value: value, format: .number.precision(.fractionLength(0...2)))
+            .keyboardType(.decimalPad)
+    }
+
+    @MainActor private func load() async {
+        guard let token = authStore.currentSession?.token else { return }
+        isLoading = true; defer { isLoading = false }
+        do { settings = try await FleetDispatchAPIService.getAgencySettings(token: token) }
+        catch { errorMessage = error.localizedDescription }
+    }
+
+    @MainActor private func save() async {
+        guard let token = authStore.currentSession?.token else { return }
+        isSaving = true; savedMessage = nil; errorMessage = nil
+        defer { isSaving = false }
+        do {
+            settings = try await FleetDispatchAPIService.updateAgencySettings(token: token, settings: settings)
+            savedMessage = "Settings saved"
+        } catch { errorMessage = error.localizedDescription }
     }
 }
 
@@ -1010,13 +1538,11 @@ private struct FleetPortalSettingsView: View {
 
     @AppStorage("notifications_enabled") private var notificationsEnabled = true
     @AppStorage("app.language") private var languagePreference = ProfileLanguage.english.rawValue
-    @AppStorage("app.appearance") private var appearancePreference = ProfileAppearance.light.rawValue
     @AppStorage("fleet.rate.per_km") private var ratePerKm = ""
     @AppStorage("fleet.rate.package") private var packageRate = ""
 
     @State private var showEditProfile = false
     @State private var showLanguage = false
-    @State private var showAppearance = false
     @State private var showRates = false
     @State private var showLogout = false
 
@@ -1030,18 +1556,17 @@ private struct FleetPortalSettingsView: View {
 
                     Text(user?.name?.nonBlank ?? "Fleet Administrator")
                         .font(.system(size: 20, weight: .regular))
-                        .foregroundStyle(Color(hex: 0x1F2937))
+                .foregroundStyle(.primary)
                         .padding(.top, 18)
                     Text(user?.phone?.nonBlank ?? "—")
                         .font(.system(size: 18, weight: .regular))
-                        .foregroundStyle(Color(hex: 0x667085))
+                .foregroundStyle(.secondary)
                         .padding(.top, 6)
                         .padding(.bottom, 48)
 
                     VStack(spacing: 0) {
                         settingsButton("Edit Profile", icon: "person.badge.key") { showEditProfile = true }
                         settingsButton("Language", icon: "character.book.closed") { showLanguage = true }
-                        settingsButton("Appearance", icon: "paintpalette") { showAppearance = true }
                         settingsButton("Rate System", icon: "tag") { showRates = true }
 
                         HStack(spacing: 16) {
@@ -1058,7 +1583,7 @@ private struct FleetPortalSettingsView: View {
                                     if enabled { authStore.requestNotificationPermissions() }
                                 }
                         }
-                        .foregroundStyle(Color(hex: 0x667085))
+                .foregroundStyle(.secondary)
                         .frame(height: 58)
                         .overlay(alignment: .bottom) { Divider() }
 
@@ -1072,7 +1597,7 @@ private struct FleetPortalSettingsView: View {
                             Text(appVersion)
                                 .font(.system(size: 14))
                         }
-                        .foregroundStyle(Color(hex: 0x667085))
+                .foregroundStyle(.secondary)
                         .frame(height: 58)
                         .overlay(alignment: .bottom) { Divider() }
 
@@ -1085,7 +1610,7 @@ private struct FleetPortalSettingsView: View {
                                     .font(.system(size: 17))
                                 Spacer()
                             }
-                            .foregroundStyle(Color(hex: 0x667085))
+                .foregroundStyle(.secondary)
                             .frame(height: 58)
                         }
                         .buttonStyle(.plain)
@@ -1105,7 +1630,7 @@ private struct FleetPortalSettingsView: View {
             }
         }
         .toolbar(.hidden, for: .tabBar)
-        .background(Color.white.ignoresSafeArea())
+        .background(Color.appScreenBackground.ignoresSafeArea())
         .sheet(isPresented: $showEditProfile) {
             NavigationStack {
                 ProfileEditView(onSaved: {
@@ -1117,23 +1642,15 @@ private struct FleetPortalSettingsView: View {
             }
             .presentationDetents([.large])
             .presentationDragIndicator(.visible)
-            .preferredColorScheme(.light)
         }
         .sheet(isPresented: $showRates) {
             FleetRateSheet(perKm: $ratePerKm, package: $packageRate)
                 .presentationDetents([.height(440)])
                 .presentationDragIndicator(.visible)
-                .preferredColorScheme(.light)
         }
         .confirmationDialog("Language", isPresented: $showLanguage, titleVisibility: .visible) {
             ForEach(ProfileLanguage.allCases) { language in
                 Button(language.title) { languagePreference = language.rawValue }
-            }
-            Button("Cancel", role: .cancel) {}
-        }
-        .confirmationDialog("Appearance", isPresented: $showAppearance, titleVisibility: .visible) {
-            ForEach(ProfileAppearance.allCases) { appearance in
-                Button(appearance.title) { appearancePreference = appearance.rawValue }
             }
             Button("Cancel", role: .cancel) {}
         }
@@ -1161,7 +1678,7 @@ private struct FleetPortalSettingsView: View {
                 Image(systemName: "chevron.right")
                     .font(.system(size: 13, weight: .semibold))
             }
-            .foregroundStyle(Color(hex: 0x667085))
+                .foregroundStyle(.secondary)
             .frame(height: 58)
             .contentShape(Rectangle())
         }
@@ -1246,7 +1763,7 @@ private struct FleetFormField: View {
                 if required { Text("*").foregroundStyle(.red) }
             }
             .font(.system(size: 13, weight: .medium))
-            .foregroundStyle(Color(hex: 0x475467))
+                .foregroundStyle(.secondary)
 
             HStack(alignment: axis == .vertical ? .top : .center, spacing: 11) {
                 Image(systemName: icon)
@@ -1255,7 +1772,7 @@ private struct FleetFormField: View {
                     .frame(width: 22)
                 TextField(placeholder, text: $text, axis: axis)
                     .font(.system(size: 15))
-                    .foregroundStyle(Color(hex: 0x111827))
+                .foregroundStyle(.primary)
                     .keyboardType(keyboardType)
                     .textInputAutocapitalization(capitalization)
                     .lineLimit(axis == .vertical ? 3...4 : 1...1)
@@ -1263,8 +1780,8 @@ private struct FleetFormField: View {
             .padding(.horizontal, 14)
             .padding(.vertical, axis == .vertical ? 12 : 0)
             .frame(minHeight: axis == .vertical ? 92 : 50, alignment: .topLeading)
-            .background(.white, in: RoundedRectangle(cornerRadius: 8))
-            .overlay { RoundedRectangle(cornerRadius: 8).stroke(Color(hex: 0x98A2B3), lineWidth: 1) }
+            .background(Color.appFieldBackground, in: RoundedRectangle(cornerRadius: 8))
+            .overlay { RoundedRectangle(cornerRadius: 8).stroke(Color.appSeparator, lineWidth: 1) }
         }
     }
 }
@@ -1278,7 +1795,7 @@ private struct FleetReadOnlyField: View {
         VStack(alignment: .leading, spacing: 6) {
             Text(title)
                 .font(.system(size: 13, weight: .medium))
-                .foregroundStyle(Color(hex: 0x475467))
+                .foregroundStyle(.secondary)
             HStack(spacing: 11) {
                 Image(systemName: icon)
                     .font(.system(size: 18, weight: .medium))
@@ -1286,14 +1803,14 @@ private struct FleetReadOnlyField: View {
                     .frame(width: 22)
                 Text(value)
                     .font(.system(size: 15))
-                    .foregroundStyle(Color(hex: 0x111827))
+                .foregroundStyle(.primary)
                     .lineLimit(2)
                 Spacer()
             }
             .padding(.horizontal, 14)
             .frame(minHeight: 50)
-            .background(Color(hex: 0xF9FAFB), in: RoundedRectangle(cornerRadius: 8))
-            .overlay { RoundedRectangle(cornerRadius: 8).stroke(Color(hex: 0x98A2B3), lineWidth: 1) }
+            .background(Color.appFieldBackground, in: RoundedRectangle(cornerRadius: 8))
+            .overlay { RoundedRectangle(cornerRadius: 8).stroke(Color.appSeparator, lineWidth: 1) }
         }
     }
 }
@@ -1421,7 +1938,7 @@ private struct FleetVehicleDetailSheet: View {
                 .padding(.bottom, 90)
             }
         }
-        .background(Color.white.ignoresSafeArea())
+        .background(Color.appScreenBackground.ignoresSafeArea())
         .safeAreaInset(edge: .bottom) {
             FleetPrimaryButton(title: "Close", isLoading: false, enabled: true) { dismiss() }
         }
@@ -1646,10 +2163,10 @@ private struct FleetSheetTitle: View {
         VStack(alignment: .leading, spacing: 3) {
             Text(title)
                 .font(.system(size: 18, weight: .bold))
-                .foregroundStyle(Color(hex: 0x111827))
+                .foregroundStyle(.primary)
             Text(subtitle)
                 .font(.system(size: 13))
-                .foregroundStyle(Color(hex: 0x667085))
+                .foregroundStyle(.secondary)
         }
         .frame(maxWidth: .infinity, alignment: .leading)
         .padding(.horizontal, 20)
@@ -1673,7 +2190,7 @@ private struct FleetPrimaryButton: View {
         .opacity(enabled ? 1 : 0.45)
         .padding(.horizontal, 20)
         .padding(.vertical, 12)
-        .background(Color(hex: 0xF1F3F8))
+        .background(Color.appScreenBackground)
     }
 }
 

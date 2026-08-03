@@ -17,6 +17,7 @@ struct ArrivalOtpSheet: View {
     let initialResendCooldown: Int
     let lat: Double
     let lng: Double
+    let arrivalPhotoStorageId: String?
     let onVerified: (String) -> Void
 
     @State private var otp: String = ""
@@ -38,6 +39,7 @@ struct ArrivalOtpSheet: View {
         initialResendCooldown: Int,
         lat: Double,
         lng: Double,
+        arrivalPhotoStorageId: String? = nil,
         onVerified: @escaping (String) -> Void
     ) {
         self.visitId = visitId
@@ -46,6 +48,7 @@ struct ArrivalOtpSheet: View {
         self.initialResendCooldown = initialResendCooldown
         self.lat = lat
         self.lng = lng
+        self.arrivalPhotoStorageId = arrivalPhotoStorageId
         self.onVerified = onVerified
         _expirySecondsRemaining = State(initialValue: initialExpiresIn)
         _resendSecondsRemaining = State(initialValue: initialResendCooldown)
@@ -53,14 +56,25 @@ struct ArrivalOtpSheet: View {
     }
 
     var body: some View {
-        VStack(spacing: 20) {
-            VStack(spacing: 6) {
-                Text("We have send an OTP to Client!")
-                    .font(.system(size: 16, weight: .semibold))
-                    .foregroundStyle(Color(hex: 0x101828))
+        VStack(spacing: 18) {
+            Capsule()
+                .fill(Color.secondary.opacity(0.25))
+                .frame(width: 38, height: 5)
+                .padding(.top, 8)
+
+            Image(systemName: "checkmark.shield.fill")
+                .font(.system(size: 28, weight: .semibold))
+                .foregroundStyle(Color(hex: 0x0B61CA))
+                .frame(width: 58, height: 58)
+                .background(Color(hex: 0x0B61CA).opacity(0.10), in: Circle())
+
+            VStack(spacing: 5) {
+                Text("Verify client arrival")
+                    .font(.headline)
+                    .foregroundStyle(.primary)
                 Text(subtitleText)
-                    .font(.system(size: 11))
-                    .foregroundStyle(Color(hex: 0x475467))
+                    .font(.footnote)
+                    .foregroundStyle(.secondary)
                     .multilineTextAlignment(.center)
                     .padding(.horizontal)
             }
@@ -84,21 +98,34 @@ struct ArrivalOtpSheet: View {
                 }
 
             if let errorText {
-                Text(errorText).font(.caption).foregroundStyle(.red)
+                Label(errorText, systemImage: "exclamationmark.triangle.fill")
+                    .font(.caption.weight(.medium))
+                    .foregroundStyle(Color(hex: 0xB42318))
+                    .padding(10)
+                    .frame(maxWidth: .infinity, alignment: .leading)
+                    .background(Color(hex: 0xB42318).opacity(0.12), in: RoundedRectangle(cornerRadius: 12))
             }
 
-            Button {
-                Task { await performVerify() }
-            } label: {
-                HStack {
-                    if isVerifying { ProgressView().tint(.white) }
-                    Text("Submit").font(.headline)
+            HStack(spacing: 10) {
+                Button("Cancel") { dismiss() }
+                    .buttonStyle(.bordered)
+                    .controlSize(.large)
+                    .frame(maxWidth: .infinity)
+
+                Button {
+                    Task { await performVerify() }
+                } label: {
+                    HStack {
+                        if isVerifying { ProgressView().tint(.white) }
+                        Text("Verify OTP").font(.headline)
+                    }
+                    .frame(maxWidth: .infinity)
                 }
-                .frame(maxWidth: .infinity)
-                .padding(.vertical, 14)
+                .buttonStyle(.borderedProminent)
+                .controlSize(.large)
+                .tint(Color(hex: 0x2DAE12))
+                .disabled(otp.count != 4 || isVerifying)
             }
-            .buttonStyle(.borderedProminent)
-            .disabled(otp.count != 4 || isVerifying)
 
             Button {
                 Task { await performResend() }
@@ -121,7 +148,7 @@ struct ArrivalOtpSheet: View {
             .buttonStyle(.plain)
             .disabled(resendSecondsRemaining > 0 || isResending)
 
-            Spacer(minLength: 0)
+            Spacer(minLength: 8)
         }
         .padding(.horizontal, 24)
         .padding(.bottom, 16)
@@ -158,7 +185,7 @@ struct ArrivalOtpSheet: View {
     }
 
     private var subtitleText: String {
-        var msg = "Please confirm if you have seen or met the client at this location."
+        var msg = "Enter the 4-digit code shared by the client."
         if let phoneMaskedState, !phoneMaskedState.isEmpty {
             msg += " OTP sent to \(phoneMaskedState)."
         }
@@ -196,7 +223,8 @@ struct ArrivalOtpSheet: View {
                 visitId: visitId,
                 otp: otp,
                 lat: lat,
-                lng: lng
+                lng: lng,
+                arrivalPhotoStorageId: arrivalPhotoStorageId
             )
             if resp.success {
                 onVerified(otp)

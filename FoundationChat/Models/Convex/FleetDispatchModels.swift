@@ -52,22 +52,46 @@ struct FleetDispatchTrip: Decodable, Identifiable, Hashable, Sendable {
     let scheduledDate: String?
     let scheduledTime: String?
     let pickupAddress: String?
+    let pickupLat: Double?
+    let pickupLng: Double?
+    let pickupGoogleMapsLink: String?
     let pickupTime: String?
     let expectedAttendeeCount: Int?
     let vehiclePreference: String?
     let driverName: String?
     let driverPhone: String?
+    let clientName: String?
+    let clientPhone: String?
+    let lmoName: String?
     let status: String?
+    let outcome: String?
     let vehicleId: String?
     let project: FleetDispatchProject?
     let vehicle: FleetDispatchVehicleReference?
+    let travelDeskArrivedAt: Int64?
+    let travelDeskStartedAt: Int64?
+    let travelDeskOnSiteAt: Int64?
+    let travelDeskPickedFromSiteAt: Int64?
+    let travelDeskEndedAt: Int64?
+    let completedOffline: Bool?
+    let travelDeskPricingMode: String?
+    let travelDeskKmRate: Double?
+    let travelDeskPackageAmount: Double?
+    let travelDeskStartKm: Double?
+    let travelDeskEndKm: Double?
+    let travelDeskTotalAmount: Double?
 
     private enum CodingKeys: String, CodingKey {
         case id = "_id"
         case plainId = "id"
-        case scheduledDate, scheduledTime, pickupAddress, pickupTime
+        case scheduledDate, scheduledTime, pickupAddress, pickupLat, pickupLng
+        case pickupGoogleMapsLink, pickupTime
         case expectedAttendeeCount, vehiclePreference, driverName, driverPhone
-        case status, vehicleId, project, vehicle
+        case clientName, clientPhone, lmoName, status, outcome, vehicleId, project, vehicle
+        case travelDeskArrivedAt, travelDeskStartedAt, travelDeskOnSiteAt
+        case travelDeskPickedFromSiteAt, travelDeskEndedAt, completedOffline
+        case travelDeskPricingMode, travelDeskKmRate, travelDeskPackageAmount
+        case travelDeskStartKm, travelDeskEndKm, travelDeskTotalAmount
     }
 
     init(from decoder: Decoder) throws {
@@ -78,15 +102,34 @@ struct FleetDispatchTrip: Decodable, Identifiable, Hashable, Sendable {
         scheduledDate = try container.decodeIfPresent(String.self, forKey: .scheduledDate)
         scheduledTime = try container.decodeIfPresent(String.self, forKey: .scheduledTime)
         pickupAddress = try container.decodeIfPresent(String.self, forKey: .pickupAddress)
+        pickupLat = try container.decodeFleetDoubleIfPresent(forKey: .pickupLat)
+        pickupLng = try container.decodeFleetDoubleIfPresent(forKey: .pickupLng)
+        pickupGoogleMapsLink = try container.decodeIfPresent(String.self, forKey: .pickupGoogleMapsLink)
         pickupTime = try container.decodeIfPresent(String.self, forKey: .pickupTime)
         expectedAttendeeCount = try container.decodeIfPresent(Int.self, forKey: .expectedAttendeeCount)
         vehiclePreference = try container.decodeIfPresent(String.self, forKey: .vehiclePreference)
         driverName = try container.decodeIfPresent(String.self, forKey: .driverName)
         driverPhone = try container.decodeIfPresent(String.self, forKey: .driverPhone)
+        clientName = try container.decodeIfPresent(String.self, forKey: .clientName)
+        clientPhone = try container.decodeIfPresent(String.self, forKey: .clientPhone)
+        lmoName = try container.decodeIfPresent(String.self, forKey: .lmoName)
         status = try container.decodeIfPresent(String.self, forKey: .status)
+        outcome = try container.decodeIfPresent(String.self, forKey: .outcome)
         vehicleId = try container.decodeIfPresent(String.self, forKey: .vehicleId)
         project = try container.decodeIfPresent(FleetDispatchProject.self, forKey: .project)
         vehicle = try container.decodeIfPresent(FleetDispatchVehicleReference.self, forKey: .vehicle)
+        travelDeskArrivedAt = try container.decodeFleetInt64IfPresent(forKey: .travelDeskArrivedAt)
+        travelDeskStartedAt = try container.decodeFleetInt64IfPresent(forKey: .travelDeskStartedAt)
+        travelDeskOnSiteAt = try container.decodeFleetInt64IfPresent(forKey: .travelDeskOnSiteAt)
+        travelDeskPickedFromSiteAt = try container.decodeFleetInt64IfPresent(forKey: .travelDeskPickedFromSiteAt)
+        travelDeskEndedAt = try container.decodeFleetInt64IfPresent(forKey: .travelDeskEndedAt)
+        completedOffline = try container.decodeIfPresent(Bool.self, forKey: .completedOffline)
+        travelDeskPricingMode = try container.decodeIfPresent(String.self, forKey: .travelDeskPricingMode)
+        travelDeskKmRate = try container.decodeFleetDoubleIfPresent(forKey: .travelDeskKmRate)
+        travelDeskPackageAmount = try container.decodeFleetDoubleIfPresent(forKey: .travelDeskPackageAmount)
+        travelDeskStartKm = try container.decodeFleetDoubleIfPresent(forKey: .travelDeskStartKm)
+        travelDeskEndKm = try container.decodeFleetDoubleIfPresent(forKey: .travelDeskEndKm)
+        travelDeskTotalAmount = try container.decodeFleetDoubleIfPresent(forKey: .travelDeskTotalAmount)
     }
 
     var isCompleted: Bool {
@@ -97,6 +140,9 @@ struct FleetDispatchTrip: Decodable, Identifiable, Hashable, Sendable {
 struct FleetDispatchVehicle: Decodable, Identifiable, Hashable, Sendable {
     let id: String
     let vehicleNumber: String?
+    let make: String?
+    let model: String?
+    let modelYear: Int?
     let type: String?
     let capacity: Int?
     let defaultDriverName: String?
@@ -106,7 +152,7 @@ struct FleetDispatchVehicle: Decodable, Identifiable, Hashable, Sendable {
     private enum CodingKeys: String, CodingKey {
         case id = "_id"
         case plainId = "id"
-        case vehicleNumber, type, capacity, defaultDriverName, defaultDriverPhone, status
+        case vehicleNumber, make, model, modelYear, type, capacity, defaultDriverName, defaultDriverPhone, status
     }
 
     init(from decoder: Decoder) throws {
@@ -115,6 +161,9 @@ struct FleetDispatchVehicle: Decodable, Identifiable, Hashable, Sendable {
             ?? container.decodeIfPresent(String.self, forKey: .plainId)
             ?? UUID().uuidString
         vehicleNumber = try container.decodeIfPresent(String.self, forKey: .vehicleNumber)
+        make = try container.decodeIfPresent(String.self, forKey: .make)
+        model = try container.decodeIfPresent(String.self, forKey: .model)
+        modelYear = try container.decodeIfPresent(Int.self, forKey: .modelYear)
         type = try container.decodeIfPresent(String.self, forKey: .type)
         capacity = try container.decodeIfPresent(Int.self, forKey: .capacity)
         defaultDriverName = try container.decodeIfPresent(String.self, forKey: .defaultDriverName)
@@ -132,12 +181,13 @@ struct FleetDispatchDriver: Decodable, Identifiable, Hashable, Sendable {
     let name: String
     let phone: String?
     let address: String?
+    let category: String?
     let status: String
 
     private enum CodingKeys: String, CodingKey {
         case id = "_id"
         case plainId = "id"
-        case name, phone, address, status
+        case name, phone, address, category, status
     }
 
     init(from decoder: Decoder) throws {
@@ -148,6 +198,7 @@ struct FleetDispatchDriver: Decodable, Identifiable, Hashable, Sendable {
         name = try container.decodeIfPresent(String.self, forKey: .name) ?? "Driver"
         phone = try container.decodeIfPresent(String.self, forKey: .phone)
         address = try container.decodeIfPresent(String.self, forKey: .address)
+        category = try container.decodeIfPresent(String.self, forKey: .category)
         status = try container.decodeIfPresent(String.self, forKey: .status) ?? "active"
     }
 
@@ -161,4 +212,90 @@ struct FleetAllocationDraft: Sendable {
     let driverName: String
     let driverPhone: String
     let amount: Double
+}
+
+struct FleetAgencyStaff: Decodable, Identifiable, Hashable, Sendable {
+    let id: String
+    let name: String
+    let phone: String
+    let whatsapp: String?
+    let status: String
+
+    private enum CodingKeys: String, CodingKey { case id = "_id", plainId = "id", name, phone, whatsapp, status }
+
+    init(from decoder: Decoder) throws {
+        let container = try decoder.container(keyedBy: CodingKeys.self)
+        id = try container.decodeIfPresent(String.self, forKey: .id)
+            ?? container.decodeIfPresent(String.self, forKey: .plainId)
+            ?? UUID().uuidString
+        name = try container.decodeIfPresent(String.self, forKey: .name) ?? "Staff"
+        phone = try container.decodeIfPresent(String.self, forKey: .phone) ?? ""
+        whatsapp = try container.decodeIfPresent(String.self, forKey: .whatsapp)
+        status = try container.decodeIfPresent(String.self, forKey: .status) ?? "active"
+    }
+}
+
+struct FleetAgencySettings: Codable, Equatable, Sendable {
+    var kmRate: Double
+    var packageAmount: Double
+    var bettaAmount: Double
+    var permitCharge: Double
+    var permitTax: Double
+    var standingChargeWithAc: Double
+    var standingChargeDurationMinutes: Double
+    var waitingAllowance: Double
+    var cancellationAllowance: Double
+    var tollCharge: Double
+
+    static let empty = FleetAgencySettings(
+        kmRate: 0, packageAmount: 0, bettaAmount: 0, permitCharge: 0,
+        permitTax: 0, standingChargeWithAc: 0, standingChargeDurationMinutes: 0,
+        waitingAllowance: 0, cancellationAllowance: 0, tollCharge: 0
+    )
+}
+
+struct FleetOfflineCompletionDraft: Sendable {
+    let fleetType: String?
+    let vehicleId: String?
+    let agencyName: String?
+    let packageAmount: Double?
+    let kmRate: Double?
+    let distanceKm: Double?
+    let driverName: String?
+    let driverPhone: String?
+    let beta: Double?
+    let beta2: Double?
+    let tollAmount: Double?
+    let hillCharge: Double?
+    let outstationCharge: Double?
+    let permitCharge: Double?
+    let permitTax: Double?
+    let standingCharge: Double?
+    let standingTimeMinutes: Int?
+    let standingWithAc: Bool?
+    let startKm: Double?
+    let endKm: Double?
+}
+
+private extension KeyedDecodingContainer {
+    func decodeFleetDoubleIfPresent(forKey key: Key) throws -> Double? {
+        if let value = try decodeIfPresent(Double.self, forKey: key) { return value }
+        if let value = try decodeIfPresent(Int.self, forKey: key) { return Double(value) }
+        if let value = try decodeIfPresent(String.self, forKey: key)?.trimmingCharacters(in: .whitespacesAndNewlines),
+           !value.isEmpty {
+            return Double(value)
+        }
+        return nil
+    }
+
+    func decodeFleetInt64IfPresent(forKey key: Key) throws -> Int64? {
+        if let value = try decodeIfPresent(Int64.self, forKey: key) { return value }
+        if let value = try decodeIfPresent(Int.self, forKey: key) { return Int64(value) }
+        if let value = try decodeIfPresent(Double.self, forKey: key) { return Int64(value) }
+        if let value = try decodeIfPresent(String.self, forKey: key)?.trimmingCharacters(in: .whitespacesAndNewlines),
+           !value.isEmpty {
+            return Int64(value)
+        }
+        return nil
+    }
 }

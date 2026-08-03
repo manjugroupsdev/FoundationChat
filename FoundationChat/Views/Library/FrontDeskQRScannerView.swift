@@ -2,6 +2,8 @@ import AVFoundation
 import Foundation
 import SwiftUI
 
+private struct SiteVisitQRLookupTimeout: Error {}
+
 struct FrontDeskQRScannerView: View {
     @Environment(AuthStore.self) private var authStore
     @Environment(\.dismiss) private var dismiss
@@ -14,6 +16,10 @@ struct FrontDeskQRScannerView: View {
     @State private var scanError: String?
     @State private var visitorActionError: String?
     @State private var isVisitorActionRunning = false
+    @State private var isSiteVisitScan = false
+    @State private var scannedSiteVisit: ScannedSiteVisit?
+    @State private var showSiteVisitOutcome = false
+    @State private var outcomeSiteVisitID: String?
     @State private var lookupTask: Task<Void, Never>?
     let showsCloseButton: Bool
 
@@ -39,36 +45,57 @@ struct FrontDeskQRScannerView: View {
         .navigationBarBackButtonHidden(true)
         .toolbar(.hidden, for: .navigationBar)
         .toolbar(.hidden, for: .tabBar)
-        .preferredColorScheme(.dark)
         .animation(.spring(response: 0.34, dampingFraction: 0.88), value: scannedValue)
         .onChange(of: scannedValue) { _, value in
             guard let value, !value.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else { return }
             scanLineAnimating = false
-            beginInvitationLookup(value)
+            beginScanLookup(value)
         }
         .onDisappear {
             lookupTask?.cancel()
         }
         .sheet(isPresented: $showScanResult, onDismiss: resetScanner) {
-            FrontDeskInvitationSheet(
-                invitation: invitation,
-                rawValue: scannedValue,
-                isLoading: isResolvingInvitation,
-                errorMessage: scanError,
-                actionError: visitorActionError,
-                isActionRunning: isVisitorActionRunning,
-                canCheckIn: authStore.hasPermission("frontdesk.checkin"),
-                canCheckOut: authStore.hasPermission("frontdesk.checkout"),
-                onCheckIn: checkInInvitation,
-                onCheckOut: checkOutInvitation,
-                onScanAnother: {
-                    showScanResult = false
+            Group {
+                if isSiteVisitScan {
+                    SiteVisitCounsellingSheet(
+                        visit: scannedSiteVisit,
+                        isLoading: isResolvingInvitation,
+                        errorMessage: scanError,
+                        actionError: visitorActionError,
+                        isActionRunning: isVisitorActionRunning,
+                        canRecordOutcomeFallback: authStore.hasPermission("marketing.siteVisits.scanConsulting"),
+                        onStart: startSiteVisitCounselling,
+                        onOpenOutcome: openScannedSiteVisitOutcome,
+                        onScanAnother: { showScanResult = false }
+                    )
+                } else {
+                    FrontDeskInvitationSheet(
+                        invitation: invitation,
+                        rawValue: scannedValue,
+                        isLoading: isResolvingInvitation,
+                        errorMessage: scanError,
+                        actionError: visitorActionError,
+                        isActionRunning: isVisitorActionRunning,
+                        canCheckIn: authStore.hasPermission("frontdesk.checkin"),
+                        canCheckOut: authStore.hasPermission("frontdesk.checkout"),
+                        onCheckIn: checkInInvitation,
+                        onCheckOut: checkOutInvitation,
+                        onScanAnother: { showScanResult = false }
+                    )
                 }
-            )
+            }
             .presentationDetents([.fraction(0.62), .large])
             .presentationDragIndicator(.visible)
-            .presentationBackground(Color.white)
+            .presentationBackground(Color.appElevatedSurface)
             .interactiveDismissDisabled(isVisitorActionRunning)
+        }
+        .sheet(isPresented: $showSiteVisitOutcome, onDismiss: resetScanner) {
+            if let outcomeSiteVisitID {
+                SiteVisitOutcomeSheet(siteVisitId: outcomeSiteVisitID) {
+                    showSiteVisitOutcome = false
+                }
+                .appLibraryNativeSheet([.large])
+            }
         }
     }
 
@@ -172,16 +199,16 @@ struct FrontDeskQRScannerView: View {
 
             Text("Camera permission needed")
                 .font(.system(size: 18, weight: .semibold))
-                .foregroundStyle(Color(hex: 0x111827))
+                .foregroundStyle(.primary)
 
             Text("Enable camera access in Settings to scan Front Desk QR codes.")
                 .font(.system(size: 13, weight: .medium))
-                .foregroundStyle(Color(hex: 0x667085))
+                .foregroundStyle(.secondary)
                 .multilineTextAlignment(.center)
         }
         .padding(22)
         .frame(maxWidth: 300)
-        .background(.white, in: RoundedRectangle(cornerRadius: 24, style: .continuous))
+        .background(Color.appSurface, in: RoundedRectangle(cornerRadius: 24, style: .continuous))
     }
 
     fileprivate static func inviteToken(from value: String) -> String? {
@@ -196,11 +223,128 @@ struct FrontDeskQRScannerView: View {
             .trimmingCharacters(in: CharacterSet(charactersIn: "/ "))
     }
 
+    fileprivate static func siteVisitID(from value: String) -> String? {
+        let raw = value.trimmingCharacters(in: .whitespacesAndNewlines)
+        if raw.lowercased().hasPrefix("sv:") {
+            return String(raw.dropFirst(3)).trimmingCharacters(in: .whitespacesAndNewlines).nilIfBlank
+        }
+        let marker = "/site-visit/consulting/"
+        guard let range = raw.range(of: marker, options: .caseInsensitive) else { return nil }
+        return String(raw[range.upperBound...])
+            .split(separator: "?").first?
+            .split(separator: "#").first
+            .map(String.init)?
+            .trimmingCharacters(in: CharacterSet(charactersIn: "/ "))
+            .nilIfBlank
+    }
+
+    private func beginScanLookup(_ value: String) {
+        if let siteVisitID = Self.siteVisitID(from: value) {
+            beginSiteVisitLookup(siteVisitID)
+        } else {
+            beginInvitationLookup(value)
+        }
+    }
+
+    private func beginSiteVisitLookup(_ siteVisitID: String) {
+        lookupTask?.cancel()
+        invitation = nil
+        scannedSiteVisit = nil
+        scanError = nil
+        visitorActionError = nil
+        isSiteVisitScan = true
+        isResolvingInvitation = true
+        showScanResult = true
+
+        lookupTask = Task {
+            guard let token = authStore.currentSession?.token else {
+                isResolvingInvitation = false
+                scanError = "Please sign in again to validate this site visit."
+                return
+            }
+            do {
+                scannedSiteVisit = try await loadSiteVisitQRWithRetry(
+                    token: token,
+                    siteVisitID: siteVisitID
+                )
+            } catch {
+                guard !Task.isCancelled else { return }
+                scanError = error is SiteVisitQRLookupTimeout
+                    ? "The SV details are taking too long to load. Check the connection and scan again."
+                    : error.localizedDescription
+            }
+            isResolvingInvitation = false
+        }
+    }
+
+    private func loadSiteVisitQRWithRetry(token: String, siteVisitID: String) async throws -> ScannedSiteVisit {
+        var lastError: Error?
+        for attempt in 0..<2 {
+            do {
+                return try await loadSiteVisitQRWithTimeout(token: token, siteVisitID: siteVisitID)
+            } catch is CancellationError {
+                throw CancellationError()
+            } catch {
+                lastError = error
+                let retryable = error is URLError || error is SiteVisitQRLookupTimeout
+                guard retryable, attempt == 0 else { throw error }
+                try await Task.sleep(for: .milliseconds(400))
+            }
+        }
+        throw lastError ?? SiteVisitQRLookupTimeout()
+    }
+
+    private func loadSiteVisitQRWithTimeout(token: String, siteVisitID: String) async throws -> ScannedSiteVisit {
+        try await withThrowingTaskGroup(of: ScannedSiteVisit.self) { group in
+            group.addTask {
+                try await MarketingConvexAPIService.scanSiteVisitQR(
+                    token: token,
+                    qrData: "SV:\(siteVisitID)"
+                )
+            }
+            group.addTask {
+                try await Task.sleep(for: .seconds(10))
+                throw SiteVisitQRLookupTimeout()
+            }
+            defer { group.cancelAll() }
+            guard let result = try await group.next() else {
+                throw SiteVisitQRLookupTimeout()
+            }
+            return result
+        }
+    }
+
+    private func startSiteVisitCounselling() async {
+        guard let token = authStore.currentSession?.token, let visit = scannedSiteVisit else { return }
+        isVisitorActionRunning = true
+        visitorActionError = nil
+        do {
+            try await MarketingConvexAPIService.markSiteVisitOnCounselling(token: token, id: visit.id)
+        } catch {
+            // Match Android: show the transition failure but never dead-end the
+            // authorised operator; the outcome screen reloads server truth.
+            visitorActionError = error.localizedDescription
+        }
+        isVisitorActionRunning = false
+        openScannedSiteVisitOutcome()
+    }
+
+    private func openScannedSiteVisitOutcome() {
+        guard let id = scannedSiteVisit?.id else { return }
+        outcomeSiteVisitID = id
+        showScanResult = false
+        Task { @MainActor in
+            try? await Task.sleep(for: .milliseconds(350))
+            showSiteVisitOutcome = true
+        }
+    }
+
     private func beginInvitationLookup(_ value: String) {
         lookupTask?.cancel()
         invitation = nil
         scanError = nil
         visitorActionError = nil
+        isSiteVisitScan = false
         isResolvingInvitation = true
         showScanResult = true
 
@@ -291,6 +435,8 @@ struct FrontDeskQRScannerView: View {
         lookupTask = nil
         scannedValue = nil
         invitation = nil
+        scannedSiteVisit = nil
+        isSiteVisitScan = false
         scanError = nil
         visitorActionError = nil
         isResolvingInvitation = false
@@ -304,6 +450,211 @@ struct FrontDeskQRScannerView: View {
             withAnimation(.linear(duration: 1.55).repeatForever(autoreverses: true)) {
                 scanLineAnimating = true
             }
+        }
+    }
+}
+
+private struct SiteVisitCounsellingSheet: View {
+    let visit: ScannedSiteVisit?
+    let isLoading: Bool
+    let errorMessage: String?
+    let actionError: String?
+    let isActionRunning: Bool
+    let canRecordOutcomeFallback: Bool
+    let onStart: () async -> Void
+    let onOpenOutcome: () -> Void
+    let onScanAnother: () -> Void
+
+    @State private var countdown = 5
+
+    private var normalizedStatus: String {
+        visit?.status?.trimmingCharacters(in: .whitespacesAndNewlines).lowercased() ?? ""
+    }
+
+    private var isOngoing: Bool { normalizedStatus == "on_counselling" }
+    private var isCompleted: Bool {
+        normalizedStatus == "completed" || visit?.outcome?.nilIfBlank != nil
+    }
+    private var canStart: Bool { visit?.canStartCounselling == true && !isOngoing && !isCompleted }
+    private var canOpenOutcome: Bool {
+        ((visit?.canRecordOutcome == true) || canRecordOutcomeFallback) && isOngoing && !isCompleted
+    }
+
+    var body: some View {
+        NavigationStack {
+            Group {
+                if isLoading {
+                    VStack(spacing: 12) {
+                        ProgressView().controlSize(.large)
+                        Text("Validating site visit...")
+                            .foregroundStyle(.secondary)
+                    }
+                } else if let errorMessage {
+                    ContentUnavailableView("SV QR Unavailable", systemImage: "qrcode", description: Text(errorMessage))
+                } else if let visit {
+                    ScrollView {
+                        VStack(alignment: .leading, spacing: 16) {
+                            HStack(alignment: .top, spacing: 12) {
+                                Image(systemName: "person.2.badge.gearshape.fill")
+                                    .font(.system(size: 22, weight: .semibold))
+                                    .foregroundStyle(Color(hex: 0x0B61CA))
+                                    .frame(width: 46, height: 46)
+                                    .background(Color(hex: 0xEAF4FF), in: RoundedRectangle(cornerRadius: 12))
+                                VStack(alignment: .leading, spacing: 4) {
+                                    Text(clientName(visit))
+                                        .font(.system(size: 20, weight: .bold))
+                                        .foregroundStyle(.primary)
+                                    Text(projectName(visit))
+                                        .font(.system(size: 13, weight: .medium))
+                                        .foregroundStyle(.secondary)
+                                }
+                                Spacer()
+                                if let temperature = visit.lead?.temperature?.nilIfBlank {
+                                    Text("\(temperature.uppercased()) LEAD")
+                                        .font(.system(size: 10, weight: .bold))
+                                        .foregroundStyle(temperatureColor(temperature))
+                                        .padding(.horizontal, 9)
+                                        .frame(height: 27)
+                                        .background(temperatureColor(temperature).opacity(0.1), in: Capsule())
+                                }
+                            }
+
+                            LazyVGrid(columns: [GridItem(.flexible()), GridItem(.flexible())], spacing: 10) {
+                                detailCard("Mobile", phone(visit), "phone.fill")
+                                detailCard("Occupation", visit.lead?.profession?.nilIfBlank ?? visit.client?.profession?.nilIfBlank ?? "Not provided", "briefcase.fill")
+                                detailCard("BDO", visit.bdoStaff?.name?.nilIfBlank ?? visit.telecallerStaff?.name?.nilIfBlank ?? "Not assigned", "person.fill")
+                                detailCard("Site Incharge", visit.inchargeStaff?.name?.nilIfBlank ?? "Not assigned", "person.badge.shield.checkmark.fill")
+                            }
+
+                            detailRow("Schedule", [visit.scheduledDate?.nilIfBlank, visit.scheduledTime?.nilIfBlank].compactMap { $0 }.joined(separator: " - "), "calendar")
+                            detailRow("Additional visitors", additionalVisitors(visit), "person.3.fill")
+                            detailRow("Food preference", visit.foodPreferences?.nilIfBlank ?? "Not provided", "fork.knife")
+
+                            if let actionError {
+                                Label(actionError, systemImage: "exclamationmark.triangle.fill")
+                                    .font(.system(size: 12, weight: .medium))
+                                    .foregroundStyle(Color(hex: 0xB42318))
+                            }
+
+                            Text(accessMessage(visit))
+                                .font(.system(size: 12, weight: .medium))
+                                .foregroundStyle((canStart || canOpenOutcome || isCompleted) ? Color(hex: 0x667085) : Color(hex: 0xB54708))
+                                .fixedSize(horizontal: false, vertical: true)
+                        }
+                        .padding(20)
+                    }
+                }
+            }
+            .frame(maxWidth: .infinity, maxHeight: .infinity)
+            .navigationTitle("Start Counselling")
+            .navigationBarTitleDisplayMode(.inline)
+            .safeAreaInset(edge: .bottom) {
+                if !isLoading {
+                    VStack(spacing: 10) {
+                        if canStart {
+                            Button { Task { await onStart() } } label: {
+                                if isActionRunning { ProgressView().frame(maxWidth: .infinity) }
+                                else { Text("Start counselling").frame(maxWidth: .infinity) }
+                            }
+                            .buttonStyle(.borderedProminent)
+                            .controlSize(.large)
+                            .tint(Color(hex: 0x2DAE12))
+                            .disabled(isActionRunning)
+                        }
+                        Button("Scan another QR", action: onScanAnother)
+                            .buttonStyle(.bordered)
+                            .controlSize(.large)
+                    }
+                    .padding(16)
+                    .background(.bar)
+                }
+            }
+        }
+        .task(id: canOpenOutcome) {
+            guard canOpenOutcome else { return }
+            countdown = 5
+            while countdown > 0 {
+                try? await Task.sleep(for: .seconds(1))
+                guard !Task.isCancelled else { return }
+                countdown -= 1
+            }
+            onOpenOutcome()
+        }
+    }
+
+    private func clientName(_ visit: ScannedSiteVisit) -> String {
+        visit.lead?.clientName?.nilIfBlank
+            ?? visit.lead?.contactName?.nilIfBlank
+            ?? visit.client?.clientName?.nilIfBlank
+            ?? "Client name unavailable"
+    }
+
+    private func projectName(_ visit: ScannedSiteVisit) -> String {
+        visit.project?.projectName?.nilIfBlank ?? visit.project?.name?.nilIfBlank ?? "Project unavailable"
+    }
+
+    private func phone(_ visit: ScannedSiteVisit) -> String {
+        visit.lead?.mobileNumber?.nilIfBlank
+            ?? visit.lead?.mobileNumberNormalized?.nilIfBlank
+            ?? visit.client?.mobileNumber?.nilIfBlank
+            ?? visit.client?.mobileNumberNormalized?.nilIfBlank
+            ?? "Not provided"
+    }
+
+    private func additionalVisitors(_ visit: ScannedSiteVisit) -> String {
+        let primary = clientName(visit)
+        let visitors = (visit.attendees ?? []).filter {
+            $0.name?.trimmingCharacters(in: .whitespacesAndNewlines).caseInsensitiveCompare(primary) != .orderedSame
+        }
+        let rows = visitors.enumerated().map { index, attendee in
+            let name = attendee.name?.nilIfBlank ?? "Visitor \(index + 1)"
+            let details = [attendee.relation?.nilIfBlank, attendee.age?.nilIfBlank.map { "Age \($0)" }].compactMap { $0 }
+            return details.isEmpty ? name : "\(name) (\(details.joined(separator: ", ")))"
+        }
+        if !rows.isEmpty { return rows.joined(separator: "\n") }
+        let count = max((visit.expectedAttendeeCount ?? 1) - 1, 0)
+        return count == 0 ? "No additional visitors listed" : "\(count) additional visitor\(count == 1 ? "" : "s")"
+    }
+
+    private func accessMessage(_ visit: ScannedSiteVisit) -> String {
+        if isCompleted { return "The site visit outcome has been recorded." }
+        if canOpenOutcome { return "You will be redirected to the outcome page in \(countdown)s" }
+        if canStart { return "Confirm only when counselling is actually starting." }
+        let incharge = visit.inchargeStaff?.name?.nilIfBlank ?? "the Site Incharge"
+        if isOngoing { return "Counselling is in progress. You don't have access to close this site visit — please contact \(incharge)." }
+        return "You don't have access to start counselling or close this site visit. Please contact \(incharge)."
+    }
+
+    private func detailCard(_ title: String, _ value: String, _ icon: String) -> some View {
+        VStack(alignment: .leading, spacing: 7) {
+            Label(title.uppercased(), systemImage: icon)
+                .font(.system(size: 10, weight: .bold))
+                .foregroundStyle(Color(hex: 0x98A2B3))
+            Text(value)
+                .font(.system(size: 13, weight: .semibold))
+                .foregroundStyle(.primary)
+                .lineLimit(2)
+        }
+        .padding(12)
+        .frame(maxWidth: .infinity, minHeight: 78, alignment: .topLeading)
+        .background(Color.appFieldBackground, in: RoundedRectangle(cornerRadius: 12))
+    }
+
+    private func detailRow(_ title: String, _ value: String, _ icon: String) -> some View {
+        HStack(alignment: .top, spacing: 12) {
+            Image(systemName: icon).foregroundStyle(Color(hex: 0x0B61CA)).frame(width: 28)
+            VStack(alignment: .leading, spacing: 3) {
+                Text(title.uppercased()).font(.system(size: 10, weight: .bold)).foregroundStyle(Color(hex: 0x98A2B3))
+                Text(value.nilIfBlank ?? "Not provided").font(.system(size: 13, weight: .semibold)).foregroundStyle(.primary)
+            }
+        }
+    }
+
+    private func temperatureColor(_ value: String) -> Color {
+        switch value.lowercased() {
+        case "hot": return Color(hex: 0xDC2626)
+        case "warm": return Color(hex: 0xD97706)
+        default: return Color(hex: 0x0B61CA)
         }
     }
 }
@@ -333,10 +684,10 @@ private struct FrontDeskInvitationSheet: View {
                 VStack(alignment: .leading, spacing: 2) {
                     Text("Visitor Invitation")
                         .font(.system(size: 19, weight: .bold))
-                        .foregroundStyle(Color(hex: 0x101828))
+                        .foregroundStyle(.primary)
                     Text(invitation.map(statusSubtitle) ?? "Front Desk verification")
                         .font(.system(size: 12, weight: .medium))
-                        .foregroundStyle(Color(hex: 0x667085))
+                        .foregroundStyle(.secondary)
                 }
 
                 Spacer()
@@ -358,7 +709,7 @@ private struct FrontDeskInvitationSheet: View {
                             .controlSize(.large)
                         Text("Loading invitation...")
                             .font(.system(size: 14, weight: .medium))
-                            .foregroundStyle(Color(hex: 0x667085))
+                            .foregroundStyle(.secondary)
                     }
                     .frame(maxWidth: .infinity, maxHeight: .infinity)
                 } else if let errorMessage {
@@ -375,8 +726,7 @@ private struct FrontDeskInvitationSheet: View {
 
             actionBar
         }
-        .background(Color.white)
-        .preferredColorScheme(.light)
+        .background(Color.appSurface)
     }
 
     private func invitationDetails(_ invitation: FrontDeskInvitation) -> some View {
@@ -385,7 +735,7 @@ private struct FrontDeskInvitationSheet: View {
                 VStack(alignment: .leading, spacing: 10) {
                     Text("Invited People (\(1 + (invitation.additionalVisitors?.count ?? 0)))")
                         .font(.system(size: 15, weight: .bold))
-                        .foregroundStyle(Color(hex: 0x101828))
+                        .foregroundStyle(.primary)
 
                     visitorCard(
                         name: invitation.visitorName ?? "Visitor",
@@ -411,7 +761,7 @@ private struct FrontDeskInvitationSheet: View {
                 VStack(alignment: .leading, spacing: 12) {
                     Text("Visit Information")
                         .font(.system(size: 15, weight: .bold))
-                        .foregroundStyle(Color(hex: 0x101828))
+                        .foregroundStyle(.primary)
 
                     detailRow(icon: "person.fill", title: "Host", value: hostLabel(invitation))
                     detailRow(icon: "tag.fill", title: "Category", value: categoryLabel(invitation))
@@ -457,7 +807,7 @@ private struct FrontDeskInvitationSheet: View {
                 HStack(spacing: 7) {
                     Text(name)
                         .font(.system(size: 15, weight: .bold))
-                        .foregroundStyle(Color(hex: 0x101828))
+                        .foregroundStyle(.primary)
                     if isPrimary {
                         Text("Primary")
                             .font(.system(size: 9, weight: .bold))
@@ -471,7 +821,7 @@ private struct FrontDeskInvitationSheet: View {
                 if let company = company?.nilIfBlank {
                     Text(company)
                         .font(.system(size: 12, weight: .medium))
-                        .foregroundStyle(Color(hex: 0x667085))
+                        .foregroundStyle(.secondary)
                 }
 
                 let contact = [phone?.nilIfBlank, email?.nilIfBlank, age.map { "Age \($0)" }]
@@ -480,17 +830,17 @@ private struct FrontDeskInvitationSheet: View {
                 if !contact.isEmpty {
                     Text(contact)
                         .font(.system(size: 11, weight: .medium))
-                        .foregroundStyle(Color(hex: 0x667085))
+                        .foregroundStyle(.secondary)
                         .fixedSize(horizontal: false, vertical: true)
                 }
             }
             .frame(maxWidth: .infinity, alignment: .leading)
         }
         .padding(12)
-        .background(Color(hex: 0xF8FAFC), in: RoundedRectangle(cornerRadius: 8, style: .continuous))
+        .background(Color.appFieldBackground, in: RoundedRectangle(cornerRadius: 8, style: .continuous))
         .overlay {
             RoundedRectangle(cornerRadius: 8, style: .continuous)
-                .stroke(Color(hex: 0xEAECF0), lineWidth: 1)
+                .stroke(Color.appSeparator, lineWidth: 1)
         }
     }
 
@@ -508,7 +858,7 @@ private struct FrontDeskInvitationSheet: View {
                     .foregroundStyle(Color(hex: 0x98A2B3))
                 Text(value)
                     .font(.system(size: 13, weight: .semibold))
-                    .foregroundStyle(Color(hex: 0x344054))
+                    .foregroundStyle(.primary)
                     .fixedSize(horizontal: false, vertical: true)
             }
         }
@@ -536,7 +886,7 @@ private struct FrontDeskInvitationSheet: View {
         .padding(.horizontal, 20)
         .padding(.top, 12)
         .padding(.bottom, 16)
-        .background(Color.white)
+        .background(Color.appSurface)
         .overlay(alignment: .top) { Divider() }
     }
 
@@ -686,7 +1036,7 @@ private struct FrontDeskQRHistoryView: View {
 
     var body: some View {
         ZStack {
-            Color(hex: 0xF1F3F8).ignoresSafeArea()
+            Color.appScreenBackground.ignoresSafeArea()
 
             if items.isEmpty {
                 ContentUnavailableView(
@@ -694,7 +1044,7 @@ private struct FrontDeskQRHistoryView: View {
                     systemImage: "clock.arrow.circlepath",
                     description: Text("Your scanned QR codes and visitor logs will show up here.")
                 )
-                .foregroundStyle(Color(hex: 0x667085))
+                .foregroundStyle(.secondary)
             } else {
                 ScrollView(showsIndicators: false) {
                     LazyVStack(spacing: 12) {
@@ -716,7 +1066,7 @@ private struct FrontDeskQRHistoryView: View {
         .navigationTitle("Scan History")
         .navigationBarTitleDisplayMode(.inline)
         .toolbar(.visible, for: .navigationBar)
-        .toolbarBackground(Color.white, for: .navigationBar)
+        .toolbarBackground(Color.appElevatedSurface, for: .navigationBar)
         .toolbarBackground(.visible, for: .navigationBar)
         .toolbar {
             if !items.isEmpty {
@@ -740,7 +1090,6 @@ private struct FrontDeskQRHistoryView: View {
         .onAppear {
             items = FrontDeskQRHistoryStore.load()
         }
-        .preferredColorScheme(.light)
     }
 }
 
@@ -763,7 +1112,7 @@ private struct FrontDeskQRHistoryRow: View {
                 HStack(alignment: .top, spacing: 8) {
                     Text(payload.title)
                         .font(.system(size: 16, weight: .bold))
-                        .foregroundStyle(Color(hex: 0x101828))
+                        .foregroundStyle(.primary)
                         .lineLimit(1)
 
                     Spacer(minLength: 8)
@@ -781,7 +1130,7 @@ private struct FrontDeskQRHistoryRow: View {
                 if let details = payload.details {
                     Text(details)
                         .font(.system(size: 13, weight: .medium))
-                        .foregroundStyle(Color(hex: 0x667085))
+                        .foregroundStyle(.secondary)
                         .lineLimit(1)
                 }
 
@@ -803,10 +1152,10 @@ private struct FrontDeskQRHistoryRow: View {
                 .padding(.top, 17)
         }
         .padding(14)
-        .background(Color.white, in: RoundedRectangle(cornerRadius: 18, style: .continuous))
+        .background(Color.appSurface, in: RoundedRectangle(cornerRadius: 18, style: .continuous))
         .overlay {
             RoundedRectangle(cornerRadius: 18, style: .continuous)
-                .stroke(Color(hex: 0xEAECF0), lineWidth: 1)
+                .stroke(Color.appSeparator, lineWidth: 1)
         }
     }
 }
@@ -831,17 +1180,17 @@ private struct FrontDeskQRHistoryDetailView: View {
                     VStack(alignment: .leading, spacing: 5) {
                         Text(payload.title)
                             .font(.system(size: 22, weight: .bold))
-                            .foregroundStyle(Color(hex: 0x101828))
+                            .foregroundStyle(.primary)
 
                         if let details = payload.details {
                             Text(details)
                                 .font(.system(size: 14, weight: .medium))
-                                .foregroundStyle(Color(hex: 0x667085))
+                                .foregroundStyle(.secondary)
                         }
                     }
                 }
                 .padding(16)
-                .background(Color.white, in: RoundedRectangle(cornerRadius: 22, style: .continuous))
+                .background(Color.appSurface, in: RoundedRectangle(cornerRadius: 22, style: .continuous))
 
                 detailCard(title: "Contact", rows: payload.contactRows)
                 detailCard(title: "Visit", rows: payload.visitRows)
@@ -850,41 +1199,40 @@ private struct FrontDeskQRHistoryDetailView: View {
                     VStack(alignment: .leading, spacing: 12) {
                         Text("Secondary Visitors")
                             .font(.system(size: 17, weight: .bold))
-                            .foregroundStyle(Color(hex: 0x101828))
+                            .foregroundStyle(.primary)
 
                         ForEach(payload.secondaryVisitors, id: \.self) { visitor in
                             VStack(alignment: .leading, spacing: 5) {
                                 Text(visitor.name)
                                     .font(.system(size: 14, weight: .bold))
-                                    .foregroundStyle(Color(hex: 0x101828))
+                                    .foregroundStyle(.primary)
                                 Text([visitor.phone, visitor.email, visitor.age].compactMap { $0 }.joined(separator: " • "))
                                     .font(.system(size: 12, weight: .medium))
-                                    .foregroundStyle(Color(hex: 0x667085))
+                                    .foregroundStyle(.secondary)
                             }
                             .frame(maxWidth: .infinity, alignment: .leading)
                             .padding(12)
-                            .background(Color(hex: 0xF8FAFC), in: RoundedRectangle(cornerRadius: 14, style: .continuous))
+                            .background(Color.appFieldBackground, in: RoundedRectangle(cornerRadius: 14, style: .continuous))
                         }
                     }
                     .padding(16)
-                    .background(Color.white, in: RoundedRectangle(cornerRadius: 22, style: .continuous))
+                    .background(Color.appSurface, in: RoundedRectangle(cornerRadius: 22, style: .continuous))
                 }
             }
             .padding(16)
         }
-        .background(Color(hex: 0xF1F3F8).ignoresSafeArea())
+        .background(Color.appScreenBackground.ignoresSafeArea())
         .navigationTitle("Visitor Details")
         .navigationBarTitleDisplayMode(.inline)
-        .toolbarBackground(Color.white, for: .navigationBar)
+        .toolbarBackground(Color.appElevatedSurface, for: .navigationBar)
         .toolbarBackground(.visible, for: .navigationBar)
-        .preferredColorScheme(.light)
     }
 
     private func detailCard(title: String, rows: [FrontDeskQRDetailRow]) -> some View {
         VStack(alignment: .leading, spacing: 12) {
             Text(title)
                 .font(.system(size: 17, weight: .bold))
-                .foregroundStyle(Color(hex: 0x101828))
+                .foregroundStyle(.primary)
 
             ForEach(rows) { row in
                 HStack(alignment: .top, spacing: 12) {
@@ -900,13 +1248,13 @@ private struct FrontDeskQRHistoryDetailView: View {
                             .foregroundStyle(Color(hex: 0x98A2B3))
                         Text(row.value)
                             .font(.system(size: 14, weight: .semibold))
-                            .foregroundStyle(Color(hex: 0x344054))
+                            .foregroundStyle(.primary)
                     }
                 }
             }
         }
         .padding(16)
-        .background(Color.white, in: RoundedRectangle(cornerRadius: 22, style: .continuous))
+        .background(Color.appSurface, in: RoundedRectangle(cornerRadius: 22, style: .continuous))
     }
 }
 

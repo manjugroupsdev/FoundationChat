@@ -5,6 +5,7 @@ struct PostSalesUploadedFile: Sendable, Equatable {
     let storageId: String
     let fileName: String
     let mimeType: String
+    let fileSize: Int
 }
 
 enum PostSalesStorageService {
@@ -32,7 +33,12 @@ enum PostSalesStorageService {
         let data = try Data(contentsOf: fileURL)
         let mimeType = UTType(filenameExtension: fileURL.pathExtension)?.preferredMIMEType ?? "application/octet-stream"
         let storageId = try await uploadData(token: token, data: data, mimeType: mimeType)
-        return PostSalesUploadedFile(storageId: storageId, fileName: fileURL.lastPathComponent, mimeType: mimeType)
+        return PostSalesUploadedFile(
+            storageId: storageId,
+            fileName: fileURL.lastPathComponent,
+            mimeType: mimeType,
+            fileSize: data.count
+        )
     }
 
     static func uploadData(token: String, data: Data, mimeType: String = "image/jpeg") async throws -> String {
@@ -131,7 +137,13 @@ enum PostSalesConvexAPIService {
         let success: Bool
         let collectionId: String?
         let collectionRefNo: String?
+        let alreadySubmitted: Bool?
         let error: String?
+    }
+
+    struct SubmittedCollection: Sendable {
+        let reference: String
+        let alreadySubmitted: Bool
     }
 
     private struct VerifyCollectionResponse: Decodable {
@@ -210,11 +222,22 @@ enum PostSalesConvexAPIService {
     }
 
     @discardableResult
-    static func submitCollection(token: String, request: SubmitCollectionRequest) async throws -> String {
+    static func submitCollection(token: String, request: SubmitCollectionRequest) async throws -> SubmittedCollection {
         let data = try await post(path: "/api/postsales/collections/submit", token: token, body: request)
         let wrapper = try decode(SubmitCollectionResponse.self, from: data)
         guard wrapper.success else { throw MarketingAPIError.server(wrapper.error ?? "Failed to submit collection") }
-        return wrapper.collectionRefNo ?? wrapper.collectionId ?? ""
+        return SubmittedCollection(
+            reference: wrapper.collectionRefNo ?? wrapper.collectionId ?? "",
+            alreadySubmitted: wrapper.alreadySubmitted == true
+        )
+    }
+
+    @discardableResult
+    static func correctCollection(token: String, request: CorrectCollectionRequest) async throws -> CustomerCollectionRow? {
+        let data = try await post(path: "/api/postsales/collections/correct", token: token, body: request)
+        let wrapper = try decode(VerifyCollectionResponse.self, from: data)
+        guard wrapper.success else { throw MarketingAPIError.server(wrapper.error ?? "Failed to update collection") }
+        return wrapper.collection
     }
 
     static func approveCollection(token: String, collectionId: String, notes: String? = nil) async throws -> CustomerCollectionRow? {
@@ -372,17 +395,56 @@ enum FleetConvexAPIService {
         let startKm: Double?
     }
 
+    private struct AgencyStartRequest: Encodable {
+        let siteVisitId: String
+        let otp: String
+        let photoIds: [String]
+        let startKm: Double?
+    }
+
     private struct EndRequest: Encodable {
         let siteVisitId: String
         let photoIds: [String]
         let endKm: Double?
     }
 
-    static func listDriverTrips(token: String) async throws -> [FleetDriverTrip] {
-        let data = try await get(path: "/api/mms-fleet/driver/trips", token: token)
+    static func listDriverTrips(token: String, scope: FleetDispatchScope = .mms) async throws -> [FleetDriverTrip] {
+        let path = scope == .agency ? "/api/travel-desk/trips/driver" : "/api/mms-fleet/driver/trips"
+        let data = try await get(path: path, token: token)
         let wrapper = try decode(TripsResponse.self, from: data)
         guard wrapper.success else { throw MarketingAPIError.server(wrapper.error ?? "Failed to load trips") }
         return wrapper.trips ?? []
+    }
+
+    static func markArrived(token: String, scope: FleetDispatchScope, siteVisitId: String) async throws -> FleetDriverTrip? {
+        let path = scope == .agency ? "/api/travel-desk/trips/arrive" : "/api/mms-fleet/driver/arrive"
+        return try await action(path: path, token: token, body: SiteVisitRequest(siteVisitId: siteVisitId))
+    }
+
+    static func startTrip(token: String, scope: FleetDispatchScope, siteVisitId: String, startKm: Double?, photoIds: [String]) async throws -> FleetDriverTrip? {
+        if scope == .agency {
+            return try await action(
+                path: "/api/travel-desk/trips/start",
+                token: token,
+                body: AgencyStartRequest(siteVisitId: siteVisitId, otp: "0000", photoIds: photoIds, startKm: startKm)
+            )
+        }
+        return try await startTrip(token: token, siteVisitId: siteVisitId, startKm: startKm, photoIds: photoIds)
+    }
+
+    static func markOnSite(token: String, scope: FleetDispatchScope, siteVisitId: String) async throws -> FleetDriverTrip? {
+        let path = scope == .agency ? "/api/travel-desk/trips/on-site" : "/api/mms-fleet/driver/on-site"
+        return try await action(path: path, token: token, body: SiteVisitRequest(siteVisitId: siteVisitId))
+    }
+
+    static func markPickedFromSite(token: String, scope: FleetDispatchScope, siteVisitId: String) async throws -> FleetDriverTrip? {
+        let path = scope == .agency ? "/api/travel-desk/trips/picked-from-site" : "/api/mms-fleet/driver/picked-from-site"
+        return try await action(path: path, token: token, body: SiteVisitRequest(siteVisitId: siteVisitId))
+    }
+
+    static func endTrip(token: String, scope: FleetDispatchScope, siteVisitId: String, endKm: Double?, photoIds: [String]) async throws -> FleetDriverTrip? {
+        let path = scope == .agency ? "/api/travel-desk/trips/end" : "/api/mms-fleet/driver/end"
+        return try await action(path: path, token: token, body: EndRequest(siteVisitId: siteVisitId, photoIds: photoIds, endKm: endKm))
     }
 
     static func markArrived(token: String, siteVisitId: String) async throws -> FleetDriverTrip? {
@@ -395,6 +457,10 @@ enum FleetConvexAPIService {
 
     static func markOnSite(token: String, siteVisitId: String) async throws -> FleetDriverTrip? {
         try await action(path: "/api/mms-fleet/driver/on-site", token: token, body: SiteVisitRequest(siteVisitId: siteVisitId))
+    }
+
+    static func markPickedFromSite(token: String, siteVisitId: String) async throws -> FleetDriverTrip? {
+        try await action(path: "/api/mms-fleet/driver/picked-from-site", token: token, body: SiteVisitRequest(siteVisitId: siteVisitId))
     }
 
     static func endTrip(token: String, siteVisitId: String, endKm: Double?, photoIds: [String] = []) async throws -> FleetDriverTrip? {

@@ -265,34 +265,40 @@ struct ChannelChatView: View {
   var body: some View {
     let currentUserStackUserId = authStore.viewer?.subject
 
-    ScrollViewReader { proxy in
-      ScrollView {
-        LazyVStack(spacing: 8) {
-          if messages.isEmpty {
-            ContentUnavailableView(
-              "No messages yet",
-              systemImage: "message",
-              description: Text("Start the conversation in \(channelDisplayTitle).")
-            )
-            .padding(.top, 40)
-          } else {
-            ForEach(messages) { message in
-              ChannelMessageRow(
-                message: message,
-                isMine: message.senderStackUserId == currentUserStackUserId
+    ZStack {
+      ChatWallpaper()
+        .ignoresSafeArea()
+
+      ScrollViewReader { proxy in
+        ScrollView {
+          LazyVStack(spacing: 8) {
+            if messages.isEmpty {
+              ContentUnavailableView(
+                "No messages yet",
+                systemImage: "message",
+                description: Text("Start the conversation in \(channelDisplayTitle).")
               )
-              .id(message.id)
+              .padding(.top, 40)
+            } else {
+              ForEach(messages) { message in
+                ChannelMessageRow(
+                  message: message,
+                  isMine: message.senderStackUserId == currentUserStackUserId
+                )
+                .id(message.id)
+              }
             }
           }
+          .padding(.horizontal, 12)
+          .padding(.top, 12)
+          .padding(.bottom, 56)
         }
-        .padding(.horizontal, 12)
-        .padding(.top, 12)
-        .padding(.bottom, 56)
-      }
-      .onChange(of: messages.map(\.id)) { _, messageIDs in
-        guard let lastID = messageIDs.last else { return }
-        withAnimation(.snappy) {
-          proxy.scrollTo(lastID, anchor: .bottom)
+        .scrollContentBackground(.hidden)
+        .onChange(of: messages.map(\.id)) { _, messageIDs in
+          guard let lastID = messageIDs.last else { return }
+          withAnimation(.snappy) {
+            proxy.scrollTo(lastID, anchor: .bottom)
+          }
         }
       }
     }
