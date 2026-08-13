@@ -322,7 +322,7 @@ private struct LibraryIconView: View {
 }
 
 private enum AppLibraryFilter: String, CaseIterable, Identifiable {
-    case all, taskManager, hr, marketing, project, land, sales, accounts, frontDesk, settings
+    case all, taskManager, hr, marketing, project, land, fleet, sales, accounts, frontDesk, settings
 
     var id: String { rawValue }
 
@@ -334,6 +334,7 @@ private enum AppLibraryFilter: String, CaseIterable, Identifiable {
         case .marketing: return "Marketing"
         case .project: return "Project"
         case .land: return "Land"
+        case .fleet: return "Fleet"
         case .sales: return "Post Sales"
         case .accounts: return "Accounts"
         case .frontDesk: return "Front Desk"
@@ -349,6 +350,7 @@ private enum AppLibraryFilter: String, CaseIterable, Identifiable {
         case .marketing: return "AppLibraryIconAppsPillMarketing"
         case .project: return "AppLibraryIconAppsPillProject"
         case .land: return "AppLibraryIconAppsPillProject"
+        case .fleet: return "AppLibraryIconAppsPillProject"
         case .sales: return "AppLibraryIconAppsPillMarketing"
         case .accounts: return "AppLibraryIconAppsPillSettings"
         case .frontDesk: return "AppLibraryIconAppsPillSettings"
@@ -364,6 +366,7 @@ private enum AppLibraryFilter: String, CaseIterable, Identifiable {
         case .marketing: return "megaphone"
         case .project: return "folder"
         case .land: return "map"
+        case .fleet: return "car"
         case .sales: return "creditcard"
         case .accounts: return "checkmark.seal"
         case .frontDesk: return "qrcode.viewfinder"
@@ -379,6 +382,7 @@ private enum AppLibraryFilter: String, CaseIterable, Identifiable {
         case .marketing: return "megaphone.fill"
         case .project: return "folder.fill"
         case .land: return "map.fill"
+        case .fleet: return "car.fill"
         case .sales: return "creditcard.fill"
         case .accounts: return "checkmark.seal.fill"
         case .frontDesk: return "qrcode.viewfinder"
@@ -527,6 +531,25 @@ private struct AppLibrarySection: Identifiable {
                 : nil
         ].compactMap(\.self)
 
+        // Fleet Management. Mirrors Android AppLibraryFragment: only the
+        // "My Trips" tile is surfaced to staff, gated on canViewFleetMyTrips
+        // (drivers by roster, super-admins, or marketing.fleet.myTrips.view).
+        // The agency-only Admin Fleet portal is deliberately NOT listed —
+        // every screen inside it authenticates agency tokens only, so a staff
+        // token 401s and trips the forced-logout watchdog.
+        let fleetItems: [AppLibraryItem] = [
+            authStore.currentSession?.user.canViewFleetMyTrips == true
+                ? .init(
+                    title: "My Trips",
+                    icon: "AppLibraryIconAppsFieldVisits",
+                    destination: .fleetMyTrips,
+                    systemIcon: "car",
+                    iconTint: Color(hex: 0x0B61CA),
+                    iconBackground: Color(hex: 0xEAF4FF)
+                )
+                : nil
+        ].compactMap(\.self)
+
         let salesItems: [AppLibraryItem] = [
             canAny(["postSales.collections.create"])
                 ? .init(
@@ -564,7 +587,14 @@ private struct AppLibrarySection: Identifiable {
         ].compactMap(\.self)
 
         let frontDeskItems: [AppLibraryItem] = [
-            canAny(["frontdesk.view", "frontdesk.checkin", "frontdesk.invite"])
+            // Mirrors Android AppLibraryFragment: field-marketing staff who scan
+            // consulting QR codes reach the scanner via the marketing.siteVisits.*
+            // keys, not just the frontdesk.* set.
+            canAny([
+                "frontdesk.view", "frontdesk.checkin", "frontdesk.invite",
+                "marketing.siteVisits.view", "marketing.siteVisits.viewTeam",
+                "marketing.siteVisits.viewAll", "marketing.siteVisits.scanConsulting"
+            ])
                 ? .init(
                     title: "QR Scanner",
                     icon: "sf:qrcode.viewfinder",
@@ -629,6 +659,17 @@ private struct AppLibrarySection: Identifiable {
                 iconTint: Color(hex: 0xE401B3),
                 iconBackground: Color(hex: 0xFFE8FC),
                 items: landItems
+            ),
+            .init(
+                id: "fleet",
+                filter: .fleet,
+                title: "Fleet Management",
+                subtitle: "My Trips",
+                icon: "AppLibraryIconAppsCatMarketing",
+                systemIcon: "car.fill",
+                iconTint: Color(hex: 0x0B61CA),
+                iconBackground: Color(hex: 0xEAF4FF),
+                items: fleetItems
             ),
             .init(
                 id: "sales",

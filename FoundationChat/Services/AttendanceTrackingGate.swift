@@ -91,6 +91,64 @@ enum AttendanceTrackingGate {
         )
     }
 
+    /// Live "is an attendance session open RIGHT NOW?" check. Mirrors Android
+    /// `AttendanceTrackingGate.hasOpenSessionNow(token:)`.
+    ///
+    /// This is deliberately STRICTER than ``isClockedInForToday(token:date:)``:
+    /// that lenient day-gate stays true for the rest of the day after the first
+    /// punch (so already-started trips / CP cards keep working through a mid-day
+    /// break), whereas this looks at the raw open-session flag alone — a closed
+    /// day (clocked out) returns `false` even though they punched in earlier. It
+    /// is what gates STARTING a *new* trip so a clocked-out staffer must clock in
+    /// first.
+    ///
+    /// Returns:
+    ///  - `true`  → an open session exists right now.
+    ///  - `false` → no open session (clocked out, or not punched in yet).
+    ///  - `nil`   → couldn't determine (both endpoints errored). Callers must NOT
+    ///    treat `nil` as "clocked out" — in particular the tracking pipeline must
+    ///    never stop tracking on a `nil`, or a transient outage would drop a
+    ///    legitimate in-window journey. Buffered points sync later.
+    ///
+    /// Source-agnostic like the rest of the gate: the raw `hasOpenSession` flag is
+    /// set server-side for a mobile, biometric, manual, or csv-import punch alike,
+    /// so a biometric punch at the office gate opens the trip-start gate exactly
+    /// as an in-app punch does.
+    static func hasOpenSessionNow(token: String, date: Date = Date()) async -> Bool? {
+        guard !token.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else { return nil }
+        let formatter = DateFormatter()
+        formatter.dateFormat = "yyyy-MM-dd"
+        let today = formatter.string(from: date)
+
+        var todayAnswered = false
+        var dayAnswered = false
+        var open = false
+
+        do {
+            let attendance = try await HRConvexAPIService.getTodayAttendance(token: token)
+            todayAnswered = true
+            if attendance?.hasOpenSession == true || attendance?.isOpen == true {
+                open = true
+            }
+        } catch {
+            // endpoint didn't answer authoritatively
+        }
+
+        do {
+            let daySessions = try await HRConvexAPIService.getDaySessions(token: token, date: today)
+            dayAnswered = true
+            if daySessions.hasOpenSession == true {
+                open = true
+            }
+        } catch {
+            // endpoint didn't answer authoritatively
+        }
+
+        // Neither endpoint answered → unknown; don't let callers act on a guess.
+        if !todayAnswered && !dayAnswered { return nil }
+        return open
+    }
+
     private static func computeClockedOutOnMobile(
         _ sessions: [(punchInTime: String?, punchOutTime: String?, punchOutSource: String?)]
     ) -> Bool {

@@ -1045,12 +1045,16 @@ struct CreateBookingRequest: Encodable, Sendable {
 struct SetSiteVisitOutcomeRequest: Encodable, Sendable {
     let id: String
     let outcome: String
+    // VERIFY: Android's setSiteVisitOutcome does not send reasons/bookingId — confirm backend tolerates them
     let reasons: [String]?
     let postponeReasons: [String]?
     let notInterestedReasons: [String]?
     let notInterestedDetails: [SiteVisitNotInterestedDetail]?
     let notes: String?
     let bookingId: String?
+    // Follow-up scheduling for the `follow_up` outcome (Android SV outcome fields).
+    let followupDueDate: String?
+    let followupDueTime: String?
 }
 
 struct SiteVisitNotInterestedDetail: Encodable, Sendable {
@@ -1301,6 +1305,23 @@ struct SetCpVisitOutcomeRequest: Encodable, Sendable {
     let outcome: String
     let postponeReasons: [String]?
     let notes: String?
+    // Gift-distribution handover photo (captured post-OTP). Android sends it so the
+    // backend can attach the proof before the completion check. Optional — omitted when nil.
+    let arrivalPhotoStorageId: String?
+
+    init(
+        id: String,
+        outcome: String,
+        postponeReasons: [String]? = nil,
+        notes: String? = nil,
+        arrivalPhotoStorageId: String? = nil
+    ) {
+        self.id = id
+        self.outcome = outcome
+        self.postponeReasons = postponeReasons
+        self.notes = notes
+        self.arrivalPhotoStorageId = arrivalPhotoStorageId
+    }
 }
 
 struct SiteVisitAttendeeRequest: Encodable, Hashable, Sendable {

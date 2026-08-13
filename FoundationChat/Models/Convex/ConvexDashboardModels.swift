@@ -34,6 +34,18 @@ struct ConvexMobileDashboard: Decodable, Equatable, Sendable {
     let leadsWarm: Int?
     let leadsCold: Int?
 
+    // Same-weekday-one-week-earlier baselines returned by `/api/mobile/dashboard`
+    // (Android `MobileDashboardResponse.prev*`). Drive the marketing tiles'
+    // "vs last week" trend pills. Nullable on purpose: a backend that predates
+    // these fields returns nothing, and the pill is hidden rather than showing
+    // an invented delta.
+    let prevTotalCalls: Int?
+    let prevIncomingCalls: Int?
+    let prevOutboundCalls: Int?
+    let prevHot: Int?
+    let prevWarm: Int?
+    let prevCold: Int?
+
     var leaveCount: Int { leaveApproved ?? leave }
     var hotLeadCount: Int { leadsHot ?? hot }
     var warmLeadCount: Int { leadsWarm ?? warm }
@@ -47,6 +59,8 @@ struct ConvexMobileDashboard: Decodable, Equatable, Sendable {
         case collectionTotal, collectionCount, bookingCount, registrationCount
         case leaveApproved, weekOff, permissionCount, wfhApproved
         case leadsHot, leadsWarm, leadsCold
+        case prevTotalCalls, prevIncomingCalls, prevOutboundCalls
+        case prevHot, prevWarm, prevCold
     }
 
     init(from decoder: Decoder) throws {
@@ -80,6 +94,12 @@ struct ConvexMobileDashboard: Decodable, Equatable, Sendable {
         leadsHot = container.decodeLossyOptionalInt(forKey: .leadsHot)
         leadsWarm = container.decodeLossyOptionalInt(forKey: .leadsWarm)
         leadsCold = container.decodeLossyOptionalInt(forKey: .leadsCold)
+        prevTotalCalls = container.decodeLossyOptionalInt(forKey: .prevTotalCalls)
+        prevIncomingCalls = container.decodeLossyOptionalInt(forKey: .prevIncomingCalls)
+        prevOutboundCalls = container.decodeLossyOptionalInt(forKey: .prevOutboundCalls)
+        prevHot = container.decodeLossyOptionalInt(forKey: .prevHot)
+        prevWarm = container.decodeLossyOptionalInt(forKey: .prevWarm)
+        prevCold = container.decodeLossyOptionalInt(forKey: .prevCold)
     }
 }
 

@@ -79,6 +79,45 @@ extension AuthUser {
       .localizedCaseInsensitiveCompare("Driver") == .orderedSame
   }
 
+  /// Any driver designation, incl. qualified forms like "Driver (Transport)"
+  /// / "Driver - Transport" — not just the bare word "Driver". Mirrors Android
+  /// `SessionManager.isDriverDesignation`; matching only the exact word left
+  /// internal transport drivers out of the driver / fleet-trip gates.
+  private var isAnyDriverDesignation: Bool {
+    let d = designation?
+      .trimmingCharacters(in: .whitespacesAndNewlines)
+      .lowercased() ?? ""
+    return d == "driver"
+      || d.hasPrefix("driver ")
+      || d.hasPrefix("driver(")
+      || d.hasPrefix("driver-")
+  }
+
+  /// Mirrors Android `SessionManager.canViewFleetMyTrips()`: drivers (roster
+  /// check), super-admins, and anyone explicitly granted
+  /// `marketing.fleet.myTrips.view`. Deliberately does NOT collapse to the
+  /// broad `isAdmin` flag (the phantom-key leak Android documents).
+  var canViewFleetMyTrips: Bool {
+    if isAnyDriverDesignation { return true }
+    let normalizedRole = role?
+      .trimmingCharacters(in: .whitespacesAndNewlines)
+      .lowercased()
+    if normalizedRole == "super-admin" { return true }
+    return iamPermissions?.contains("marketing.fleet.myTrips.view") == true
+  }
+
+  /// Mirrors Android `SessionManager.canCompleteOfflineFleet()`: external
+  /// agency operators, super-admins, or an explicit
+  /// `marketing.fleet.completeOffline` grant.
+  var canCompleteOfflineFleet: Bool {
+    if isExternalFleetPrincipal { return true }
+    let normalizedRole = role?
+      .trimmingCharacters(in: .whitespacesAndNewlines)
+      .lowercased()
+    if normalizedRole == "super-admin" { return true }
+    return iamPermissions?.contains("marketing.fleet.completeOffline") == true
+  }
+
   /// Mirrors Android `SessionManager.canViewVpDashboard()`.
   /// Do not key this off broad `isAdmin`; Android only allows super-admin,
   /// explicit `vpDashboard.view`, or VP/GM/MD designation families.

@@ -189,9 +189,10 @@ final class GeoTrackAPIService {
     /// POST /api/geotrack/tamper/report
     func reportTamper(
         eventType: GeoTrackTamperEventType,
-        metadata: [String: String] = [:]
+        metadata: [String: String] = [:],
+        detectedAt: Int64? = nil
     ) async throws {
-        let body = GeoTrackTamperReportRequest(eventType: eventType, metadata: metadata)
+        let body = GeoTrackTamperReportRequest(eventType: eventType, metadata: metadata, detectedAt: detectedAt)
         let request = try makeRequest(path: "/api/geotrack/tamper/report", method: "POST", body: body)
         let result: GeoTrackBaseResponse = try await perform(request)
         if let err = result.error { throw GeoTrackAPIError.serverError(err) }
@@ -509,9 +510,16 @@ final class GeoTrackAPIService {
         visitId: String,
         otp: String,
         lat: Double? = nil,
-        lng: Double? = nil
+        lng: Double? = nil,
+        arrivalPhotoStorageId: String? = nil
     ) async throws -> GeoTrackArrivalOtpVerifyResponse {
-        let body = GeoTrackArrivalOtpVerifyBody(visitId: visitId, otp: otp, lat: lat, lng: lng)
+        let body = GeoTrackArrivalOtpVerifyBody(
+            visitId: visitId,
+            otp: otp,
+            lat: lat,
+            lng: lng,
+            arrivalPhotoStorageId: arrivalPhotoStorageId
+        )
         let request = try makeRequest(path: "/api/geotrack/visit/arrival-otp/verify", method: "POST", body: body)
         let result: GeoTrackArrivalOtpVerifyResponse = try await perform(request)
         return result

@@ -19,8 +19,21 @@ struct ConvexLeave: Decodable, Identifiable, Equatable, Sendable {
     let appliedOn: String?
     let approvedBy: String?
     let rejectedReason: String?
+    // Half-day metadata. The backend books a half-day against a base leave type
+    // (unpaid, casual, …) and flags it with these fields on /my + approvals, so
+    // the list card can render "0.5 Day" and the "Half-day (Morning)" label the
+    // same way Android does. Optional so older/absent keys decode cleanly.
+    let isHalfDay: Bool?
+    let halfDaySession: String?
+    let halfDayType: String?
 
     var id: String { _id }
+
+    /// Mirrors Android's `isHalfDay == true || leaveType contains "half_day"`.
+    var isHalfDayLeave: Bool {
+        if isHalfDay == true { return true }
+        return leaveType?.lowercased().contains("half_day") == true
+    }
 
     var statusColor: String {
         switch status {
@@ -88,9 +101,22 @@ struct ConvexPermission: Decodable, Identifiable, Equatable, Sendable {
     let appliedOn: String?
     let approvedBy: String?
     let rejectedReason: String?
+    // The backend returns the slip length as `hours` (a Double, e.g. 1.5),
+    // which is what Android's permission card renders. `durationMinutes` is
+    // kept only as a legacy fallback — reading it alone left the iOS card
+    // stuck on "--" because the real payload key is `hours`.
+    let hours: Double?
     let durationMinutes: Int?
 
     var id: String { _id }
+
+    /// Slip length in hours, preferring the backend `hours` field (Android
+    /// parity) and falling back to `durationMinutes` when only that is present.
+    var durationHours: Double? {
+        if let hours { return hours }
+        if let durationMinutes { return Double(durationMinutes) / 60 }
+        return nil
+    }
 
     var statusColor: String {
         switch status {

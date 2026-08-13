@@ -248,6 +248,50 @@ struct LandCompetitorEntry: Codable, Identifiable, Hashable, Sendable {
     }
 }
 
+// Resilient decoding for the two entry types so that a missing/renamed key in
+// the server's `/get` payload never throws and aborts the whole form prefill.
+// Declared in extensions so the memberwise initializers the form relies on
+// (`LandAreaEntry()`, `LandCompetitorEntry()`) stay available.
+extension LandAreaEntry {
+    init(from decoder: Decoder) throws {
+        let c = try decoder.container(keyedBy: CodingKeys.self)
+        self.init(
+            name: (try? c.decode(String.self, forKey: .name)) ?? "",
+            distance: (try? c.decode(String.self, forKey: .distance)) ?? ""
+        )
+    }
+}
+
+extension LandCompetitorEntry {
+    init(from decoder: Decoder) throws {
+        let c = try decoder.container(keyedBy: CodingKeys.self)
+        func str(_ key: CodingKeys) -> String { (try? c.decode(String.self, forKey: key)) ?? "" }
+        func dbl(_ key: CodingKeys) -> Double? {
+            if let v = try? c.decode(Double.self, forKey: key) { return v }
+            if let v = try? c.decode(Int.self, forKey: key) { return Double(v) }
+            if let v = try? c.decode(String.self, forKey: key) { return Double(v) }
+            return nil
+        }
+        self.init(
+            promoterName: str(.promoterName),
+            projectName: str(.projectName),
+            location: str(.location),
+            latLong: str(.latLong),
+            extentUnits: str(.extentUnits),
+            approvalType: str(.approvalType),
+            amenities: str(.amenities),
+            currentStage: str(.currentStage),
+            distanceFromProject: str(.distanceFromProject),
+            distanceFromBusStand: str(.distanceFromBusStand),
+            distanceFromRailway: str(.distanceFromRailway),
+            actualPrice: dbl(.actualPrice),
+            actualPriceUnit: (try? c.decode(String.self, forKey: .actualPriceUnit)) ?? "sqft",
+            finalPrice: dbl(.finalPrice),
+            finalPriceUnit: (try? c.decode(String.self, forKey: .finalPriceUnit)) ?? "sqft"
+        )
+    }
+}
+
 struct SaveLandInspectionRequest: Encodable {
     let id: String?
     let propertyId: String?
@@ -272,6 +316,7 @@ struct SaveLandInspectionRequest: Encodable {
     let accessibilityWidthUnit: String?
     let electricity: String?
     let eConnectionToLand: String?
+    let eConnectionPhases: String?
     let telecom: String?
     let railwayStationDistance: String?
     let busStopDistance: String?
@@ -298,13 +343,112 @@ struct SaveLandInspectionRequest: Encodable {
     let competitors: [LandCompetitorEntry]?
 }
 
+/// Mirrors Android `InspectionRescheduleRequest`. The server keys are
+/// `propertyId` + `requestedDate` (NOT `id`/`scheduledDate`) — sending the
+/// wrong keys silently fails the reschedule, so this must match exactly.
 struct RescheduleLandInspectionRequest: Encodable {
-    let id: String
-    let scheduledDate: String
+    let propertyId: String
+    let requestedDate: String
+    let remarks: String?
+
+    init(propertyId: String, requestedDate: String, remarks: String? = nil) {
+        self.propertyId = propertyId
+        self.requestedDate = requestedDate
+        self.remarks = remarks
+    }
 }
 
 struct AcceptLandInspectionRequest: Encodable {
     let propertyId: String
+}
+
+/// Saved inspection report returned by `/api/land/inspections/get`.
+/// Mirrors Android `InspectionReportData`. `report` is `{}` for properties
+/// with nothing saved yet, so every field is optional.
+struct LandInspectionReport: Decodable, Sendable {
+    let customerName: String?
+    let surveyNo: String?
+    let siteLocation: String?
+    let exactLocation: String?
+    let landmark: String?
+    let latLong: String?
+    let population: String?
+    let accessibilityWidth: String?
+    let accessibilityWidthUnit: String?
+    let electricity: String?
+    let eConnectionToLand: String?
+    let eConnectionPhases: String?
+    let telecom: String?
+    let railwayStationDistance: String?
+    let busStopDistance: String?
+    let roadType: [String]?
+    let schoolEntries: [LandAreaEntry]?
+    let collegeEntries: [LandAreaEntry]?
+    let hospitalEntries: [LandAreaEntry]?
+    let mallEntries: [LandAreaEntry]?
+    let marketEntries: [LandAreaEntry]?
+    let presentDemand: [String]?
+    let futureDemand: [String]?
+    let targetClients: [String]?
+    let landlordPrice: Double?
+    let landlordPriceUnit: String?
+    let recommendationPrice: Double?
+    let recommendationPriceUnit: String?
+    let priceCanSell: Double?
+    let priceCanSellUnit: String?
+    let conclusion: String?
+
+    enum CodingKeys: String, CodingKey {
+        case customerName, surveyNo, siteLocation, exactLocation, landmark, latLong, population
+        case accessibilityWidth, accessibilityWidthUnit, electricity, eConnectionToLand, eConnectionPhases, telecom
+        case railwayStationDistance, busStopDistance, roadType
+        case schoolEntries, collegeEntries, hospitalEntries, mallEntries, marketEntries
+        case presentDemand, futureDemand, targetClients
+        case landlordPrice, landlordPriceUnit, recommendationPrice, recommendationPriceUnit
+        case priceCanSell, priceCanSellUnit, conclusion
+    }
+
+    init(from decoder: Decoder) throws {
+        let c = try decoder.container(keyedBy: CodingKeys.self)
+        customerName = try c.decodeIfPresent(String.self, forKey: .customerName)
+        surveyNo = try c.decodeIfPresent(String.self, forKey: .surveyNo)
+        siteLocation = try c.decodeIfPresent(String.self, forKey: .siteLocation)
+        exactLocation = try c.decodeIfPresent(String.self, forKey: .exactLocation)
+        landmark = try c.decodeIfPresent(String.self, forKey: .landmark)
+        latLong = try c.decodeIfPresent(String.self, forKey: .latLong)
+        population = try c.decodeIfPresent(String.self, forKey: .population)
+        accessibilityWidth = try c.decodeIfPresent(String.self, forKey: .accessibilityWidth)
+        accessibilityWidthUnit = try c.decodeIfPresent(String.self, forKey: .accessibilityWidthUnit)
+        electricity = try c.decodeIfPresent(String.self, forKey: .electricity)
+        eConnectionToLand = try c.decodeIfPresent(String.self, forKey: .eConnectionToLand)
+        eConnectionPhases = try c.decodeIfPresent(String.self, forKey: .eConnectionPhases)
+        telecom = try c.decodeIfPresent(String.self, forKey: .telecom)
+        railwayStationDistance = try c.decodeIfPresent(String.self, forKey: .railwayStationDistance)
+        busStopDistance = try c.decodeIfPresent(String.self, forKey: .busStopDistance)
+        roadType = try c.decodeStringArrayIfPresent(forKey: .roadType)
+        schoolEntries = try c.decodeIfPresent([LandAreaEntry].self, forKey: .schoolEntries)
+        collegeEntries = try c.decodeIfPresent([LandAreaEntry].self, forKey: .collegeEntries)
+        hospitalEntries = try c.decodeIfPresent([LandAreaEntry].self, forKey: .hospitalEntries)
+        mallEntries = try c.decodeIfPresent([LandAreaEntry].self, forKey: .mallEntries)
+        marketEntries = try c.decodeIfPresent([LandAreaEntry].self, forKey: .marketEntries)
+        presentDemand = try c.decodeStringArrayIfPresent(forKey: .presentDemand)
+        futureDemand = try c.decodeStringArrayIfPresent(forKey: .futureDemand)
+        targetClients = try c.decodeStringArrayIfPresent(forKey: .targetClients)
+        landlordPrice = try c.decodeLossyDoubleIfPresent(forKey: .landlordPrice)
+        landlordPriceUnit = try c.decodeIfPresent(String.self, forKey: .landlordPriceUnit)
+        recommendationPrice = try c.decodeLossyDoubleIfPresent(forKey: .recommendationPrice)
+        recommendationPriceUnit = try c.decodeIfPresent(String.self, forKey: .recommendationPriceUnit)
+        priceCanSell = try c.decodeLossyDoubleIfPresent(forKey: .priceCanSell)
+        priceCanSellUnit = try c.decodeIfPresent(String.self, forKey: .priceCanSellUnit)
+        conclusion = try c.decodeIfPresent(String.self, forKey: .conclusion)
+    }
+}
+
+/// Combined result of `/api/land/inspections/get` (saved report + competitors)
+/// used to hydrate the inspection form, matching Android's `applyPrefill`.
+struct LandInspectionDetail: Sendable {
+    let report: LandInspectionReport?
+    let competitors: [LandCompetitorEntry]?
 }
 
 struct LandQueryLog: Decodable, Identifiable, Hashable, Sendable {

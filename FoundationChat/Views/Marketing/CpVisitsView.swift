@@ -100,6 +100,21 @@ struct CpVisitsView: View {
                     .foregroundStyle(Color(hex: 0x101828))
             }
 
+            // GM out-of-geofence CP completion approval queue. Android launches
+            // this only from the "CP completion needs approval" push and the
+            // backend scopes the feed to the resolved approver; there is no
+            // client-side permission constant, so the entry is shown for all
+            // (non-approvers just see an empty queue). See VERIFY notes.
+            ToolbarItem(placement: .topBarTrailing) {
+                NavigationLink {
+                    CpApprovalQueueView()
+                } label: {
+                    Image(systemName: "checkmark.seal")
+                        .font(.system(size: 19, weight: .semibold))
+                }
+                .accessibilityLabel("CP approvals")
+            }
+
             ToolbarItem(placement: .topBarTrailing) {
                 Button { showCreateSheet = true } label: {
                     Image(systemName: "plus")
@@ -122,6 +137,7 @@ struct CpVisitsView: View {
             CompleteCpVisitSheet(
                 cpVisitId: visit.clientPlaceVisitId,
                 initialOutcome: visit.outcome,
+                cpType: visit.cpType,
                 onCompleted: {
                     selectedOutcomeVisit = nil
                     Task { await load() }

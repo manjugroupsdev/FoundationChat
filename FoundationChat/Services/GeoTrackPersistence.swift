@@ -61,6 +61,10 @@ struct PendingTamperEventValue: Sendable {
     let id: UUID
     let eventType: GeoTrackTamperEventType
     let metadata: [String: String]
+    // Original detection time (ms epoch), stamped when the event was buffered.
+    // Replayed to the server as `detectedAt` so an offline tamper event surfaces
+    // at its true time, not the sync time.
+    let recordedAt: Int64
 }
 
 // MARK: - GeoTrackPersistence
@@ -87,9 +91,47 @@ final class GeoTrackPersistence {
             description.shouldMigrateStoreAutomatically = true
             description.shouldInferMappingModelAutomatically = true
         }
-        container.loadPersistentStores { _, error in
-            if let error {
-                fatalError("GeoTrack CoreData failed to load: \(error)")
+        // Never crash the whole app on a corrupt / migration-failed local buffer.
+        // A GeoTrack DB failure must degrade gracefully: this is a best-effort
+        // store-and-forward buffer, not critical app state. Recovery ladder:
+        //   1. destroy the on-disk store and recreate it empty (loses buffered
+        //      points, but the alternative was a hard crash),
+        //   2. if that still fails, fall back to an in-memory store so all
+        //      inserts/fetches are harmless no-ops rather than a fatalError.
+        let coordinator = container.persistentStoreCoordinator
+        container.loadPersistentStores { description, error in
+            guard let error else { return }
+            NSLog("GeoTrack CoreData failed to load: \(error). Attempting recovery.")
+
+            if let storeURL = description.url, description.type != NSInMemoryStoreType {
+                try? coordinator.destroyPersistentStore(
+                    at: storeURL, ofType: description.type, options: nil
+                )
+                try? FileManager.default.removeItem(at: storeURL)
+                do {
+                    try coordinator.addPersistentStore(
+                        ofType: description.type,
+                        configurationName: nil,
+                        at: storeURL,
+                        options: nil
+                    )
+                    NSLog("GeoTrack CoreData store recreated after load failure.")
+                    return
+                } catch {
+                    NSLog("GeoTrack CoreData recreate failed: \(error). Falling back to in-memory buffer.")
+                }
+            }
+
+            do {
+                try coordinator.addPersistentStore(
+                    ofType: NSInMemoryStoreType,
+                    configurationName: nil,
+                    at: nil,
+                    options: nil
+                )
+                NSLog("GeoTrack CoreData degraded to in-memory buffer (no crash).")
+            } catch {
+                NSLog("GeoTrack CoreData in-memory fallback also failed: \(error). Buffer disabled.")
             }
         }
         container.viewContext.automaticallyMergesChangesFromParent = true
@@ -164,7 +206,12 @@ final class GeoTrackPersistence {
                 }
                 let data = Data(event.metadataJSON.utf8)
                 let metadata = (try? JSONDecoder().decode([String: String].self, from: data)) ?? [:]
-                return PendingTamperEventValue(id: event.localId, eventType: type, metadata: metadata)
+                return PendingTamperEventValue(
+                    id: event.localId,
+                    eventType: type,
+                    metadata: metadata,
+                    recordedAt: event.recordedAt
+                )
             }
         }
     }
@@ -219,6 +266,39 @@ final class GeoTrackPersistence {
         try await ctx.perform {
             let request = NSFetchRequest<PendingLocationPoint>(entityName: "PendingLocationPoint")
             request.predicate = NSPredicate(format: "isSent == YES")
+            let toDelete = try ctx.fetch(request)
+            toDelete.forEach { ctx.delete($0) }
+            if ctx.hasChanges { try ctx.save() }
+        }
+    }
+
+    // MARK: - Age-based Purge (offline safety cap)
+
+    /// Deletes unsent points older than `cutoffMillis` (ms epoch). Mirrors
+    /// Android `deleteUnsentOlderThan(now - MAX_UNSENT_POINT_AGE_MS)` (30 days):
+    /// a genuinely-abandoned local DB (device never recovered) can't grow
+    /// unbounded, while a multi-day offline field trip still flushes on
+    /// reconnect. On iOS `markAsSent` already deletes on successful upload, so
+    /// there is no separate sent-point retention to purge.
+    func purgeStaleUnsentPoints(olderThan cutoffMillis: Int64) async throws {
+        let ctx = container.newBackgroundContext()
+        try await ctx.perform {
+            let request = NSFetchRequest<PendingLocationPoint>(entityName: "PendingLocationPoint")
+            request.predicate = NSPredicate(format: "isSent == NO AND recordedAt < %lld", cutoffMillis)
+            let toDelete = try ctx.fetch(request)
+            toDelete.forEach { ctx.delete($0) }
+            if ctx.hasChanges { try ctx.save() }
+        }
+    }
+
+    /// Deletes buffered tamper/health events older than `cutoffMillis` (ms epoch).
+    /// Mirrors Android's 30-day retention for pending events — they are the
+    /// battery/uptime history of the same offline window as unsent points.
+    func purgeStaleTamperEvents(olderThan cutoffMillis: Int64) async throws {
+        let ctx = container.newBackgroundContext()
+        try await ctx.perform {
+            let request = NSFetchRequest<PendingTamperEvent>(entityName: "PendingTamperEvent")
+            request.predicate = NSPredicate(format: "recordedAt < %lld", cutoffMillis)
             let toDelete = try ctx.fetch(request)
             toDelete.forEach { ctx.delete($0) }
             if ctx.hasChanges { try ctx.save() }

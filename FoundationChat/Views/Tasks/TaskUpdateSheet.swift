@@ -43,6 +43,7 @@ struct TaskUpdateSheet: View {
                     dateField
                     textArea(title: "Today’s Update", required: true, systemImage: "doc.text", text: $todaysUpdate, placeholder: "Enter today’s update", minHeight: 58)
                     progressField
+                    statusField
                     singleLineField(title: "Issues/ Blockers", required: true, systemImage: "xmark.circle", text: $blocker, placeholder: "No issues")
                     singleLineField(title: "Tomorrows Plan", required: true, systemImage: "calendar.badge.clock", text: $tomorrowsPlan, placeholder: "Plan for tomorrow")
                     photosBlock
@@ -210,7 +211,7 @@ struct TaskUpdateSheet: View {
             Menu {
                 ForEach(TaskStatus.allCases, id: \.rawValue) { option in
                     Button {
-                        status = option
+                        applyStatusSelection(option)
                     } label: {
                         if status == option {
                             Label(option.label, systemImage: "checkmark")
@@ -417,6 +418,22 @@ struct TaskUpdateSheet: View {
             return
         }
         setProgress(Double(min(max(number, 0), 100)))
+    }
+
+    /// Manual status pick. Mirrors Android: choosing Completed snaps progress to
+    /// 100 and Not-started to 0; In Progress / Delayed keep the current value.
+    private func applyStatusSelection(_ option: TaskStatus) {
+        status = option
+        switch option {
+        case .completed:
+            progress = 100
+            progressText = "100%"
+        case .pending:
+            progress = 0
+            progressText = "0%"
+        case .inProgress, .delayed:
+            break
+        }
     }
 
     private func updateStatusFromProgress() {

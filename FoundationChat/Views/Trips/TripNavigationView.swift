@@ -64,6 +64,9 @@ struct TripNavigationView: View {
     @State private var showCpCompletionSheet = false
     @State private var activeSpecialCpCompletion: CpSpecialCompletionKind?
     @State private var showCpClientSeenSheet = false
+    @State private var showGeofenceReasonAlert = false
+    @State private var geofenceReason = ""
+    @State private var geofenceDistanceText = ""
     @State private var showCpTripCompletedSheet = false
     @State private var cpNoPathPhotoCapture = false
     @State private var completeWithClientNotSeenSheet = false
@@ -186,6 +189,19 @@ struct TripNavigationView: View {
             )
             .appLibraryNativeSheet([.height(270)])
         }
+        .alert("You're away from the client", isPresented: $showGeofenceReasonAlert) {
+            TextField("Reason for completing here", text: $geofenceReason)
+            Button("Cancel", role: .cancel) {
+                arrivalInProgress = false
+                arrivalStatusText = nil
+                resetArrivalSwipe()
+            }
+            Button("Complete anyway") {
+                proceedAfterGeofenceReason()
+            }
+        } message: {
+            Text("You are \(geofenceDistanceText) from the client's saved location. Completing from here is allowed but is held for GM approval. Add a reason to continue.")
+        }
         .sheet(isPresented: $showOtpSheet, onDismiss: {
             if !visitCompletedSuccessfully {
                 arrivalInProgress = false
@@ -201,6 +217,11 @@ struct TripNavigationView: View {
                     initialResendCooldown: otpResendCooldown,
                     lat: otpLat,
                     lng: otpLng,
+                    // Arrival photo was uploaded in uploadPhotoThenShowOtp before this
+                    // sheet opened; forward its storage id so the OTP verify links the
+                    // photo immediately (Android parity). Still re-sent at completeVisit
+                    // below as an idempotent belt-and-braces.
+                    arrivalPhotoStorageId: pendingStorageId,
                     onVerified: { otp in
                         showOtpSheet = false
                         Task { await completeVisitAfterOtp(otp: otp) }
@@ -219,6 +240,7 @@ struct TripNavigationView: View {
                 CompleteCpVisitSheet(
                     cpVisitId: cpVisitId,
                     initialOutcome: cpOutcome,
+                    cpType: cpType,
                     onCompleted: {
                         Task { await completeVisitAfterCpOutcome() }
                     }
@@ -791,15 +813,36 @@ struct TripNavigationView: View {
                 .distance(from: CLLocation(latitude: dest.latitude, longitude: dest.longitude))
             await refreshRouteIfPossible(force: true)
             let distance = distanceMeters ?? directDistance
-            guard distance <= 500 else {
-                arrivalInProgress = false
-                errorMessage = "You are \(formatDistance(distance)) away. Move within 500 m to complete."
+            // Geofence is no longer a HARD block (the arrival OTP is the real proof
+            // of presence, and the old block mis-fired on stale client coordinates).
+            // Beyond the radius: warn, capture a reason, stash it for GM approval, and
+            // continue the normal client-seen → photo → OTP flow. Mirror Android
+            // TripNavigationFragment.checkReaching (server holds it for GM approval).
+            if distance > 500 {
+                arrivalStatusText = nil
+                geofenceDistanceText = formatDistance(distance)
+                geofenceReason = ""
                 resetArrivalSwipe()
+                showGeofenceReasonAlert = true
                 return
             }
             arrivalStatusText = nil
             showCpClientSeenSheet = true
         }
+    }
+
+    /// Beyond-geofence completion: best-effort stash the staff's reason on the visit
+    /// (so the approving GM sees why they completed away from the client), then run
+    /// the normal client-seen → photo → OTP flow.
+    private func proceedAfterGeofenceReason() {
+        let reason = geofenceReason.trimmingCharacters(in: .whitespacesAndNewlines)
+        if let token = authStore.currentSession?.token,
+           let cpId = clientPlaceVisitId ?? resolvedVisitId,
+           !reason.isEmpty {
+            Task { try? await MarketingConvexAPIService.setCpGeofenceRemark(token: token, id: cpId, remark: reason) }
+        }
+        arrivalStatusText = nil
+        showCpClientSeenSheet = true
     }
 
     private func startCpYesPath() {

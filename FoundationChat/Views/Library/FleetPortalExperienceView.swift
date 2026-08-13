@@ -696,8 +696,13 @@ private struct FleetPortalVehiclesView: View {
         .sheet(item: $selectedVehicle) { vehicle in
             FleetVehicleDetailSheet(
                 vehicle: vehicle,
-                agencyName: authStore.currentSession?.user.name?.nonBlank ?? "Default Selected"
-            )
+                agencyName: authStore.currentSession?.user.name?.nonBlank ?? "Default Selected",
+                token: authStore.currentSession?.token ?? "",
+                scope: scope,
+                actingStaffId: authStore.currentSession?.user._id
+            ) {
+                await load()
+            }
             .presentationDetents([.large])
             .presentationDragIndicator(.visible)
             .preferredColorScheme(.light)
@@ -1305,15 +1310,41 @@ private struct FleetVehicleFormSheet: View {
     let scope: FleetDispatchScope
     let actingStaffId: String?
     let agencyName: String
-    let onCreated: () async -> Void
+    let vehicle: FleetDispatchVehicle?
+    let onSaved: () async -> Void
 
-    @State private var number = ""
-    @State private var type = ""
-    @State private var capacity = ""
-    @State private var driverName = ""
-    @State private var driverPhone = ""
+    @State private var number: String
+    @State private var type: String
+    @State private var capacity: String
+    @State private var driverName: String
+    @State private var driverPhone: String
+    @State private var isActive: Bool
     @State private var isSaving = false
     @State private var errorMessage: String?
+
+    init(
+        token: String,
+        scope: FleetDispatchScope,
+        actingStaffId: String?,
+        agencyName: String,
+        vehicle: FleetDispatchVehicle? = nil,
+        onSaved: @escaping () async -> Void
+    ) {
+        self.token = token
+        self.scope = scope
+        self.actingStaffId = actingStaffId
+        self.agencyName = agencyName
+        self.vehicle = vehicle
+        self.onSaved = onSaved
+        _number = State(initialValue: vehicle?.vehicleNumber ?? "")
+        _type = State(initialValue: vehicle?.type ?? "")
+        _capacity = State(initialValue: vehicle?.capacity.map(String.init) ?? "")
+        _driverName = State(initialValue: vehicle?.defaultDriverName ?? "")
+        _driverPhone = State(initialValue: vehicle?.defaultDriverPhone ?? "")
+        _isActive = State(initialValue: vehicle?.isActive ?? true)
+    }
+
+    private var isEditing: Bool { vehicle != nil }
 
     var body: some View {
         NavigationStack {
@@ -1338,6 +1369,13 @@ private struct FleetVehicleFormSheet: View {
                         }
                 }
 
+                if isEditing {
+                    Section {
+                        Toggle("Active", isOn: $isActive)
+                            .tint(Color(hex: 0x19C90B))
+                    }
+                }
+
                 Section("Agency") {
                     LabeledContent("Selected", value: agencyName)
                 }
@@ -1349,14 +1387,14 @@ private struct FleetVehicleFormSheet: View {
                     }
                 }
             }
-            .navigationTitle("Create Vehicle")
+            .navigationTitle(isEditing ? "Edit Vehicle" : "Create Vehicle")
             .navigationBarTitleDisplayMode(.inline)
             .toolbar {
                 ToolbarItem(placement: .cancellationAction) {
                     Button("Cancel", role: .cancel) { dismiss() }
                 }
                 ToolbarItem(placement: .confirmationAction) {
-                    Button("Create") { Task { await submit() } }
+                    Button(isEditing ? "Save" : "Create") { Task { await submit() } }
                         .disabled(!canSave || isSaving)
                 }
             }
@@ -1382,17 +1420,33 @@ private struct FleetVehicleFormSheet: View {
         errorMessage = nil
         defer { isSaving = false }
         do {
-            try await FleetDispatchAPIService.createVehicle(
-                token: token,
-                scope: scope,
-                vehicleNumber: number.trimmingCharacters(in: .whitespacesAndNewlines),
-                type: type.nonBlank,
-                capacity: Int(capacity),
-                defaultDriverName: driverName.nonBlank,
-                defaultDriverPhone: driverPhone.nonBlank.map(sanitizedPhone),
-                actingStaffId: actingStaffId
-            )
-            await onCreated()
+            if let vehicle {
+                // Edit is agency-scope only — Android has no MMS vehicle update.
+                try await FleetDispatchAPIService.updateVehicle(
+                    token: token,
+                    draft: FleetVehicleUpdateDraft(
+                        id: vehicle.id,
+                        vehicleNumber: number.trimmingCharacters(in: .whitespacesAndNewlines).nonBlank,
+                        type: type.nonBlank,
+                        capacity: Int(capacity),
+                        defaultDriverName: driverName.nonBlank,
+                        defaultDriverPhone: driverPhone.nonBlank.map(sanitizedPhone),
+                        status: isActive ? "active" : "inactive"
+                    )
+                )
+            } else {
+                try await FleetDispatchAPIService.createVehicle(
+                    token: token,
+                    scope: scope,
+                    vehicleNumber: number.trimmingCharacters(in: .whitespacesAndNewlines),
+                    type: type.nonBlank,
+                    capacity: Int(capacity),
+                    defaultDriverName: driverName.nonBlank,
+                    defaultDriverPhone: driverPhone.nonBlank.map(sanitizedPhone),
+                    actingStaffId: actingStaffId
+                )
+            }
+            await onSaved()
             dismiss()
         } catch {
             errorMessage = error.localizedDescription
@@ -1404,10 +1458,27 @@ private struct FleetVehicleDetailSheet: View {
     @Environment(\.dismiss) private var dismiss
     let vehicle: FleetDispatchVehicle
     let agencyName: String
+    let token: String
+    let scope: FleetDispatchScope
+    let actingStaffId: String?
+    let onSaved: () async -> Void
+
+    @State private var showEdit = false
 
     var body: some View {
         VStack(spacing: 0) {
-            FleetSheetTitle(title: "Vehicle Detail", subtitle: "Information about Vehicle")
+            HStack(alignment: .top) {
+                FleetSheetTitle(title: "Vehicle Detail", subtitle: "Information about Vehicle")
+                // Edit is agency-scope only: Android exposes vehicle update on the
+                // travel-desk route only (no MMS in-house vehicle update route).
+                if scope == .agency {
+                    Button("Edit") { showEdit = true }
+                        .font(.system(size: 15, weight: .semibold))
+                        .foregroundStyle(Color(hex: 0x0B61CA))
+                        .padding(.trailing, 20)
+                        .padding(.top, 12)
+                }
+            }
             ScrollView(showsIndicators: false) {
                 VStack(spacing: 16) {
                     FleetReadOnlyField(title: "Vehicle Number", value: vehicle.vehicleNumber?.nonBlank ?? "—", icon: "car.side")
@@ -1425,6 +1496,22 @@ private struct FleetVehicleDetailSheet: View {
         .safeAreaInset(edge: .bottom) {
             FleetPrimaryButton(title: "Close", isLoading: false, enabled: true) { dismiss() }
         }
+        .sheet(isPresented: $showEdit) {
+            FleetVehicleFormSheet(
+                token: token,
+                scope: scope,
+                actingStaffId: actingStaffId,
+                agencyName: agencyName,
+                vehicle: vehicle
+            ) {
+                await onSaved()
+                dismiss()
+            }
+            .appFormActivity()
+            .presentationDetents([.large])
+            .presentationDragIndicator(.visible)
+            .preferredColorScheme(.light)
+        }
     }
 }
 
@@ -1440,6 +1527,9 @@ private struct FleetDriverFormSheet: View {
     @State private var name: String
     @State private var phone: String
     @State private var address: String
+    // Lowercase MMS contract value ("old" | "new"), matching Android's
+    // CreateDriverBottomSheet which sends category.lowercase() (default "new").
+    @State private var category: String
     @State private var isSaving = false
     @State private var errorMessage: String?
 
@@ -1458,6 +1548,8 @@ private struct FleetDriverFormSheet: View {
         _name = State(initialValue: driver?.name ?? "")
         _phone = State(initialValue: driver?.phone ?? "")
         _address = State(initialValue: driver?.address ?? "")
+        let seededCategory = driver?.category?.lowercased()
+        _category = State(initialValue: seededCategory == "old" ? "old" : "new")
     }
 
     var body: some View {
@@ -1475,6 +1567,10 @@ private struct FleetDriverFormSheet: View {
                     TextField("Address", text: $address, axis: .vertical)
                         .textContentType(.fullStreetAddress)
                         .lineLimit(2...4)
+                    Picker("Category", selection: $category) {
+                        Text("New").tag("new")
+                        Text("Old").tag("old")
+                    }
                 }
 
                 if let driver {
@@ -1536,6 +1632,7 @@ private struct FleetDriverFormSheet: View {
                     name: name.nonBlank,
                     phone: sanitizedPhone(phone),
                     address: address.nonBlank,
+                    category: category,
                     actingStaffId: actingStaffId
                 )
             } else {
@@ -1545,6 +1642,7 @@ private struct FleetDriverFormSheet: View {
                     name: name.trimmingCharacters(in: .whitespacesAndNewlines),
                     phone: sanitizedPhone(phone),
                     address: address.nonBlank,
+                    category: category,
                     actingStaffId: actingStaffId
                 )
             }

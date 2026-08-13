@@ -47,6 +47,7 @@ struct CustomerCollectionRow: Decodable, Identifiable, Equatable, Sendable {
     let verificationNotes: String?
     let verifiedByName: String?
     let verifiedAt: String?
+    let collectorEditedAt: String?
     let createdAt: String?
     let updatedAt: String?
     let customerName: String?
@@ -60,7 +61,7 @@ struct CustomerCollectionRow: Decodable, Identifiable, Equatable, Sendable {
         case collectionRefNo, caseId, bookingId, amount, collectionDate, paymentMode
         case transactionReference, bankName, notes, collectedByName, collectedByStaffId
         case proofStorageId, proofFileName, verificationStatus, verificationNotes
-        case verifiedByName, verifiedAt, createdAt, updatedAt, customerName
+        case verifiedByName, verifiedAt, collectorEditedAt, createdAt, updatedAt, customerName
         case bookingRefNo, projectName, plotNo, customerPaymentCategory
     }
 
@@ -77,6 +78,34 @@ struct SubmitCollectionRequest: Encodable, Sendable {
     let proofStorageId: String?
     let proofFileName: String?
     let notes: String?
+}
+
+/// Collector corrects their own still-pending collection. All fields but
+/// `collectionId` are optional — only the changed ones are sent. Mirrors
+/// Android `CorrectCollectionRequest` (POST /api/postsales/collections/correct).
+struct CorrectCollectionRequest: Encodable, Sendable {
+    let collectionId: String
+    let amount: Double?
+    let collectionDate: String?
+    let paymentMode: String?
+    let transactionReference: String?
+    let notes: String?
+
+    init(
+        collectionId: String,
+        amount: Double? = nil,
+        collectionDate: String? = nil,
+        paymentMode: String? = nil,
+        transactionReference: String? = nil,
+        notes: String? = nil
+    ) {
+        self.collectionId = collectionId
+        self.amount = amount
+        self.collectionDate = collectionDate
+        self.paymentMode = paymentMode
+        self.transactionReference = transactionReference
+        self.notes = notes
+    }
 }
 
 struct LoanCaseDocument: Codable, Identifiable, Equatable, Sendable {

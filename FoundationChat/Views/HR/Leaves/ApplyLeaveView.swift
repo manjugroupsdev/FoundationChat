@@ -7,8 +7,14 @@ private struct LeaveCategoryOption: Identifiable, Equatable, Sendable {
     let balanceTracked: Bool
     let requiresReasonPrefix: Bool
 
+    // Non-half-day categories submit their own backend code. Half-day is a
+    // pseudo-category with no balance of its own; the real base leave type it
+    // books against is resolved from the available list (see
+    // ApplyLeaveView.halfDayBaseType), so this fallback is only used if that
+    // resolution ever fails. Mirrors Android's halfDayBaseType() fallback of
+    // "unpaid" — NOT "casual", which would silently drain the casual balance.
     var submitCode: String {
-        backendCode == "half_day" ? "casual" : backendCode
+        backendCode == "half_day" ? "unpaid" : backendCode
     }
 
     static let defaultOptions = options(from: ["unpaid", "compensatory", "half_day"])
@@ -111,6 +117,15 @@ struct ApplyLeaveView: View {
 
     private var isCompOff: Bool {
         selectedLeaveCategory.backendCode == "compensatory"
+    }
+
+    /// The real leave type a Half Day is booked against: the first available
+    /// base type excluding the half_day / compensatory pseudo-categories,
+    /// falling back to "unpaid". Mirrors Android `halfDayBaseType()`.
+    private var halfDayBaseType: String {
+        leaveTypes.first {
+            $0.backendCode != "half_day" && $0.backendCode != "compensatory"
+        }?.backendCode ?? "unpaid"
     }
 
     private var compOffCreditLabel: String {
@@ -415,7 +430,7 @@ struct ApplyLeaveView: View {
                 } else {
                     _ = try await HRConvexAPIService.applyLeave(
                         token: token,
-                        leaveType: selectedLeaveCategory.submitCode,
+                        leaveType: selectedLeaveCategory.backendCode == "half_day" ? halfDayBaseType : selectedLeaveCategory.submitCode,
                         fromDate: Self.apiDateFormatter.string(from: min(fromDate, toDate)),
                         toDate: Self.apiDateFormatter.string(from: max(fromDate, toDate)),
                         reason: submitReason,

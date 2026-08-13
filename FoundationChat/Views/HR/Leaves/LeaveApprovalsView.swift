@@ -29,12 +29,16 @@ struct LeaveApprovalsView: View {
                         VStack(alignment: .leading, spacing: 2) {
                             Text(leave.staffName ?? "Unknown")
                                 .font(.headline)
-                            Text(leave.leaveTypeLabel)
+                            Text(leave.isHalfDayLeave ? halfDayLabel(leave) : leave.leaveTypeLabel)
                                 .font(.subheadline)
                                 .foregroundStyle(.secondary)
                         }
                         Spacer()
-                        if let days = leave.days {
+                        if leave.isHalfDayLeave {
+                            Text("0.5d")
+                                .font(.title3.weight(.semibold))
+                                .foregroundStyle(.blue)
+                        } else if let days = leave.days {
                             Text("\(Int(days))d")
                                 .font(.title3.weight(.semibold))
                                 .foregroundStyle(.blue)
@@ -163,6 +167,15 @@ struct LeaveApprovalsView: View {
                 errorMessage = error.localizedDescription
             }
         }
+    }
+
+    private func halfDayLabel(_ leave: ConvexLeave) -> String {
+        let base = leave.leaveTypeLabel
+        guard let raw = leave.halfDaySession?.trimmingCharacters(in: .whitespacesAndNewlines), !raw.isEmpty else {
+            return "\(base) · Half-day"
+        }
+        let session = raw.prefix(1).uppercased() + raw.dropFirst().lowercased()
+        return "\(base) · Half-day (\(session))"
     }
 
     private static func isCancellation(_ error: Error) -> Bool {

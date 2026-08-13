@@ -63,8 +63,8 @@ final class GeoTrackBootstrapCoordinator {
             } else {
                 bootstrap = try await geoAPI.trackingBootstrap(deviceId: deviceId)
             }
-            let attendanceActive = await isClockedInForToday()
-            try await apply(bootstrap: bootstrap, attendanceActive: attendanceActive)
+            let attendanceOpen = await currentAttendanceOpenState()
+            try await apply(bootstrap: bootstrap, attendanceOpen: attendanceOpen)
             lastError = nil
             shouldPresentPermissionHelp = false
         } catch {
@@ -100,7 +100,7 @@ final class GeoTrackBootstrapCoordinator {
         tracker = nil
     }
 
-    private func apply(bootstrap: TrackingBootstrapData?, attendanceActive: Bool) async throws {
+    private func apply(bootstrap: TrackingBootstrapData?, attendanceOpen: Bool?) async throws {
         lastBootstrap = bootstrap
         userDefaults.set(bootstrap?.activeSession?.id, forKey: DefaultsKey.activeSessionId)
         userDefaults.set(
@@ -109,6 +109,15 @@ final class GeoTrackBootstrapCoordinator {
         )
         syncConsentFlags(from: bootstrap)
 
+        // Source-agnostic clock-in gate. A `nil` result means the attendance
+        // endpoints didn't answer authoritatively (transient network/server
+        // outage) — NOT that the staffer is clocked out. Android's
+        // `enforceClockInGate()` keeps tracking on a null gate, so here we retain
+        // the last-known `shouldTrackNow` state instead of stopping, so a blip
+        // never drops a legitimate in-window journey. A real clock-out (a
+        // definitive `false`) still stops tracking on the next successful sync.
+        let previousShouldTrack = userDefaults.bool(forKey: DefaultsKey.shouldTrackNow)
+        let attendanceActive = attendanceOpen ?? previousShouldTrack
         let shouldTrack = attendanceActive && bootstrap?.shouldTrack == true
         userDefaults.set(shouldTrack, forKey: DefaultsKey.shouldTrackNow)
 
@@ -145,9 +154,14 @@ final class GeoTrackBootstrapCoordinator {
         }
     }
 
-    private func isClockedInForToday() async -> Bool {
-        guard let token = geoAPI.tokenProvider?() else { return false }
-        return await AttendanceTrackingGate.hasOpenSessionForToday(token: token)
+    /// Live, source-agnostic clock-in gate bounded to the punch-in → punch-out
+    /// window (matches Android `AttendanceTrackingGate.hasOpenSessionNow`).
+    ///  - `true`  → a session is open right now; track.
+    ///  - `false` → clocked out / never punched in; stop.
+    ///  - `nil`   → couldn't determine (outage). Callers must NOT stop on nil.
+    private func currentAttendanceOpenState() async -> Bool? {
+        guard let token = geoAPI.tokenProvider?() else { return nil }
+        return await AttendanceTrackingGate.hasOpenSessionNow(token: token)
     }
 
     private func makeDeviceSyncRequest() async -> TrackingDeviceSyncRequest {

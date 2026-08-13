@@ -30,6 +30,7 @@ struct PunchFlowView: View {
     @State private var locationManager = PunchLocationManager()
     @State private var showSuccessSheet = false
     @State private var completedAt: Date?
+    @State private var didQueueOffline = false
 
     private var title: String {
         mode == .punchIn ? "Clock In" : "Clock Out"
@@ -96,6 +97,7 @@ struct PunchFlowView: View {
                     mode: mode,
                     completedAt: completedAt ?? Date(),
                     address: address,
+                    offline: didQueueOffline,
                     onDone: finishAfterSuccess
                 )
                 .appLibraryNativeSheet([.height(310)])
@@ -281,11 +283,24 @@ struct PunchFlowView: View {
         isSubmitting = true
         errorMessage = nil
 
+        // Capture the REAL tap time up front. Everything below (photo upload, the
+        // punch call) can be slowed by a weak network; recording this device time
+        // means the punch lands at the moment the staff acted, not when the server
+        // finally receives it. We reuse the on-device selfie-capture time (also
+        // network-independent) and fall back to now. Mirrors Android
+        // HomeViewModel.punch()'s `punchIso = isoNow()`.
+        let tapTime = captureTimestamp ?? Date()
+        let clientPunchTime = PunchTimestamp.iso(from: tapTime)
+        let deviceId = GeoTrackBootstrapCoordinator.shared.deviceId
+
         Task {
             defer {
                 isSubmitting = false
                 statusText = nil
             }
+            // Encode the selfie once — reused for the online upload AND, on a network
+            // failure, for the offline queue so the proof photo isn't lost either.
+            let jpegData = image.attendanceUploadJPEGData(maxEdge: 1280, quality: 0.68)
             do {
                 statusText = "Checking attendance..."
                 let latestAttendance = try await HRConvexAPIService.getTodayAttendance(token: token)
@@ -309,7 +324,7 @@ struct PunchFlowView: View {
                 }
 
                 statusText = "Uploading photo..."
-                guard let jpegData = image.attendanceUploadJPEGData(maxEdge: 1280, quality: 0.68) else {
+                guard let jpegData else {
                     throw HRConvexAPIError.server("Failed to encode selfie")
                 }
                 let photoStorageId = try await HRConvexAPIService.uploadPhoto(
@@ -327,7 +342,8 @@ struct PunchFlowView: View {
                         address: address,
                         source: "mobile",
                         photo: photoStorageId,
-                        deviceId: GeoTrackBootstrapCoordinator.shared.deviceId
+                        deviceId: deviceId,
+                        clientPunchTime: clientPunchTime
                     )
                 case .punchOut:
                     try await HRConvexAPIService.punchOut(
@@ -336,7 +352,8 @@ struct PunchFlowView: View {
                         longitude: loc.coordinate.longitude,
                         address: address,
                         photo: photoStorageId,
-                        deviceId: GeoTrackBootstrapCoordinator.shared.deviceId
+                        deviceId: deviceId,
+                        clientPunchTime: clientPunchTime
                     )
                 }
 
@@ -346,11 +363,37 @@ struct PunchFlowView: View {
                     force: true
                 )
                 await loadCurrentAttendanceStatus()
+                didQueueOffline = false
                 onComplete?()
-                completedAt = Date()
+                completedAt = tapTime
                 showSuccessSheet = true
-            } catch {
+            } catch let error as HRConvexAPIError {
+                // Server was REACHED and rejected the punch (already clocked in/out,
+                // HTTP error, unauthorized). Surface it — a genuine rejection must
+                // not be silently queued.
                 errorMessage = error.localizedDescription
+            } catch {
+                // Network / connectivity failure — DON'T lose the punch. Queue it with
+                // the real tap time (and selfie) so it syncs when connectivity returns
+                // and records the time the staff actually punched. Mirrors Android
+                // HomeViewModel.enqueueOfflinePunch().
+                let queued = await PendingPunchStore.shared.insert(
+                    isPunchIn: mode == .punchIn,
+                    clientPunchTime: clientPunchTime,
+                    latitude: loc.coordinate.latitude,
+                    longitude: loc.coordinate.longitude,
+                    address: address,
+                    photoData: jpegData,
+                    deviceId: deviceId
+                )
+                if queued {
+                    didQueueOffline = true
+                    onComplete?()
+                    completedAt = tapTime
+                    showSuccessSheet = true
+                } else {
+                    errorMessage = error.localizedDescription
+                }
             }
         }
     }
@@ -442,6 +485,7 @@ private struct PunchSuccessSheet: View {
     let mode: PunchFlowView.PunchMode
     let completedAt: Date
     let address: String?
+    var offline: Bool = false
     let onDone: () -> Void
 
     private static let timeFormatter: DateFormatter = {
@@ -451,11 +495,19 @@ private struct PunchSuccessSheet: View {
     }()
 
     private var title: String {
-        mode == .punchIn ? "Clock In Success" : "Clock Out Success"
+        if offline {
+            return mode == .punchIn ? "Clock In Saved" : "Clock Out Saved"
+        }
+        return mode == .punchIn ? "Clock In Success" : "Clock Out Success"
     }
 
     private var message: String {
-        mode == .punchIn
+        if offline {
+            return mode == .punchIn
+                ? "Saved offline at this time — it will sync automatically when you're back online."
+                : "Saved offline at this time — it will sync automatically when you're back online."
+        }
+        return mode == .punchIn
             ? "Your attendance is active and tracking has been synced."
             : "Your attendance session is closed and tracking has been synced."
     }

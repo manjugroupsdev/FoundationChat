@@ -456,7 +456,8 @@ enum HRConvexAPIService {
         latitude: Double? = nil, longitude: Double? = nil,
         address: String? = nil, source: String = "mobile",
         photo: String? = nil, remarks: String? = nil,
-        deviceId: String? = nil
+        deviceId: String? = nil,
+        clientPunchTime: String? = nil
     ) async throws -> String {
         var body: [String: Any] = ["source": source]
         if let latitude { body["latitude"] = latitude }
@@ -465,6 +466,10 @@ enum HRConvexAPIService {
         if let photo { body["photo"] = photo }
         if let remarks { body["remarks"] = remarks }
         if let deviceId { body["deviceId"] = deviceId }
+        // ISO-8601 device time captured at the moment the staff tapped punch, so a
+        // slow-network or offline-then-synced punch still records the real tap time
+        // server-side (mirrors Android PunchRequest.clientPunchTime).
+        if let clientPunchTime { body["clientPunchTime"] = clientPunchTime }
         let data = try await post(path: "/api/hr/attendance/punch-in", token: token, jsonBody: body)
         let wrapper = try await decode(PunchResponse.self, from: data)
         guard wrapper.success else { throw HRConvexAPIError.server(wrapper.error ?? "Punch in failed") }
@@ -477,7 +482,8 @@ enum HRConvexAPIService {
         latitude: Double? = nil, longitude: Double? = nil,
         address: String? = nil, source: String = "mobile",
         photo: String? = nil, remarks: String? = nil,
-        deviceId: String? = nil
+        deviceId: String? = nil,
+        clientPunchTime: String? = nil
     ) async throws {
         var body: [String: Any] = ["source": source]
         if let latitude { body["latitude"] = latitude }
@@ -486,6 +492,7 @@ enum HRConvexAPIService {
         if let photo { body["photo"] = photo }
         if let remarks { body["remarks"] = remarks }
         if let deviceId { body["deviceId"] = deviceId }
+        if let clientPunchTime { body["clientPunchTime"] = clientPunchTime }
         let data = try await post(path: "/api/hr/attendance/punch-out", token: token, jsonBody: body)
         let wrapper = try await decode(PunchResponse.self, from: data)
         guard wrapper.success else { throw HRConvexAPIError.server(wrapper.error ?? "Punch out failed") }

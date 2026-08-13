@@ -115,6 +115,22 @@ enum MarketingConvexAPIService {
         let reason: String
     }
 
+    private struct CpGeofenceRemarkRequest: Encodable {
+        let id: String
+        let remark: String
+    }
+
+    private struct CpApprovalRejectRequest: Encodable {
+        let id: String
+        let remark: String
+    }
+
+    private struct CpApprovalsResponse: Decodable {
+        let success: Bool
+        let items: [CpApprovalItem]?
+        let error: String?
+    }
+
     private struct EmptyRequest: Encodable {}
 
     private struct CreateLoanRequest: Encodable {
@@ -467,6 +483,20 @@ enum MarketingConvexAPIService {
         _ = try await post(path: "/api/bookings/draft/save", token: token, body: payload)
     }
 
+    /// GET /api/bookings/draft/get — resume an in-progress booking form.
+    /// Returns nil when the caller has no saved draft for `sourceKey`.
+    static func getBookingDraft(token: String, sourceKey: String) async throws -> BookingDraftPayload? {
+        let data = try await get(
+            path: "/api/bookings/draft/get",
+            token: token,
+            queryItems: [URLQueryItem(name: "sourceKey", value: sourceKey)],
+            cachePolicy: .reloadIgnoringLocalCacheData
+        )
+        let wrapper = try decode(BookingDraftGetResponse.self, from: data)
+        guard wrapper.success else { throw MarketingAPIError.server(wrapper.error ?? "Failed to load draft") }
+        return wrapper.draft
+    }
+
     static func clearBookingDraft(token: String, sourceKey: String = "walk_in") async throws {
         struct ClearDraftRequest: Encodable {
             let sourceKey: String
@@ -533,10 +563,55 @@ enum MarketingConvexAPIService {
         guard wrapper.success else { throw MarketingAPIError.server(wrapper.error ?? "Failed to set outcome") }
     }
 
+    // MARK: - Out-of-geofence CP completion (GM approval)
+
+    /// Stashes the staff's out-of-geofence reason on the visit (shown to the approving GM).
+    static func setCpGeofenceRemark(token: String, id: String, remark: String) async throws {
+        let data = try await post(
+            path: "/api/marketing/cp-visits/geofence-remark",
+            token: token,
+            body: CpGeofenceRemarkRequest(id: id, remark: remark)
+        )
+        let wrapper = try decode(BaseMutationResponse.self, from: data)
+        guard wrapper.success else { throw MarketingAPIError.server(wrapper.error ?? "Failed to save geofence remark") }
+    }
+
+    static func getPendingCpApprovals(token: String) async throws -> [CpApprovalItem] {
+        let data = try await get(path: "/api/marketing/cp-visits/pending-approvals", token: token)
+        let wrapper = try decode(CpApprovalsResponse.self, from: data)
+        guard wrapper.success else { throw MarketingAPIError.server(wrapper.error ?? "Failed to load pending approvals") }
+        return wrapper.items ?? []
+    }
+
+    static func approveCpCompletion(token: String, id: String) async throws {
+        let data = try await post(path: "/api/marketing/cp-visits/approve", token: token, body: IdRequest(id: id))
+        let wrapper = try decode(BaseMutationResponse.self, from: data)
+        guard wrapper.success else { throw MarketingAPIError.server(wrapper.error ?? "Failed to approve completion") }
+    }
+
+    static func rejectCpCompletion(token: String, id: String, remark: String) async throws {
+        let data = try await post(
+            path: "/api/marketing/cp-visits/reject",
+            token: token,
+            body: CpApprovalRejectRequest(id: id, remark: remark)
+        )
+        let wrapper = try decode(BaseMutationResponse.self, from: data)
+        guard wrapper.success else { throw MarketingAPIError.server(wrapper.error ?? "Failed to reject completion") }
+    }
+
     static func setSiteVisitOutcome(token: String, request: SetSiteVisitOutcomeRequest) async throws {
         let data = try await post(path: "/api/marketing/siteVisits/setOutcome", token: token, body: request)
         let wrapper = try decode(BaseMutationResponse.self, from: data)
         guard wrapper.success else { throw MarketingAPIError.server(wrapper.error ?? "Failed to set site visit outcome") }
+    }
+
+    /// Best-effort unlock before a manual outcome close. `setOutcome` only accepts a
+    /// visit in on_counselling|picked_from_site|dropped, but the outcome buttons unlock
+    /// at on_site — nudging it to on_counselling first avoids a 500 on a manual close.
+    static func markSiteVisitOnCounselling(token: String, id: String) async throws {
+        let data = try await post(path: "/api/marketing/siteVisits/markOnCounselling", token: token, body: IdRequest(id: id))
+        let wrapper = try decode(BaseMutationResponse.self, from: data)
+        guard wrapper.success else { throw MarketingAPIError.server(wrapper.error ?? "Failed to mark on counselling") }
     }
 
     static func markSiteVisitPickedUp(token: String, id: String) async throws {
@@ -667,6 +742,27 @@ enum MarketingConvexAPIService {
             throw MarketingAPIError.decoding(error)
         }
     }
+}
+
+/// One out-of-geofence CP completion awaiting GM approval. Mirrors Android
+/// `GeoTrackApi.CpApprovalItem`. Powers the GM approval queue (UI is a later slice).
+struct CpApprovalItem: Decodable, Identifiable, Sendable {
+    let id: String
+    let outcome: String?
+    let notes: String?
+    let cpType: String?
+    let clientName: String?
+    let staffName: String?
+    let staffId: String?
+    let placeName: String?
+    let placeAddress: String?
+    let distanceMeters: Double?
+    let completionLat: Double?
+    let completionLng: Double?
+    let staffRemark: String?
+    let photoUrl: String?
+    let requestedAt: Double?
+    let scheduledDate: String?
 }
 
 enum MarketingAPIError: LocalizedError {

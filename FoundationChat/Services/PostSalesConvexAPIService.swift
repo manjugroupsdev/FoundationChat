@@ -217,6 +217,17 @@ enum PostSalesConvexAPIService {
         return wrapper.collectionRefNo ?? wrapper.collectionId ?? ""
     }
 
+    /// POST /api/postsales/collections/correct — collector edits their own
+    /// still-pending collection before Accounts acts on it. Only the changed
+    /// fields are sent; the server rejects a correction once verified.
+    @discardableResult
+    static func correctCollection(token: String, request: CorrectCollectionRequest) async throws -> CustomerCollectionRow? {
+        let data = try await post(path: "/api/postsales/collections/correct", token: token, body: request)
+        let wrapper = try decode(VerifyCollectionResponse.self, from: data)
+        guard wrapper.success else { throw MarketingAPIError.server(wrapper.error ?? "Failed to correct collection") }
+        return wrapper.collection
+    }
+
     static func approveCollection(token: String, collectionId: String, notes: String? = nil) async throws -> CustomerCollectionRow? {
         let data = try await post(
             path: "/api/postsales/collections/approve",

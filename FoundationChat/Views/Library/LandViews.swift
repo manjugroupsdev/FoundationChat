@@ -649,6 +649,7 @@ private struct LandInspectionSheet: View {
     @State private var accessWidthUnit = "Feet"
     @State private var electricity = ""
     @State private var eConnection = ""
+    @State private var eConnectionPhases = ""
     @State private var telecom = ""
     @State private var railway = ""
     @State private var bus = ""
@@ -668,6 +669,7 @@ private struct LandInspectionSheet: View {
     @State private var competitors: [LandCompetitorEntry] = []
     @State private var isSaving = false
     @State private var errorMessage: String?
+    @State private var didHydrate = false
 
     private let roadTypes = ["Tar", "Mud", "Concrete", "Gravel"]
     private let targetOptions = ["Investors", "End users", "Developers", "Farmers", "NRIs"]
@@ -766,6 +768,76 @@ private struct LandInspectionSheet: View {
             .padding(.bottom, 22)
         }
         .background(Color(.systemGroupedBackground))
+        .task { await hydrateIfNeeded() }
+    }
+
+    /// Pull the saved report + competitors from `/get` so a returning inspector
+    /// (or the VP-approved view-only mode) sees previously entered values rather
+    /// than a blank form. Mirrors Android's `applyPrefill`. Non-fatal on failure
+    /// — the form keeps its list-derived initial values.
+    private func hydrateIfNeeded() async {
+        guard !didHydrate else { return }
+        didHydrate = true
+        // Only worth a round-trip when a saved report may exist.
+        guard inspection.reportId?.landNilIfBlank != nil || inspection.isVPApproved else { return }
+        guard let token = authStore.currentSession?.token else { return }
+        do {
+            let detail = try await LandConvexAPIService.getInspection(
+                token: token,
+                propertyId: inspection.acceptancePropertyID
+            )
+            if let report = detail.report { apply(report) }
+            if let comps = detail.competitors, !comps.isEmpty { competitors = comps }
+        } catch {
+            // Ignore — fall back to the values already loaded from the list.
+        }
+    }
+
+    private func apply(_ r: LandInspectionReport) {
+        if let v = r.customerName?.landNilIfBlank { ownerName = v }
+        if let v = r.surveyNo?.landNilIfBlank { surveyNo = v }
+        if let v = r.siteLocation?.landNilIfBlank { siteLocation = v }
+        if let v = r.exactLocation?.landNilIfBlank { exactLocation = v }
+        if let v = r.landmark?.landNilIfBlank { landmark = v }
+        if let v = r.latLong?.landNilIfBlank { mapLink = v }
+        if let v = r.population?.landNilIfBlank { population = v }
+        if let v = r.accessibilityWidth?.landNilIfBlank { accessWidth = v }
+        if let v = r.accessibilityWidthUnit?.landNilIfBlank { accessWidthUnit = v }
+        if let v = r.electricity?.landNilIfBlank { electricity = v }
+        if let v = r.eConnectionToLand?.landNilIfBlank { eConnection = v.lowercased() }
+        if let v = r.eConnectionPhases?.landNilIfBlank { eConnectionPhases = v }
+        if let v = r.telecom?.landNilIfBlank { telecom = v.lowercased() }
+        if let v = r.railwayStationDistance?.landNilIfBlank { railway = v }
+        if let v = r.busStopDistance?.landNilIfBlank { bus = v }
+        if let v = r.roadType, !v.isEmpty { selectedRoadTypes = Set(v.map { $0.lowercased() }) }
+        if let v = r.schoolEntries, !v.isEmpty { schools = v }
+        if let v = r.collegeEntries, !v.isEmpty { colleges = v }
+        if let v = r.hospitalEntries, !v.isEmpty { hospitals = v }
+        if let v = r.mallEntries, !v.isEmpty { malls = v }
+        if let v = r.marketEntries, !v.isEmpty { markets = v }
+        if let v = r.presentDemand?.first?.landNilIfBlank { presentDemand = v.lowercased() }
+        if let v = r.futureDemand?.first?.landNilIfBlank { futureDemand = v.lowercased() }
+        if let v = r.targetClients, !v.isEmpty { targetClients = Set(v) }
+        if let v = r.landlordPrice { landlordPrice = Self.priceString(v) }
+        if let v = r.recommendationPrice { recommendedPrice = Self.priceString(v) }
+        if let v = r.priceCanSell { sellingPrice = Self.priceString(v) }
+        if let v = (r.priceCanSellUnit ?? r.recommendationPriceUnit ?? r.landlordPriceUnit)?.landNilIfBlank {
+            priceUnit = v
+        }
+        if let v = r.conclusion?.landNilIfBlank { conclusion = v }
+    }
+
+    private static func priceString(_ value: Double) -> String {
+        value.truncatingRemainder(dividingBy: 1) == 0
+            ? String(Int(value))
+            : String(value)
+    }
+
+    /// Normalize a free/selected value to the server's `"yes"`/`"no"` union,
+    /// dropping anything else — matching Android's save payload.
+    private static func yesNo(_ value: String) -> String? {
+        let v = value.trimmingCharacters(in: .whitespacesAndNewlines).lowercased()
+        return (v == "yes" || v == "no") ? v : nil
     }
 
     private var header: some View {
@@ -851,8 +923,13 @@ private struct LandInspectionSheet: View {
                 menuCard("Unit", selection: $accessWidthUnit, options: ["Feet", "Meter"], icon: "arrow.left.and.right")
             }
             fieldCard("Electricity Cable Above Land", text: $electricity, placeholder: "Enter Details", icon: "bolt")
-            fieldCard("E-Connection To Land", text: $eConnection, placeholder: "Enter Details", icon: "powerplug")
-            fieldCard("Telecom", text: $telecom, placeholder: "Enter Details", icon: "phone.connection")
+            // Android models E-Connection / Telecom as Yes/No unions (lowercased),
+            // with a conditional "phases" field when E-Connection is Yes.
+            menuCard("E-Connection To Land", selection: $eConnection, options: ["yes", "no"], icon: "powerplug")
+            if eConnection.lowercased() == "yes" {
+                fieldCard("How Many Phases", text: $eConnectionPhases, placeholder: "Enter Phases", icon: "bolt.horizontal")
+            }
+            menuCard("Telecom", selection: $telecom, options: ["yes", "no"], icon: "phone.connection")
             fieldCard("Railway Station Distance", text: $railway, placeholder: "Enter Distance", icon: "tram")
             fieldCard("Bus Stop Distance", text: $bus, placeholder: "Enter Distance", icon: "bus")
         }
@@ -1131,8 +1208,9 @@ private struct LandInspectionSheet: View {
             accessibilityWidth: accessWidth.landNilIfBlank,
             accessibilityWidthUnit: accessWidthUnit.landNilIfBlank,
             electricity: electricity.landNilIfBlank,
-            eConnectionToLand: eConnection.landNilIfBlank,
-            telecom: telecom.landNilIfBlank,
+            eConnectionToLand: Self.yesNo(eConnection),
+            eConnectionPhases: Self.yesNo(eConnection) == "yes" ? eConnectionPhases.landNilIfBlank : nil,
+            telecom: Self.yesNo(telecom),
             railwayStationDistance: railway.landNilIfBlank,
             busStopDistance: bus.landNilIfBlank,
             schoolExists: schools.nonBlankAreaEntries != nil ? true : nil,
@@ -1237,14 +1315,31 @@ private struct LandInspectionRescheduleSheet: View {
     init(inspection: LandInspection, onSaved: @escaping () async -> Void) {
         self.inspection = inspection
         self.onSaved = onSaved
-        _date = State(initialValue: AppModuleFormatters.ymd.date(from: inspection.scheduledDate ?? "") ?? Date())
+        // Default to the first selectable day (scheduled + 1), matching Android.
+        let anchor = AppModuleFormatters.ymd.date(from: String((inspection.scheduledDate ?? "").prefix(10))) ?? Date()
+        let first = Calendar.current.date(byAdding: .day, value: 1, to: anchor) ?? anchor
+        _date = State(initialValue: first)
     }
+
+    /// The scheduled date the reschedule window anchors on.
+    private var anchorDate: Date {
+        AppModuleFormatters.ymd.date(from: String((inspection.scheduledDate ?? "").prefix(10))) ?? Date()
+    }
+
+    /// Android rule: an inspection may only move to one of the next 3 days
+    /// (scheduled + 1 … scheduled + 3).
+    private var minDate: Date { Calendar.current.date(byAdding: .day, value: 1, to: anchorDate) ?? anchorDate }
+    private var maxDate: Date { Calendar.current.date(byAdding: .day, value: 3, to: anchorDate) ?? anchorDate }
 
     var body: some View {
         NavigationStack {
             Form {
-                Section(inspection.title) {
-                    DatePicker("New date", selection: $date, displayedComponents: .date)
+                Section {
+                    DatePicker("New date", selection: $date, in: minDate...maxDate, displayedComponents: .date)
+                } header: {
+                    Text(inspection.title)
+                } footer: {
+                    Text("Pick one of the next 3 days after the scheduled date.")
                 }
                 if let errorMessage {
                     Section { Text(errorMessage).foregroundStyle(.red) }
@@ -1277,8 +1372,8 @@ private struct LandInspectionRescheduleSheet: View {
                 try await LandConvexAPIService.rescheduleInspection(
                     token: token,
                     request: RescheduleLandInspectionRequest(
-                        id: inspection.id,
-                        scheduledDate: AppModuleFormatters.ymd.string(from: date)
+                        propertyId: inspection.acceptancePropertyID,
+                        requestedDate: AppModuleFormatters.ymd.string(from: date)
                     )
                 )
                 await onSaved()

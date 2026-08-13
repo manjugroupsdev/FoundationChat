@@ -10,6 +10,7 @@ struct CollectionsView: View {
     @State private var errorMessage: String?
     @State private var showingSubmitSheet = false
     @State private var rectifyingCollection: CustomerCollectionRow?
+    @State private var editingCollection: CustomerCollectionRow?
     @State private var selectedFilter: CollectionPaymentFilter = .all
     @State private var selectedDate: Date?
     @State private var draftDate = Date()
@@ -100,6 +101,13 @@ struct CollectionsView: View {
             .appLibraryNativeSheet([.height(720), .large])
             .presentationBackground(Color.white)
         }
+        .sheet(item: $editingCollection) { collection in
+            EditCollectionAmountSheet(collection: collection) {
+                await load()
+            }
+            .appLibraryNativeSheet([.height(320), .medium])
+            .presentationBackground(Color.white)
+        }
         .sheet(isPresented: $showingDateFilter) {
             PostSalesCollectionDateFilterSheet(date: $draftDate, selectedDate: $selectedDate)
                 .appLibraryNativeSheet([.height(560)])
@@ -129,7 +137,12 @@ struct CollectionsView: View {
                         CollectionRowCard(
                             collection: collection,
                             onProof: { await openProof(collection) },
-                            onRectify: collection.isRejected ? { rectifyingCollection = collection } : nil
+                            onRectify: collection.isRejected ? { rectifyingCollection = collection } : nil,
+                            // Own still-pending row — correct a wrong amount before
+                            // Accounts acts on it (mirrors Android "Edit amount").
+                            onEdit: (!collection.isRejected && collection.isPendingVerification)
+                                ? { editingCollection = collection }
+                                : nil
                         )
                     }
                 }
@@ -382,7 +395,7 @@ struct LoanDeskView: View {
     @State private var selectedStaffId = ""
     @State private var rejectingCase: LoanCaseRow?
     @State private var rejectRemarks = ""
-    @State private var showingSubmitSheet = false
+    @State private var documentsCase: LoanCaseRow?
     @State private var searchText = ""
 
     private var visibleCases: [LoanCaseRow] {
@@ -436,13 +449,6 @@ struct LoanDeskView: View {
                     .font(.system(size: 18, weight: .bold))
                     .foregroundStyle(Color(hex: 0x101828))
             }
-            ToolbarItem(placement: .topBarTrailing) {
-                Button {} label: {
-                    Image(systemName: "calendar")
-                        .font(.system(size: 18, weight: .semibold))
-                }
-                .accessibilityLabel("Loan desk calendar")
-            }
         }
         .tint(Color(hex: 0x0B61CA))
         .toolbar(.hidden, for: .tabBar)
@@ -470,11 +476,12 @@ struct LoanDeskView: View {
             }
             .appLibraryNativeSheet([.medium])
         }
-        .sheet(isPresented: $showingSubmitSheet) {
-            SubmitLoanCaseSheet {
+        .sheet(item: $documentsCase) { loanCase in
+            LoanCaseDocumentsSheet(loanCase: loanCase, mode: selectedMode) {
                 await load()
             }
             .appLibraryNativeSheet([.large])
+            .presentationBackground(Color.white)
         }
     }
 
@@ -500,6 +507,9 @@ struct LoanDeskView: View {
                             onReject: {
                                 rejectRemarks = ""
                                 rejectingCase = loanCase
+                            },
+                            onOpenDocuments: {
+                                documentsCase = loanCase
                             }
                         )
                     }
@@ -704,10 +714,14 @@ private enum LoanDeskMode: String, CaseIterable, Identifiable {
     }
 
     init(user: AuthUser?) {
-        let text = [user?.designation, user?.department, user?.role]
+        // Include the staff name: many real records carry the Loan-Desk role
+        // signal in the name (e.g. name="Legal Manager") rather than the
+        // designation — mirrors Android's composite haystack.
+        let text = [user?.designation, user?.department, user?.role, user?.name]
             .compactMap { $0?.lowercased() }
             .joined(separator: " ")
-        if text.contains("legal") && (text.contains("manager") || text.contains("head") || text.contains("lead")) {
+        if text.contains("legal manager") || text.contains("legal head")
+            || (text.contains("legal") && (text.contains("manager") || text.contains("head") || text.contains("lead"))) {
             self = .legalManager
         } else if text.contains("legal") {
             self = .legalTeam
@@ -950,13 +964,17 @@ private func filterCollections(
     selectedDate: Date?
 ) -> [CustomerCollectionRow] {
     let categoryFiltered = rows.filter { row in
+        // Android maps only `loan` → BANK_LOAN; everything else (cash_in_hand,
+        // null, unknown) falls into SELF_FINANCE. Mirror that so self-financed
+        // rows with a blank category still show under the Self Finance tab.
+        let isBankLoan = row.normalizedPaymentCategory.contains("loan") || row.normalizedPaymentCategory.contains("bank")
         switch filter {
         case .all:
             return true
         case .selfFinance:
-            return row.normalizedPaymentCategory.contains("cash") || row.normalizedPaymentCategory.contains("self")
+            return !isBankLoan
         case .bankLoan:
-            return row.normalizedPaymentCategory.contains("loan") || row.normalizedPaymentCategory.contains("bank")
+            return isBankLoan
         }
     }
     let dateFiltered: [CustomerCollectionRow]
@@ -1033,6 +1051,7 @@ private struct CollectionRowCard: View {
     let collection: CustomerCollectionRow
     var onProof: (() async -> Void)? = nil
     var onRectify: (() -> Void)? = nil
+    var onEdit: (() -> Void)? = nil
     var onReject: (() -> Void)? = nil
     var onAccept: (() -> Void)? = nil
 
@@ -1084,7 +1103,7 @@ private struct CollectionRowCard: View {
             }
 
             if let date = collection.androidCollectionDate {
-                Label(date, systemImage: "calendar")
+                Label(collection.isEdited ? "\(date)  ·  Edited" : date, systemImage: "calendar")
                     .font(.system(size: 11, weight: .regular))
                     .foregroundStyle(Color(hex: 0x667085))
             }
@@ -1139,6 +1158,18 @@ private struct CollectionRowCard: View {
                 }
                 .buttonStyle(.borderedProminent)
                 .tint(Color(hex: 0x16A34A))
+                .padding(.top, 4)
+            } else if let onEdit {
+                Button {
+                    onEdit()
+                } label: {
+                    Label("Edit Amount", systemImage: "pencil")
+                        .font(.system(size: 14, weight: .semibold))
+                        .frame(maxWidth: .infinity)
+                        .frame(height: 44)
+                }
+                .buttonStyle(.bordered)
+                .tint(Color(hex: 0x0B61CA))
                 .padding(.top, 4)
             }
         }
@@ -1277,6 +1308,25 @@ private struct LoanDeskCaseCard: View {
     let onAssign: () -> Void
     let onAccept: () -> Void
     let onReject: () -> Void
+    let onOpenDocuments: () -> Void
+
+    // Status gating mirrors Android's LoanDeskAdapter, which keys actions off
+    // the server-supplied statusLabel ("Docs Pending" / "App Received" /
+    // "Approved" / "Rejected").
+    private var statusLabel: String { loanCase.statusLabel?.nonBlank ?? "Docs Pending" }
+    private var isAppReceived: Bool { statusLabel.caseInsensitiveCompare("App Received") == .orderedSame }
+    private var isRejected: Bool { statusLabel.caseInsensitiveCompare("Rejected") == .orderedSame }
+    private var isDocsPending: Bool { statusLabel.caseInsensitiveCompare("Docs Pending") == .orderedSame }
+    private var isAssigned: Bool { loanCase.legalAssignedName?.nonBlank != nil }
+
+    private var statusTint: Color {
+        switch statusLabel.lowercased() {
+        case "approved": return Color(hex: 0x16A34A)
+        case "rejected": return Color(hex: 0xF04438)
+        case "app received": return Color(hex: 0xB42318)
+        default: return Color(hex: 0xB93815)
+        }
+    }
 
     var body: some View {
         VStack(alignment: .leading, spacing: 13) {
@@ -1295,7 +1345,7 @@ private struct LoanDeskCaseCard: View {
                         .foregroundStyle(Color(hex: 0x667085))
                 }
                 Spacer()
-                AppModuleBadge(text: loanCase.displayStatus, tint: Color(hex: 0x0B61CA))
+                AppModuleBadge(text: statusLabel, tint: statusTint)
             }
 
             HStack(spacing: 10) {
@@ -1304,30 +1354,122 @@ private struct LoanDeskCaseCard: View {
             }
 
             if let assignee = loanCase.legalAssignedName?.nonBlank {
-                Label(assignee, systemImage: "person.crop.circle.badge.checkmark")
+                Label("Assigned: \(assignee)", systemImage: "person.crop.circle.badge.checkmark")
                     .font(AppModuleFont.rowMeta)
                     .foregroundStyle(Color(hex: 0x667085))
             }
 
-            HStack(spacing: 10) {
-                if mode == .sales || mode == .legalManager {
-                    Button("Assign") { onAssign() }
-                        .buttonStyle(.bordered)
-                        .tint(Color(hex: 0x0B61CA))
+            // Sales sees the legal officer's rejection remarks so they know what
+            // to fix before re-uploading (mirrors Android's rejected-row remarks).
+            if isRejected, let remarks = loanCase.legalRejectionRemarks?.nonBlank {
+                VStack(alignment: .leading, spacing: 4) {
+                    Text("Rejection Remarks:")
+                        .font(.system(size: 12, weight: .bold))
+                        .foregroundStyle(Color(hex: 0xB42318))
+                    Text(remarks)
+                        .font(.system(size: 12, weight: .medium))
+                        .foregroundStyle(Color(hex: 0x667085))
                 }
-                if mode != .sales {
-                    Button("Accept") { onAccept() }
-                        .buttonStyle(.borderedProminent)
-                        .tint(Color(hex: 0x16A34A))
-                    Button("Reject") { onReject() }
-                        .buttonStyle(.bordered)
-                        .tint(Color(hex: 0xB42318))
-                }
+                .padding(12)
+                .frame(maxWidth: .infinity, alignment: .leading)
+                .background(Color(hex: 0xFFF1F0), in: RoundedRectangle(cornerRadius: 10, style: .continuous))
             }
+
+            actionRow
         }
         .padding(16)
         .background(Color.white, in: RoundedRectangle(cornerRadius: 16, style: .continuous))
         .shadow(color: .black.opacity(0.04), radius: 10, x: 0, y: 4)
+    }
+
+    @ViewBuilder
+    private var actionRow: some View {
+        switch mode {
+        case .sales:
+            // Sales manages the document checklist. Once a legal officer is
+            // assigned the case is locked to view-only (handled in the sheet).
+            Group {
+                if isAssigned {
+                    Button { onOpenDocuments() } label: { salesDocumentsLabel }
+                        .buttonStyle(.bordered)
+                } else {
+                    Button { onOpenDocuments() } label: { salesDocumentsLabel }
+                        .buttonStyle(.borderedProminent)
+                }
+            }
+            .tint(Color(hex: 0x0B61CA))
+            .padding(.top, 2)
+
+        case .legalManager:
+            HStack(spacing: 10) {
+                documentsButton
+                // Manager only assigns while the case is awaiting allocation.
+                if isAppReceived && !isAssigned {
+                    Button { onAssign() } label: {
+                        Label("Assign", systemImage: "person.badge.plus")
+                            .font(.system(size: 14, weight: .semibold))
+                            .frame(maxWidth: .infinity)
+                            .frame(height: 44)
+                    }
+                    .buttonStyle(.borderedProminent)
+                    .tint(Color(hex: 0x0B61CA))
+                }
+            }
+            .padding(.top, 2)
+
+        case .legalTeam:
+            VStack(spacing: 10) {
+                documentsButton
+                if isAppReceived {
+                    HStack(spacing: 10) {
+                        Button { onReject() } label: {
+                            Label("Reject", systemImage: "xmark")
+                                .font(.system(size: 14, weight: .semibold))
+                                .frame(maxWidth: .infinity)
+                                .frame(height: 44)
+                        }
+                        .buttonStyle(.bordered)
+                        .tint(Color(hex: 0xF04438))
+
+                        Button { onAccept() } label: {
+                            Label("Accept", systemImage: "checkmark")
+                                .font(.system(size: 14, weight: .semibold))
+                                .frame(maxWidth: .infinity)
+                                .frame(height: 44)
+                        }
+                        .buttonStyle(.borderedProminent)
+                        .tint(Color(hex: 0x16A34A))
+                    }
+                }
+            }
+            .padding(.top, 2)
+        }
+    }
+
+    private var salesDocumentsLabel: some View {
+        Label(isAssigned ? "View Documents" : (isRejected ? "Re-upload Documents" : "Upload Documents"),
+              systemImage: isAssigned ? "doc.text.magnifyingglass" : "arrow.up.doc")
+            .font(.system(size: 14, weight: .semibold))
+            .frame(maxWidth: .infinity)
+            .frame(height: 44)
+    }
+
+    // Legal roles can review the uploaded documents once they exist (Android
+    // only wires the card tap when status != "Docs Pending").
+    @ViewBuilder
+    private var documentsButton: some View {
+        if !isDocsPending {
+            Button {
+                onOpenDocuments()
+            } label: {
+                Label("View Documents", systemImage: "doc.text.magnifyingglass")
+                    .font(.system(size: 14, weight: .semibold))
+                    .frame(maxWidth: .infinity)
+                    .frame(height: 44)
+            }
+            .buttonStyle(.bordered)
+            .tint(Color(hex: 0x0B61CA))
+        }
     }
 
     private func metric(_ title: String, _ value: String) -> some View {
@@ -1611,6 +1753,83 @@ private struct RejectCollectionSheet: View {
     }
 }
 
+/// Collector corrects a wrong amount on their own still-pending collection
+/// before it reaches Accounts (mirrors Android's "Edit amount" dialog →
+/// POST /api/postsales/collections/correct). Only the amount is editable here.
+private struct EditCollectionAmountSheet: View {
+    @Environment(AuthStore.self) private var authStore
+    @Environment(\.dismiss) private var dismiss
+    let collection: CustomerCollectionRow
+    let onSaved: () async -> Void
+    @State private var amountText: String
+    @State private var isSubmitting = false
+    @State private var errorMessage: String?
+
+    init(collection: CustomerCollectionRow, onSaved: @escaping () async -> Void) {
+        self.collection = collection
+        self.onSaved = onSaved
+        let value = collection.amount ?? 0
+        // Show a whole number without a trailing ".0" when the amount is integral.
+        let initial = value == value.rounded() ? String(Int(value)) : String(value)
+        _amountText = State(initialValue: value > 0 ? initial : "")
+    }
+
+    var body: some View {
+        NavigationStack {
+            Form {
+                Section {
+                    Text("Correct the amount before it reaches Accounts.")
+                        .font(.system(size: 13, weight: .medium))
+                        .foregroundStyle(Color(hex: 0x667085))
+                }
+                Section("Corrected Amount (₹)") {
+                    TextField("Amount", text: $amountText)
+                        .keyboardType(.decimalPad)
+                }
+            }
+            .navigationTitle("Edit Collection Amount")
+            .navigationBarTitleDisplayMode(.inline)
+            .toolbar {
+                ToolbarItem(placement: .cancellationAction) {
+                    Button("Cancel") { dismiss() }
+                }
+                ToolbarItem(placement: .confirmationAction) {
+                    Button(isSubmitting ? "Saving..." : "Save") {
+                        Task { await submit() }
+                    }
+                    .disabled(isSubmitting || (Double(amountText) ?? 0) <= 0)
+                }
+            }
+            .alert("Collection", isPresented: Binding(get: { errorMessage != nil }, set: { if !$0 { errorMessage = nil } })) {
+                Button("OK", role: .cancel) { errorMessage = nil }
+            } message: {
+                Text(errorMessage ?? "")
+            }
+        }
+    }
+
+    @MainActor
+    private func submit() async {
+        guard let token = authStore.currentSession?.token else { return }
+        guard let newAmount = Double(amountText), newAmount > 0 else {
+            errorMessage = "Enter a valid amount greater than zero"
+            return
+        }
+        isSubmitting = true
+        defer { isSubmitting = false }
+        do {
+            _ = try await PostSalesConvexAPIService.correctCollection(
+                token: token,
+                request: CorrectCollectionRequest(collectionId: collection.id, amount: newAmount)
+            )
+            await onSaved()
+            dismiss()
+        } catch {
+            errorMessage = error.localizedDescription
+        }
+    }
+}
+
 private struct AssignLoanSheet: View {
     let staff: [LegalStaffRow]
     @Binding var selectedStaffId: String
@@ -1649,65 +1868,82 @@ private struct AssignLoanSheet: View {
     }
 }
 
-private struct SubmitLoanCaseSheet: View {
+/// Per-case Loan Desk document sheet. Sales seeds the required-document
+/// checklist straight from the tapped case (`documentsChecklist` labels +
+/// any files already on the server), uploads into each slot, and submits
+/// with the case's own caseId + applicantType — no free-text entry. Legal
+/// roles (and Sales once a legal officer is assigned) open it read-only to
+/// review and preview the uploaded files. Mirrors Android's
+/// LoanDeskUploadBottomSheet + previewSlot.
+private struct LoanCaseDocumentsSheet: View {
     @Environment(AuthStore.self) private var authStore
     @Environment(\.dismiss) private var dismiss
-    @State private var caseId = ""
-    @State private var applicantType = "salaried"
-    @State private var requestedAmount = ""
-    @State private var documents = LoanDocumentDraft.defaultSet
-    @State private var importingDocumentId: UUID?
+    let loanCase: LoanCaseRow
+    let mode: LoanDeskMode
+    let onSaved: () async -> Void
+
+    @State private var slots: [LoanDocSlot] = []
+    @State private var didBuildSlots = false
+    @State private var importingSlotId: UUID?
+    @State private var previewURL: URL?
     @State private var errorMessage: String?
     @State private var isSubmitting = false
     @State private var isUploading = false
-    let onSaved: () async -> Void
+
+    // Sales can upload/replace until a legal officer is assigned. Everyone
+    // else (and Sales post-assignment) views the checklist read-only.
+    private var isEditable: Bool {
+        mode == .sales && loanCase.legalAssignedName?.nonBlank == nil
+    }
+
+    // Mirrors Android's allCovered + anyFreshReady: every slot must have a
+    // file (pre-existing or freshly uploaded) and at least one must be new.
+    private var canSubmit: Bool {
+        !isUploading
+            && !slots.isEmpty
+            && slots.allSatisfy { $0.storageId?.nonBlank != nil }
+            && slots.contains { $0.isFresh }
+    }
 
     var body: some View {
         NavigationStack {
             Form {
-                Section {
-                    TextField("Case ID", text: $caseId)
-                    Picker("Applicant Type", selection: $applicantType) {
-                        Text("Salaried").tag("salaried")
-                        Text("Business").tag("business")
-                        Text("Pension").tag("pension")
+                Section("Case") {
+                    LabeledContent("Client", value: loanCase.displayTitle)
+                    if let sub = [loanCase.projectName, loanCase.plotNo].compactMap({ $0?.nonBlank }).joined(separator: " · ").nonBlank {
+                        LabeledContent("Project", value: sub)
                     }
-                    TextField("Requested Amount", text: $requestedAmount)
-                        .keyboardType(.decimalPad)
+                    LabeledContent("Amount", value: AppModuleFormatters.rupees(loanCase.displayAmount))
+                    if let type = loanCase.applicantType?.nonBlank {
+                        LabeledContent("Applicant Type", value: type.capitalized)
+                    }
                 }
 
-                Section("Documents") {
-                    ForEach($documents) { $document in
-                        HStack(spacing: 12) {
-                            Image(systemName: document.storageId == nil ? "doc.badge.plus" : "doc.fill")
-                                .foregroundStyle(document.storageId == nil ? Color(hex: 0x667085) : Color(hex: 0x16A34A))
-                            VStack(alignment: .leading, spacing: 3) {
-                                Text(document.label)
-                                Text(document.fileName ?? "No file selected")
-                                    .font(.caption)
-                                    .foregroundStyle(.secondary)
-                                    .lineLimit(1)
-                            }
-                            Spacer()
-                            Button {
-                                importingDocumentId = document.id
-                            } label: {
-                                Image(systemName: "paperclip")
-                            }
-                            .buttonStyle(.bordered)
-                        }
+                Section(isEditable ? "Required Documents" : "Documents") {
+                    if slots.isEmpty {
+                        Text("No documents are configured for this loan case.")
+                            .font(.caption)
+                            .foregroundStyle(.secondary)
+                    }
+                    ForEach($slots) { $slot in
+                        documentRow($slot)
                     }
                     if isUploading {
                         ProgressView("Uploading document...")
                     }
                 }
             }
-            .navigationTitle("Submit Loan")
+            .navigationTitle(isEditable ? "Submit Documents" : "Loan Documents")
             .navigationBarTitleDisplayMode(.inline)
+            .onAppear {
+                guard !didBuildSlots else { return }
+                didBuildSlots = true
+                slots = LoanDocSlot.build(from: loanCase)
+            }
             .fileImporter(
                 isPresented: Binding(
-                    get: { importingDocumentId != nil },
-                    set: { if !$0 { importingDocumentId = nil } }
+                    get: { importingSlotId != nil },
+                    set: { if !$0 { importingSlotId = nil } }
                 ),
                 allowedContentTypes: [.image, .pdf, .data],
                 allowsMultipleSelection: false
@@ -1716,13 +1952,15 @@ private struct SubmitLoanCaseSheet: View {
             }
             .toolbar {
                 ToolbarItem(placement: .cancellationAction) {
-                    Button("Cancel") { dismiss() }
+                    Button(isEditable ? "Cancel" : "Close") { dismiss() }
                 }
-                ToolbarItem(placement: .confirmationAction) {
-                    Button(isSubmitting ? "Saving..." : "Submit") {
-                        Task { await submit() }
+                if isEditable {
+                    ToolbarItem(placement: .confirmationAction) {
+                        Button(isSubmitting ? "Saving..." : "Submit") {
+                            Task { await submit() }
+                        }
+                        .disabled(isSubmitting || !canSubmit)
                     }
-                    .disabled(isSubmitting || isUploading || caseId.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty || uploadedDocuments.isEmpty)
                 }
             }
             .alert("Loan Desk", isPresented: Binding(get: { errorMessage != nil }, set: { if !$0 { errorMessage = nil } })) {
@@ -1730,32 +1968,75 @@ private struct SubmitLoanCaseSheet: View {
             } message: {
                 Text(errorMessage ?? "")
             }
+            .sheet(item: Binding(get: { previewURL.map(URLPreviewItem.init(url:)) }, set: { if $0 == nil { previewURL = nil } })) { item in
+                StoragePreviewSheet(url: item.url)
+                    .appLibraryNativeSheet([.medium, .large])
+            }
         }
     }
 
-    private var uploadedDocuments: [SubmitLoanDocument] {
-        documents.compactMap { document in
-            guard let storageId = document.storageId else { return nil }
-            return SubmitLoanDocument(label: document.label, storageId: storageId, fileName: document.fileName)
+    private func documentRow(_ slot: Binding<LoanDocSlot>) -> some View {
+        let value = slot.wrappedValue
+        return HStack(spacing: 12) {
+            Image(systemName: value.storageId == nil ? "doc.badge.plus" : "doc.fill")
+                .foregroundStyle(value.storageId == nil ? Color(hex: 0x667085) : Color(hex: 0x16A34A))
+            VStack(alignment: .leading, spacing: 3) {
+                Text(value.label)
+                Text(value.fileName?.nonBlank ?? "No file selected")
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+                    .lineLimit(1)
+            }
+            Spacer()
+            if value.storageId?.nonBlank != nil {
+                Button {
+                    Task { await preview(value) }
+                } label: {
+                    Image(systemName: "eye")
+                }
+                .buttonStyle(.borderless)
+                .tint(Color(hex: 0x0B61CA))
+            }
+            if isEditable {
+                Button {
+                    importingSlotId = value.id
+                } label: {
+                    Image(systemName: "paperclip")
+                }
+                .buttonStyle(.bordered)
+            }
+        }
+    }
+
+    @MainActor
+    private func preview(_ slot: LoanDocSlot) async {
+        guard let token = authStore.currentSession?.token,
+              let storageId = slot.storageId?.nonBlank
+        else { return }
+        do {
+            previewURL = try await PostSalesStorageService.getFileURL(token: token, storageId: storageId)
+        } catch {
+            errorMessage = error.localizedDescription
         }
     }
 
     @MainActor
     private func importDocument(_ result: Result<[URL], Error>) async {
         guard let token = authStore.currentSession?.token,
-              let documentId = importingDocumentId
+              let slotId = importingSlotId
         else { return }
         do {
             guard let url = try result.get().first else { return }
             isUploading = true
             defer {
                 isUploading = false
-                importingDocumentId = nil
+                importingSlotId = nil
             }
             let uploaded = try await PostSalesStorageService.uploadFile(token: token, fileURL: url)
-            if let index = documents.firstIndex(where: { $0.id == documentId }) {
-                documents[index].storageId = uploaded.storageId
-                documents[index].fileName = uploaded.fileName
+            if let index = slots.firstIndex(where: { $0.id == slotId }) {
+                slots[index].storageId = uploaded.storageId
+                slots[index].fileName = uploaded.fileName
+                slots[index].isFresh = true
             }
         } catch {
             errorMessage = error.localizedDescription
@@ -1765,16 +2046,30 @@ private struct SubmitLoanCaseSheet: View {
     @MainActor
     private func submit() async {
         guard let token = authStore.currentSession?.token else { return }
+        guard let caseId = loanCase.caseId?.nonBlank else {
+            errorMessage = "This case has no booking linked."
+            return
+        }
+        // Only freshly uploaded files are sent; the server keeps previously
+        // approved documents authoritative (mirrors Android readyUploadsForSubmit).
+        let documents = slots.compactMap { slot -> SubmitLoanDocument? in
+            guard slot.isFresh, let storageId = slot.storageId?.nonBlank else { return nil }
+            return SubmitLoanDocument(label: slot.label, storageId: storageId, fileName: slot.fileName)
+        }
+        guard !documents.isEmpty else {
+            errorMessage = "Upload at least one document to submit."
+            return
+        }
         isSubmitting = true
         defer { isSubmitting = false }
         do {
             _ = try await PostSalesConvexAPIService.submitLoanRequest(
                 token: token,
                 request: SubmitLoanDeskRequest(
-                    caseId: caseId.trimmingCharacters(in: .whitespacesAndNewlines),
-                    applicantType: applicantType,
-                    requestedAmount: Double(requestedAmount),
-                    documents: uploadedDocuments
+                    caseId: caseId,
+                    applicantType: loanCase.applicantType?.nonBlank ?? "salaried",
+                    requestedAmount: loanCase.requestedAmount,
+                    documents: documents
                 )
             )
             await onSaved()
@@ -1785,18 +2080,30 @@ private struct SubmitLoanCaseSheet: View {
     }
 }
 
-private struct LoanDocumentDraft: Identifiable, Equatable {
+private struct LoanDocSlot: Identifiable, Equatable {
     let id = UUID()
     let label: String
     var storageId: String?
     var fileName: String?
+    // True when the file was picked in this session (vs. seeded from the
+    // server) — only fresh uploads go in the submit payload.
+    var isFresh: Bool = false
 
-    static let defaultSet = [
-        LoanDocumentDraft(label: "PAN Card"),
-        LoanDocumentDraft(label: "Aadhaar Card"),
-        LoanDocumentDraft(label: "Bank Statement"),
-        LoanDocumentDraft(label: "Pay Slip")
-    ]
+    private static let defaultLabels = ["PAN Card", "Aadhaar Card", "Bank Statement", "Pay Slip"]
+
+    static func build(from loanCase: LoanCaseRow) -> [LoanDocSlot] {
+        let checklist = loanCase.documentsChecklist ?? []
+        if checklist.isEmpty {
+            return defaultLabels.map { LoanDocSlot(label: $0) }
+        }
+        return checklist.map { doc in
+            LoanDocSlot(
+                label: doc.label,
+                storageId: doc.storageId?.nonBlank,
+                fileName: doc.fileName?.nonBlank
+            )
+        }
+    }
 }
 
 private struct StoragePreviewSheet: View {
@@ -1859,6 +2166,10 @@ private extension CustomerCollectionRow {
     var normalizedPaymentCategory: String {
         (customerPaymentCategory ?? "").replacingOccurrences(of: "_", with: " ").lowercased()
     }
+
+    /// True when the collector corrected their own entry while still pending
+    /// Accounts — drives the "Edited" tag (mirrors Android `collectorEditedAt`).
+    var isEdited: Bool { collectorEditedAt?.nonBlank != nil }
 
     var androidBookingLabel: String {
         let site = projectName?.nonBlank

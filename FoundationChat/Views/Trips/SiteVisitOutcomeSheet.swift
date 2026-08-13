@@ -10,7 +10,7 @@ struct SiteVisitOutcomeSheet: View {
     @Environment(AuthStore.self) private var authStore
     @Environment(\.dismiss) private var dismiss
 
-    @State private var selectedOutcome: SiteVisitOutcome = .booking
+    @State private var selectedOutcome: SiteVisitOutcome?
     @State private var bookingSub: SiteVisitBookingSub = .client
     @State private var booking = SiteVisitBookingDraft()
     @State private var projects: [MarketingProject] = []
@@ -28,6 +28,8 @@ struct SiteVisitOutcomeSheet: View {
 
     @State private var selectedPostponeReasons: Set<SiteVisitPostponeReason> = []
     @State private var postponedNotes = ""
+    @State private var followupDueDate = ""
+    @State private var otherRemarks = ""
     @State private var selectedNotInterestedReasons: Set<SiteVisitNotInterestedReason> = []
     @State private var notInterestedDetails: [SiteVisitNotInterestedReason: String] = [:]
     @State private var notInterestedNotes = ""
@@ -51,7 +53,9 @@ struct SiteVisitOutcomeSheet: View {
         self.initialOutcome = initialOutcome
         self.locksOutcome = locksOutcome
         self.onCompleted = onCompleted
-        _selectedOutcome = State(initialValue: SiteVisitOutcome(rawValue: initialOutcome ?? "") ?? .booking)
+        // Nothing pre-selected unless an explicit initial outcome is passed in
+        // (e.g. the list view's locked quick-outcome buttons). Matches Android.
+        _selectedOutcome = State(initialValue: initialOutcome.flatMap(SiteVisitOutcome.init(rawValue:)))
     }
 
     var body: some View {
@@ -64,10 +68,14 @@ struct SiteVisitOutcomeSheet: View {
                     switch selectedOutcome {
                     case .booking:
                         bookingSection
-                    case .postponed:
-                        postponedSection
+                    case .followUp:
+                        followUpSection
                     case .notInterested:
                         notInterestedSection
+                    case .other:
+                        otherSection
+                    case .none:
+                        chooserPrompt
                     }
 
                     if let errorMessage {
@@ -76,23 +84,25 @@ struct SiteVisitOutcomeSheet: View {
                             .foregroundStyle(Color(hex: 0xB42318))
                     }
 
-                    Button {
-                        Task { await submit() }
-                    } label: {
-                        if isSaving {
-                            ProgressView()
-                                .frame(maxWidth: .infinity)
-                        } else {
-                            Text(ctaTitle)
-                                .font(.system(size: 14, weight: .semibold))
-                                .frame(maxWidth: .infinity)
+                    if selectedOutcome != nil {
+                        Button {
+                            Task { await submit() }
+                        } label: {
+                            if isSaving {
+                                ProgressView()
+                                    .frame(maxWidth: .infinity)
+                            } else {
+                                Text(ctaTitle)
+                                    .font(.system(size: 14, weight: .semibold))
+                                    .frame(maxWidth: .infinity)
+                            }
                         }
+                        .buttonStyle(.borderedProminent)
+                        .controlSize(.large)
+                        .tint(Color(hex: 0x2DAE12))
+                        .padding(.top, 6)
+                        .disabled(isSaving)
                     }
-                    .buttonStyle(.borderedProminent)
-                    .controlSize(.large)
-                    .tint(Color(hex: 0x2DAE12))
-                    .padding(.top, 6)
-                    .disabled(isSaving)
                 }
                 .padding(.horizontal, 20)
                 .padding(.top, 18)
@@ -370,8 +380,10 @@ struct SiteVisitOutcomeSheet: View {
         }
     }
 
-    private var postponedSection: some View {
+    private var followUpSection: some View {
         VStack(alignment: .leading, spacing: 14) {
+            SiteVisitOutcomeDateField("Follow-up due date", text: $followupDueDate)
+
             Text("Reasons")
                 .font(.system(size: 14, weight: .semibold))
                 .foregroundStyle(Color(hex: 0x475467))
@@ -382,6 +394,31 @@ struct SiteVisitOutcomeSheet: View {
 
             SiteVisitOutcomeTextField("Additional notes", text: $postponedNotes, placeholder: "Add notes", icon: "doc", axis: .vertical)
         }
+    }
+
+    private var otherSection: some View {
+        VStack(alignment: .leading, spacing: 14) {
+            Text("Remarks")
+                .font(.system(size: 14, weight: .semibold))
+                .foregroundStyle(Color(hex: 0x475467))
+
+            SiteVisitOutcomeTextField("Remarks *", text: $otherRemarks, placeholder: "Explain why this visit is being closed", icon: "doc", axis: .vertical)
+        }
+    }
+
+    private var chooserPrompt: some View {
+        HStack(spacing: 10) {
+            Image(systemName: "hand.tap.fill")
+                .font(.system(size: 16, weight: .semibold))
+                .foregroundStyle(Color(hex: 0x98A2B3))
+            Text("Select an outcome above to continue.")
+                .font(.system(size: 13, weight: .medium))
+                .foregroundStyle(Color(hex: 0x667085))
+            Spacer()
+        }
+        .padding(14)
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .background(Color(hex: 0xF8F9FB), in: RoundedRectangle(cornerRadius: 14))
     }
 
     private var notInterestedSection: some View {
@@ -609,8 +646,10 @@ struct SiteVisitOutcomeSheet: View {
     private var ctaTitle: String {
         switch selectedOutcome {
         case .booking: return booking.saveAs == .confirmed ? "Create Confirmed Booking" : "Save Booking Draft"
-        case .postponed: return "Save Postponed Outcome"
+        case .followUp: return "Save Follow-up Outcome"
         case .notInterested: return "Save Not Interested Outcome"
+        case .other: return "Save Outcome"
+        case .none: return "Save Outcome"
         }
     }
 
@@ -728,26 +767,36 @@ struct SiteVisitOutcomeSheet: View {
     private func submit() async {
         errorMessage = nil
         guard let token = authStore.currentSession?.token else { return }
+        guard let outcome = selectedOutcome else {
+            errorMessage = "Select an outcome to continue"
+            return
+        }
         isSaving = true
         defer { isSaving = false }
 
         do {
-            switch selectedOutcome {
+            switch outcome {
             case .booking:
                 let bookingId = try await createBooking(token: token)
-                try await saveOutcome(token: token, bookingId: bookingId)
-            case .postponed:
+                try await saveOutcome(token: token, outcome: outcome, bookingId: bookingId)
+            case .followUp:
                 guard !selectedPostponeReasons.isEmpty else {
-                    errorMessage = "Select at least one postponed reason"
+                    errorMessage = "Select at least one follow-up reason"
                     return
                 }
-                try await saveOutcome(token: token, bookingId: nil)
+                try await saveOutcome(token: token, outcome: outcome, bookingId: nil)
             case .notInterested:
                 guard !selectedNotInterestedReasons.isEmpty else {
                     errorMessage = "Select at least one not interested reason"
                     return
                 }
-                try await saveOutcome(token: token, bookingId: nil)
+                try await saveOutcome(token: token, outcome: outcome, bookingId: nil)
+            case .other:
+                guard otherRemarks.outcomeNilIfBlank != nil else {
+                    errorMessage = "Add remarks to explain this outcome"
+                    return
+                }
+                try await saveOutcome(token: token, outcome: outcome, bookingId: nil)
             }
             onCompleted()
             dismiss()
@@ -775,27 +824,34 @@ struct SiteVisitOutcomeSheet: View {
         )
     }
 
-    private func saveOutcome(token: String, bookingId: String?) async throws {
+    private func saveOutcome(token: String, outcome: SiteVisitOutcome, bookingId: String?) async throws {
+        // Best-effort unlock: the outcome buttons unlock at on_site, but setOutcome
+        // only accepts on_counselling|picked_from_site|dropped, so nudge first.
+        try? await MarketingConvexAPIService.markSiteVisitOnCounselling(token: token, id: siteVisitId)
+
+        let reasonCodes = selectedReasonCodes(for: outcome)
         try await MarketingConvexAPIService.setSiteVisitOutcome(
             token: token,
             request: SetSiteVisitOutcomeRequest(
                 id: siteVisitId,
-                outcome: selectedOutcome.rawValue,
-                reasons: selectedReasonCodes,
-                postponeReasons: selectedOutcome == .postponed ? selectedReasonCodes : nil,
-                notInterestedReasons: selectedOutcome == .notInterested ? selectedReasonCodes : nil,
-                notInterestedDetails: selectedOutcome == .notInterested ? notInterestedDetailPayload : nil,
-                notes: outcomeNotes(bookingId: bookingId),
-                bookingId: bookingId
+                outcome: outcome.rawValue,
+                reasons: reasonCodes,
+                postponeReasons: outcome == .followUp ? reasonCodes : nil,
+                notInterestedReasons: outcome == .notInterested ? reasonCodes : nil,
+                notInterestedDetails: outcome == .notInterested ? notInterestedDetailPayload : nil,
+                notes: outcome == .other ? otherRemarks.outcomeNilIfBlank : outcomeNotes(outcome: outcome, bookingId: bookingId),
+                bookingId: bookingId,
+                followupDueDate: outcome == .followUp ? followupDueDate.outcomeNilIfBlank : nil,
+                followupDueTime: nil
             )
         )
     }
 
-    private var selectedReasonCodes: [String]? {
-        switch selectedOutcome {
-        case .booking:
+    private func selectedReasonCodes(for outcome: SiteVisitOutcome) -> [String]? {
+        switch outcome {
+        case .booking, .other:
             return nil
-        case .postponed:
+        case .followUp:
             return selectedPostponeReasons.map(\.rawValue).sorted()
         case .notInterested:
             return selectedNotInterestedReasons.map(\.rawValue).sorted()
@@ -809,15 +865,16 @@ struct SiteVisitOutcomeSheet: View {
         return items.isEmpty ? nil : items
     }
 
-    private func outcomeNotes(bookingId: String?) -> String? {
+    private func outcomeNotes(outcome: SiteVisitOutcome, bookingId: String?) -> String? {
         var rows: [String] = []
         if let bookingId { rows.append("Booking ID: \(bookingId)") }
-        switch selectedOutcome {
+        switch outcome {
         case .booking:
             rows.append("Outcome: Converted to Booking")
             if let notes = booking.notes.outcomeNilIfBlank { rows.append("Notes: \(notes)") }
-        case .postponed:
+        case .followUp:
             rows.append("Reasons: \(selectedPostponeReasons.map(\.title).sorted().joined(separator: ", "))")
+            if let due = followupDueDate.outcomeNilIfBlank { rows.append("Follow-up: \(due)") }
             if let notes = postponedNotes.outcomeNilIfBlank { rows.append("Notes: \(notes)") }
         case .notInterested:
             rows.append(contentsOf: selectedNotInterestedReasons.sorted { $0.title < $1.title }.map { reason in
@@ -827,6 +884,8 @@ struct SiteVisitOutcomeSheet: View {
                 return reason.title
             })
             if let notes = notInterestedNotes.outcomeNilIfBlank { rows.append("Notes: \(notes)") }
+        case .other:
+            if let notes = otherRemarks.outcomeNilIfBlank { rows.append("Notes: \(notes)") }
         }
         return rows.joined(separator: "\n").outcomeNilIfBlank
     }
@@ -849,13 +908,18 @@ struct SiteVisitOutcomeSheet: View {
             selectedLead = nil
             leadMatches = []
             bookingSub = .client
-        case .postponed:
+        case .followUp:
             selectedPostponeReasons = []
             postponedNotes = ""
+            followupDueDate = ""
         case .notInterested:
             selectedNotInterestedReasons = []
             notInterestedDetails = [:]
             notInterestedNotes = ""
+        case .other:
+            otherRemarks = ""
+        case .none:
+            break
         }
     }
 
@@ -866,24 +930,27 @@ struct SiteVisitOutcomeSheet: View {
 
 private enum SiteVisitOutcome: String, CaseIterable, Identifiable {
     case booking = "converted_to_booking"
-    case postponed
+    case followUp = "follow_up"
     case notInterested = "not_interested"
+    case other = "other"
 
     var id: String { rawValue }
 
     var title: String {
         switch self {
         case .booking: return "Booking"
-        case .postponed: return "Postpone"
+        case .followUp: return "Follow up"
         case .notInterested: return "Not Interested"
+        case .other: return "Others"
         }
     }
 
     var icon: String {
         switch self {
         case .booking: return "briefcase.fill"
-        case .postponed: return "calendar.badge.clock"
+        case .followUp: return "calendar.badge.clock"
         case .notInterested: return "hand.thumbsdown.fill"
+        case .other: return "ellipsis.circle.fill"
         }
     }
 }

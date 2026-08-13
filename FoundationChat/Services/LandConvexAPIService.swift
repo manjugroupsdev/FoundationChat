@@ -31,6 +31,13 @@ enum LandConvexAPIService {
         let error: String?
     }
 
+    private struct InspectionDetailResponse: Decodable {
+        let success: Bool
+        let report: LandInspectionReport?
+        let competitors: [LandCompetitorEntry]?
+        let error: String?
+    }
+
     static func listInspections(
         token: String,
         fromDate: String? = nil,
@@ -43,6 +50,20 @@ enum LandConvexAPIService {
         let wrapper = try decode(InspectionsResponse.self, from: data)
         guard wrapper.success else { throw MarketingAPIError.server(wrapper.error ?? "Failed to load inspections") }
         return wrapper.items ?? wrapper.inspections ?? wrapper.properties ?? []
+    }
+
+    /// Fetch a single property's saved inspection report + competitors so the
+    /// form can pre-fill previously entered values. Mirrors Android's
+    /// `getInspectionForProperty` call feeding `applyPrefill`.
+    static func getInspection(token: String, propertyId: String) async throws -> LandInspectionDetail {
+        let data = try await get(
+            path: "/api/land/inspections/get",
+            token: token,
+            queryItems: [URLQueryItem(name: "propertyId", value: propertyId)]
+        )
+        let wrapper = try decode(InspectionDetailResponse.self, from: data)
+        guard wrapper.success else { throw MarketingAPIError.server(wrapper.error ?? "Failed to load inspection") }
+        return LandInspectionDetail(report: wrapper.report, competitors: wrapper.competitors)
     }
 
     static func saveInspection(token: String, request: SaveLandInspectionRequest) async throws -> String {

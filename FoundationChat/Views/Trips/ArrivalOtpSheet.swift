@@ -17,6 +17,10 @@ struct ArrivalOtpSheet: View {
     let initialResendCooldown: Int
     let lat: Double
     let lng: Double
+    /// Storage id of the arrival photo captured & uploaded before this sheet was
+    /// shown. Forwarded with the OTP verify so the backend links the photo to the
+    /// fieldVisit row at arrival time (parity with Android ArrivalOtpBottomSheet).
+    let arrivalPhotoStorageId: String?
     let onVerified: (String) -> Void
 
     @State private var otp: String = ""
@@ -38,6 +42,7 @@ struct ArrivalOtpSheet: View {
         initialResendCooldown: Int,
         lat: Double,
         lng: Double,
+        arrivalPhotoStorageId: String? = nil,
         onVerified: @escaping (String) -> Void
     ) {
         self.visitId = visitId
@@ -46,6 +51,7 @@ struct ArrivalOtpSheet: View {
         self.initialResendCooldown = initialResendCooldown
         self.lat = lat
         self.lng = lng
+        self.arrivalPhotoStorageId = arrivalPhotoStorageId
         self.onVerified = onVerified
         _expirySecondsRemaining = State(initialValue: initialExpiresIn)
         _resendSecondsRemaining = State(initialValue: initialResendCooldown)
@@ -196,7 +202,8 @@ struct ArrivalOtpSheet: View {
                 visitId: visitId,
                 otp: otp,
                 lat: lat,
-                lng: lng
+                lng: lng,
+                arrivalPhotoStorageId: arrivalPhotoStorageId
             )
             if resp.success {
                 onVerified(otp)

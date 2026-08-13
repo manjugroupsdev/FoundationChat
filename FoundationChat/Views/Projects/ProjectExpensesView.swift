@@ -1171,7 +1171,7 @@ private struct ExpenseCreationSheet: View {
                     paymentMethod: paymentMethod,
                     notes: notes.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty ? nil : notes.trimmingCharacters(in: .whitespacesAndNewlines),
                     receipts: receipts.isEmpty ? nil : receipts,
-                    paid: true
+                    paid: false
                 )
                 await onCreated()
                 dismiss()

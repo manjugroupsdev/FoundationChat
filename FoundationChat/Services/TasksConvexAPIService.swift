@@ -169,6 +169,21 @@ enum TasksConvexAPIService {
         }
     }
 
+    /// Task-Manager daily task status change (e.g. out-of-station handoff
+    /// Complete / Cancel). Mirrors Android `dailyTasks/updateStatus`; distinct
+    /// from `updateStatus` above, which targets project tasks.
+    static func updateDailyTaskStatus(token: String, id: String, status: String) async throws {
+        let body: [String: Any] = [
+            "id": id,
+            "status": status
+        ]
+        let data = try await post(path: "/api/dailyTasks/updateStatus", token: token, jsonBody: body)
+        let wrapper = try JSONDecoder().decode(TaskActionResponse.self, from: data)
+        guard wrapper.success else {
+            throw HRConvexAPIError.server(wrapper.error ?? "Failed to update task")
+        }
+    }
+
     static func updateTask(
         token: String,
         taskId: String,

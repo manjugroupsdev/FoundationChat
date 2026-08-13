@@ -23,7 +23,14 @@ struct HomeView: View {
     @State private var selectedManagementDashboardTab: HomeDashboardTab = .hr
     @State private var selectedDashboardDate: Date?
     @State private var dashboardPickerDate = Date()
+    // Lenient day-gate: source-agnostic "clocked in / open session for today"
+    // (any non-blank firstPunchIn, biometric included; survives a mid-day break).
+    // Drives the attendance status + live ticker.
     @State private var hasOpenSession = false
+    // Strict "an attendance session is open RIGHT NOW". Gates STARTING a new trip
+    // so a clocked-out staffer must clock in first. Nil-on-error is absorbed in
+    // loadAttendanceGate (a transient error never flips this false).
+    @State private var hasOpenSessionNow = false
     @State private var unreadCount = 0
     @State private var isLoading = true
     @State private var isVisitsLoading = false
@@ -1195,6 +1202,19 @@ struct HomeView: View {
         }
     }
 
+    /// Mirrors Android `HomeFragment.bindTrend`: a truthful "vs last week" pill
+    /// computed from the same-weekday-one-week-earlier baseline, or an empty
+    /// string (hidden by the card) when there is no honest delta to show.
+    /// Replaces the previously hardcoded fake percentages.
+    private func dashboardTrendPill(current: Int, previous: Int?) -> String {
+        guard let previous else { return "" }
+        if previous == 0 && current == 0 { return "" }
+        if previous == 0 { return "↗ new vs last week" }
+        let delta = Double(current - previous) * 100.0 / Double(previous)
+        let arrow = delta > 0 ? "↗" : (delta < 0 ? "↘" : "→")
+        return "\(arrow) \(Int(abs(delta).rounded()))% vs last week"
+    }
+
     private func dashboardMetrics(for dashboard: ConvexMobileDashboard) -> [ManagementDashboardMetric] {
         let blue = Color(hex: 0x0B61CA)
         let green = Color(hex: 0x059669)
@@ -1323,7 +1343,7 @@ struct HomeView: View {
                 .init(
                     title: "Total Calls",
                     value: "\(dashboard.totalCalls)",
-                    pill: "↗ 12% vs last week",
+                    pill: dashboardTrendPill(current: dashboard.totalCalls, previous: dashboard.prevTotalCalls),
                     systemImage: "phone",
                     tint: blue,
                     background: blueBg,
@@ -1337,7 +1357,7 @@ struct HomeView: View {
                 .init(
                     title: "Incoming",
                     value: "\(dashboard.incomingCalls)",
-                    pill: "↗ 5% vs last week",
+                    pill: dashboardTrendPill(current: dashboard.incomingCalls, previous: dashboard.prevIncomingCalls),
                     systemImage: "phone.fill",
                     tint: green,
                     background: greenBg,
@@ -1351,7 +1371,7 @@ struct HomeView: View {
                 .init(
                     title: "Outgoing",
                     value: "\(dashboard.outboundCalls)",
-                    pill: "↘ 3% vs last week",
+                    pill: dashboardTrendPill(current: dashboard.outboundCalls, previous: dashboard.prevOutboundCalls),
                     systemImage: "phone",
                     tint: blue,
                     background: blueBg,
@@ -1466,7 +1486,10 @@ struct HomeView: View {
         if ["in-progress", "in_progress", "ongoing", "started", "active", "arrived"].contains(status) {
             return status == "arrived" ? .reaching : .enroute
         }
-        if !hasOpenSession {
+        // Starting a NEW trip requires a live open session (strict gate). An
+        // already-started trip above is unaffected, so it keeps working through a
+        // mid-day break; only a fresh start is blocked until the staffer clocks in.
+        if !hasOpenSessionNow {
             return .clockInFirst
         }
         return .ready
@@ -1505,6 +1528,7 @@ struct HomeView: View {
         }
 
         await withTaskGroup(of: Void.self) { group in
+            group.addTask { await self.flushPendingPunches() }
             group.addTask { await self.loadAttendanceGate() }
             group.addTask { await self.loadAttendanceSummary() }
             group.addTask { await self.loadDailyTasks() }
@@ -1668,9 +1692,25 @@ struct HomeView: View {
     private func loadAttendanceGate() async {
         guard let token = authStore.currentSession?.token else {
             hasOpenSession = false
+            hasOpenSessionNow = false
             return
         }
+        // Lenient day-gate (source-agnostic; drives status + ticker).
         hasOpenSession = await AttendanceTrackingGate.hasOpenSessionForToday(token: token)
+        // Strict open-session-now gate (gates starting a new trip). nil = couldn't
+        // determine (both endpoints errored) — keep the last known value so a
+        // transient outage never spuriously forces "Clock in first".
+        if let openNow = await AttendanceTrackingGate.hasOpenSessionNow(token: token) {
+            hasOpenSessionNow = openNow
+        }
+    }
+
+    @MainActor
+    private func flushPendingPunches() async {
+        guard let token = authStore.currentSession?.token else { return }
+        // Replay any punches queued while offline, oldest-first, with their original
+        // tap time. Runs whenever Home loads (mirrors Android loadHomeData → PunchSyncWorker).
+        await PendingPunchSyncCoordinator.shared.flush(token: token)
     }
 
     @MainActor
@@ -2118,15 +2158,17 @@ private struct ManagementDashboardMetricCard: View {
                     .minimumScaleFactor(0.65)
                     .padding(.top, metric.size == .large ? 3 : 1)
 
-                Text(metric.pill)
-                    .font(.system(size: 8.2, weight: .bold))
-                    .foregroundStyle(metric.pillTextColor)
-                    .lineLimit(1)
-                    .minimumScaleFactor(0.64)
-                    .padding(.horizontal, metric.size == .large ? 5 : 4)
-                    .padding(.vertical, 2.5)
-                    .background(metric.pillBackground, in: RoundedRectangle(cornerRadius: 5, style: .continuous))
-                    .padding(.top, metric.size == .large ? 5 : 3)
+                if !metric.pill.isEmpty {
+                    Text(metric.pill)
+                        .font(.system(size: 8.2, weight: .bold))
+                        .foregroundStyle(metric.pillTextColor)
+                        .lineLimit(1)
+                        .minimumScaleFactor(0.64)
+                        .padding(.horizontal, metric.size == .large ? 5 : 4)
+                        .padding(.vertical, 2.5)
+                        .background(metric.pillBackground, in: RoundedRectangle(cornerRadius: 5, style: .continuous))
+                        .padding(.top, metric.size == .large ? 5 : 3)
+                }
             }
             .padding(metric.size == .large ? 11 : 9)
             .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)

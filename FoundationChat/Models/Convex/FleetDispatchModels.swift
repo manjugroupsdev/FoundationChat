@@ -132,12 +132,14 @@ struct FleetDispatchDriver: Decodable, Identifiable, Hashable, Sendable {
     let name: String
     let phone: String?
     let address: String?
+    /// Lowercase MMS contract value: "old" or "new" (Android TravelDeskDriver).
+    let category: String?
     let status: String
 
     private enum CodingKeys: String, CodingKey {
         case id = "_id"
         case plainId = "id"
-        case name, phone, address, status
+        case name, phone, address, category, status
     }
 
     init(from decoder: Decoder) throws {
@@ -148,6 +150,7 @@ struct FleetDispatchDriver: Decodable, Identifiable, Hashable, Sendable {
         name = try container.decodeIfPresent(String.self, forKey: .name) ?? "Driver"
         phone = try container.decodeIfPresent(String.self, forKey: .phone)
         address = try container.decodeIfPresent(String.self, forKey: .address)
+        category = try container.decodeIfPresent(String.self, forKey: .category)
         status = try container.decodeIfPresent(String.self, forKey: .status) ?? "active"
     }
 
@@ -161,4 +164,141 @@ struct FleetAllocationDraft: Sendable {
     let driverName: String
     let driverPhone: String
     let amount: Double
+}
+
+// MARK: - MMS dispatch: external agencies
+
+/// An external travel agency an MMS dispatcher can allot a trip to.
+/// Mirrors Android TravelDeskAgency (network/TravelDeskModels.kt).
+struct FleetDispatchAgency: Decodable, Identifiable, Hashable, Sendable {
+    let id: String
+    let name: String?
+    let status: String?
+    let mobileNumber: String?
+
+    private enum CodingKeys: String, CodingKey {
+        case id = "_id"
+        case plainId = "id"
+        case name, status, mobileNumber
+    }
+
+    init(from decoder: Decoder) throws {
+        let container = try decoder.container(keyedBy: CodingKeys.self)
+        id = try container.decodeIfPresent(String.self, forKey: .id)
+            ?? container.decodeIfPresent(String.self, forKey: .plainId)
+            ?? UUID().uuidString
+        name = try container.decodeIfPresent(String.self, forKey: .name)
+        status = try container.decodeIfPresent(String.self, forKey: .status)
+        mobileNumber = try container.decodeIfPresent(String.self, forKey: .mobileNumber)
+    }
+
+    var isActive: Bool {
+        status?.localizedCaseInsensitiveCompare("inactive") != .orderedSame
+    }
+}
+
+// MARK: - Billing: custom charge line
+
+/// A custom charge applied at completion / billing. `unit` is one of
+/// km / hour / minute / person / toll / trip (kept for display). Mirrors
+/// Android TravelDeskAppliedCharge. Codable because it rides on both the
+/// billing request (encode) and the trip payload (decode).
+struct FleetAppliedCharge: Codable, Hashable, Sendable {
+    let label: String?
+    let amount: Double?
+    let unit: String?
+
+    init(label: String?, amount: Double?, unit: String?) {
+        self.label = label
+        self.amount = amount
+        self.unit = unit
+    }
+}
+
+// MARK: - Encodable request drafts
+//
+// These mirror the Android request data classes (network/TravelDeskModels.kt).
+// Field names match the wire keys exactly; optional fields are dropped when nil
+// (Swift synthesises encodeIfPresent), which the backend treats as absent.
+
+/// POST api/travel-desk/vehicles/update. `status` carries the active/inactive
+/// change — Android folds status-change into this same route (no separate one).
+struct FleetVehicleUpdateDraft: Encodable, Sendable {
+    let id: String
+    var vehicleNumber: String? = nil
+    var type: String? = nil
+    var capacity: Int? = nil
+    var defaultDriverName: String? = nil
+    var defaultDriverPhone: String? = nil
+    var status: String? = nil
+}
+
+/// POST api/travel-desk/trips/finalize-billing.
+struct FleetFinalizeBillingDraft: Encodable, Sendable {
+    let siteVisitId: String
+    let startKm: Double
+    let endKm: Double
+    var startPhotoIds: [String]? = nil
+    var endPhotoIds: [String]? = nil
+    var kmRate: Double? = nil
+    var packageAmount: Double? = nil
+    var beta: Double? = nil
+    var beta2: Double? = nil
+    var tollAmount: Double? = nil
+    var hillCharge: Double? = nil
+    var outstationCharge: Double? = nil
+    var permitCharge: Double? = nil
+    var permitTax: Double? = nil
+    var standingCharge: Double? = nil
+    var customCharges: [FleetAppliedCharge]? = nil
+    var vehicleId: String? = nil
+    var driverName: String? = nil
+    var driverPhone: String? = nil
+}
+
+/// POST api/travel-desk/trips/evidence.
+struct FleetEvidenceDraft: Encodable, Sendable {
+    let siteVisitId: String
+    var startPhotoIds: [String]? = nil
+    var startKm: Double? = nil
+    var endPhotoIds: [String]? = nil
+    var endKm: Double? = nil
+}
+
+/// POST api/travel-desk/trips/status-update.
+struct FleetStatusUpdateDraft: Encodable, Sendable {
+    let siteVisitId: String
+    let reasonCode: String
+    var reasonText: String? = nil
+    var voiceStorageId: String? = nil
+    var voiceDurationMs: Int? = nil
+    var scheduledDate: String? = nil
+    var scheduledTime: String? = nil
+}
+
+/// POST api/{mms-fleet/dispatch,travel-desk/trips}/complete-offline.
+struct FleetOfflineCompletionDraft: Encodable, Sendable {
+    let siteVisitId: String
+    var packageAmount: Double? = nil
+    var kmRate: Double? = nil
+    var distanceKm: Double? = nil
+    var driverName: String? = nil
+    var driverPhone: String? = nil
+    var beta: Double? = nil
+    var beta2: Double? = nil
+    var tollAmount: Double? = nil
+    var hillCharge: Double? = nil
+    var outstationCharge: Double? = nil
+    var permitCharge: Double? = nil
+    var permitTax: Double? = nil
+    var standingCharge: Double? = nil
+    var fleetType: String? = nil
+    var vehicleId: String? = nil
+    var agencyName: String? = nil
+    var standingTimeMinutes: Int? = nil
+    var standingWithAc: Bool? = nil
+    var startKm: Double? = nil
+    var endKm: Double? = nil
+    var startPhotoIds: [String]? = nil
+    var endPhotoIds: [String]? = nil
 }
