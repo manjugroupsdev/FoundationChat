@@ -30,6 +30,10 @@ struct ConvexSiteVisit: Decodable, Identifiable, Equatable, Sendable {
     let vehiclePreference: String?
     let vehicleAssigned: Bool?
     let visitCategory: String?
+    // BDO (the visit's OWN assigned field officer), supplied by the backend SV
+    // list. The card must render THIS, never the signed-in viewer — the list
+    // used to pass the session user, so every row showed the logged-in staffer.
+    let bdoName: String?
 
     var id: String { _id }
 
@@ -38,6 +42,7 @@ struct ConvexSiteVisit: Decodable, Identifiable, Equatable, Sendable {
         case placeLat, placeLng, tripType, clientPlaceVisitId, leadName, leadPhone, cpVisit
         case outcome, convertedBookingId, convertedSiteVisitId, completedAt
         case creationTime, travelMode, vehiclePreference, vehicleAssigned, visitCategory
+        case bdoName
         case scheduledStartTime, scheduledEndTime
         case startTime, endTime, scheduledTime, scheduledFrom, scheduledTo
     }
@@ -67,6 +72,7 @@ struct ConvexSiteVisit: Decodable, Identifiable, Equatable, Sendable {
         vehiclePreference = try container.decodeIfPresent(String.self, forKey: .vehiclePreference)
         vehicleAssigned = try container.decodeIfPresent(Bool.self, forKey: .vehicleAssigned)
         visitCategory = try container.decodeIfPresent(String.self, forKey: .visitCategory)
+        bdoName = try container.decodeIfPresent(String.self, forKey: .bdoName)
         scheduledStartTime = try container.decodeFirstPresentString(for: [.scheduledStartTime, .startTime, .scheduledTime, .scheduledFrom])
         scheduledEndTime = try container.decodeFirstPresentString(for: [.scheduledEndTime, .endTime, .scheduledTo])
     }

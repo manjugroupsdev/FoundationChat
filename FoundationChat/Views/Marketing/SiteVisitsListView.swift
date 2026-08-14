@@ -127,8 +127,12 @@ struct SiteVisitsListView: View {
                             selectedVisit = visit
                         } label: {
                             SiteVisitRow(
+                                // The visit's OWN assigned BDO, not the signed-in
+                                // viewer — the old session-user value made every row
+                                // read as the logged-in staffer. Em-dash when the
+                                // backend has no BDO on the row.
                                 visit: visit,
-                                bdoName: authStore.currentSession?.user.siteVisitListDisplayName ?? "—"
+                                bdoName: visit.bdoName?.nilIfBlank ?? "—"
                             )
                         }
                         .buttonStyle(.plain)
