@@ -1,11 +1,12 @@
 # iOS Parity Sync — Build & Verify Checklist
 
 _Generated 2026-08-13. Companion to `PARITY_ROADMAP.md`. Covers the Android→iOS
-backend/logic parity sync ported into the `darx` working tree. **None of this was
-compiled** (authored on Windows, no Xcode) — safeer builds on macOS and we iterate on
-errors. Nothing committed._
+backend/logic parity sync ported into the `darx` working tree. Updated 2026-08-14
+after pulling `origin/darx` to `9c5bd20`: the Debug simulator build now succeeds
+on macOS/Xcode, so remaining items below are runtime, device, or backend-contract
+checks rather than first-compile blockers._
 
-## Build first (blocking)
+## Build status
 
 ```sh
 DEVELOPER_DIR=/Applications/Xcode.app/Contents/Developer \
@@ -13,11 +14,22 @@ DEVELOPER_DIR=/Applications/Xcode.app/Contents/Developer \
   -destination 'generic/platform=iOS Simulator' build
 ```
 
-Change surface: **24 files modified, 3 new** (`PendingPunchStore.swift`,
-`CpOutcomePolicy.swift`, `CpApprovalQueueView.swift`), ~1,466 insertions. New files rely on
-Xcode-16 synchronized groups (no pbxproj entry needed) — confirm they appear in target
-membership. Expect a first-build error pass; fix compile errors, then work the functional
-list below.
+Verified locally on 2026-08-14 with:
+
+```sh
+xcodebuild -project FoundationChat.xcodeproj -scheme FoundationChat \
+  -configuration Debug \
+  -destination 'platform=iOS Simulator,name=iPhone 17,OS=26.2' build
+```
+
+Result: **BUILD SUCCEEDED**. The pulled `darx` head also closes two previously
+large parity gaps: Inventory/Dialer/My Leads are no longer App-Library
+Coming-soon rows, and Site Visits now include completed-visit arrival proof plus
+journey timeline detail.
+
+Original change surface: **24 files modified, 3 new** (`PendingPunchStore.swift`,
+`CpOutcomePolicy.swift`, `CpApprovalQueueView.swift`), ~1,466 insertions, plus
+later parity commits through `9c5bd20`.
 
 ## Highest-risk items to check first
 1. **Backend field/enum contracts** — the shared `api-mfpl` validator is strict. New/renamed
@@ -128,6 +140,12 @@ offline chat outbox, OTP/emp-id/change-pw/validate/logout, 401→logout bus, mos
 - **App Library:** Fleet "My Trips" shows for driver/super-admin, hidden otherwise.
 
 ## Remaining follow-ups (flagged, need a small targeted pass or backend confirmation)
+- **Telecaller softphone/dashboard depth** — App Library now opens real My Leads
+  and Dialer screens, but iOS still does not have Android's full in-app WebRTC
+  call service/incoming-call stack or Calls Report/Registrations dashboards.
+- **Site Visit depth** — completed-visit arrival proof and timeline are now
+  present. Remaining depth is the Android-style overview funnel/KPI screen and
+  any live-detail deltas discovered during device testing.
 - **Loan approval e-signature** — Android requires a digital signature (`ApproveLoanRequest{id,
   eSignatureId}` via `/api/hr/staff/digital-sign`); iOS sends only `{id}`. **Confirm whether the
   backend REJECTS loan approval without `eSignatureId`** — if so this blocks iOS loan approval and
@@ -168,13 +186,14 @@ Home). Dashboard path is fixed by the cache paint + its existing `== nil` gate; 
 (`HomeView.swift:658`) was ungated and now uses `if isLoading && visibleVisits.isEmpty` so refresh
 never covers existing content.
 
-## Wave-3 VERIFY ON MAC
-- Types changed Decodable→**Codable** (confirm `encode` synthesis compiles): `ConvexAttendanceSession/
+## Wave-3 compile status
+- Types changed Decodable→**Codable** and compile successfully: `ConvexAttendanceSession/
   Fine/Record`, `ConvexTodayAttendance`, `ConvexLeave`, `ConvexLeaveBalance`, `ConvexPermission`,
   `ConvexPermissionUsage`, `ConvexMobileDashboard`, `DailyTask`, `ConvexLead` (the 3 with custom
   `init(from:)` + explicit CodingKeys are the ones to watch; `ConvexLead` has one extra unused `id`
   CodingKey).
-- `LocalCache.get(_:as:)`/`put` generic inference on the new snapshot types + `[ConvexLead]`.
+- `LocalCache.get(_:as:)`/`put` generic inference on the new snapshot types + `[ConvexLead]`
+  compiles.
 - staffId source `authStore.currentSession?.user.staffId ?? _id ?? "anon"`.
 - **Device:** confirm `homeOverviewSection` (personal attendance card) is actually rendered in
   `contentArea` on this branch — the cache plumbing is correct but only *visible* if that section is
