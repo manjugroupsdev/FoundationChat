@@ -1164,6 +1164,22 @@ struct CompleteCpVisitSheet: View {
             errorMessage = "Please select a project"
             return
         }
+        // A NEW CP→SV convert now requires a Site incharge + at least one named
+        // attendee (parity with web/Android), so SVs stop being fixed without
+        // them. The locked-SV path only re-confirms an existing SV, so it's exempt.
+        if selectedOutcome == .siteVisit && !confirmsExistingLockedSiteVisit {
+            if selectedIncharge?.id == nil {
+                errorMessage = "Site incharge is required"
+                return
+            }
+            let hasNamedVisitor = visitors.contains {
+                !$0.name.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
+            }
+            if !hasNamedVisitor {
+                errorMessage = "Add at least one visitor (name) before fixing this Site Visit"
+                return
+            }
+        }
 
         isSaving = true
         defer { isSaving = false }
