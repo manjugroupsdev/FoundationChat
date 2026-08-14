@@ -14,13 +14,17 @@ enum AppTab: Hashable {
     case files
 }
 
+private struct ApprovalQueuePresentation: Identifiable {
+    let id = UUID()
+}
+
 struct MainTabView: View {
     @Environment(AuthStore.self) private var authStore
     @State private var selectedTab: AppTab = .home
     @State private var openConversationIDFromPush: String?
     @State private var openChannelIDFromPush: String?
     @State private var openHRRouteFromPush: HRDashboardRoute?
-    @State private var showApprovalQueueFromPush = false
+    @State private var approvalQueuePresentation: ApprovalQueuePresentation?
     @State private var hasPlayedHomeEntryAnimation = false
 
     init() {
@@ -117,6 +121,7 @@ struct MainTabView: View {
         .onReceive(NotificationCenter.default.publisher(for: .didReceivePushNavigationRoute)) { notification in
             guard let route = notification.object as? PushNavigationRoute else { return }
             applyPushRoute(route)
+            _ = PushNavigationCoordinator.shared.consumePendingRoute()
         }
         .task {
             if let pending = await MainActor.run(body: {
@@ -125,14 +130,15 @@ struct MainTabView: View {
                 applyPushRoute(pending)
             }
         }
-        .sheet(isPresented: $showApprovalQueueFromPush) {
+        .sheet(item: $approvalQueuePresentation) { presentation in
             NavigationStack {
                 CpApprovalQueueView()
+                    .id(presentation.id)
                     .navigationTitle("Approvals")
                     .navigationBarTitleDisplayMode(.inline)
                     .toolbar {
                         ToolbarItem(placement: .cancellationAction) {
-                            Button("Done") { showApprovalQueueFromPush = false }
+                            Button("Done") { approvalQueuePresentation = nil }
                         }
                     }
             }
@@ -157,7 +163,7 @@ struct MainTabView: View {
             openHRRouteFromPush = route.workflowTargetMode?.lowercased() == "approval" ? .permissionApprovals : .permissions
         case .cpApproval:
             selectedTab = .apps
-            showApprovalQueueFromPush = true
+            approvalQueuePresentation = ApprovalQueuePresentation()
         }
     }
 }

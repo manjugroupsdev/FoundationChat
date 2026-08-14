@@ -14,7 +14,7 @@ enum PushNavigationType: String {
 
     // Legacy compatibility
     init?(fromRaw raw: String) {
-        switch raw {
+        switch raw.trimmingCharacters(in: .whitespacesAndNewlines).lowercased() {
         case "direct_message", "chat-dm", "chat-message": self = .directMessage
         case "channel_message", "chat-mention", "channel-message", "chat-channel": self = .channelMessage
         case "leave-request": self = .leaveRequest
@@ -23,7 +23,7 @@ enum PushNavigationType: String {
         case "permission-request": self = .permissionRequest
         case "permission-approved": self = .permissionApproved
         case "permission-rejected": self = .permissionRejected
-        case "cp-approval", "cp_approval", "approvals": self = .cpApproval
+        case "cp-approval", "cp_approval", "cp-approval-needed", "approvals": self = .cpApproval
         default: return nil
         }
     }

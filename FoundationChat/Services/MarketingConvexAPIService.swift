@@ -887,7 +887,7 @@ enum MarketingConvexAPIService {
 
 /// One out-of-geofence CP completion awaiting GM approval. Mirrors Android
 /// `GeoTrackApi.CpApprovalItem`. Powers the GM approval queue (UI is a later slice).
-struct CpApprovalItem: Decodable, Identifiable, Sendable {
+struct CpApprovalItem: Codable, Identifiable, Sendable {
     let id: String
     let outcome: String?
     let notes: String?

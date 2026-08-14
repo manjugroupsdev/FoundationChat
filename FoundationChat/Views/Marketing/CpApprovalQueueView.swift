@@ -19,6 +19,11 @@ struct CpApprovalQueueView: View {
     @State private var rejectTarget: CpApprovalItem?
     @State private var rejectRemark = ""
 
+    private var cacheKey: String {
+        let staffId = authStore.viewer?.subject ?? authStore.currentSession?.user._id ?? "anonymous"
+        return "marketing.cp-approvals.pending.\(staffId)"
+    }
+
     var body: some View {
         ScrollView {
             if isLoading && items.isEmpty {
@@ -110,18 +115,24 @@ struct CpApprovalQueueView: View {
 
     @MainActor
     private func load() async {
+        if items.isEmpty,
+           let cached = LocalCache.get(cacheKey, as: [CpApprovalItem].self) {
+            items = cached
+            hasLoaded = true
+        }
         guard let token = authStore.currentSession?.token else {
-            errorMessage = "Not signed in."
+            if items.isEmpty { errorMessage = "Not signed in." }
             hasLoaded = true
             return
         }
-        isLoading = true
+        isLoading = items.isEmpty
         defer { isLoading = false; hasLoaded = true }
         do {
             items = try await MarketingConvexAPIService.getPendingCpApprovals(token: token)
+            LocalCache.put(cacheKey, items)
             errorMessage = nil
         } catch {
-            errorMessage = error.localizedDescription
+            if items.isEmpty { errorMessage = error.localizedDescription }
         }
     }
 
