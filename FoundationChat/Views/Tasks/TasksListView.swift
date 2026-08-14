@@ -199,8 +199,23 @@ struct TasksListView: View {
         }
     }
 
+    private func tasksCacheKey() -> String {
+        let staff = currentStaffId?.nonBlank ?? "anon"
+        return "tasks.manager.\(staff)"
+    }
+
     private func loadTasks() async {
         guard let token = authStore.currentSession?.token else { return }
+
+        // Cache-first: paint the last-known tasks INSTANTLY so the skeleton only
+        // shows on a genuine first load with nothing cached (Android parity).
+        if tasks.isEmpty,
+           let cached = LocalCache.get(tasksCacheKey(), as: DailyTaskManagerCacheSnapshot.self) {
+            tasks = cached.tasks
+            teamIds = Set(cached.teamIds)
+            scope = cached.scope
+        }
+
         isLoading = true
         defer { isLoading = false }
 
@@ -209,11 +224,19 @@ struct TasksListView: View {
             tasks = payload.tasks.sorted { ($0.creationTime ?? 0) > ($1.creationTime ?? 0) }
             teamIds = payload.teamIds
             scope = payload.scope
+            LocalCache.put(
+                tasksCacheKey(),
+                DailyTaskManagerCacheSnapshot(tasks: tasks, teamIds: Array(teamIds), scope: scope)
+            )
             if !categories.contains(categoryFilter) {
                 categoryFilter = "All"
             }
         } catch {
-            errorMessage = error.localizedDescription
+            // Offline-keep: leave the cached/in-memory tasks on screen; only
+            // surface an error when there is nothing to show.
+            if tasks.isEmpty {
+                errorMessage = error.localizedDescription
+            }
         }
     }
 
@@ -259,6 +282,15 @@ struct TasksListView: View {
             .components(separatedBy: "#").first?
             .lowercased() ?? ""
     }
+}
+
+/// Codable snapshot of the Task Manager list, cached so it paints instantly on
+/// the next open and stays visible offline. `teamIds` is stored as an array
+/// because `Set` round-trips fine but arrays keep the JSON stable/inspectable.
+private struct DailyTaskManagerCacheSnapshot: Codable {
+    let tasks: [DailyTask]
+    let teamIds: [String]
+    let scope: String?
 }
 
 private struct DailyTaskMetrics {

@@ -145,7 +145,7 @@ struct DailyTaskManagerPayload: Equatable, Sendable {
     let scope: String?
 }
 
-struct DailyTask: Decodable, Identifiable, Equatable, Sendable {
+struct DailyTask: Codable, Identifiable, Equatable, Sendable {
     let _id: String
     let title: String?
     let taskName: String?

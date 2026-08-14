@@ -9,7 +9,7 @@ import Foundation
 // All fields are optional and decoded defensively: one unexpected/renamed
 // field must never abort the whole list parse.
 
-struct ConvexLead: Decodable, Identifiable, Equatable, Sendable {
+struct ConvexLead: Codable, Identifiable, Equatable, Sendable {
     let _id: String
     let source: String?
     let contactName: String?

@@ -140,9 +140,23 @@ struct MyLeadsView: View {
         }
     }
 
+    private var leadsCacheKey: String {
+        let staff = authStore.currentSession?.user.staffId?.nonBlank
+            ?? authStore.currentSession?.user._id.nonBlank
+            ?? "anon"
+        return "leads.\(staff).\(mode.rawValue)"
+    }
+
     @MainActor
     private func reload() async {
         guard let token = authStore.currentSession?.token else { return }
+
+        // Cache-first: paint the last-known leads for this mode INSTANTLY on a
+        // cold open, then refresh below (Android LocalCache parity).
+        if leads.isEmpty, let cached = LocalCache.get(leadsCacheKey, as: [ConvexLead].self) {
+            leads = cached
+        }
+
         isLoading = true
         defer { isLoading = false }
         do {
@@ -155,8 +169,13 @@ struct MyLeadsView: View {
             leads = page.leads
             nextCursor = page.nextCursor
             hasMore = page.hasMore
+            LocalCache.put(leadsCacheKey, page.leads)
         } catch {
-            errorMessage = error.localizedDescription
+            // Offline-keep: don't wipe cached rows; only surface an error when
+            // there is nothing on screen.
+            if leads.isEmpty {
+                errorMessage = error.localizedDescription
+            }
         }
     }
 

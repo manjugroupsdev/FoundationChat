@@ -143,3 +143,44 @@ offline chat outbox, OTP/emp-id/change-pw/validate/logout, 401→logout bus, mos
 - **reporting-officer fields** on leave/permission apply (backend resolves server-side; low impact).
 - Fleet driver-designation exact-vs-prefix match + external-fleet routing breadth — regression-guarded,
   leave until deliberately migrated.
+
+---
+
+# Wave 3 — cache-first loading + offline + white-layer fix
+
+New reusable `FoundationChat/Utilities/LocalCache.swift` (Swift mirror of Android
+`ui/common/LocalCache`: per-key JSON under Application Support/`response_cache/`, timestamped,
+failure-swallowing, `clearAll()` on logout).
+
+**Cache-first ("stale-while-refresh") + offline-keep wired into:**
+- **Home attendance** — `paintCachedHomeState()` repaints today/month attendance from cache before
+  the network round-trip → clocked-in status/times paint instantly. Punch/gate/PendingPunch logic
+  untouched. Offline: keeps cached snapshot on fetch failure.
+- **Dashboard (VP tiles)** — paints cached `ConvexMobileDashboard` on entry; caches on success.
+  Skeleton already gated on `managementDashboard == nil`, so with cache it never flashes.
+- **Logout** — `LocalCache.clearAll()` in `AuthStore.logout()` and `expireSession()`.
+- **Lists (best-effort):** Tasks, My Leads, Leaves (.my), Permissions (.my) — paint-if-empty,
+  keep-on-error.
+
+**White-layer fix (user-reported "white layer blocking the view very often"):** root cause was the
+full-screen white loading skeleton re-showing on every `reload()` (which runs on every return to
+Home). Dashboard path is fixed by the cache paint + its existing `== nil` gate; the trip section
+(`HomeView.swift:658`) was ungated and now uses `if isLoading && visibleVisits.isEmpty` so refresh
+never covers existing content.
+
+## Wave-3 VERIFY ON MAC
+- Types changed Decodable→**Codable** (confirm `encode` synthesis compiles): `ConvexAttendanceSession/
+  Fine/Record`, `ConvexTodayAttendance`, `ConvexLeave`, `ConvexLeaveBalance`, `ConvexPermission`,
+  `ConvexPermissionUsage`, `ConvexMobileDashboard`, `DailyTask`, `ConvexLead` (the 3 with custom
+  `init(from:)` + explicit CodingKeys are the ones to watch; `ConvexLead` has one extra unused `id`
+  CodingKey).
+- `LocalCache.get(_:as:)`/`put` generic inference on the new snapshot types + `[ConvexLead]`.
+- staffId source `authStore.currentSession?.user.staffId ?? _id ?? "anon"`.
+- **Device:** confirm `homeOverviewSection` (personal attendance card) is actually rendered in
+  `contentArea` on this branch — the cache plumbing is correct but only *visible* if that section is
+  in the view tree (dashboard users are unaffected).
+
+## Wave-3 not-wired (follow-up: needs a Mac build to add `encode(to:)`/projection snapshots)
+- Cache-first for **chat list, CP visits, site visits, collections** — their models have custom
+  lossy `init(from:)` with renamed keys, so Encodable synthesis is unsafe to add blind.
+- **Trip-list** cache-first (would remove the cold-recreate skeleton for driver/normal users too).

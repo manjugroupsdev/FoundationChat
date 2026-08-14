@@ -655,7 +655,11 @@ struct HomeView: View {
                 tripFilterRow
             }
 
-            if isLoading {
+            // Only show the full white skeleton on a TRUE cold load (no data yet).
+            // On refresh / return-to-Home, keep the existing trips visible instead
+            // of flashing the skeleton over them (the "white layer" that covered the
+            // view on every reload). Mirrors the dashboard's `managementDashboard == nil` gate.
+            if isLoading && visibleVisits.isEmpty {
                 skeletonList
             } else if visibleVisits.isEmpty {
                 emptyTripCard
@@ -1519,6 +1523,10 @@ struct HomeView: View {
 
     @MainActor
     private func reload() async {
+        // Cache-first: paint the last-known attendance + dashboard snapshots
+        // synchronously BEFORE the loading flags/network round-trip, so the
+        // clocked-in status, times and VP tiles appear instantly on open.
+        paintCachedHomeState()
         let usesManagementDashboard = canViewManagementDashboard
         isLoading = true
         isVisitsLoading = !usesManagementDashboard
@@ -1539,6 +1547,40 @@ struct HomeView: View {
                 group.addTask { await self.loadTodayVisits() }
                 group.addTask { await self.loadAssignedPlaces() }
             }
+        }
+    }
+
+    // MARK: - Cache-first (Android LocalCache parity)
+
+    /// Signed-in staff id used to namespace cache keys so one user never reads
+    /// another's snapshot. Falls back to the auth `_id`, then a constant.
+    private var cacheStaffId: String {
+        let raw = authStore.currentSession?.user.staffId ?? authStore.currentSession?.user._id
+        let trimmed = raw?.trimmingCharacters(in: .whitespacesAndNewlines)
+        return (trimmed?.isEmpty == false ? trimmed : nil) ?? "anon"
+    }
+
+    private func attendanceCacheKey() -> String {
+        "home.attendance.\(cacheStaffId).\(todayDateKey)"
+    }
+
+    private func dashboardCacheKey(date: String?) -> String {
+        "home.dashboard.\(cacheStaffId).\(date ?? "today")"
+    }
+
+    /// Synchronously repaint attendance + dashboard from the last-known cache
+    /// when in-memory state is still empty (first open / cold launch). Guarded so
+    /// it never clobbers fresher network data on a later reload.
+    @MainActor
+    private func paintCachedHomeState() {
+        if todayAttendance == nil && monthAttendanceRecords.isEmpty,
+           let snapshot = LocalCache.get(attendanceCacheKey(), as: HomeAttendanceSnapshot.self) {
+            todayAttendance = snapshot.today
+            monthAttendanceRecords = snapshot.month
+        }
+        if canViewManagementDashboard, managementDashboard == nil,
+           let cached = LocalCache.get(dashboardCacheKey(date: dashboardDateQuery), as: ConvexMobileDashboard.self) {
+            managementDashboard = cached
         }
     }
 
@@ -1563,6 +1605,9 @@ struct HomeView: View {
             guard requestedDate == dashboardDateQuery else { return }
             managementDashboard = dashboard
             managementDashboardError = nil
+            // Cache-first: getMobileDashboard already throws unless success==true,
+            // so a returned dashboard is always worth caching (Android parity).
+            LocalCache.put(dashboardCacheKey(date: requestedDate), dashboard)
         } catch {
             guard requestedDate == dashboardDateQuery else { return }
             if isCancellationError(error) { return }
@@ -1734,11 +1779,23 @@ struct HomeView: View {
                 fromDate: formatter.string(from: monthStart),
                 toDate: formatter.string(from: now)
             )
-            todayAttendance = try await today
-            monthAttendanceRecords = try await month
+            let freshToday = try await today
+            let freshMonth = try await month
+            todayAttendance = freshToday
+            monthAttendanceRecords = freshMonth
+            // Cache-first: persist the fresh snapshot so the next Home open paints
+            // the clocked-in status + times INSTANTLY (mirrors Android LocalCache).
+            LocalCache.put(
+                attendanceCacheKey(),
+                HomeAttendanceSnapshot(today: freshToday, month: freshMonth)
+            )
         } catch {
-            todayAttendance = nil
-            monthAttendanceRecords = []
+            // Offline-keep: never wipe the (cached or in-memory) snapshot on a
+            // network failure. Only fall to empty when we have nothing to show.
+            if todayAttendance == nil && monthAttendanceRecords.isEmpty {
+                todayAttendance = nil
+                monthAttendanceRecords = []
+            }
         }
     }
 
@@ -2066,6 +2123,14 @@ struct HomeView: View {
         return nil
     }
 
+}
+
+/// Codable snapshot of the Home attendance-status read path, cached so the
+/// clocked-in status + punch times paint instantly on the next Home open.
+/// Both fields are `Codable` model structs (see ConvexHRModels).
+private struct HomeAttendanceSnapshot: Codable {
+    let today: ConvexTodayAttendance?
+    let month: [ConvexAttendanceRecord]
 }
 
 private enum HomeDashboardTab: String, CaseIterable, Identifiable {
