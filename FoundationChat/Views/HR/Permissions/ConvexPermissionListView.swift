@@ -725,8 +725,8 @@ struct ConvexPermissionListView: View {
     }
 
     private func hoursText(for permission: ConvexPermission) -> String {
-        if let durationMinutes = permission.durationMinutes {
-            return formatHours(Double(durationMinutes) / 60)
+        if let hours = permission.durationHours {
+            return formatHours(hours)
         }
         return "--"
     }

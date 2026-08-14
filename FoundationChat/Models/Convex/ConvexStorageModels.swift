@@ -124,6 +124,29 @@ struct AppNotification: Decodable, Identifiable, Equatable, Sendable {
 
     var id: String { _id }
 
+    private enum CodingKeys: String, CodingKey {
+        case _id, id, type, title, message, read, referenceId, referenceType, createdAt
+    }
+
+    // Mirror Android's @SerializedName("_id", alternate=["id"]): accept either key.
+    // Without this, a response using `id` throws and the WHOLE list decode fails,
+    // making notifications silently vanish (the Gson-parse-trap class of bug).
+    init(from decoder: Decoder) throws {
+        let c = try decoder.container(keyedBy: CodingKeys.self)
+        if let underscored = try c.decodeIfPresent(String.self, forKey: ._id) {
+            _id = underscored
+        } else {
+            _id = try c.decode(String.self, forKey: .id)
+        }
+        type = try c.decodeIfPresent(String.self, forKey: .type)
+        title = try c.decodeIfPresent(String.self, forKey: .title)
+        message = try c.decodeIfPresent(String.self, forKey: .message)
+        read = try c.decodeIfPresent(Bool.self, forKey: .read)
+        referenceId = try c.decodeIfPresent(String.self, forKey: .referenceId)
+        referenceType = try c.decodeIfPresent(String.self, forKey: .referenceType)
+        createdAt = try c.decodeIfPresent(String.self, forKey: .createdAt)
+    }
+
     var isUnread: Bool { read != true }
 
     var icon: String {

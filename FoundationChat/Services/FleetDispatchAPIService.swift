@@ -37,9 +37,10 @@ enum FleetDispatchAPIService {
         let vehicles: [Item]?
         let drivers: [Item]?
         let staff: [Item]?
+        let agencies: [Item]?
         let error: String?
 
-        var rows: [Item] { trips ?? vehicles ?? drivers ?? staff ?? data ?? [] }
+        var rows: [Item] { trips ?? vehicles ?? drivers ?? staff ?? agencies ?? data ?? [] }
     }
 
     private struct MutationResponse: Decodable {
@@ -73,13 +74,11 @@ enum FleetDispatchAPIService {
         let name: String
         let phone: String
         let address: String?
-    }
-
-    private struct MMSDriverCreateRequest: Encodable {
-        let actingStaffId: String
-        let name: String
-        let phone: String
-        let address: String?
+        // Android's CreateDriverRequest carries a non-null `category`
+        // ("old" | "new" MMS contract value). Omitted (nil) when the UI
+        // doesn't collect it — encodeIfPresent drops it, matching today's
+        // agency create which never sent it. See VERIFY note.
+        let category: String?
     }
 
     private struct DriverUpdateRequest: Encodable {
@@ -87,22 +86,13 @@ enum FleetDispatchAPIService {
         let name: String?
         let phone: String?
         let address: String?
-    }
-
-    private struct MMSDriverUpdateRequest: Encodable {
-        let actingStaffId: String
-        let id: String
-        let name: String?
-        let phone: String?
-        let address: String?
+        let category: String?
     }
 
     private struct DriverStatusRequest: Encodable {
         let id: String
         let status: String
     }
-
-    private struct TripRequest: Encodable { let siteVisitId: String }
 
     private struct CompleteOfflineRequest: Encodable {
         let siteVisitId: String
@@ -207,14 +197,6 @@ enum FleetDispatchAPIService {
             path: scope == .mms ? "/api/mms-fleet/dispatch/allocate" : "/api/travel-desk/trips/allocate",
             token: token,
             body: body
-        )
-    }
-
-    static func unassign(token: String, scope: FleetDispatchScope, tripId: String) async throws {
-        try await mutate(
-            path: scope == .mms ? "/api/mms-fleet/dispatch/unassign" : "/api/travel-desk/trips/unallocate",
-            token: token,
-            body: TripRequest(siteVisitId: tripId)
         )
     }
 
@@ -324,25 +306,20 @@ enum FleetDispatchAPIService {
         name: String,
         phone: String,
         address: String?,
+        category: String? = nil,
         actingStaffId: String? = nil
     ) async throws {
-        if scope == .mms {
-            let staffId = try requiredStaffId(actingStaffId)
-            try await convexMutate(
-                path: "marketing/fleetDrivers:create",
-                arguments: MMSDriverCreateRequest(
-                    actingStaffId: staffId,
-                    name: name,
-                    phone: phone,
-                    address: address
-                )
-            )
-            return
-        }
+        // Both scopes now go over the REST transport (api-mfpl), mirroring
+        // Android's TravelDeskApi.createDriver / createMmsDriver. The MMS
+        // route resolves the staff principal from the bearer token, so the
+        // old actingStaffId / raw-Convex `marketing/fleetDrivers:create`
+        // path is no longer needed (actingStaffId retained for source compat).
         try await mutate(
-            path: "/api/travel-desk/drivers/create",
+            path: scope == .mms
+                ? "/api/mms-fleet/dispatch/drivers/create"
+                : "/api/travel-desk/drivers/create",
             token: token,
-            body: DriverCreateRequest(name: name, phone: phone, address: address)
+            body: DriverCreateRequest(name: name, phone: phone, address: address, category: category)
         )
     }
 
@@ -353,26 +330,15 @@ enum FleetDispatchAPIService {
         name: String?,
         phone: String?,
         address: String?,
+        category: String? = nil,
         actingStaffId: String? = nil
     ) async throws {
-        if scope == .mms {
-            let staffId = try requiredStaffId(actingStaffId)
-            try await convexMutate(
-                path: "marketing/fleetDrivers:update",
-                arguments: MMSDriverUpdateRequest(
-                    actingStaffId: staffId,
-                    id: id,
-                    name: name,
-                    phone: phone,
-                    address: address
-                )
-            )
-            return
-        }
         try await mutate(
-            path: "/api/travel-desk/drivers/update",
+            path: scope == .mms
+                ? "/api/mms-fleet/dispatch/drivers/update"
+                : "/api/travel-desk/drivers/update",
             token: token,
-            body: DriverUpdateRequest(id: id, name: name, phone: phone, address: address)
+            body: DriverUpdateRequest(id: id, name: name, phone: phone, address: address, category: category)
         )
     }
 
@@ -383,16 +349,10 @@ enum FleetDispatchAPIService {
         status: String,
         actingStaffId: String? = nil
     ) async throws {
-        if scope == .mms {
-            let staffId = try requiredStaffId(actingStaffId)
-            try await convexMutate(
-                path: "marketing/fleetDrivers:setStatus",
-                arguments: MMSDriverStatusRequest(actingStaffId: staffId, id: id, status: status)
-            )
-            return
-        }
         try await mutate(
-            path: "/api/travel-desk/drivers/set-status",
+            path: scope == .mms
+                ? "/api/mms-fleet/dispatch/drivers/set-status"
+                : "/api/travel-desk/drivers/set-status",
             token: token,
             body: DriverStatusRequest(id: id, status: status)
         )
@@ -453,6 +413,182 @@ enum FleetDispatchAPIService {
             defaultDriverName: defaultDriverName,
             defaultDriverPhone: defaultDriverPhone
         )
+    }
+
+    // MARK: - Vehicles (update / status)
+
+    /// Edit an agency vehicle. Android: TravelDeskApi.updateVehicle →
+    /// POST api/travel-desk/vehicles/update (UpdateVehicleRequest). The vehicle
+    /// *status* change is a `status` field on this same route in Android — there
+    /// is no separate status-change endpoint. MMS in-house vehicles have no
+    /// update route in Android's TravelDeskApi (only travel-desk vehicles do),
+    /// so this is agency-scope only.
+    static func updateVehicle(
+        token: String,
+        draft: FleetVehicleUpdateDraft
+    ) async throws {
+        try await mutate(
+            path: "/api/travel-desk/vehicles/update",
+            token: token,
+            body: draft
+        )
+    }
+
+    // MARK: - Trip management
+
+    /// Take an allocated trip back to Pending. Agency → travel-desk/unallocate;
+    /// MMS/agency-allotted → mms-fleet/dispatch/unassign (a distinct route — the
+    /// travel-desk unallocate rejects staff sessions). Mirrors Android
+    /// TravelDeskApi.unallocate / unassignMms.
+    static func unassign(
+        token: String,
+        scope: FleetDispatchScope,
+        tripId: String
+    ) async throws {
+        try await mutate(
+            path: scope == .mms
+                ? "/api/mms-fleet/dispatch/unassign"
+                : "/api/travel-desk/trips/unallocate",
+            token: token,
+            body: SiteVisitRequest(siteVisitId: tripId)
+        )
+    }
+
+    /// Re-send the driver's trip WhatsApp link. Android: single travel-desk
+    /// route used for both scopes.
+    static func resendDriverWhatsapp(
+        token: String,
+        tripId: String
+    ) async throws {
+        try await mutate(
+            path: "/api/travel-desk/trips/resend-driver-whatsapp",
+            token: token,
+            body: SiteVisitRequest(siteVisitId: tripId)
+        )
+    }
+
+    /// Finalize billing for a completed trip. Android: finalizeBilling →
+    /// POST api/travel-desk/trips/finalize-billing (FinalizeTravelDeskBillingRequest).
+    static func finalizeBilling(
+        token: String,
+        draft: FleetFinalizeBillingDraft
+    ) async throws {
+        try await mutate(
+            path: "/api/travel-desk/trips/finalize-billing",
+            token: token,
+            body: draft
+        )
+    }
+
+    /// Bill a cancelled trip (cancellation/waiting allowance + custom lines).
+    /// Android: finalizeCancellationBilling → cancellation-billing.
+    static func finalizeCancellationBilling(
+        token: String,
+        tripId: String,
+        customCharges: [FleetAppliedCharge]? = nil
+    ) async throws {
+        try await mutate(
+            path: "/api/travel-desk/trips/cancellation-billing",
+            token: token,
+            body: CancellationBillingRequest(siteVisitId: tripId, customCharges: customCharges)
+        )
+    }
+
+    /// Submit an extra-km claim for review. Android: submitExtraKmClaim → extra-km.
+    static func submitExtraKmClaim(
+        token: String,
+        tripId: String,
+        extraKm: Double
+    ) async throws {
+        try await mutate(
+            path: "/api/travel-desk/trips/extra-km",
+            token: token,
+            body: ExtraKmRequest(siteVisitId: tripId, extraKm: extraKm)
+        )
+    }
+
+    /// Attach odometer photos / readings evidence. Android: submitEvidence.
+    static func submitEvidence(
+        token: String,
+        draft: FleetEvidenceDraft
+    ) async throws {
+        try await mutate(
+            path: "/api/travel-desk/trips/evidence",
+            token: token,
+            body: draft
+        )
+    }
+
+    /// Record a non-completion status (client not met / rescheduled, etc).
+    /// Android: updateTripStatus → status-update.
+    static func updateTripStatus(
+        token: String,
+        draft: FleetStatusUpdateDraft
+    ) async throws {
+        try await mutate(
+            path: "/api/travel-desk/trips/status-update",
+            token: token,
+            body: draft
+        )
+    }
+
+    /// Complete a trip that ran offline (manual km/charges). Android:
+    /// completeOfflineMms (mms-fleet) / completeOfflineAgency (travel-desk).
+    static func completeOffline(
+        token: String,
+        scope: FleetDispatchScope,
+        draft: FleetOfflineCompletionDraft
+    ) async throws {
+        try await mutate(
+            path: scope == .mms
+                ? "/api/mms-fleet/dispatch/complete-offline"
+                : "/api/travel-desk/trips/complete-offline",
+            token: token,
+            body: draft
+        )
+    }
+
+    // MARK: - MMS dispatch (agencies)
+
+    /// External travel agencies an MMS dispatcher can allot a trip to.
+    /// Android: listMmsAgencies → GET api/mms-fleet/dispatch/agencies.
+    static func listAgencies(token: String) async throws -> [FleetDispatchAgency] {
+        try await list(path: "/api/mms-fleet/dispatch/agencies", token: token)
+    }
+
+    /// Allot a visit to an external agency (agency then assigns the cab).
+    /// Android: allotMmsAgency → POST api/mms-fleet/dispatch/allot-agency.
+    static func allotAgency(
+        token: String,
+        tripId: String,
+        travelAgencyId: String
+    ) async throws {
+        try await mutate(
+            path: "/api/mms-fleet/dispatch/allot-agency",
+            token: token,
+            body: AllotAgencyRequestBody(siteVisitId: tripId, travelAgencyId: travelAgencyId)
+        )
+    }
+
+    // MARK: - Small request bodies
+
+    private struct SiteVisitRequest: Encodable {
+        let siteVisitId: String
+    }
+
+    private struct AllotAgencyRequestBody: Encodable {
+        let siteVisitId: String
+        let travelAgencyId: String
+    }
+
+    private struct ExtraKmRequest: Encodable {
+        let siteVisitId: String
+        let extraKm: Double
+    }
+
+    private struct CancellationBillingRequest: Encodable {
+        let siteVisitId: String
+        let customCharges: [FleetAppliedCharge]?
     }
 
     private static func list<Item: Decodable>(path: String, token: String) async throws -> [Item] {

@@ -10,6 +10,12 @@ final class LocationTracker: NSObject {
     private var uploadTask: Task<Void, Never>?
 
     private static let batchSize = 200
+    // Drain up to this many batches per upload cycle so a long offline period
+    // (thousands of buffered points) recovers in a single reconnect instead of
+    // trickling out 200 points per 30 s. Matches Android MAX_BATCHES_PER_SYNC.
+    private static let maxBatchesPerSync = 25
+    // Unsent buffer safety cap (30 days), matches Android MAX_UNSENT_POINT_AGE_MS.
+    private static let maxUnsentPointAgeMillis: Int64 = 30 * 24 * 60 * 60 * 1000
     private static let uploadInterval: TimeInterval = 30
     private static let foregroundDistanceFilter: CLLocationDistance = 30
     private static let backgroundDistanceFilter: CLLocationDistance = 100
@@ -124,6 +130,14 @@ final class LocationTracker: NSObject {
         }
         locationManager.startMonitoringSignificantLocationChanges()
         startPeriodicUpload()
+
+        // Cap the local buffer once per session start so a device that was
+        // offline/abandoned for weeks can't retain an unbounded backlog.
+        // (Android runs this on a 6-hour loop inside the always-on service; on
+        // iOS a per-session-start purge is sufficient and avoids a wake timer.)
+        let cutoff = Int64(Date().timeIntervalSince1970 * 1000) - Self.maxUnsentPointAgeMillis
+        try? await persistence.purgeStaleUnsentPoints(olderThan: cutoff)
+        try? await persistence.purgeStaleTamperEvents(olderThan: cutoff)
 
         NotificationCenter.default.addObserver(
             self, selector: #selector(appDidEnterBackground),
@@ -289,10 +303,21 @@ final class LocationTracker: NSObject {
     func flushWaypoints() async {
         guard isTracking else { return }
         do {
-            let pending = try await persistence.fetchUnsent(limit: Self.batchSize)
-            if !pending.isEmpty {
+            // Drain in chunks of `batchSize`, up to `maxBatchesPerSync` per cycle,
+            // so a large offline backlog recovers in one reconnect. `markAsSent`
+            // deletes the uploaded rows, so each fetch returns the NEXT unsent
+            // window. Stop early once a short (or empty) batch means the buffer
+            // is drained.
+            var batchesProcessed = 0
+            while batchesProcessed < Self.maxBatchesPerSync {
+                let pending = try await persistence.fetchUnsent(limit: Self.batchSize)
+                if pending.isEmpty { break }
                 _ = try await geoAPI.pushBatch(points: pending.map(\.point))
                 try await persistence.markAsSent(ids: pending.map(\.id))
+                batchesProcessed += 1
+                if pending.count < Self.batchSize { break }
+            }
+            if batchesProcessed > 0 {
                 try? await persistence.purgeOldSentPoints()
             }
 
@@ -300,7 +325,13 @@ final class LocationTracker: NSObject {
             var syncedEventIds: [UUID] = []
             for event in events {
                 do {
-                    try await geoAPI.reportTamper(eventType: event.eventType, metadata: event.metadata)
+                    // Replay with the ORIGINAL detection time so an offline tamper
+                    // event surfaces in the feed when it happened, not at sync time.
+                    try await geoAPI.reportTamper(
+                        eventType: event.eventType,
+                        metadata: event.metadata,
+                        detectedAt: event.recordedAt
+                    )
                     syncedEventIds.append(event.id)
                 } catch {
                     break

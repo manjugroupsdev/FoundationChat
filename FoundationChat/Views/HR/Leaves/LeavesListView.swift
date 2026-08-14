@@ -673,7 +673,7 @@ struct LeavesListView: View {
                 }
                 Spacer(minLength: 10)
                 VStack(alignment: .trailing, spacing: 6) {
-                    Text(leave.leaveTypeLabel)
+                    Text(leaveTypeLabel(for: leave))
                         .font(.system(size: 14, weight: .bold))
                         .foregroundStyle(Color(hex: 0x101828))
                         .lineLimit(1)
@@ -885,8 +885,28 @@ struct LeavesListView: View {
     }
 
     private func dayCountText(for leave: ConvexLeave) -> String {
+        // A half-day always counts as 0.5, matching Android's leave card.
+        if leave.isHalfDayLeave { return "0.5 Day" }
         let days = Int(leave.days ?? 0)
         return "\(days) Day\(days == 1 ? "" : "s")"
+    }
+
+    /// Leave type label with the "Half-day (Session)" suffix for half-day
+    /// leaves, mirroring Android's `leaveTypeDisplay` in LeavesFragment.
+    private func leaveTypeLabel(for leave: ConvexLeave) -> String {
+        guard leave.isHalfDayLeave else { return leave.leaveTypeLabel }
+        let rawType = (leave.leaveType ?? "")
+            .replacingOccurrences(of: "_", with: " ")
+            .split(separator: " ")
+            .map { $0.prefix(1).uppercased() + $0.dropFirst().lowercased() }
+            .joined(separator: " ")
+        let base = rawType.isEmpty ? "Leave" : rawType
+        let rawSession = leave.halfDaySession?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
+        if !rawSession.isEmpty {
+            let session = rawSession.prefix(1).uppercased() + rawSession.dropFirst().lowercased()
+            return "\(base) Half-day (\(session)) Leave"
+        }
+        return "\(base) Half-day Leave"
     }
 
     private func authorName(for leave: ConvexLeave, approvalMode: Bool) -> String {

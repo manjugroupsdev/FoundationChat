@@ -49,12 +49,12 @@ struct ConvexMobileDashboard: Decodable, Equatable, Sendable {
         case success, date, totalCalls, incomingCalls, outboundCalls
         case hot, warm, cold, cpVisitsFixed, svVisitsFixed
         case totalStaff, present, absent, leave, error
-        case prevTotalCalls, prevIncomingCalls, prevOutboundCalls
-        case prevHot, prevWarm, prevCold
         case notPunchedIn, cpVisitsCompleted, svVisitsCompleted
         case collectionTotal, collectionCount, bookingCount, registrationCount
         case leaveApproved, weekOff, permissionCount, wfhApproved
         case leadsHot, leadsWarm, leadsCold
+        case prevTotalCalls, prevIncomingCalls, prevOutboundCalls
+        case prevHot, prevWarm, prevCold
     }
 
     init(from decoder: Decoder) throws {

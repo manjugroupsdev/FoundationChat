@@ -19,7 +19,9 @@ struct MyLeadsView: View {
     @State private var dialingPhone: String?
     @State private var statusMessage: String?
 
-    private let pageSize = 50
+    // Android fetches up to 200 in a single call (no server pagination on this
+    // endpoint) and filters client-side; match that so every assigned lead shows.
+    private let pageSize = 200
 
     var body: some View {
         List {
@@ -239,10 +241,11 @@ private struct LeadRow: View {
                         .foregroundStyle(.secondary)
                         .lineLimit(1)
                 }
-                if let source = lead.source, !source.isEmpty {
-                    Text(source.capitalized)
+                if !lead.metaText.isEmpty {
+                    Text(lead.metaText)
                         .font(AppModuleFont.rowMeta)
                         .foregroundStyle(.tertiary)
+                        .lineLimit(2)
                 }
             }
             Spacer()
@@ -306,6 +309,7 @@ private struct LeadRow: View {
         switch (lead.status ?? "new").lowercased() {
         case "new": return .blue
         case "contacted": return .orange
+        case "pending": return .orange
         case "follow_up", "followup", "follow-up": return .purple
         case "converted": return .green
         case "closed", "lost", "cancelled": return .gray

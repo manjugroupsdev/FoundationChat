@@ -69,8 +69,8 @@ struct PermissionApprovalsView: View {
 
                 Spacer()
 
-                if let mins = permission.durationMinutes {
-                    Text(durationLabel(minutes: mins))
+                if let hours = permission.durationHours {
+                    Text(durationLabel(hours: hours))
                         .font(.subheadline.weight(.semibold))
                         .foregroundStyle(.orange)
                 }
@@ -175,9 +175,10 @@ struct PermissionApprovalsView: View {
         }
     }
 
-    private func durationLabel(minutes: Int) -> String {
-        let h = minutes / 60
-        let m = minutes % 60
+    private func durationLabel(hours: Double) -> String {
+        let totalMinutes = Int((hours * 60).rounded())
+        let h = totalMinutes / 60
+        let m = totalMinutes % 60
         if h == 0 { return "\(m) min" }
         if m == 0 { return "\(h)h" }
         return "\(h)h \(m)m"

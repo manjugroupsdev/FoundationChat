@@ -1,4 +1,7 @@
 import SwiftUI
+#if canImport(UIKit)
+import UIKit
+#endif
 
 struct TasksListView: View {
     @Environment(AuthStore.self) private var authStore
@@ -11,6 +14,7 @@ struct TasksListView: View {
     @State private var categoryFilter = "All"
     @State private var isLoading = false
     @State private var errorMessage: String?
+    @State private var webLinkTask: DailyTask?
 
     private var todayString: String {
         AppModuleFormatters.ymd.string(from: Date())
@@ -97,6 +101,11 @@ struct TasksListView: View {
         .toolbar(.hidden, for: .tabBar)
         .task { await loadTasks() }
         .refreshable { await loadTasks() }
+        .sheet(item: $webLinkTask) { task in
+            TaskWebLinkSheet(task: task)
+                .presentationDetents([.height(300)])
+                .presentationBackground(Color.white)
+        }
         .alert("Error", isPresented: errorAlertBinding, actions: {
             Button("OK", role: .cancel) { errorMessage = nil }
         }, message: {
@@ -167,11 +176,26 @@ struct TasksListView: View {
                     DailyTaskManagerCard(
                         task: task,
                         module: moduleLabel(for: task),
-                        isOverdue: DailyTaskStatusFilter.isOverdue(task, todayString: todayString)
+                        isOverdue: DailyTaskStatusFilter.isOverdue(task, todayString: todayString),
+                        onComplete: { Task { await updateDailyTaskStatus(task, to: "completed") } },
+                        onCancel: { Task { await updateDailyTaskStatus(task, to: "cancelled") } }
                     )
+                    .contentShape(Rectangle())
+                    .onTapGesture { webLinkTask = task }
                 }
             }
             .padding(.top, 2)
+        }
+    }
+
+    @MainActor
+    private func updateDailyTaskStatus(_ task: DailyTask, to status: String) async {
+        guard let token = authStore.currentSession?.token else { return }
+        do {
+            try await TasksConvexAPIService.updateDailyTaskStatus(token: token, id: task.id, status: status)
+            await loadTasks()
+        } catch {
+            errorMessage = error.localizedDescription
         }
     }
 
@@ -516,6 +540,15 @@ private struct DailyTaskManagerCard: View {
     let task: DailyTask
     let module: String
     let isOverdue: Bool
+    var onComplete: (() -> Void)? = nil
+    var onCancel: (() -> Void)? = nil
+
+    // Mirrors Android bindRow: out-of-station handoff tasks that are still
+    // open expose inline Complete / Cancel actions.
+    private var showsHandoffActions: Bool {
+        task.sourceReferenceType == "out_of_station_handoff"
+            && (task.status == "pending" || task.status == "in-progress")
+    }
 
     var body: some View {
         VStack(alignment: .leading, spacing: 12) {
@@ -572,6 +605,36 @@ private struct DailyTaskManagerCard: View {
                     .padding(.horizontal, 8)
                     .frame(height: 20)
                     .background(Color(hex: 0xF2F4F7), in: Capsule())
+            }
+
+            if showsHandoffActions {
+                HStack(spacing: 10) {
+                    Button {
+                        onComplete?()
+                    } label: {
+                        Text("Complete")
+                            .font(.system(size: 13, weight: .bold))
+                            .foregroundStyle(.white)
+                            .frame(maxWidth: .infinity)
+                            .frame(height: 40)
+                            .background(Color(hex: 0x16A34A), in: Capsule())
+                    }
+                    .buttonStyle(.plain)
+
+                    Button {
+                        onCancel?()
+                    } label: {
+                        Text("Cancel")
+                            .font(.system(size: 13, weight: .bold))
+                            .foregroundStyle(Color(hex: 0xB42318))
+                            .frame(maxWidth: .infinity)
+                            .frame(height: 40)
+                            .background(Color(hex: 0xFEF3F2), in: Capsule())
+                            .overlay(Capsule().stroke(Color(hex: 0xFECDCA), lineWidth: 1))
+                    }
+                    .buttonStyle(.plain)
+                }
+                .padding(.top, 2)
             }
         }
         .padding(14)
@@ -635,5 +698,88 @@ private struct DailyTaskManagerCard: View {
             return formatter.string(from: date)
         }
         return raw
+    }
+}
+
+/// App-styled sheet for a task without a mobile home — shows the deep link and
+/// offers Open / Copy. Mirrors Android `WebTaskLinkBottomSheet` (the fallback
+/// path of `TaskNavRouter`). Native per-source routing to in-app screens is not
+/// yet wired on iOS; every task opens on the web app for now.
+private struct TaskWebLinkSheet: View {
+    let task: DailyTask
+
+    @Environment(\.dismiss) private var dismiss
+    @Environment(\.openURL) private var openURL
+
+    // Web app origin — matches Android's WEB_APP_URL.
+    private let webAppURL = "https://mg.theairix.com"
+
+    private var label: String {
+        task.title?.nonBlank ?? task.taskName?.nonBlank ?? "This task"
+    }
+
+    private var resolvedURL: String {
+        guard let path = task.actionUrl?.trimmingCharacters(in: .whitespacesAndNewlines).nonBlank else {
+            return webAppURL
+        }
+        if path.hasPrefix("http") { return path }
+        return webAppURL + (path.hasPrefix("/") ? path : "/\(path)")
+    }
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 16) {
+            VStack(alignment: .leading, spacing: 6) {
+                Text(label)
+                    .font(.system(size: 18, weight: .bold))
+                    .foregroundStyle(Color(hex: 0x101828))
+                    .lineLimit(2)
+                Text("Open this task on the web app to act on it.")
+                    .font(.system(size: 13, weight: .medium))
+                    .foregroundStyle(Color(hex: 0x667085))
+            }
+
+            Text(resolvedURL)
+                .font(.system(size: 12, weight: .regular))
+                .foregroundStyle(Color(hex: 0x475467))
+                .lineLimit(2)
+                .padding(12)
+                .frame(maxWidth: .infinity, alignment: .leading)
+                .background(Color(hex: 0xF2F4F7), in: RoundedRectangle(cornerRadius: 10, style: .continuous))
+
+            Button {
+                if let url = URL(string: resolvedURL) { openURL(url) }
+                dismiss()
+            } label: {
+                Text("Open Link")
+                    .font(.system(size: 15, weight: .bold))
+                    .foregroundStyle(.white)
+                    .frame(maxWidth: .infinity)
+                    .frame(height: 50)
+                    .background(Color(hex: 0x0B61CA), in: Capsule())
+            }
+            .buttonStyle(.plain)
+
+            Button {
+                #if canImport(UIKit)
+                UIPasteboard.general.string = resolvedURL
+                #endif
+                dismiss()
+            } label: {
+                Text("Copy Link")
+                    .font(.system(size: 15, weight: .bold))
+                    .foregroundStyle(Color(hex: 0x0B61CA))
+                    .frame(maxWidth: .infinity)
+                    .frame(height: 50)
+                    .background(Color(hex: 0xEAF2FE), in: Capsule())
+            }
+            .buttonStyle(.plain)
+
+            Spacer(minLength: 0)
+        }
+        .padding(.horizontal, 20)
+        .padding(.top, 22)
+        .padding(.bottom, 20)
+        .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
+        .background(Color.white)
     }
 }

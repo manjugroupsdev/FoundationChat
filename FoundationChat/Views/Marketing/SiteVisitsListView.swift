@@ -1065,7 +1065,7 @@ private struct SiteVisitOverviewSheet: View {
             HStack(spacing: 10) {
                 outcomeButton("Booking", icon: "briefcase.fill", tint: Color(hex: 0x16A34A), outcome: .booking)
                 outcomeButton("Client Not Interested", icon: "hand.thumbsdown.fill", tint: Color(hex: 0xDC2626), outcome: .notInterested)
-                outcomeButton("Follow up", icon: "calendar.badge.clock", tint: Color(hex: 0xD97706), outcome: .postponed)
+                outcomeButton("Follow up", icon: "calendar.badge.clock", tint: Color(hex: 0xD97706), outcome: .followUp)
             }
 
             if isVisitClosed {
@@ -1670,7 +1670,8 @@ private struct PostponeSiteVisitSheet: View {
 private enum SiteVisitOverviewOutcome: String, Identifiable {
     case booking = "converted_to_booking"
     case notInterested = "not_interested"
-    case postponed = "follow_up"
+    // Was "postponed" — Android's SV outcome validator only accepts follow_up.
+    case followUp = "follow_up"
 
     var id: String { rawValue }
 }

@@ -7,6 +7,7 @@ import UIKit
 struct CompleteCpVisitSheet: View {
     let cpVisitId: String
     let initialOutcome: String?
+    let cpType: String?
     let onCompleted: () -> Void
 
     @Environment(AuthStore.self) private var authStore
@@ -18,9 +19,11 @@ struct CompleteCpVisitSheet: View {
     @State private var projectDetails = ""
     @State private var otherPostponeNotes = ""
     @State private var postponeFollowUpDate = Date()
+    @State private var selectedPostponeReasons: Set<CpPostponeReason> = []
     @State private var postponedNotes = ""
     @State private var selectedNotInterestedReasons: Set<CpNotInterestedReason> = []
     @State private var notInterestedReasonDetails: [CpNotInterestedReason: String] = [:]
+    @State private var otherRemarks = ""
     @State private var notInterestedBudgetConcern = ""
     @State private var notInterestedTimingNotes = ""
     @State private var notInterestedProjectDetails = ""
@@ -62,6 +65,11 @@ struct CompleteCpVisitSheet: View {
     @State private var showPickupMapPin = false
     @State private var errorMessage: String?
 
+    // Booking-form draft auto-save / resume (mirrors Android BookingDraftManager,
+    // debounced against bookings/draft/{save,get,clear} keyed on "cp:<cpVisitId>").
+    @State private var draftSaveTask: Task<Void, Never>?
+    @State private var hasRestoredDraft = false
+
     private let titleOptions = ["Mr", "Mrs", "Ms", "Dr", "Prof"]
     private let nationalityOptions = ["Indian", "NRI", "Foreign National"]
     private let professionOptions = ["Business", "Salaried", "Self-Employed", "Other"]
@@ -92,6 +100,10 @@ struct CompleteCpVisitSheet: View {
                         .padding(16)
                         .background(Color(.secondarySystemGroupedBackground), in: RoundedRectangle(cornerRadius: 20, style: .continuous))
 
+                        if selectedOutcome == .other {
+                            otherSection
+                        }
+
                         if let errorMessage {
                             Label(errorMessage, systemImage: "exclamationmark.triangle.fill")
                                 .font(.footnote.weight(.medium))
@@ -117,14 +129,20 @@ struct CompleteCpVisitSheet: View {
             .toolbar(.hidden, for: .navigationBar)
             .task {
                 let startingOutcome = CpVisitOutcome(rawValue: normalizedServerValue(initialOutcome))
-                selectedOutcome = startingOutcome ?? .booking
+                // Nothing pre-selected unless the caller (or locked-SV mode) supplies one.
+                selectedOutcome = startingOutcome
                 if startingOutcome == .siteVisit || initialOutcomeMarksFixedSiteVisit {
                     isLockedSvMode = true
                     selectedOutcome = .siteVisit
                 }
+                // Restore any in-progress booking BEFORE prefill runs, so the
+                // operator's last manual edits win over the CP-visit prefill
+                // (which only fills blank fields). Mirrors Android's ordering.
+                await restoreBookingDraftIfNeeded()
                 await loadInitialData()
                 await detectAndApplyLockedSvMode()
             }
+            .onChange(of: booking) { _, _ in scheduleBookingDraftAutosave() }
             .sheet(isPresented: $showRejectReasonSheet) {
                 CpRejectReasonSheet(
                     isSaving: isSaving,
@@ -199,6 +217,7 @@ struct CompleteCpVisitSheet: View {
         case .siteVisit: siteVisitSection
         case .postponed: postponeSection
         case .notInterested: notInterestedSection
+        case .other: EmptyView()
         case nil:
             ContentUnavailableView("Choose an outcome", systemImage: "checklist")
         }
@@ -264,6 +283,26 @@ struct CompleteCpVisitSheet: View {
         .overlay(alignment: .top) { Divider() }
     }
 
+    /// SV-cum-CP completions use the SV-style outcome set (which retains "Others").
+    /// Mirrors Android `svStyle = isSiteVisitMode || cpType == "sv_cum_cp"`.
+    private var svStyle: Bool {
+        isLockedSvMode || effectiveCpType.normalizedCpMarker == "sv_cum_cp"
+    }
+
+    private var effectiveCpType: String? {
+        cpType ?? cpVisitDetail?.cpType
+    }
+
+    /// The outcome tabs to render. "Others" is gated to SV-style rows and the
+    /// approved CP types (mirror Android CompleteCpVisitBottomSheet.kt:961-963).
+    private var visibleOutcomes: [CpVisitOutcome] {
+        var list = CpVisitOutcome.allCases.filter { $0 != .other }
+        if svStyle || cpTypeSupportsOtherOutcome(effectiveCpType) {
+            list.append(.other)
+        }
+        return list
+    }
+
     private var outcomeChips: some View {
         VStack(alignment: .leading, spacing: 10) {
             Text("What happened with the client?")
@@ -271,7 +310,7 @@ struct CompleteCpVisitSheet: View {
                 .foregroundStyle(.secondary)
 
             HStack(spacing: 0) {
-                ForEach(Array(CpVisitOutcome.allCases.enumerated()), id: \.element.id) { index, outcome in
+                ForEach(Array(visibleOutcomes.enumerated()), id: \.element.id) { index, outcome in
                     Button {
                         guard !isLockedSvMode || outcome == .siteVisit else { return }
                         selectedOutcome = outcome
@@ -293,7 +332,7 @@ struct CompleteCpVisitSheet: View {
                     .accessibilityLabel(outcome.title)
                     .accessibilityAddTraits(selectedOutcome == outcome ? .isSelected : [])
 
-                    if index < CpVisitOutcome.allCases.count - 1 {
+                    if index < visibleOutcomes.count - 1 {
                         Rectangle()
                             .fill(Color(hex: 0xE4E7EC))
                             .frame(width: 1, height: 32)
@@ -782,7 +821,15 @@ struct CompleteCpVisitSheet: View {
             Text("Why is the visit being postponed?")
                 .font(.caption)
                 .foregroundStyle(.secondary)
-            fieldEditor("Reason for postponement", text: $postponedNotes, minLines: 3)
+            ForEach(CpPostponeReason.allCases) { reason in
+                ReasonToggleRow(
+                    title: reason.title,
+                    isSelected: selectedPostponeReasons.contains(reason)
+                ) {
+                    togglePostponeReason(reason)
+                }
+            }
+            fieldEditor("Additional notes", text: $postponedNotes, minLines: 3)
         }
         .padding(.top, 4)
     }
@@ -813,6 +860,14 @@ struct CompleteCpVisitSheet: View {
         .padding(.top, 4)
     }
 
+    private var otherSection: some View {
+        VStack(alignment: .leading, spacing: 10) {
+            sectionLabel("Remarks")
+            fieldEditor("Explain why this visit is being closed", text: $otherRemarks, minLines: 3)
+        }
+        .padding(.top, 4)
+    }
+
     private var projectPickerOptions: [String] {
         let loaded = projects.compactMap { $0.name?.trimmingCharacters(in: .whitespacesAndNewlines) }
             .filter { !$0.isEmpty }
@@ -834,7 +889,7 @@ struct CompleteCpVisitSheet: View {
         case .booking:
             if bookingStep == .findMobile { return "Next" }
             return bookingSub == .staff ? "Create \(booking.saveAs.title) Booking" : "Next"
-        case .siteVisit, .postponed, .notInterested:
+        case .siteVisit, .postponed, .notInterested, .other:
             return "Save"
         case nil:
             return "Next"
@@ -896,6 +951,14 @@ struct CompleteCpVisitSheet: View {
                     .font(.system(size: 12, weight: .semibold))
                     .foregroundStyle(.secondary)
             }
+        }
+    }
+
+    private func togglePostponeReason(_ reason: CpPostponeReason) {
+        if selectedPostponeReasons.contains(reason) {
+            selectedPostponeReasons.remove(reason)
+        } else {
+            selectedPostponeReasons.insert(reason)
         }
     }
 
@@ -1113,6 +1176,91 @@ struct CompleteCpVisitSheet: View {
         }
     }
 
+    // MARK: - Booking draft (auto-save / resume / clear)
+
+    private var draftSourceKey: String { "cp:\(cpVisitId)" }
+
+    private var draftStorageKey: String {
+        let subject = authStore.currentSession?.user._id ?? "anonymous"
+        return "booking.draft.cp.\(cpVisitId).\(subject)"
+    }
+
+    private var draftUpdatedAtKey: String { "\(draftStorageKey).updatedAt" }
+
+    @MainActor
+    private func restoreBookingDraftIfNeeded() async {
+        guard !hasRestoredDraft else { return }
+        defer { hasRestoredDraft = true }
+
+        let decoder = JSONDecoder()
+
+        // Local snapshot — survives crash + immediate relaunch, always wins on
+        // the current device's timeline.
+        let localData = UserDefaults.standard.data(forKey: draftStorageKey)
+        let localUpdatedAt = UserDefaults.standard.double(forKey: draftUpdatedAtKey)
+        let localDraft = localData.flatMap { try? decoder.decode(BookingDraft.self, from: $0) }
+
+        // Cloud snapshot — survives signing in from another phone. Best-effort.
+        var cloudDraft: BookingDraft?
+        var cloudUpdatedAt: Double = 0
+        if let token = authStore.currentSession?.token,
+           let payload = try? await MarketingConvexAPIService.getBookingDraft(token: token, sourceKey: draftSourceKey),
+           let json = payload.draftJson?.data(using: .utf8),
+           let decoded = try? decoder.decode(BookingDraft.self, from: json) {
+            cloudDraft = decoded
+            cloudUpdatedAt = payload.updatedAt ?? 0
+        }
+
+        // Prefer whichever copy is newer; cloud wins ties so a fresh cross-device
+        // draft isn't shadowed by a stale local one (mirror BookingDraftManager.restore).
+        let restored: BookingDraft?
+        if let cloudDraft, cloudUpdatedAt >= localUpdatedAt {
+            restored = cloudDraft
+        } else {
+            restored = localDraft ?? cloudDraft
+        }
+
+        guard let restored, !restored.isEmpty else { return }
+        booking = restored
+        if !booking.phone.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
+            bookingClientMobile = booking.phone
+        }
+    }
+
+    private func scheduleBookingDraftAutosave() {
+        guard hasRestoredDraft, !booking.isEmpty else { return }
+        draftSaveTask?.cancel()
+        draftSaveTask = Task {
+            try? await Task.sleep(for: .seconds(2))
+            guard !Task.isCancelled else { return }
+            await saveBookingDraftNow()
+        }
+    }
+
+    @MainActor
+    private func saveBookingDraftNow() async {
+        guard let data = try? JSONEncoder().encode(booking) else { return }
+        UserDefaults.standard.set(data, forKey: draftStorageKey)
+        UserDefaults.standard.set(Date().timeIntervalSince1970 * 1000, forKey: draftUpdatedAtKey)
+        guard let token = authStore.currentSession?.token else { return }
+        let payload = BookingDraftSaveRequest(
+            sourceKey: draftSourceKey,
+            sourceCpVisitId: cpVisitId,
+            sourceSiteVisitId: nil,
+            draftJson: String(data: data, encoding: .utf8) ?? "{}"
+        )
+        try? await MarketingConvexAPIService.saveBookingDraft(token: token, payload: payload)
+    }
+
+    @MainActor
+    private func clearBookingDraft() {
+        draftSaveTask?.cancel()
+        UserDefaults.standard.removeObject(forKey: draftStorageKey)
+        UserDefaults.standard.removeObject(forKey: draftUpdatedAtKey)
+        guard let token = authStore.currentSession?.token else { return }
+        Task { try? await MarketingConvexAPIService.clearBookingDraft(token: token, sourceKey: draftSourceKey) }
+    }
+
     private func submit() async {
         dismissKeyboard()
         errorMessage = nil
@@ -1144,12 +1292,16 @@ struct CompleteCpVisitSheet: View {
                 return
             }
         }
-        if selectedOutcome == .postponed && postponedNotes.nilIfBlank == nil {
-            errorMessage = "Enter a reason for postponement"
+        if selectedOutcome == .postponed && selectedPostponeReasons.isEmpty {
+            errorMessage = "Select at least one reason for postponement"
             return
         }
         if selectedOutcome == .notInterested && selectedNotInterestedReasons.isEmpty {
             errorMessage = "Please share at least one reason"
+            return
+        }
+        if selectedOutcome == .other && otherRemarks.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
+            errorMessage = "Please add remarks to explain this outcome"
             return
         }
         let confirmsExistingLockedSiteVisit = isLockedSvMode && cpVisitDetail?.convertedSiteVisitId?.nilIfBlank != nil
@@ -1198,6 +1350,9 @@ struct CompleteCpVisitSheet: View {
                         notes: [booking.serializedNotes, "Booking ID: \(bookingId)"].compactMap { $0?.nilIfBlank }.joined(separator: "\n\n")
                     )
                 )
+                // Booking landed — wipe the local + cloud draft so the next
+                // form open for a different source starts clean.
+                clearBookingDraft()
             } else if selectedOutcome == .siteVisit {
                 if isLockedSvMode, cpVisitDetail?.convertedSiteVisitId?.nilIfBlank != nil {
                     try await MarketingConvexAPIService.setCpVisitOutcome(
@@ -1243,8 +1398,9 @@ struct CompleteCpVisitSheet: View {
                     request: SetCpVisitOutcomeRequest(
                         id: cpVisitId,
                         outcome: selectedOutcome.rawValue,
-                        postponeReasons: selectedOutcome == .postponed ? postponedNotes.nilIfBlank.map { [$0] } : nil,
-                        notes: buildOutcomeNotes(for: selectedOutcome)
+                        postponeReasons: selectedOutcome == .postponed ? selectedPostponeReasons.map(\.rawValue).sorted() : nil,
+                        notes: buildOutcomeNotes(for: selectedOutcome),
+                        arrivalPhotoStorageId: nil
                     )
                 )
             }
@@ -1327,15 +1483,23 @@ struct CompleteCpVisitSheet: View {
             return postponeNotesPayload
         case .notInterested:
             return notInterestedNotesPayload
+        case .other:
+            return otherRemarks.nilIfBlank
         case .siteVisit:
             return nil
         }
     }
 
     private var postponeNotesPayload: String? {
-        guard let reason = postponedNotes.nilIfBlank else { return nil }
         let nextVisit = DateFormatter.cpOutcomeDate.string(from: postponeFollowUpDate)
-        return "Next visit: \(nextVisit) — \(reason)"
+        var rows = [
+            "Next visit: \(nextVisit)",
+            "Reasons: \(selectedPostponeReasons.map(\.title).sorted().joined(separator: ", "))"
+        ]
+        if let notes = postponedNotes.nilIfBlank {
+            rows.append("Notes: \(notes)")
+        }
+        return rows.joined(separator: "\n")
     }
 
     private var notInterestedNotesPayload: String? {
@@ -1461,6 +1625,7 @@ private enum CpVisitOutcome: String, CaseIterable, Identifiable {
     case siteVisit = "converted_to_site_visit"
     case postponed
     case notInterested = "not_interested"
+    case other = "other"
 
     var id: String { rawValue }
 
@@ -1470,6 +1635,7 @@ private enum CpVisitOutcome: String, CaseIterable, Identifiable {
         case .siteVisit: return "Site Visit"
         case .postponed: return "Postpone"
         case .notInterested: return "Not Interested"
+        case .other: return "Others"
         }
     }
 
@@ -1479,6 +1645,29 @@ private enum CpVisitOutcome: String, CaseIterable, Identifiable {
         case .siteVisit: return "building.2.fill"
         case .postponed: return "calendar.badge.clock"
         case .notInterested: return "xmark.circle.fill"
+        case .other: return "ellipsis.circle.fill"
+        }
+    }
+}
+
+private enum CpPostponeReason: String, CaseIterable, Identifiable {
+    case clientUnavailable = "client_unavailable"
+    case weather
+    case vehicleIssue = "vehicle_issue"
+    case documentPending = "document_pending"
+    case rescheduledByClient = "rescheduled_by_client"
+    case otherCommitment = "other_commitment"
+
+    var id: String { rawValue }
+
+    var title: String {
+        switch self {
+        case .clientUnavailable: return "Client unavailable"
+        case .weather: return "Weather"
+        case .vehicleIssue: return "Vehicle issue"
+        case .documentPending: return "Document pending"
+        case .rescheduledByClient: return "Rescheduled by client"
+        case .otherCommitment: return "Other commitment"
         }
     }
 }
@@ -1558,7 +1747,7 @@ private enum BookingSub: String, CaseIterable, Identifiable {
     }
 }
 
-private enum BookingSaveAs: String, CaseIterable, Identifiable, Hashable {
+private enum BookingSaveAs: String, CaseIterable, Identifiable, Hashable, Codable {
     case draft
     case confirmed
 
@@ -1566,7 +1755,7 @@ private enum BookingSaveAs: String, CaseIterable, Identifiable, Hashable {
     var title: String { self == .draft ? "Draft" : "Confirmed" }
 }
 
-private struct BookingDraft {
+private struct BookingDraft: Codable, Equatable {
     var phone = ""
     var title = ""
     var name = ""
@@ -1651,6 +1840,10 @@ private struct BookingDraft {
     var referenceProfession2 = ""
     var documentLanguage = ""
     var saveAs: BookingSaveAs = .draft
+
+    /// True when nothing has been entered yet — used to skip persisting an empty
+    /// form and to ignore an empty restored draft.
+    var isEmpty: Bool { self == BookingDraft() }
 
     var serializedNotes: String? {
         var sections: [String] = []

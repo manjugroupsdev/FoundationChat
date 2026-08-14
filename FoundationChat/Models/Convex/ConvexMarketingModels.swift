@@ -428,6 +428,32 @@ private extension String {
     }
 }
 
+// MARK: - Booking draft (auto-save / resume / clear)
+//
+// Mirrors Android `BookingDraftManager` + `ApiService` bookings/draft/{save,get,clear}.
+// The mobile owns the opaque `draftJson` blob shape; the backend stores it as a
+// plain string keyed on `sourceKey` (e.g. "cp:<cpVisitId>"). `updatedAt` lets the
+// client prefer whichever of the local/cloud copies is newer on resume.
+
+struct BookingDraftSaveRequest: Encodable, Sendable {
+    let sourceKey: String
+    let sourceCpVisitId: String?
+    let sourceSiteVisitId: String?
+    let draftJson: String
+}
+
+struct BookingDraftPayload: Decodable, Sendable {
+    let sourceKey: String?
+    let draftJson: String?
+    let updatedAt: Double?
+}
+
+struct BookingDraftGetResponse: Decodable, Sendable {
+    let success: Bool
+    let draft: BookingDraftPayload?
+    let error: String?
+}
+
 enum SiteVisitStatus: String, CaseIterable, Identifiable, Sendable {
     case all
     case scheduled

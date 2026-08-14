@@ -86,6 +86,9 @@ struct SubmitCollectionRequest: Encodable, Sendable {
     let notes: String?
 }
 
+/// Collector corrects their own still-pending collection. All fields but
+/// `collectionId` are optional — only the changed ones are sent. Mirrors
+/// Android `CorrectCollectionRequest` (POST /api/postsales/collections/correct).
 struct CorrectCollectionRequest: Encodable, Sendable {
     let collectionId: String
     let amount: Double?

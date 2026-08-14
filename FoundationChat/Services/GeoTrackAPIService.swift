@@ -189,9 +189,10 @@ final class GeoTrackAPIService {
     /// POST /api/geotrack/tamper/report
     func reportTamper(
         eventType: GeoTrackTamperEventType,
-        metadata: [String: String] = [:]
+        metadata: [String: String] = [:],
+        detectedAt: Int64? = nil
     ) async throws {
-        let body = GeoTrackTamperReportRequest(eventType: eventType, metadata: metadata)
+        let body = GeoTrackTamperReportRequest(eventType: eventType, metadata: metadata, detectedAt: detectedAt)
         let request = try makeRequest(path: "/api/geotrack/tamper/report", method: "POST", body: body)
         let result: GeoTrackBaseResponse = try await perform(request)
         if let err = result.error { throw GeoTrackAPIError.serverError(err) }

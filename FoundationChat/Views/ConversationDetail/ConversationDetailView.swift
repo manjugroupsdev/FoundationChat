@@ -41,6 +41,7 @@ struct ConversationDetailView: View {
   @State private var replyTarget: Message?
   @State private var pendingImageAttachment: PendingImageAttachment?
   @State private var messagesToForward: [Message] = []
+  @State private var forwardableChannels: [ChannelSummary] = []
   @State private var reactionTarget: Message?
   @State private var messageInfoTarget: Message?
   @State private var selectedMessageIDs: Set<PersistentIdentifier> = []
@@ -212,6 +213,7 @@ struct ConversationDetailView: View {
           onForward: {
             messagesToForward = [reactionTarget]
             selectedMessageIDs.removeAll()
+            Task { await loadForwardableChannels() }
           },
           onSelect: {
             withAnimation(.spring(response: 0.25, dampingFraction: 0.9)) {
@@ -374,12 +376,14 @@ struct ConversationDetailView: View {
         ForwardMessageSheet(
           messages: messagesToForward,
           conversations: forwardableConversations,
+          channels: forwardableChannels,
           currentConversationID: conversation.remoteConversationID,
           onCancel: {
             self.messagesToForward = []
           },
-          onForward: { targets in
-            await forward(messagesToForward, to: targets)
+          onForward: { conversationTargets, channelTargets in
+            await forward(messagesToForward, to: conversationTargets)
+            await forward(messagesToForward, toChannels: channelTargets)
             self.messagesToForward = []
           }
         )
@@ -798,6 +802,18 @@ struct ConversationDetailView: View {
     messagesToForward = messages
     selectedMessageIDs.removeAll()
     reactionTarget = nil
+    Task { await loadForwardableChannels() }
+  }
+
+  /// Lazily load the staff's channels so the forward picker can offer channel
+  /// targets (parity with Android, whose forward picker lists DMs + channels).
+  /// Best-effort: if the fetch fails the picker simply shows conversations only.
+  @MainActor
+  private func loadForwardableChannels() async {
+    guard forwardableChannels.isEmpty else { return }
+    if let channels = try? await authStore.fetchChannels() {
+      forwardableChannels = channels
+    }
   }
 
   private func showReactionsForSelectedMessage() {
@@ -1749,12 +1765,14 @@ private struct CropCanvasView: View {
 private struct ForwardMessageSheet: View {
   let messages: [Message]
   let conversations: [Conversation]
+  let channels: [ChannelSummary]
   let currentConversationID: String?
   let onCancel: () -> Void
-  let onForward: ([Conversation]) async -> Void
+  let onForward: ([Conversation], [ChannelSummary]) async -> Void
 
   @State private var searchText = ""
   @State private var selectedConversationIDs: Set<String> = []
+  @State private var selectedChannelIDs: Set<String> = []
   @State private var isForwarding = false
 
   private var filteredConversations: [Conversation] {
@@ -1773,11 +1791,25 @@ private struct ForwardMessageSheet: View {
     }
   }
 
+  private var filteredChannels: [ChannelSummary] {
+    let trimmedSearch = searchText.trimmingCharacters(in: .whitespacesAndNewlines).lowercased()
+    guard !trimmedSearch.isEmpty else { return channels }
+    return channels.filter { $0.name.lowercased().contains(trimmedSearch) }
+  }
+
   private var selectedConversations: [Conversation] {
     conversations.filter { conversation in
       guard let remoteID = conversation.remoteConversationID else { return false }
       return selectedConversationIDs.contains(remoteID)
     }
+  }
+
+  private var selectedChannels: [ChannelSummary] {
+    channels.filter { selectedChannelIDs.contains($0.id) }
+  }
+
+  private var hasSelection: Bool {
+    !selectedConversationIDs.isEmpty || !selectedChannelIDs.isEmpty
   }
 
   private var previewText: String {
@@ -1855,6 +1887,47 @@ private struct ForwardMessageSheet: View {
             .buttonStyle(.plain)
           }
         }
+
+        if !filteredChannels.isEmpty {
+          Section("Channels") {
+            ForEach(filteredChannels, id: \.id) { channel in
+              Button {
+                toggle(channel)
+              } label: {
+                HStack(spacing: 12) {
+                  Circle()
+                    .fill(Color(red: 0.87, green: 0.91, blue: 0.98))
+                    .frame(width: 38, height: 38)
+                    .overlay {
+                      Image(systemName: "number")
+                        .font(.system(size: 15, weight: .semibold))
+                        .foregroundStyle(Color(red: 0.05, green: 0.38, blue: 0.79))
+                    }
+
+                  VStack(alignment: .leading, spacing: 3) {
+                    Text(channel.name)
+                      .font(.system(size: 16, weight: .medium))
+                      .foregroundStyle(.primary)
+                      .lineLimit(1)
+
+                    Text(subtitle(for: channel))
+                      .font(.system(size: 12))
+                      .foregroundStyle(.secondary)
+                      .lineLimit(1)
+                  }
+
+                  Spacer()
+
+                  Image(systemName: isSelected(channel) ? "checkmark.circle.fill" : "circle")
+                    .font(.system(size: 22, weight: .semibold))
+                    .foregroundStyle(isSelected(channel) ? Color(red: 0.05, green: 0.38, blue: 0.79) : Color.secondary.opacity(0.45))
+                }
+                .contentShape(Rectangle())
+              }
+              .buttonStyle(.plain)
+            }
+          }
+        }
       }
       .searchable(
         text: $searchText,
@@ -1873,7 +1946,7 @@ private struct ForwardMessageSheet: View {
           Button {
             isForwarding = true
             Task {
-              await onForward(selectedConversations)
+              await onForward(selectedConversations, selectedChannels)
               isForwarding = false
             }
           } label: {
@@ -1884,7 +1957,7 @@ private struct ForwardMessageSheet: View {
                 .fontWeight(.semibold)
             }
           }
-          .disabled(selectedConversationIDs.isEmpty || isForwarding)
+          .disabled(!hasSelection || isForwarding)
         }
       }
     }
@@ -1901,9 +1974,19 @@ private struct ForwardMessageSheet: View {
     return conversation.sortedMessages.last?.content.nilIfBlank ?? "Direct message"
   }
 
+  private func subtitle(for channel: ChannelSummary) -> String {
+    let type = channel.type?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
+    guard !type.isEmpty else { return "Channel" }
+    return type.prefix(1).uppercased() + String(type.dropFirst())
+  }
+
   private func isSelected(_ conversation: Conversation) -> Bool {
     guard let remoteID = conversation.remoteConversationID else { return false }
     return selectedConversationIDs.contains(remoteID)
+  }
+
+  private func isSelected(_ channel: ChannelSummary) -> Bool {
+    selectedChannelIDs.contains(channel.id)
   }
 
   private func toggle(_ conversation: Conversation) {
@@ -1912,6 +1995,14 @@ private struct ForwardMessageSheet: View {
       selectedConversationIDs.remove(remoteID)
     } else {
       selectedConversationIDs.insert(remoteID)
+    }
+  }
+
+  private func toggle(_ channel: ChannelSummary) {
+    if selectedChannelIDs.contains(channel.id) {
+      selectedChannelIDs.remove(channel.id)
+    } else {
+      selectedChannelIDs.insert(channel.id)
     }
   }
 }
@@ -2674,6 +2765,61 @@ extension ConversationDetailView {
       scrollPosition.scrollTo(edge: .bottom)
     }
     try? modelContext.save()
+  }
+
+  private func forward(_ messages: [Message], toChannels targets: [ChannelSummary]) async {
+    guard !targets.isEmpty else { return }
+    for message in messages where !message.isDeleted {
+      await forward(message, toChannels: targets)
+    }
+  }
+
+  @MainActor
+  private func forward(_ message: Message, toChannels targets: [ChannelSummary]) async {
+    guard !message.isDeleted, !targets.isEmpty else { return }
+
+    let content = message.content == "This message was deleted" ? "" : message.content
+
+    for channel in targets {
+      do {
+        if let attachmentData = try await forwardedAttachmentData(from: message),
+          let fileName = message.attachementFileName,
+          let mimeType = message.attachementMimeType ?? message.attachementType
+        {
+          let storageId = try await authStore.uploadChatAttachmentData(
+            attachmentData,
+            mimeType: mimeType
+          )
+          _ = try await authStore.sendChannelMessage(
+            channelID: channel.id,
+            content: content,
+            attachments: [[
+              "storageId": storageId,
+              "fileName": fileName,
+              "fileType": mimeType,
+              "fileSize": attachmentData.count
+            ]]
+          )
+        } else {
+          _ = try await authStore.sendChannelMessage(
+            channelID: channel.id,
+            content: content
+          )
+        }
+      } catch {
+        // Surface the failure in the current thread, mirroring the
+        // conversation-forward error path. Channel threads live in a
+        // separate view, so there is no local echo to roll back.
+        conversation.messages.append(
+          Message(
+            content: "Failed to forward message: \(error.localizedDescription)",
+            role: .system,
+            timestamp: Date()
+          )
+        )
+        try? modelContext.save()
+      }
+    }
   }
 
   private func forwardedAttachmentData(from message: Message) async throws -> Data? {

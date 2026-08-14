@@ -238,10 +238,17 @@ enum GeoTrackTamperSeverity: String, Decodable, Sendable {
 struct GeoTrackTamperReportRequest: Encodable, Sendable {
     let eventType: GeoTrackTamperEventType
     let metadata: [String: String]
+    // Original occurrence time (ms epoch) for offline-queued events, so a
+    // replayed GPS_DISABLED / DEVICE_REBOOT / AIRPLANE_MODE_ON surfaces in the
+    // feed at the moment it HAPPENED rather than when connectivity returned.
+    // Mirrors Android `TamperReportRequest.detectedAt`. Synthesized Encodable
+    // omits this key when nil (a live report stamps server-side receive time).
+    let detectedAt: Int64?
 
-    init(eventType: GeoTrackTamperEventType, metadata: [String: String] = [:]) {
+    init(eventType: GeoTrackTamperEventType, metadata: [String: String] = [:], detectedAt: Int64? = nil) {
         self.eventType = eventType
         self.metadata = metadata
+        self.detectedAt = detectedAt
     }
 }
 
@@ -799,6 +806,12 @@ struct GeoTrackArrivalOtpVerifyBody: Encodable, Sendable {
     let otp: String
     let lat: Double?
     let lng: Double?
+    // Storage id of the arrival photo we just uploaded. Sending it along with
+    // the OTP verify links the photo to the fieldVisit row immediately, instead
+    // of waiting for completeVisit at trip-end — the web admin CP detail page was
+    // showing "No arrival photo yet" for that whole window. Mirrors Android
+    // ArrivalOtpVerifyBody.arrivalPhotoStorageId (GeoTrackApi.kt:919-931).
+    // Synthesized Encodable omits this key when nil.
     let arrivalPhotoStorageId: String?
 
     init(
