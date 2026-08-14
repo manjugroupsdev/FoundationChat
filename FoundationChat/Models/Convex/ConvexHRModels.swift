@@ -2,7 +2,7 @@ import Foundation
 
 // MARK: - Leaves
 
-struct ConvexLeave: Decodable, Identifiable, Equatable, Sendable {
+struct ConvexLeave: Codable, Identifiable, Equatable, Sendable {
     let _id: String
     let leaveId: String?
     let staffId: String?
@@ -56,7 +56,7 @@ struct ConvexLeave: Decodable, Identifiable, Equatable, Sendable {
     }
 }
 
-struct ConvexLeaveBalance: Decodable, Equatable, Sendable {
+struct ConvexLeaveBalance: Codable, Equatable, Sendable {
     let casual: Double?
     let casualUsed: Double?
     let sick: Double?
@@ -85,7 +85,7 @@ struct ConvexCompOffCredit: Decodable, Identifiable, Equatable, Sendable {
 
 // MARK: - Permissions
 
-struct ConvexPermission: Decodable, Identifiable, Equatable, Sendable {
+struct ConvexPermission: Codable, Identifiable, Equatable, Sendable {
     let _id: String
     let permissionId: String?
     let staffId: String?
@@ -133,7 +133,7 @@ struct ConvexPermission: Decodable, Identifiable, Equatable, Sendable {
     }
 }
 
-struct ConvexPermissionUsage: Decodable, Equatable, Sendable {
+struct ConvexPermissionUsage: Codable, Equatable, Sendable {
     let usedHours: Double?
     let limitHours: Double?
     let remainingHours: Double?
@@ -193,7 +193,7 @@ struct ConvexFineDeduction: Decodable, Identifiable, Equatable, Sendable {
 
 // MARK: - Attendance
 
-struct ConvexAttendanceSession: Decodable, Equatable, Sendable {
+struct ConvexAttendanceSession: Codable, Equatable, Sendable {
     let punchInTime: String?
     let punchOutTime: String?
     let punchOutSource: String?
@@ -206,7 +206,7 @@ struct ConvexAttendanceSession: Decodable, Equatable, Sendable {
     let source: String?
 }
 
-struct ConvexAttendanceFine: Decodable, Equatable, Sendable, Identifiable {
+struct ConvexAttendanceFine: Codable, Equatable, Sendable, Identifiable {
     let typeName: String?
     let amount: Double?
     let reason: String?
@@ -216,7 +216,7 @@ struct ConvexAttendanceFine: Decodable, Equatable, Sendable, Identifiable {
     }
 }
 
-struct ConvexAttendanceRecord: Decodable, Identifiable, Equatable, Sendable {
+struct ConvexAttendanceRecord: Codable, Identifiable, Equatable, Sendable {
     let _id: String?
     let _creationTime: Double?
     let attendanceId: String?
@@ -402,7 +402,7 @@ struct ConvexHomeFence: Decodable, Equatable, Sendable {
     let enforceable: Bool?
 }
 
-struct ConvexTodayAttendance: Decodable, Equatable, Sendable {
+struct ConvexTodayAttendance: Codable, Equatable, Sendable {
     let _id: String?
     let attendanceId: String?
     let date: String?

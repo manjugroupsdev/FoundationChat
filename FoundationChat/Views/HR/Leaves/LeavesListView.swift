@@ -992,8 +992,25 @@ struct LeavesListView: View {
         return formatter
     }()
 
+    private var leavesCacheKey: String {
+        let staff = authStore.currentSession?.user.staffId?.nonBlank
+            ?? authStore.currentSession?.user._id.nonBlank
+            ?? "anon"
+        return "leaves.my.\(staff)"
+    }
+
     private func loadData() {
         guard let token = authStore.currentSession?.token else { return }
+
+        // Cache-first: paint the last-known "My Leaves" snapshot (list + balance)
+        // INSTANTLY on a cold open so the skeleton only shows on a true first
+        // load with nothing cached (Android LocalCache parity).
+        if leaves.isEmpty,
+           let cached = LocalCache.get(leavesCacheKey, as: LeavesCacheSnapshot.self) {
+            leaves = cached.leaves
+            if let cachedBalance = cached.balance { balance = cachedBalance }
+        }
+
         Task {
             isLoading = true
             defer { isLoading = false }
@@ -1013,12 +1030,19 @@ struct LeavesListView: View {
                     ? HRConvexAPIService.getPendingLeaveApprovals(token: token)
                     : []
                 leaves = try await leavesReq
-                balance = try? await balanceReq
+                // Offline-keep: never null out a cached balance on a transient
+                // balance-endpoint failure.
+                if let freshBalance = try? await balanceReq { balance = freshBalance }
                 pendingLeaves = (try? await pendingReq) ?? []
                 allLeaves = (try? await allReq) ?? []
+                LocalCache.put(leavesCacheKey, LeavesCacheSnapshot(leaves: leaves, balance: balance))
             } catch {
                 if Self.isCancellation(error) { return }
-                errorMessage = error.localizedDescription
+                // Offline-keep: keep cached rows on screen; only surface an error
+                // when there is nothing to show.
+                if leaves.isEmpty {
+                    errorMessage = error.localizedDescription
+                }
             }
         }
     }
@@ -1083,6 +1107,13 @@ struct LeavesListView: View {
         if error is CancellationError { return true }
         return (error as NSError).code == NSURLErrorCancelled
     }
+}
+
+/// Codable snapshot of the "My Leaves" scope (list + balance) cached for
+/// instant cold-open paint and offline resilience.
+private struct LeavesCacheSnapshot: Codable {
+    let leaves: [ConvexLeave]
+    let balance: ConvexLeaveBalance?
 }
 
 private enum LeaveScope: CaseIterable, Identifiable {

@@ -316,6 +316,8 @@ final class AuthStore {
     }
     if let t = token { try? await AuthAPIService.logout(token: t) }
     try? tokenStore.clear()
+    // Wipe cache-first snapshots so the next user starts clean (Android parity).
+    LocalCache.clearAll()
     currentSession = nil
     viewer = nil
     errorMessage = nil
@@ -331,6 +333,8 @@ final class AuthStore {
   func expireSession(message: String = "Session expired. Please sign in again.") {
     Task { await GeoTrackBootstrapCoordinator.shared.stopForSessionEnd() }
     try? tokenStore.clear()
+    // Wipe cache-first snapshots so the next user starts clean (Android parity).
+    LocalCache.clearAll()
     currentSession = nil
     viewer = nil
     errorMessage = message

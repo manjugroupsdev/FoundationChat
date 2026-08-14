@@ -1,7 +1,7 @@
 import Foundation
 
 /// Company-wide Home dashboard payload used by Android `MobileDashboardResponse`.
-struct ConvexMobileDashboard: Decodable, Equatable, Sendable {
+struct ConvexMobileDashboard: Codable, Equatable, Sendable {
     let success: Bool
     let date: String?
     let totalCalls: Int

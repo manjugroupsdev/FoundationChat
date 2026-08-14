@@ -622,8 +622,25 @@ struct ConvexPermissionListView: View {
         }
     }
 
+    private var permissionsCacheKey: String {
+        let staff = authStore.currentSession?.user.staffId?.nonBlank
+            ?? authStore.currentSession?.user._id.nonBlank
+            ?? "anon"
+        return "permissions.my.\(staff)"
+    }
+
     private func loadData() {
         guard let token = authStore.currentSession?.token else { return }
+
+        // Cache-first: paint the last-known "My Permissions" snapshot INSTANTLY
+        // on a cold open so the skeleton only shows on a true first load with
+        // nothing cached (Android LocalCache parity).
+        if permissions.isEmpty,
+           let cached = LocalCache.get(permissionsCacheKey, as: PermissionsCacheSnapshot.self) {
+            permissions = cached.permissions
+            if let cachedUsage = cached.usage { usage = cachedUsage }
+        }
+
         Task {
             isLoading = true
             errorMessage = nil
@@ -645,11 +662,17 @@ struct ConvexPermissionListView: View {
                     ? HRConvexAPIService.getPendingPermissionApprovals(token: token, all: true)
                     : []
                 permissions = try await permsReq
-                usage = try? await usageReq
+                // Offline-keep: never null out cached usage on a transient failure.
+                if let freshUsage = try? await usageReq { usage = freshUsage }
                 pendingPermissions = (try? await pendingReq) ?? []
                 allPermissions = (try? await allReq) ?? []
+                LocalCache.put(permissionsCacheKey, PermissionsCacheSnapshot(permissions: permissions, usage: usage))
             } catch {
-                errorMessage = error.localizedDescription
+                // Offline-keep: keep cached rows; only surface an error when
+                // there is nothing on screen.
+                if permissions.isEmpty {
+                    errorMessage = error.localizedDescription
+                }
             }
         }
     }
@@ -742,6 +765,13 @@ struct ConvexPermissionListView: View {
     private func authorName(for permission: ConvexPermission) -> String {
         permission.staffName?.nonBlank ?? "Self"
     }
+}
+
+/// Codable snapshot of the "My Permissions" scope (list + usage) cached for
+/// instant cold-open paint and offline resilience.
+private struct PermissionsCacheSnapshot: Codable {
+    let permissions: [ConvexPermission]
+    let usage: ConvexPermissionUsage?
 }
 
 private enum PermissionScope: CaseIterable, Identifiable {
