@@ -459,13 +459,13 @@ private struct AppLibrarySection: Identifiable {
                 ? .init(title: "Site Visits", icon: "AppLibraryIconAppsFieldVisits", destination: .siteVisits)
                 : nil,
             canAny(["telecaller.externalLeads.viewOwn", "telecaller.externalLeads.viewAll"])
-                ? .init(title: "Leads", icon: "AppLibraryIconAppsLeads", destination: .leads, isComingSoon: true)
+                ? .init(title: "Leads", icon: "AppLibraryIconAppsLeads", destination: .leads)
                 : nil,
             canAny(["telecaller.dashboard", "telecaller.calls"])
-                ? .init(title: "Dialer", icon: "AppLibraryIconAppsLeads", destination: .dialer, isComingSoon: true)
+                ? .init(title: "Dialer", icon: "AppLibraryIconAppsLeads", destination: .dialer)
                 : nil,
             canAny(["projects.view"])
-                ? .init(title: "Inventory", icon: "AppLibraryIconAppsFieldVisits", destination: .inventory, isComingSoon: true)
+                ? .init(title: "Inventory", icon: "AppLibraryIconAppsFieldVisits", destination: .inventory)
                 : nil,
             canAny(["marketing.bookings.view", "marketing.bookings.create"])
                 ? .init(title: "Booking", icon: "AppLibraryIconAppsDealer", destination: .bookings)
