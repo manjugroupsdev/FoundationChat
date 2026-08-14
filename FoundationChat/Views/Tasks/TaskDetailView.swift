@@ -284,7 +284,7 @@ struct TaskDetailView: View {
                 resourceTile(icon: "wallet.pass", iconColor: Color(hex: 0x16A34A), title: "Est. Cost", value: "-")
                 resourceTile(icon: "square.stack.3d.up", iconColor: Color(hex: 0x0B61CA), title: "Total Quantity", value: totalQuantityText(task))
                 resourceTile(icon: "person.2", iconColor: Color(hex: 0x0B61CA), title: "Labour Count", value: "\(resources.filter { $0.resourceType == "labour" }.count)")
-                resourceTile(icon: "wrench.adjustable", iconColor: Color(hex: 0x16A34A), title: "Equipment Qty.", value: trimDouble(resources.filter { $0.resourceType == "equipment" }.reduce(0) { $0 + ($1.budgetQty ?? 0) }))
+                resourceTile(icon: "wrench.adjustable", iconColor: Color(hex: 0x16A34A), title: "Equipment Qty.", value: resourceQuantityText(type: "equipment", fallbackUnit: task.unit))
                 resourceTile(icon: "paintbrush.pointed", iconColor: Color(hex: 0x7A5AF8), title: "Materials Qty.", value: materialQtyText(task))
                 resourceTile(icon: "ruler", iconColor: Color(hex: 0x0B61CA), title: "Unit", value: task.unit?.taskNilIfBlank ?? "-")
             }
@@ -379,9 +379,16 @@ struct TaskDetailView: View {
     }
 
     private func materialQtyText(_ task: ConvexTask) -> String {
-        let total = resources.filter { $0.resourceType == "material" }.reduce(0) { $0 + ($1.budgetQty ?? 0) }
+        resourceQuantityText(type: "material", fallbackUnit: task.unit)
+    }
+
+    private func resourceQuantityText(type: String, fallbackUnit: String?) -> String {
+        let matches = resources.filter { $0.resourceType == type }
+        let total = matches.reduce(0) { $0 + ($1.actualQty ?? 0) }
         guard total > 0 else { return "-" }
-        return "\(trimDouble(total)) \(task.unit ?? "")".trimmingCharacters(in: .whitespacesAndNewlines)
+        let units = Set(matches.compactMap { $0.unit?.taskNilIfBlank })
+        let unit = units.count == 1 ? (units.first ?? "") : (fallbackUnit ?? "")
+        return "\(trimDouble(total)) \(unit)".trimmingCharacters(in: .whitespacesAndNewlines)
     }
 
     private func trimDouble(_ value: Double) -> String {

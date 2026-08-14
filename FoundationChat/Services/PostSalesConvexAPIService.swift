@@ -1,7 +1,7 @@
 import Foundation
 import UniformTypeIdentifiers
 
-struct PostSalesUploadedFile: Sendable, Equatable {
+struct PostSalesUploadedFile: Codable, Sendable, Equatable {
     let storageId: String
     let fileName: String
     let mimeType: String

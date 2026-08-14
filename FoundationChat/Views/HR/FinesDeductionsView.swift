@@ -30,6 +30,13 @@ struct FinesDeductionsView: View {
         }
     }
 
+    private var finesCacheKey: String {
+        let staff = authStore.currentSession?.user.staffId?.nonBlank
+            ?? authStore.currentSession?.user._id.nonBlank
+            ?? "anon"
+        return "hr.fines.\(canViewAll ? "all.active" : "my").\(staff)"
+    }
+
     var body: some View {
         VStack(spacing: 0) {
             ScrollView(showsIndicators: false) {
@@ -175,17 +182,24 @@ struct FinesDeductionsView: View {
     @MainActor
     private func loadFines() async {
         guard let token = authStore.currentSession?.token, !token.isEmpty else { return }
+        if fines.isEmpty,
+           let cached = LocalCache.get(finesCacheKey, as: [ConvexFineDeduction].self) {
+            fines = cached
+        }
         isLoading = true
         defer { isLoading = false }
         do {
             fines = canViewAll
                 ? try await HRConvexAPIService.listFines(token: token, status: "active")
                 : try await HRConvexAPIService.listMyFines(token: token)
+            LocalCache.put(finesCacheKey, fines)
         } catch {
             if error is CancellationError || (error as NSError).code == NSURLErrorCancelled {
                 return
             }
-            errorMessage = error.localizedDescription
+            if fines.isEmpty {
+                errorMessage = error.localizedDescription
+            }
         }
     }
 }

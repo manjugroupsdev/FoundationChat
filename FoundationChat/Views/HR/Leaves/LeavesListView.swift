@@ -999,6 +999,20 @@ struct LeavesListView: View {
         return "leaves.my.\(staff)"
     }
 
+    private var teamLeavesCacheKey: String {
+        let staff = authStore.currentSession?.user.staffId?.nonBlank
+            ?? authStore.currentSession?.user._id.nonBlank
+            ?? "anon"
+        return "leaves.team.pending.\(staff)"
+    }
+
+    private var allLeavesCacheKey: String {
+        let staff = authStore.currentSession?.user.staffId?.nonBlank
+            ?? authStore.currentSession?.user._id.nonBlank
+            ?? "anon"
+        return "leaves.all.pending.\(staff)"
+    }
+
     private func loadData() {
         guard let token = authStore.currentSession?.token else { return }
 
@@ -1009,6 +1023,14 @@ struct LeavesListView: View {
            let cached = LocalCache.get(leavesCacheKey, as: LeavesCacheSnapshot.self) {
             leaves = cached.leaves
             if let cachedBalance = cached.balance { balance = cachedBalance }
+        }
+        if pendingLeaves.isEmpty,
+           let cached = LocalCache.get(teamLeavesCacheKey, as: [ConvexLeave].self) {
+            pendingLeaves = cached
+        }
+        if allLeaves.isEmpty,
+           let cached = LocalCache.get(allLeavesCacheKey, as: [ConvexLeave].self) {
+            allLeaves = cached
         }
 
         Task {
@@ -1033,8 +1055,14 @@ struct LeavesListView: View {
                 // Offline-keep: never null out a cached balance on a transient
                 // balance-endpoint failure.
                 if let freshBalance = try? await balanceReq { balance = freshBalance }
-                pendingLeaves = (try? await pendingReq) ?? []
-                allLeaves = (try? await allReq) ?? []
+                if let loadedPending = try? await pendingReq {
+                    pendingLeaves = loadedPending
+                    LocalCache.put(teamLeavesCacheKey, loadedPending)
+                }
+                if let loadedAll = try? await allReq {
+                    allLeaves = loadedAll
+                    LocalCache.put(allLeavesCacheKey, loadedAll)
+                }
                 LocalCache.put(leavesCacheKey, LeavesCacheSnapshot(leaves: leaves, balance: balance))
             } catch {
                 if Self.isCancellation(error) { return }

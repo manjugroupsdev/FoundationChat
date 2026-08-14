@@ -3,12 +3,38 @@ import PhotosUI
 import SwiftUI
 import UniformTypeIdentifiers
 
+struct BookingSourceContext: Equatable, Sendable {
+    let sourceType: String
+    let sourceClientPlaceVisitId: String?
+    let sourceSiteVisitId: String?
+    let clientName: String?
+    let clientPhone: String?
+
+    static func siteVisit(id: String, clientName: String? = nil, clientPhone: String? = nil) -> Self {
+        Self(
+            sourceType: "site_visit",
+            sourceClientPlaceVisitId: nil,
+            sourceSiteVisitId: id,
+            clientName: clientName,
+            clientPhone: clientPhone
+        )
+    }
+
+    var draftSourceKey: String {
+        if let sourceSiteVisitId, !sourceSiteVisitId.isEmpty { return "sv:\(sourceSiteVisitId)" }
+        if let sourceClientPlaceVisitId, !sourceClientPlaceVisitId.isEmpty { return "cp:\(sourceClientPlaceVisitId)" }
+        return sourceType
+    }
+}
+
 struct BookingCreateView: View {
     @Environment(AuthStore.self) private var authStore
     @Environment(\.dismiss) private var dismiss
 
     let initialProject: MarketingProject?
     let initialUnit: InventoryUnit?
+    let sourceContext: BookingSourceContext?
+    let onCreated: ((String) -> Void)?
 
     @State private var booking = DirectBookingDraft()
     @State private var selectedTab: DirectBookingTab = .client
@@ -52,9 +78,11 @@ struct BookingCreateView: View {
     @State private var bookingTypeAutofillError: String?
     @State private var errorMessage: String?
     @State private var successMessage: String?
+    @State private var createdBookingId: String?
     @State private var draftMessage: String?
     @State private var draftSaveTask: Task<Void, Never>?
     @State private var phoneLookupTask: Task<Void, Never>?
+    @State private var pincodeLookupTask: Task<Void, Never>?
     @State private var clientImageURLTask: Task<Void, Never>?
     @State private var unitListTask: Task<Void, Never>?
     @State private var unitLoadGeneration = 0
@@ -76,9 +104,17 @@ struct BookingCreateView: View {
     @State private var lastAutoFourthPaymentAmount = ""
     @State private var lastAutoThirdPaymentDate = ""
 
-    init(initialProject: MarketingProject? = nil, initialUnit: InventoryUnit? = nil) {
+    init(
+        initialProject: MarketingProject? = nil,
+        initialUnit: InventoryUnit? = nil,
+        sourceContext: BookingSourceContext? = nil,
+        onCreated: ((String) -> Void)? = nil
+    ) {
         self.initialProject = initialProject
         self.initialUnit = initialUnit
+        self.sourceContext = sourceContext
+        self.onCreated = onCreated
+        _booking = State(initialValue: Self.seededDraft(for: sourceContext))
         _selectedProject = State(initialValue: initialProject)
         _selectedProjectSpecialPaymentEnabled = State(initialValue: initialProject?.specialPaymentEnabled)
         _selectedUnit = State(initialValue: initialUnit)
@@ -180,8 +216,9 @@ struct BookingCreateView: View {
 
     @MainActor
     private func prepareBookingForm() async {
-        restoreDraftIfNeeded()
+        await restoreDraftIfNeeded()
         scheduleClientImageURLResolution(for: booking.clientImageStorageId)
+        await loadSourceBookingPrefillIfNeeded()
         await Task.yield()
         await loadInitialData()
         await loadStaffIfNeeded()
@@ -194,6 +231,7 @@ struct BookingCreateView: View {
     private func cancelPendingTasks() {
         draftSaveTask?.cancel()
         phoneLookupTask?.cancel()
+        pincodeLookupTask?.cancel()
         clientImageURLTask?.cancel()
         unitListTask?.cancel()
         plotPrefillTask?.cancel()
@@ -255,9 +293,14 @@ struct BookingCreateView: View {
         .alert("Booking", isPresented: bookingAlertBinding) {
             Button("OK", role: .cancel) {
                 let shouldDismiss = successMessage != nil
+                let bookingId = createdBookingId
                 errorMessage = nil
                 successMessage = nil
-                if shouldDismiss { dismiss() }
+                createdBookingId = nil
+                if shouldDismiss {
+                    if let bookingId { onCreated?(bookingId) }
+                    dismiss()
+                }
             }
         } message: {
             Text(errorMessage ?? successMessage ?? "")
@@ -482,7 +525,7 @@ struct BookingCreateView: View {
                     if same { booking.whatsappNumber = booking.phone }
                 }
             DirectBookingTextField("Email *", text: $booking.email, placeholder: "Enter Email Id", icon: "envelope", keyboard: .emailAddress)
-            DirectBookingPicker("Nationality *", value: $booking.nationality, placeholder: "Select Nationality", icon: "globe", options: ["Indian", "NRI", "Foreign"])
+            DirectBookingPicker("Nationality *", value: $booking.nationality, placeholder: "Select Nationality", icon: "globe", options: ["Indian", "NRI", "Foreign National"])
         }
     }
 
@@ -493,7 +536,7 @@ struct BookingCreateView: View {
             DirectBookingTextField("Street Name *", text: $booking.homeStreetName, placeholder: "Enter street name", icon: "road.lanes")
             DirectBookingTextField("Pincode *", text: $booking.pincode, placeholder: "6-digit pincode", icon: "mappin", keyboard: .numberPad)
                 .onChange(of: booking.pincode) { _, value in
-                    booking.pincode = String(value.filter(\.isNumber).prefix(6))
+                    handlePincodeChange(value)
                 }
             DirectBookingTextField("District *", text: $booking.district, placeholder: "Enter District", icon: "mappin")
             DirectBookingTextField("Address Line 1 *", text: $booking.homeAddressLine1, placeholder: "Enter address line 1", icon: "mappin")
@@ -1139,7 +1182,7 @@ struct BookingCreateView: View {
             DirectBookingTextField("Special Consideration", text: $booking.specialConsideration, placeholder: "Discount amount", icon: "indianrupeesign", keyboard: .decimalPad)
             bookingHelperText("Enter the amount to deduct from the booking cost.")
             if (Double(booking.specialConsideration) ?? 0) > 0 {
-                DirectBookingTextField("Discount Approved By *", text: $booking.discountApprovedBy, placeholder: "AVP or GM name", icon: "person")
+                staffPicker(.discountApprover)
                 DirectBookingTextField("SC Reason *", text: $booking.specialConsiderationReason, placeholder: "Enter Details", icon: "doc", axis: .vertical)
                 DirectBookingTextField("SC Validity *", text: $booking.specialConsiderationValidity, placeholder: "Enter Days", icon: "calendar", keyboard: .numberPad)
             }
@@ -1765,13 +1808,23 @@ struct BookingCreateView: View {
                     booking.aadhaar = String(value.filter(\.isNumber).prefix(12))
                 }
             bookingDocumentUploadCard(
-                title: "Aadhaar Upload *",
+                title: "Aadhaar Front Upload *",
                 fileName: booking.aadhaarDocumentFileName,
                 isUploaded: booking.aadhaarDocumentStorageId.directBookingNilIfBlank != nil,
                 onSelect: { presentDocumentImporter(for: .aadhaar) },
                 onRemove: {
                     booking.aadhaarDocumentStorageId = ""
                     booking.aadhaarDocumentFileName = ""
+                }
+            )
+            bookingDocumentUploadCard(
+                title: "Aadhaar Back Upload *",
+                fileName: booking.aadhaarBackDocumentFileName,
+                isUploaded: booking.aadhaarBackDocumentStorageId.directBookingNilIfBlank != nil,
+                onSelect: { presentDocumentImporter(for: .aadhaarBack) },
+                onRemove: {
+                    booking.aadhaarBackDocumentStorageId = ""
+                    booking.aadhaarBackDocumentFileName = ""
                 }
             )
             DirectBookingTextField("PAN Details *", text: $booking.pan, placeholder: "Enter Details", icon: "doc")
@@ -1786,6 +1839,26 @@ struct BookingCreateView: View {
                 onRemove: {
                     booking.panDocumentStorageId = ""
                     booking.panDocumentFileName = ""
+                }
+            )
+            bookingDocumentUploadCard(
+                title: "CEF Form Front Upload *",
+                fileName: booking.cefFormFrontDocumentFileName,
+                isUploaded: booking.cefFormFrontDocumentStorageId.directBookingNilIfBlank != nil,
+                onSelect: { presentDocumentImporter(for: .cefFront) },
+                onRemove: {
+                    booking.cefFormFrontDocumentStorageId = ""
+                    booking.cefFormFrontDocumentFileName = ""
+                }
+            )
+            bookingDocumentUploadCard(
+                title: "CEF Form Back Upload *",
+                fileName: booking.cefFormBackDocumentFileName,
+                isUploaded: booking.cefFormBackDocumentStorageId.directBookingNilIfBlank != nil,
+                onSelect: { presentDocumentImporter(for: .cefBack) },
+                onRemove: {
+                    booking.cefFormBackDocumentStorageId = ""
+                    booking.cefFormBackDocumentFileName = ""
                 }
             )
             DirectBookingTextField("Reference Name 1 *", text: $booking.referenceName1, placeholder: "Enter Name", icon: "person")
@@ -1887,6 +1960,7 @@ struct BookingCreateView: View {
         case .seniorManager: booking.originalSeniorManagerStaffId
         case .bdo: booking.originalBdoStaffId
         case .telecaller: booking.originalTelecallerStaffId
+        case .discountApprover: booking.discountApprovedBy
         }
     }
 
@@ -1897,6 +1971,32 @@ struct BookingCreateView: View {
         case .seniorManager: booking.originalSeniorManagerStaffId = id
         case .bdo: booking.originalBdoStaffId = id
         case .telecaller: booking.originalTelecallerStaffId = id
+        case .discountApprover: booking.discountApprovedBy = id
+        }
+    }
+
+    @MainActor
+    private func handlePincodeChange(_ value: String) {
+        let sanitized = String(value.filter(\.isNumber).prefix(6))
+        guard sanitized == value else {
+            booking.pincode = sanitized
+            return
+        }
+        pincodeLookupTask?.cancel()
+        guard sanitized.count == 6 else { return }
+        pincodeLookupTask = Task {
+            try? await Task.sleep(for: .milliseconds(250))
+            guard !Task.isCancelled,
+                  let token = authStore.currentSession?.token,
+                  let prefill = try? await MarketingConvexAPIService.lookupPincode(
+                    token: token,
+                    pincode: sanitized
+                  ),
+                  !Task.isCancelled,
+                  booking.pincode == sanitized else { return }
+            booking.location.directBookingFillIfBlank(with: prefill.locality)
+            booking.district.directBookingFillIfBlank(with: prefill.district)
+            booking.state.directBookingFillIfBlank(with: prefill.state)
         }
     }
 
@@ -2134,6 +2234,35 @@ struct BookingCreateView: View {
         guard initialProject == nil,
               booking.projectId.directBookingNilIfBlank != nil else { return }
         await loadProjects()
+    }
+
+    @MainActor
+    private func loadSourceBookingPrefillIfNeeded() async {
+        guard let siteVisitId = sourceContext?.sourceSiteVisitId,
+              let token = authStore.currentSession?.token,
+              let detail = try? await MarketingConvexAPIService.getCpVisitDetail(
+                token: token,
+                id: siteVisitId
+              ) else { return }
+
+        let clientName = detail.client?.clientName
+            ?? detail.lead?.contactName
+            ?? detail.lead?.manualProfile?.clientName
+        let clientPhone = detail.client?.mobileNumber ?? detail.lead?.mobileNumber
+        booking.name.directBookingFillIfBlank(with: clientName)
+        booking.phone.directBookingFillIfBlank(with: clientPhone.map(AppModuleFormatters.normalizePhone))
+        booking.svName.directBookingFillIfBlank(with: clientName)
+        booking.svMobileNo.directBookingFillIfBlank(with: clientPhone.map(AppModuleFormatters.normalizePhone))
+        booking.projectId.directBookingFillIfBlank(
+            with: detail.proposedSiteVisit?.projectId ?? detail.projectId ?? detail.project?.id
+        )
+        booking.originalAvpStaffId.directBookingFillIfBlank(with: detail.proposedSiteVisit?.avpStaffId)
+        booking.originalGmStaffId.directBookingFillIfBlank(with: detail.proposedSiteVisit?.gmStaffId)
+        booking.originalSeniorManagerStaffId.directBookingFillIfBlank(with: detail.proposedSiteVisit?.seniorManagerStaffId)
+        booking.originalBdoStaffId.directBookingFillIfBlank(
+            with: detail.proposedSiteVisit?.bdoStaffId ?? detail.assignedStaffId
+        )
+        booking.originalTelecallerStaffId.directBookingFillIfBlank(with: detail.telecallerStaffId)
     }
 
     @MainActor
@@ -2757,9 +2886,18 @@ struct BookingCreateView: View {
             case .aadhaar:
                 booking.aadhaarDocumentStorageId = uploaded.storageId
                 booking.aadhaarDocumentFileName = uploaded.fileName
+            case .aadhaarBack:
+                booking.aadhaarBackDocumentStorageId = uploaded.storageId
+                booking.aadhaarBackDocumentFileName = uploaded.fileName
             case .pan:
                 booking.panDocumentStorageId = uploaded.storageId
                 booking.panDocumentFileName = uploaded.fileName
+            case .cefFront:
+                booking.cefFormFrontDocumentStorageId = uploaded.storageId
+                booking.cefFormFrontDocumentFileName = uploaded.fileName
+            case .cefBack:
+                booking.cefFormBackDocumentStorageId = uploaded.storageId
+                booking.cefFormBackDocumentFileName = uploaded.fileName
             }
         } catch {
             errorMessage = error.localizedDescription
@@ -2898,11 +3036,9 @@ struct BookingCreateView: View {
         booking.email.directBookingFillIfBlank(with: client.email)
 
         booking.homeDoorNo.directBookingFillIfBlank(with: client.doorNo)
-        booking.homeStreetName.directBookingFillIfBlank(
-            with: client.addressLine1 ?? client.homeAddress ?? client.formattedAddress
-        )
+        booking.homeStreetName.directBookingFillIfBlank(with: client.streetName ?? client.addressLine1)
         booking.homeAddressLine1.directBookingFillIfBlank(
-            with: client.addressLine2 ?? client.landmark ?? client.location ?? client.district
+            with: client.homeAddress ?? client.formattedAddress ?? client.addressLine1
         )
         booking.homeAddressLine2.directBookingFillIfBlank(
             with: client.landmark ?? client.addressLine2
@@ -2939,6 +3075,12 @@ struct BookingCreateView: View {
         booking.incomePerAnnum.directBookingFillIfBlank(with: client.incomePerAnnum)
 
         booking.officeName.directBookingFillIfBlank(with: client.officeName)
+        booking.officeDoorNo.directBookingFillIfBlank(with: client.officeDoorNo)
+        booking.officeStreetName.directBookingFillIfBlank(with: client.officeStreet)
+        booking.officeAddressLine1.directBookingFillIfBlank(
+            with: client.officeAddressLine1 ?? client.officeAddress
+        )
+        booking.officeAddressLine2.directBookingFillIfBlank(with: client.officeAddressLine2)
         booking.officeAddress.directBookingFillIfBlank(with: client.officeAddress)
         booking.migrateLegacyOfficeAddressIfNeeded()
         booking.officeArea.directBookingFillIfBlank(with: client.officeArea)
@@ -3058,7 +3200,10 @@ struct BookingCreateView: View {
     private func submit(as saveAs: DirectBookingSaveAs) async {
         booking.saveAs = saveAs
         let mobile = AppModuleFormatters.normalizePhone(booking.phone)
-        if let validation = bookingValidationError(mobile: mobile) {
+        let validation = saveAs == .draft
+            ? bookingDraftValidationError(mobile: mobile)
+            : bookingValidationError(mobile: mobile)
+        if let validation {
             errorMessage = validation.message
             selectedTab = validation.tab
             return
@@ -3068,16 +3213,18 @@ struct BookingCreateView: View {
         isSubmitting = true
         defer { isSubmitting = false }
         do {
-            _ = try await MarketingConvexAPIService.createBooking(
+            let bookingId = try await MarketingConvexAPIService.createBooking(
                 token: token,
                 request: booking.createRequest(
                     mobile: mobile,
                     selectedLead: selectedLead,
                     selectedProject: selectedProject,
-                    selectedUnit: selectedUnit
+                    selectedUnit: selectedUnit,
+                    sourceContext: sourceContext
                 )
             )
             clearDraft()
+            createdBookingId = bookingId
             switch saveAs {
             case .confirmed:
                 successMessage = "Booking saved and sent for approval"
@@ -3092,6 +3239,13 @@ struct BookingCreateView: View {
     }
 
     private typealias BookingValidationIssue = (message: String, tab: DirectBookingTab)
+
+    private func bookingDraftValidationError(mobile: String) -> BookingValidationIssue? {
+        if mobile.count != 10 { return ("Mobile Number must be exactly 10 digits", .client) }
+        if booking.name.directBookingNilIfBlank == nil { return ("Client Name is required", .client) }
+        if booking.bookingDate.directBookingNilIfBlank == nil { return ("Booking Date is required", .bookingFinance) }
+        return paymentDateWindowValidation()
+    }
 
     private func bookingValidationError(mobile: String) -> BookingValidationIssue? {
         // Keep these stages small. A single all-fields tuple made the Debug device build
@@ -3138,7 +3292,9 @@ struct BookingCreateView: View {
 
     private func requiredClientAddressValidation() -> BookingValidationIssue? {
         firstMissingRequired([
-            ("Home Address", booking.composedHomeAddress ?? ""),
+            ("Door No", booking.homeDoorNo),
+            ("Street Name", booking.homeStreetName),
+            ("Address Line 1", booking.homeAddressLine1),
             ("Pincode", booking.pincode),
             ("District", booking.district)
         ], tab: .client)
@@ -3150,7 +3306,9 @@ struct BookingCreateView: View {
             ("Designation", booking.designation),
             ("Income Per Annum", booking.incomePerAnnum),
             ("Office Name", booking.officeName),
-            ("Office / Alternate Address", booking.composedOfficeAddress ?? "")
+            ("Office Door No", booking.officeDoorNo),
+            ("Office Street Name", booking.officeStreetName),
+            ("Office Address Line 1", booking.officeAddressLine1)
         ], tab: .client)
     }
 
@@ -3178,6 +3336,7 @@ struct BookingCreateView: View {
             ("Patta Charges", booking.pattaCharges),
             ("Other Charges", booking.otherCharges),
             ("Customer Payment Category", booking.customerPaymentCategory),
+            ("Payment Plan", booking.paymentPlan),
             ("Advance Booking Payment", booking.bookingMode),
             ("Advance Amount", booking.advanceAmount)
         ], tab: .bookingFinance)
@@ -3199,9 +3358,12 @@ struct BookingCreateView: View {
     private func requiredIdentityDocumentsValidation() -> BookingValidationIssue? {
         firstMissingRequired([
             ("Aadhaar Number", booking.aadhaar),
-            ("Aadhaar Upload", booking.aadhaarDocumentStorageId),
+            ("Aadhaar Front Upload", booking.aadhaarDocumentStorageId),
+            ("Aadhaar Back Upload", booking.aadhaarBackDocumentStorageId),
             ("PAN Number", booking.pan),
-            ("PAN Upload", booking.panDocumentStorageId)
+            ("PAN Upload", booking.panDocumentStorageId),
+            ("CEF Front Upload", booking.cefFormFrontDocumentStorageId),
+            ("CEF Back Upload", booking.cefFormBackDocumentStorageId)
         ], tab: .paymentStaff)
     }
 
@@ -3233,15 +3395,34 @@ struct BookingCreateView: View {
         if booking.pincode.filter(\.isNumber).count != 6 {
             return ("Pincode must be exactly 6 digits", .client)
         }
+        if let officePincode = booking.officePincode.directBookingNilIfBlank,
+           officePincode.filter(\.isNumber).count != 6 {
+            return ("Office Pincode must be exactly 6 digits", .client)
+        }
         if booking.aadhaar.filter(\.isNumber).count != 12 { return ("Aadhaar Number must be exactly 12 digits", .paymentStaff) }
+        if booking.pan.count != 10 { return ("PAN Number must be exactly 10 characters", .paymentStaff) }
+        for (label, value) in [
+            ("Reference 1 Mobile", booking.referenceMobile1),
+            ("Reference 2 Mobile", booking.referenceMobile2)
+        ] where AppModuleFormatters.normalizePhone(value).count != 10 {
+            return ("\(label) must be exactly 10 digits", .paymentStaff)
+        }
+        if let sourceMobile = booking.clientSourceMobile.directBookingNilIfBlank,
+           AppModuleFormatters.normalizePhone(sourceMobile).count != 10 {
+            return ("Source / Reference Mobile must be exactly 10 digits", .bookingFinance)
+        }
         return nil
     }
 
     private func bookingTypeConditionalValidation() -> BookingValidationIssue? {
-        if booking.bookingType == "CONVERSION", booking.conversionManualEntry {
-            if booking.manualConversionProjectName.directBookingNilIfBlank == nil { return ("Manual Previous Project is required", .bookingFinance) }
-            if booking.manualConversionPlotNo.directBookingNilIfBlank == nil { return ("Manual Previous Plot is required", .bookingFinance) }
-            if (Double(booking.manualConversionCredit) ?? 0) <= 0 { return ("Manual Conversion Credit is required", .bookingFinance) }
+        if booking.bookingType == "CONVERSION" {
+            if booking.conversionManualEntry {
+                if booking.manualConversionProjectName.directBookingNilIfBlank == nil { return ("Manual Previous Project is required", .bookingFinance) }
+                if booking.manualConversionPlotNo.directBookingNilIfBlank == nil { return ("Manual Previous Plot is required", .bookingFinance) }
+                if (Double(booking.manualConversionCredit) ?? 0) <= 0 { return ("Manual Conversion Credit is required", .bookingFinance) }
+            } else if booking.linkedConversionBookingId?.directBookingNilIfBlank == nil {
+                return ("Previous Booking is required", .bookingFinance)
+            }
         }
         if booking.bookingType == "EXCHANGE" || booking.bookingType == "INTERNAL EXCHANGE" {
             if booking.exchangeManualEntry {
@@ -3297,6 +3478,12 @@ struct BookingCreateView: View {
 
     private func paymentAmountValidation() -> BookingValidationIssue? {
         let advanceAmount = Double(booking.advanceAmount) ?? 0
+        if (Double(booking.bookingCost) ?? 0) <= 0 {
+            return ("Booking Cost must be greater than zero", .bookingFinance)
+        }
+        if advanceAmount <= 0 {
+            return ("Advance Amount must be greater than zero", .bookingFinance)
+        }
         if let minimumAllotmentAmount,
            booking.numericAmount(booking.allotmentDueAmount) < minimumAllotmentAmount {
             return (
@@ -3347,6 +3534,7 @@ struct BookingCreateView: View {
     }
 
     private func paymentScheduleValidation() -> BookingValidationIssue? {
+        if let issue = paymentDateWindowValidation() { return issue }
         let outstanding = outstandingAfterAllotment ?? 0
         let scheduledAmount = usesDynamicPaymentSchedule
             ? dynamicScheduledPaymentAmount
@@ -3412,6 +3600,32 @@ struct BookingCreateView: View {
         return nil
     }
 
+    private func paymentDateWindowValidation() -> BookingValidationIssue? {
+        if let days = paymentDays(from: booking.allotmentDueDate), days < 0 {
+            return ("Allotment Due Date cannot be before booking date", .paymentStaff)
+        }
+        if let projectAllotmentDays,
+           let days = paymentDays(from: booking.allotmentDueDate),
+           days > projectAllotmentDays {
+            return ("Allotment Due Date cannot exceed \(projectAllotmentDays) days from booking date", .paymentStaff)
+        }
+        for (label, date) in [
+            ("2nd", booking.secondPaymentDate),
+            ("3rd", booking.thirdPaymentDate),
+            ("4th", booking.fourthPaymentDate)
+        ] {
+            guard let days = paymentDays(from: date) else { continue }
+            if days < 0 { return ("\(label) payment date cannot be before booking date", .paymentStaff) }
+            if paymentPlanDays > 0, days > paymentPlanDays {
+                return ("\(booking.normalizedPaymentPlan) plan \(label) payment date cannot exceed \(paymentPlanDays) days", .paymentStaff)
+            }
+        }
+        if let days = paymentDays(from: booking.preferredRegistrationDate), days < 0 {
+            return ("Preferred registration date cannot be before booking date", .paymentStaff)
+        }
+        return nil
+    }
+
     private func goToNextTab() {
         let tabs = DirectBookingTab.allCases
         guard let index = tabs.firstIndex(of: selectedTab), index + 1 < tabs.count else { return }
@@ -3425,7 +3639,7 @@ struct BookingCreateView: View {
         unitLoadGeneration += 1
         plotPrefillTask?.cancel()
         bookingTypeAutofillTask?.cancel()
-        booking = DirectBookingDraft()
+        booking = Self.seededDraft(for: sourceContext)
         selectedProject = initialProject
         selectedProjectSpecialPaymentEnabled = initialProject?.specialPaymentEnabled
         selectedUnit = initialUnit
@@ -3480,11 +3694,21 @@ struct BookingCreateView: View {
 
     private var draftStorageKey: String {
         let subject = authStore.viewer?.subject ?? authStore.currentSession?.user._id ?? "anonymous"
-        return "booking.draft.walk_in.full.\(subject)"
+        return "booking.draft.\(draftSourceKey).full.\(subject)"
+    }
+
+    private var draftUpdatedAtStorageKey: String {
+        "\(draftStorageKey).updatedAt"
+    }
+
+    private var draftSourceKey: String {
+        if let sourceContext { return sourceContext.draftSourceKey }
+        let staffId = authStore.viewer?.subject ?? authStore.currentSession?.user._id ?? "anon"
+        return "standalone:\(staffId)"
     }
 
     @MainActor
-    private func restoreDraftIfNeeded() {
+    private func restoreDraftIfNeeded() async {
         guard !hasRestoredDraft else { return }
         hasRestoredDraft = true
         selectedProjectSpecialPaymentEnabled = initialProject?.specialPaymentEnabled
@@ -3496,11 +3720,31 @@ struct BookingCreateView: View {
             booking.plotId = initialUnit.id
             booking.plotNo = initialUnit.unitNumber ?? ""
         }
-        guard initialProject == nil, initialUnit == nil,
-              let data = UserDefaults.standard.data(forKey: draftStorageKey),
-              let draft = decodeDraft(data),
+        guard initialProject == nil, initialUnit == nil else { return }
+
+        let localData = UserDefaults.standard.data(forKey: draftStorageKey)
+        let localUpdatedAt = UserDefaults.standard.double(forKey: draftUpdatedAtStorageKey)
+        var selectedData = localData
+        var selectedUpdatedAt = localUpdatedAt
+
+        if let token = authStore.currentSession?.token,
+           let cloudDraft = try? await MarketingConvexAPIService.getBookingDraft(
+               token: token,
+               sourceKey: draftSourceKey
+           ),
+           let cloudJson = cloudDraft.draftJson,
+           let cloudData = cloudJson.data(using: .utf8),
+           (cloudDraft.updatedAt ?? 0) >= localUpdatedAt {
+            selectedData = cloudData
+            selectedUpdatedAt = cloudDraft.updatedAt ?? 0
+        }
+
+        guard let selectedData,
+              let draft = decodeDraft(selectedData),
               !draft.isEmpty else { return }
         booking = draft
+        UserDefaults.standard.set(selectedData, forKey: draftStorageKey)
+        UserDefaults.standard.set(selectedUpdatedAt, forKey: draftUpdatedAtStorageKey)
         booking.migrateLegacyHomeAddressIfNeeded()
         booking.migrateLegacyOfficeAddressIfNeeded()
         if homeAddressCoordinate != nil {
@@ -3539,10 +3783,16 @@ struct BookingCreateView: View {
     private func saveDraft() async {
         guard let data = try? JSONEncoder().encode(booking) else { return }
         UserDefaults.standard.set(data, forKey: draftStorageKey)
+        UserDefaults.standard.set(
+            Date().timeIntervalSince1970 * 1_000,
+            forKey: draftUpdatedAtStorageKey
+        )
         draftMessage = "Draft saved"
         guard let token = authStore.currentSession?.token else { return }
         let payload = BookingRemoteDraftPayload(
-            sourceKey: "walk_in",
+            sourceKey: draftSourceKey,
+            sourceCpVisitId: sourceContext?.sourceClientPlaceVisitId,
+            sourceSiteVisitId: sourceContext?.sourceSiteVisitId,
             draftJson: String(data: data, encoding: .utf8) ?? "{}"
         )
         try? await MarketingConvexAPIService.saveBookingDraft(token: token, payload: payload)
@@ -3552,9 +3802,24 @@ struct BookingCreateView: View {
     private func clearDraft() {
         draftSaveTask?.cancel()
         UserDefaults.standard.removeObject(forKey: draftStorageKey)
+        UserDefaults.standard.removeObject(forKey: draftUpdatedAtStorageKey)
         draftMessage = nil
         guard let token = authStore.currentSession?.token else { return }
-        Task { try? await MarketingConvexAPIService.clearBookingDraft(token: token) }
+        Task { try? await MarketingConvexAPIService.clearBookingDraft(token: token, sourceKey: draftSourceKey) }
+    }
+
+    private static func seededDraft(for sourceContext: BookingSourceContext?) -> DirectBookingDraft {
+        var draft = DirectBookingDraft()
+        guard let sourceContext else { return draft }
+        draft.sourceType = sourceContext.sourceType
+        draft.phone = AppModuleFormatters.normalizePhone(sourceContext.clientPhone ?? "")
+        draft.name = sourceContext.clientName ?? ""
+        if sourceContext.sourceSiteVisitId != nil {
+            draft.isAgainstSV = true
+            draft.svName = sourceContext.clientName ?? ""
+            draft.svMobileNo = AppModuleFormatters.normalizePhone(sourceContext.clientPhone ?? "")
+        }
+        return draft
     }
 
     private static let customerPaymentCategoryOptions = [
@@ -3655,6 +3920,7 @@ private enum DirectBookingStaffField: String, Identifiable {
     case seniorManager
     case bdo
     case telecaller
+    case discountApprover
 
     var id: String { rawValue }
 
@@ -3665,6 +3931,7 @@ private enum DirectBookingStaffField: String, Identifiable {
         case .seniorManager: return "Senior Manager"
         case .bdo: return "BDO"
         case .telecaller: return "Telecaller"
+        case .discountApprover: return "Approver"
         }
     }
 }
@@ -3702,6 +3969,8 @@ private extension ConvexStaffListItem {
             return matches(#"\btelesales\b|lead\s+management\s+(executive|officer)|\blm[eo]\b"#)
                 || department == "telesales"
                 || department.contains("telesales")
+        case .discountApprover:
+            return true
         }
     }
 }
@@ -3709,7 +3978,10 @@ private extension ConvexStaffListItem {
 private enum DirectBookingUploadKind {
     case advanceProof
     case aadhaar
+    case aadhaarBack
     case pan
+    case cefFront
+    case cefBack
 }
 
 private enum DirectBookingSaveAs: String, Codable, Hashable {
@@ -3887,9 +4159,15 @@ private struct DirectBookingDraft: Codable, Equatable, Sendable {
     var aadhaar = ""
     var aadhaarDocumentStorageId = ""
     var aadhaarDocumentFileName = ""
+    var aadhaarBackDocumentStorageId = ""
+    var aadhaarBackDocumentFileName = ""
     var pan = ""
     var panDocumentStorageId = ""
     var panDocumentFileName = ""
+    var cefFormFrontDocumentStorageId = ""
+    var cefFormFrontDocumentFileName = ""
+    var cefFormBackDocumentStorageId = ""
+    var cefFormBackDocumentFileName = ""
     var referenceName1 = ""
     var referenceMobile1 = ""
     var referenceProfession1 = ""
@@ -4078,7 +4356,8 @@ private struct DirectBookingDraft: Codable, Equatable, Sendable {
         mobile: String,
         selectedLead: TelecallerLeadSearchData?,
         selectedProject: MarketingProject?,
-        selectedUnit: InventoryUnit?
+        selectedUnit: InventoryUnit?,
+        sourceContext: BookingSourceContext? = nil
     ) -> CreateBookingRequest {
         let cost = Double(bookingCost)
         let advance = Double(advanceAmount)
@@ -4125,7 +4404,9 @@ private struct DirectBookingDraft: Codable, Equatable, Sendable {
             manualConversionPlotNo: bookingType == "CONVERSION" && conversionManualEntry ? manualConversionPlotNo.directBookingNilIfBlank : nil,
             manualConversionCredit: bookingType == "CONVERSION" && conversionManualEntry ? Double(manualConversionCredit) : nil,
             conversionNotes: bookingType == "CONVERSION" && conversionManualEntry ? conversionNotes.directBookingNilIfBlank : nil,
-            sourceExchangeBookingId: isExchange && !exchangeManualEntry ? sourceExchangeBookingId.directBookingNilIfBlank : nil,
+            sourceExchangeBookingId: bookingType == "CONVERSION" && !conversionManualEntry
+                ? linkedConversionBookingId?.directBookingNilIfBlank
+                : (isExchange && !exchangeManualEntry ? sourceExchangeBookingId.directBookingNilIfBlank : nil),
             exchangeManualEntry: isExchange ? exchangeManualEntry : nil,
             exchangeLookupProjectId: bookingType == "INTERNAL EXCHANGE" && !exchangeManualEntry ? exchangeLookupProjectId.directBookingNilIfBlank : nil,
             exchangeLookupPlotNo: bookingType == "INTERNAL EXCHANGE" && !exchangeManualEntry ? exchangeLookupPlotNo.directBookingNilIfBlank : nil,
@@ -4198,9 +4479,15 @@ private struct DirectBookingDraft: Codable, Equatable, Sendable {
             aadhaar: aadhaar.directBookingNilIfBlank,
             aadhaarDocumentStorageId: aadhaarDocumentStorageId.directBookingNilIfBlank,
             aadhaarDocumentFileName: aadhaarDocumentFileName.directBookingNilIfBlank,
+            aadhaarBackDocumentStorageId: aadhaarBackDocumentStorageId.directBookingNilIfBlank,
+            aadhaarBackDocumentFileName: aadhaarBackDocumentFileName.directBookingNilIfBlank,
             pan: pan.directBookingNilIfBlank,
             panDocumentStorageId: panDocumentStorageId.directBookingNilIfBlank,
             panDocumentFileName: panDocumentFileName.directBookingNilIfBlank,
+            cefFormFrontDocumentStorageId: cefFormFrontDocumentStorageId.directBookingNilIfBlank,
+            cefFormFrontDocumentFileName: cefFormFrontDocumentFileName.directBookingNilIfBlank,
+            cefFormBackDocumentStorageId: cefFormBackDocumentStorageId.directBookingNilIfBlank,
+            cefFormBackDocumentFileName: cefFormBackDocumentFileName.directBookingNilIfBlank,
             referenceName1: referenceName1.directBookingNilIfBlank,
             referenceMobile1: referenceMobile1.directBookingNilIfBlank,
             referenceProfession1: referenceProfession1.directBookingNilIfBlank,
@@ -4226,13 +4513,16 @@ private struct DirectBookingDraft: Codable, Equatable, Sendable {
             officePhone: officePhone.directBookingNilIfBlank,
             officeEmail: officeEmail.directBookingNilIfBlank,
             nationality: nationality.directBookingNilIfBlank,
-            cpVisitId: nil,
-            siteVisitId: nil,
-            source: "walk_in",
-            status: saveAs.rawValue,
-            sourceType: sourceType.directBookingNilIfBlank ?? "walk_in",
-            sourceClientPlaceVisitId: nil,
-            sourceSiteVisitId: nil,
+            cpVisitId: sourceContext?.sourceClientPlaceVisitId,
+            siteVisitId: sourceContext?.sourceSiteVisitId,
+            source: sourceContext?.sourceType ?? "walk_in",
+            status: saveAs == .confirmed ? "pending_confirmation" : saveAs.rawValue,
+            sourceType: sourceContext?.sourceType ?? sourceType.directBookingNilIfBlank ?? "walk_in",
+            sourceClientPlaceVisitId: sourceContext?.sourceClientPlaceVisitId,
+            sourceSiteVisitId: sourceContext?.sourceSiteVisitId,
+            bookingCpDate: bookingDate.directBookingNilIfBlank ?? AppModuleFormatters.ymd.string(from: Date()),
+            conversionExchangeAmount: conversionCredit > 0 ? conversionCredit : nil,
+            skipApproval: nil,
             notes: nil
         )
     }
@@ -4265,6 +4555,8 @@ private struct DirectBookingDraft: Codable, Equatable, Sendable {
 
 private struct BookingRemoteDraftPayload: Encodable, Sendable {
     let sourceKey: String
+    let sourceCpVisitId: String?
+    let sourceSiteVisitId: String?
     let draftJson: String
 }
 

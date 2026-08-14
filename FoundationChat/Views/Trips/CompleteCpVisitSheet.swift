@@ -1333,23 +1333,18 @@ struct CompleteCpVisitSheet: View {
             )
 
             if selectedOutcome == .booking {
-                let bookingId = try await MarketingConvexAPIService.createBooking(
+                _ = try await MarketingConvexAPIService.createBooking(
                     token: token,
                     request: booking.createRequest(
                         cpVisitId: cpVisitId,
                         leadId: selectedBookingLead?.id ?? cpVisitDetail?.leadId,
-                        projects: projects
+                        projects: projects,
+                        staff: salesStaff
                     )
                 )
-                try await MarketingConvexAPIService.setCpVisitOutcome(
-                    token: token,
-                    request: SetCpVisitOutcomeRequest(
-                        id: cpVisitId,
-                        outcome: selectedOutcome.rawValue,
-                        postponeReasons: nil,
-                        notes: [booking.serializedNotes, "Booking ID: \(bookingId)"].compactMap { $0?.nilIfBlank }.joined(separator: "\n\n")
-                    )
-                )
+                // The booking create route receives the CP source IDs and marks
+                // the CP converted atomically. A second setOutcome call can fail
+                // after the booking already succeeded because the CP is terminal.
                 // Booking landed — wipe the local + cloud draft so the next
                 // form open for a different source starts clean.
                 clearBookingDraft()
@@ -1933,33 +1928,110 @@ private struct BookingDraft: Codable, Equatable {
         return sections.joined(separator: "\n\n").nilIfBlank
     }
 
-    func createRequest(cpVisitId: String, leadId: String?, projects: [MarketingProject]) -> CreateBookingRequest {
+    func createRequest(
+        cpVisitId: String,
+        leadId: String?,
+        projects: [MarketingProject],
+        staff: [ConvexStaffListItem]
+    ) -> CreateBookingRequest {
         let normalizedPhone = AppModuleFormatters.normalizePhone(phone)
         let matchedProject = projects.first {
             $0.name?.caseInsensitiveCompare(project) == .orderedSame
                 || $0.id.caseInsensitiveCompare(project) == .orderedSame
         }
+        func staffID(named name: String) -> String? {
+            staff.first { $0.displayName.caseInsensitiveCompare(name) == .orderedSame }?.id
+        }
         let bookingDateValue = bookingDate.nilIfBlank ?? AppModuleFormatters.ymd.string(from: Date())
         let cost = Double(bookingCost.trimmingCharacters(in: .whitespacesAndNewlines))
         let advance = Double(advanceAmount.trimmingCharacters(in: .whitespacesAndNewlines))
+        let special = Double(specialConsideration.trimmingCharacters(in: .whitespacesAndNewlines))
 
         return CreateBookingRequest(
             clientName: name.trimmingCharacters(in: .whitespacesAndNewlines),
             mobileNumber: normalizedPhone,
             bookingDate: bookingDateValue,
             leadId: leadId,
+            title: title.nilIfBlank,
+            fatherSpouseName: fatherOrSpouse.nilIfBlank,
+            dateOfBirth: dob.nilIfBlank,
+            anniversaryDate: anniversary.nilIfBlank,
+            alternateNumbers: altNumber.nilIfBlank,
+            whatsappNumber: whatsapp.nilIfBlank,
             projectId: matchedProject?.id,
             plotId: nil,
             plotNo: plot.nilIfBlank,
             bookingType: bookingType.nilIfBlank,
+            cefNo: cefNo.nilIfBlank,
+            isDuplicateBooking: duplicateBookings,
+            isAgainstSV: isAgainstClientVisit,
+            propertyType: propertyType.nilIfBlank,
             bookingMode: bookingMode.nilIfBlank,
             bookingCost: cost,
+            guidelineValue: Double(guidelineValue),
+            specialConsideration: special,
+            specialConsiderationReason: scReason.nilIfBlank,
+            discountApprovedBy: staffID(named: discountApprovedBy) ?? discountApprovedBy.nilIfBlank,
+            specialConsiderationValidity: Double(scValidity),
+            promotionalOffers: promotionalOffers.nilIfBlank,
+            promotionalOffersTnC: promotionalOffersTnc.nilIfBlank,
+            promotionalOfferValue: Double(promotionalOffersValue),
+            offerValidityPeriod: Double(offerValidityPeriod),
+            agreedAmount: cost.map { $0 - (special ?? 0) },
+            registrationCharges: Double(registrationCharges),
+            gstAmount: Double(gstAmount),
+            gstApplicable: gstApplicable,
+            documentCharges: Double(documentCharges),
+            pattaCharges: Double(pattaCharges),
+            otherCharges: Double(otherCharges),
+            otherChargesApplicable: otherChargesApplicable,
             advanceAmount: advance,
             balanceAmount: cost.flatMap { total in advance.map { total - $0 } },
+            paymentMode: paymentMode.nilIfBlank,
+            paymentPlan: flexiPayment ? "Flexi" : "Regular",
+            freePayment: flexiPayment,
+            allotmentDueAmount: Double(allotmentDueAmount),
+            allotmentDueDate: allotmentDueDate.nilIfBlank,
+            secondPaymentAmount: Double(secondPaymentAmount),
+            secondPaymentDate: secondPaymentDate.nilIfBlank,
+            thirdPaymentAmount: Double(thirdPaymentAmount),
+            thirdPaymentDate: thirdPaymentDate.nilIfBlank,
+            fourthPaymentAmount: Double(fourthPaymentAmount),
+            fourthPaymentDate: fourthPaymentDate.nilIfBlank,
+            preferredRegistrationDate: preferredRegistrationDate.nilIfBlank,
+            originalAvpStaffId: staffID(named: avp),
+            originalGmStaffId: staffID(named: generalManager),
+            originalSeniorManagerStaffId: staffID(named: seniorManager),
+            originalBdoStaffId: staffID(named: bdo),
+            originalTelecallerStaffId: staffID(named: telecaller),
+            aadhaar: aadhar.nilIfBlank,
+            pan: pancard.nilIfBlank,
+            referenceName1: referenceName1.nilIfBlank,
+            referenceMobile1: referenceMobile1.nilIfBlank,
+            referenceProfession1: referenceProfession1.nilIfBlank,
+            referenceName2: referenceName2.nilIfBlank,
+            referenceMobile2: referenceMobile2.nilIfBlank,
+            referenceProfession2: referenceProfession2.nilIfBlank,
+            docPreparedIn: documentLanguage.nilIfBlank,
             email: email.nilIfBlank,
+            pincode: pincode.nilIfBlank,
             homeAddress: homeAddress.nilIfBlank,
+            profession: profession.nilIfBlank,
+            designation: designation.nilIfBlank,
+            incomePerAnnum: incomePerAnnum.nilIfBlank,
+            officeName: officeName.nilIfBlank,
+            officeAddress: officeAddress.nilIfBlank,
+            state: state.nilIfBlank,
+            district: district.nilIfBlank,
+            location: location.nilIfBlank,
+            officeMobile: officeMobile.nilIfBlank,
+            officePhone: officePhone.nilIfBlank,
+            officeEmail: officeEmail.nilIfBlank,
+            nationality: nationality.nilIfBlank,
             cpVisitId: cpVisitId,
-            status: saveAs.rawValue,
+            source: "cp_visit",
+            status: saveAs == .confirmed ? "pending_confirmation" : "draft",
+            sourceType: sourceType.nilIfBlank ?? "cp_visit",
             // Mark the CP the booking's source (mirrors Android) so the backend
             // spawns a booking_cp for the same staff/client on the booking date.
             sourceClientPlaceVisitId: cpVisitId,

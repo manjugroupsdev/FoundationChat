@@ -1,4 +1,5 @@
 import SwiftUI
+import UIKit
 import UniformTypeIdentifiers
 
 struct CollectionsView: View {
@@ -12,14 +13,27 @@ struct CollectionsView: View {
     @State private var rectifyingCollection: CustomerCollectionRow?
     @State private var editingCollection: CustomerCollectionRow?
     @State private var selectedFilter: CollectionPaymentFilter = .all
-    @State private var selectedDate: Date?
-    @State private var draftDate = Date()
+    @State private var selectedFromDate: Date?
+    @State private var selectedToDate: Date?
+    @State private var draftFromDate = Date()
+    @State private var draftToDate = Date()
     @State private var showingDateFilter = false
     @State private var searchText = ""
     @State private var previewURL: URL?
 
     private var visibleCollections: [CustomerCollectionRow] {
-        filterCollections(collections, filter: selectedFilter, searchText: searchText, selectedDate: selectedDate)
+        filterCollections(
+            collections,
+            filter: selectedFilter,
+            searchText: searchText,
+            fromDate: selectedFromDate,
+            toDate: selectedToDate
+        )
+    }
+
+    private var cacheKey: String {
+        let staffId = authStore.viewer?.subject ?? authStore.currentSession?.user._id ?? "anonymous"
+        return "postsales.collections.my.\(staffId)"
     }
 
     private var summary: CollectionSummary {
@@ -64,7 +78,8 @@ struct CollectionsView: View {
             }
             ToolbarItemGroup(placement: .topBarTrailing) {
                 Button {
-                    draftDate = selectedDate ?? Date()
+                    draftFromDate = selectedFromDate ?? Date()
+                    draftToDate = selectedToDate ?? draftFromDate
                     showingDateFilter = true
                 } label: {
                     Image(systemName: "calendar")
@@ -102,12 +117,6 @@ struct CollectionsView: View {
             .presentationBackground(Color.appElevatedSurface)
         }
         .sheet(item: $editingCollection) { collection in
-            CollectionAmountCorrectionSheet(collection: collection) {
-                await load()
-            }
-            .appLibraryNativeSheet([.medium])
-        }
-        .sheet(item: $editingCollection) { collection in
             EditCollectionAmountSheet(collection: collection) {
                 await load()
             }
@@ -115,8 +124,13 @@ struct CollectionsView: View {
             .presentationBackground(Color.white)
         }
         .sheet(isPresented: $showingDateFilter) {
-            PostSalesCollectionDateFilterSheet(date: $draftDate, selectedDate: $selectedDate)
-                .appLibraryNativeSheet([.height(560)])
+            PostSalesCollectionDateFilterSheet(
+                fromDate: $draftFromDate,
+                toDate: $draftToDate,
+                selectedFromDate: $selectedFromDate,
+                selectedToDate: $selectedToDate
+            )
+                .appLibraryNativeSheet([.height(680), .large])
             .presentationBackground(Color.appElevatedSurface)
         }
         .sheet(item: Binding(get: { previewURL.map(URLPreviewItem.init(url:)) }, set: { if $0 == nil { previewURL = nil } })) { item in
@@ -135,8 +149,12 @@ struct CollectionsView: View {
             if isLoading && !hasLoaded {
                 AppModuleLoadingRows()
             } else if visibleCollections.isEmpty {
-                Color.clear
-                    .frame(height: 1)
+                ContentUnavailableView(
+                    "No Collections",
+                    systemImage: "indianrupeesign.circle",
+                    description: Text("Collections matching the selected filters will appear here.")
+                )
+                .frame(maxWidth: .infinity, minHeight: 260)
             } else {
                 LazyVStack(spacing: 12) {
                     ForEach(visibleCollections) { collection in
@@ -158,6 +176,10 @@ struct CollectionsView: View {
 
     @MainActor
     private func load() async {
+        if collections.isEmpty, let cached = LocalCache.get(cacheKey, as: [CustomerCollectionRow].self) {
+            collections = cached
+            hasLoaded = true
+        }
         guard let token = authStore.currentSession?.token else {
             errorMessage = "Not signed in."
             hasLoaded = true
@@ -170,8 +192,9 @@ struct CollectionsView: View {
         }
         do {
             collections = try await PostSalesConvexAPIService.listMyCollections(token: token)
+            LocalCache.put(cacheKey, collections)
         } catch {
-            errorMessage = error.localizedDescription
+            if collections.isEmpty { errorMessage = error.localizedDescription }
         }
     }
 
@@ -198,14 +221,28 @@ struct AccountsCollectionsReviewView: View {
     @State private var selectedForReject: CustomerCollectionRow?
     @State private var rejectRemarks = ""
     @State private var selectedFilter: CollectionPaymentFilter = .all
-    @State private var selectedDate: Date?
-    @State private var draftDate = Date()
+    @State private var selectedFromDate: Date?
+    @State private var selectedToDate: Date?
+    @State private var draftFromDate = Date()
+    @State private var draftToDate = Date()
     @State private var showingDateFilter = false
     @State private var searchText = ""
     @State private var previewURL: URL?
+    @State private var processingCollectionIds: Set<String> = []
 
     private var visibleCollections: [CustomerCollectionRow] {
-        filterCollections(collections, filter: selectedFilter, searchText: searchText, selectedDate: selectedDate)
+        filterCollections(
+            collections,
+            filter: selectedFilter,
+            searchText: searchText,
+            fromDate: selectedFromDate,
+            toDate: selectedToDate
+        )
+    }
+
+    private var cacheKey: String {
+        let staffId = authStore.viewer?.subject ?? authStore.currentSession?.user._id ?? "anonymous"
+        return "postsales.collections.accounts.\(staffId)"
     }
 
     private var summary: CollectionSummary {
@@ -252,7 +289,8 @@ struct AccountsCollectionsReviewView: View {
             }
             ToolbarItem(placement: .topBarTrailing) {
                 Button {
-                    draftDate = selectedDate ?? Date()
+                    draftFromDate = selectedFromDate ?? Date()
+                    draftToDate = selectedToDate ?? draftFromDate
                     showingDateFilter = true
                 } label: {
                     Image(systemName: "calendar")
@@ -285,8 +323,13 @@ struct AccountsCollectionsReviewView: View {
                 .appLibraryNativeSheet([.medium, .large])
         }
         .sheet(isPresented: $showingDateFilter) {
-            PostSalesCollectionDateFilterSheet(date: $draftDate, selectedDate: $selectedDate)
-                .appLibraryNativeSheet([.height(560)])
+            PostSalesCollectionDateFilterSheet(
+                fromDate: $draftFromDate,
+                toDate: $draftToDate,
+                selectedFromDate: $selectedFromDate,
+                selectedToDate: $selectedToDate
+            )
+                .appLibraryNativeSheet([.height(680), .large])
             .presentationBackground(Color.appElevatedSurface)
         }
     }
@@ -296,8 +339,12 @@ struct AccountsCollectionsReviewView: View {
             if isLoading && !hasLoaded {
                 AppModuleLoadingRows()
             } else if visibleCollections.isEmpty {
-                Color.clear
-                    .frame(height: 1)
+                ContentUnavailableView(
+                    "No Pending Collections",
+                    systemImage: "checkmark.seal",
+                    description: Text("Collections awaiting Accounts verification will appear here.")
+                )
+                .frame(maxWidth: .infinity, minHeight: 260)
             } else {
                 LazyVStack(spacing: 12) {
                     ForEach(visibleCollections) { collection in
@@ -306,11 +353,11 @@ struct AccountsCollectionsReviewView: View {
                             onProof: {
                                 await openProof(collection)
                             },
-                            onReject: collection.isPendingVerification ? {
+                            onReject: collection.isPendingVerification && !processingCollectionIds.contains(collection.id) ? {
                                 rejectRemarks = ""
                                 selectedForReject = collection
                             } : nil,
-                            onAccept: collection.isPendingVerification ? {
+                            onAccept: collection.isPendingVerification && !processingCollectionIds.contains(collection.id) ? {
                                 Task<Void, Never> { await approve(collection) }
                             } : nil
                         )
@@ -322,6 +369,10 @@ struct AccountsCollectionsReviewView: View {
 
     @MainActor
     private func load() async {
+        if collections.isEmpty, let cached = LocalCache.get(cacheKey, as: [CustomerCollectionRow].self) {
+            collections = cached
+            hasLoaded = true
+        }
         guard let token = authStore.currentSession?.token else {
             errorMessage = "Not signed in."
             hasLoaded = true
@@ -334,8 +385,9 @@ struct AccountsCollectionsReviewView: View {
         }
         do {
             collections = try await PostSalesConvexAPIService.listCollectionsForAccounts(token: token)
+            LocalCache.put(cacheKey, collections)
         } catch {
-            errorMessage = error.localizedDescription
+            if collections.isEmpty { errorMessage = error.localizedDescription }
         }
     }
 
@@ -346,6 +398,8 @@ struct AccountsCollectionsReviewView: View {
             errorMessage = "Only pending collections can be approved."
             return
         }
+        guard processingCollectionIds.insert(collection.id).inserted else { return }
+        defer { processingCollectionIds.remove(collection.id) }
         do {
             _ = try await PostSalesConvexAPIService.approveCollection(token: token, collectionId: collection.id)
             await load()
@@ -361,6 +415,8 @@ struct AccountsCollectionsReviewView: View {
             errorMessage = "Only pending collections can be rejected."
             return
         }
+        guard processingCollectionIds.insert(collection.id).inserted else { return }
+        defer { processingCollectionIds.remove(collection.id) }
         let trimmedRemarks = rejectRemarks.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !trimmedRemarks.isEmpty else {
             errorMessage = "Remarks are required to reject."
@@ -891,8 +947,10 @@ private struct URLPreviewItem: Identifiable {
 
 private struct PostSalesCollectionDateFilterSheet: View {
     @Environment(\.dismiss) private var dismiss
-    @Binding var date: Date
-    @Binding var selectedDate: Date?
+    @Binding var fromDate: Date
+    @Binding var toDate: Date
+    @Binding var selectedFromDate: Date?
+    @Binding var selectedToDate: Date?
 
     var body: some View {
         VStack(spacing: 0) {
@@ -913,18 +971,25 @@ private struct PostSalesCollectionDateFilterSheet: View {
 
                     HStack(spacing: 18) {
                         Button {
-                            selectedDate = nil
+                            selectedFromDate = nil
+                            selectedToDate = nil
                             dismiss()
                         } label: {
                             Text("Clear")
                                 .font(.system(size: 16, weight: .semibold))
-                                .foregroundStyle(selectedDate == nil ? Color(hex: 0xC4C7CE) : Color(hex: 0x0B61CA))
+                                .foregroundStyle(selectedFromDate == nil ? Color(hex: 0xC4C7CE) : Color(hex: 0x0B61CA))
                         }
                         .buttonStyle(.plain)
-                        .disabled(selectedDate == nil)
+                        .disabled(selectedFromDate == nil)
 
                         Button {
-                            selectedDate = date
+                            if fromDate <= toDate {
+                                selectedFromDate = fromDate
+                                selectedToDate = toDate
+                            } else {
+                                selectedFromDate = toDate
+                                selectedToDate = fromDate
+                            }
                             dismiss()
                         } label: {
                             Text("Select")
@@ -945,17 +1010,21 @@ private struct PostSalesCollectionDateFilterSheet: View {
             .padding(.bottom, 18)
 
             VStack(spacing: 14) {
-                Text("Select Date Filter")
+                Text("Select Date Range")
                     .font(.system(size: 14, weight: .medium))
                 .foregroundStyle(.secondary)
                     .frame(maxWidth: .infinity, alignment: .leading)
                     .padding(.horizontal, 22)
 
-                DatePicker("Collection Date", selection: $date, displayedComponents: .date)
-                    .datePickerStyle(.graphical)
-                    .labelsHidden()
+                DatePicker("From", selection: $fromDate, displayedComponents: .date)
+                    .datePickerStyle(.compact)
                     .tint(Color(hex: 0x0B61CA))
-                    .padding(.horizontal, 14)
+                    .padding(.horizontal, 22)
+
+                DatePicker("To", selection: $toDate, displayedComponents: .date)
+                    .datePickerStyle(.compact)
+                    .tint(Color(hex: 0x0B61CA))
+                    .padding(.horizontal, 22)
             }
             .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .top)
         }
@@ -967,13 +1036,14 @@ private func filterCollections(
     _ rows: [CustomerCollectionRow],
     filter: CollectionPaymentFilter,
     searchText: String,
-    selectedDate: Date?
+    fromDate: Date?,
+    toDate: Date?
 ) -> [CustomerCollectionRow] {
     let categoryFiltered = rows.filter { row in
         // Android maps only `loan` → BANK_LOAN; everything else (cash_in_hand,
         // null, unknown) falls into SELF_FINANCE. Mirror that so self-financed
         // rows with a blank category still show under the Self Finance tab.
-        let isBankLoan = row.normalizedPaymentCategory.contains("loan") || row.normalizedPaymentCategory.contains("bank")
+        let isBankLoan = row.normalizedPaymentCategory == "loan"
         switch filter {
         case .all:
             return true
@@ -984,8 +1054,8 @@ private func filterCollections(
         }
     }
     let dateFiltered: [CustomerCollectionRow]
-    if let selectedDate {
-        dateFiltered = categoryFiltered.filter { $0.matchesCollectionDate(selectedDate) }
+    if let fromDate, let toDate {
+        dateFiltered = categoryFiltered.filter { $0.matchesCollectionDateRange(from: fromDate, to: toDate) }
     } else {
         dateFiltered = categoryFiltered
     }
@@ -1002,8 +1072,8 @@ private func filterCollections(
             row.transactionReference,
             row.customerPaymentCategory
         ]
-        .compactMap { $0?.lowercased() }
-        .contains { $0.contains(query) }
+        .compactMap { $0 }
+        .contains { $0.localizedStandardContains(query) }
     }
 }
 
@@ -1177,18 +1247,6 @@ private struct CollectionRowCard: View {
                 .buttonStyle(.borderedProminent)
                 .tint(Color(hex: 0x16A34A))
                 .padding(.top, 4)
-            } else if let onEdit {
-                Button {
-                    onEdit()
-                } label: {
-                    Label("Edit Amount", systemImage: "pencil")
-                        .font(.system(size: 14, weight: .semibold))
-                        .frame(maxWidth: .infinity)
-                        .frame(height: 44)
-                }
-                .buttonStyle(.bordered)
-                .tint(Color(hex: 0x0B61CA))
-                .padding(.top, 4)
             }
         }
         .padding(16)
@@ -1241,86 +1299,6 @@ private struct CollectionRowCard: View {
             }
         }
         .padding(.vertical, 4)
-    }
-}
-
-private struct CollectionAmountCorrectionSheet: View {
-    @Environment(AuthStore.self) private var authStore
-    @Environment(\.dismiss) private var dismiss
-
-    let collection: CustomerCollectionRow
-    let onSaved: () async -> Void
-
-    @State private var amount: String
-    @State private var isSaving = false
-    @State private var errorMessage: String?
-
-    init(collection: CustomerCollectionRow, onSaved: @escaping () async -> Void) {
-        self.collection = collection
-        self.onSaved = onSaved
-        _amount = State(initialValue: collection.amount.map { String($0) } ?? "")
-    }
-
-    var body: some View {
-        NavigationStack {
-            Form {
-                Section("Pending collection") {
-                    LabeledContent("Customer", value: collection.displayTitle)
-                    LabeledContent("Current amount", value: AppModuleFormatters.rupees(collection.amount ?? 0))
-                }
-                Section {
-                    TextField("Amount", text: $amount)
-                        .keyboardType(.decimalPad)
-                } header: {
-                    Text("Correct amount")
-                } footer: {
-                    Text("The amount can be corrected only while Accounts has not approved or rejected it.")
-                }
-                if let errorMessage {
-                    Section {
-                        Text(errorMessage)
-                            .foregroundStyle(.red)
-                    }
-                }
-            }
-            .navigationTitle("Edit collection amount")
-            .navigationBarTitleDisplayMode(.inline)
-            .interactiveDismissDisabled(isSaving)
-            .toolbar {
-                ToolbarItem(placement: .cancellationAction) {
-                    Button("Cancel") { dismiss() }
-                        .disabled(isSaving)
-                }
-                ToolbarItem(placement: .confirmationAction) {
-                    Button(isSaving ? "Saving…" : "Save") {
-                        Task { await save() }
-                    }
-                    .disabled(isSaving || validAmount == nil)
-                }
-            }
-        }
-    }
-
-    private var validAmount: Double? {
-        guard let value = Double(amount), value.isFinite, value > 0 else { return nil }
-        return value
-    }
-
-    @MainActor
-    private func save() async {
-        guard let token = authStore.currentSession?.token, let validAmount else { return }
-        isSaving = true
-        defer { isSaving = false }
-        do {
-            _ = try await PostSalesConvexAPIService.correctCollection(
-                token: token,
-                request: CorrectCollectionRequest(collectionId: collection.id, amount: validAmount)
-            )
-            await onSaved()
-            dismiss()
-        } catch {
-            errorMessage = error.localizedDescription
-        }
     }
 }
 
@@ -1633,9 +1611,10 @@ private enum CollectionEntryPaymentMode: String, CaseIterable, Identifiable {
     case rtgs
     case cheque
     case dd
+    case bank
 
     var id: String { rawValue }
-    var title: String { rawValue.uppercased() }
+    var title: String { self == .bank ? "Bank Transfer" : rawValue.uppercased() }
     var isCash: Bool { self == .cash }
     var isInstrument: Bool { self == .cheque || self == .dd }
 }
@@ -1810,15 +1789,11 @@ private struct CollectionSubmitSheet: View {
     @Environment(\.dismiss) private var dismiss
     let rectifyingCollection: CustomerCollectionRow?
     @State private var caseId = ""
-    @State private var mobile = ""
     @State private var caseMatches: [PostSaleCaseSummary] = []
     @State private var selectedCase: PostSaleCaseSummary?
     @State private var amount = ""
     @State private var paymentMode: CollectionEntryPaymentMode = .upi
     @State private var reference = ""
-    @State private var bankName = ""
-    @State private var branchName = ""
-    @State private var paymentInstrumentDate = Date()
     @State private var notes = ""
     @State private var proofFile: PostSalesUploadedFile?
     @State private var errorMessage: String?
@@ -1827,6 +1802,9 @@ private struct CollectionSubmitSheet: View {
     @State private var isUploading = false
     @State private var showingFileImporter = false
     @State private var showingBookingSelection = false
+    @State private var showingProofCamera = false
+    @State private var proofImage: UIImage?
+    @State private var hasPreparedForm = false
     let onSaved: () async -> Void
 
     private var amountValue: Double? {
@@ -1834,58 +1812,26 @@ private struct CollectionSubmitSheet: View {
         return value
     }
 
-    private var hasValidInstrumentDetails: Bool {
-        guard paymentMode.isInstrument else { return true }
-        return reference.nonBlank != nil
-            && bankName.nonBlank != nil
-            && branchName.nonBlank != nil
-    }
-
     private var canSubmit: Bool {
         !isSubmitting
             && !isUploading
             && caseId.nonBlank != nil
             && amountValue != nil
-            && hasValidInstrumentDetails
+            && reference.nonBlank != nil
+    }
+
+    private var openBookingsCacheKey: String {
+        let staffId = authStore.viewer?.subject ?? authStore.currentSession?.user._id ?? "anonymous"
+        return "postsales.collections.open-bookings.\(staffId)"
     }
 
     var body: some View {
         NavigationStack {
             Form {
                 Section("Customer") {
-                    HStack {
-                        TextField("Mobile number", text: $mobile)
-                            .keyboardType(.phonePad)
-                            .textContentType(.telephoneNumber)
-                            .submitLabel(.search)
-                            .onSubmit {
-                                Task { await searchCases() }
-                            }
-                        Button {
-                            Task { await searchCases() }
-                        } label: {
-                            if isSearching {
-                                ProgressView()
-                            } else {
-                                Image(systemName: "magnifyingglass")
-                            }
-                        }
-                        .disabled(isSearching || AppModuleFormatters.normalizePhone(mobile).isEmpty)
-                        .accessibilityLabel("Find customer bookings")
-                    }
-
                     if let selectedCase {
                         CollectionSelectedBookingView(item: selectedCase) {
                             showingBookingSelection = true
-                        }
-                    } else if !caseMatches.isEmpty {
-                        Button {
-                            showingBookingSelection = true
-                        } label: {
-                            Label(
-                                "Select from \(caseMatches.count) booking\(caseMatches.count == 1 ? "" : "s")",
-                                systemImage: "rectangle.stack"
-                            )
                         }
                     } else if let rectifyingCollection {
                         VStack(alignment: .leading, spacing: 4) {
@@ -1903,6 +1849,23 @@ private struct CollectionSubmitSheet: View {
                             .font(.subheadline)
                             .foregroundStyle(.secondary)
                         }
+                    } else {
+                        Button {
+                            showingBookingSelection = true
+                        } label: {
+                            if isSearching {
+                                Label("Loading bookings...", systemImage: "arrow.triangle.2.circlepath")
+                            } else {
+                                Label("Select Booking", systemImage: "rectangle.stack")
+                            }
+                        }
+                        .disabled(isSearching || caseMatches.isEmpty)
+                    }
+
+                    if !isSearching && caseMatches.isEmpty && rectifyingCollection == nil {
+                        Text("No open confirmed bookings are available for collection.")
+                            .font(.caption)
+                            .foregroundStyle(.secondary)
                     }
                 }
 
@@ -1915,29 +1878,26 @@ private struct CollectionSubmitSheet: View {
                         }
                     }
 
-                    if paymentMode.isInstrument {
-                        TextField(paymentMode == .dd ? "DD number" : "Cheque number", text: $reference)
-                        TextField("Bank", text: $bankName)
-                        TextField("Branch", text: $branchName)
-                        DatePicker(
-                            paymentMode == .dd ? "DD date" : "Cheque date",
-                            selection: $paymentInstrumentDate,
-                            displayedComponents: .date
-                        )
-                    } else if !paymentMode.isCash {
-                        TextField("Transaction ID", text: $reference)
-                            .textInputAutocapitalization(.characters)
-                    }
+                    TextField("Transaction Reference", text: $reference)
+                        .textInputAutocapitalization(.characters)
 
                     TextField("Notes", text: $notes, axis: .vertical)
                         .lineLimit(3, reservesSpace: true)
                 }
 
                 Section("Payment Proof") {
-                    Button {
-                        showingFileImporter = true
-                    } label: {
-                        Label(proofFile == nil ? "Attach payment proof" : "Replace payment proof", systemImage: "paperclip")
+                    HStack {
+                        Button {
+                            showingProofCamera = true
+                        } label: {
+                            Label("Camera", systemImage: "camera")
+                        }
+                        Spacer()
+                        Button {
+                            showingFileImporter = true
+                        } label: {
+                            Label(proofFile == nil ? "Attach File" : "Replace File", systemImage: "paperclip")
+                        }
                     }
                     if isUploading {
                         ProgressView("Uploading proof...")
@@ -1966,17 +1926,16 @@ private struct CollectionSubmitSheet: View {
             }
             .navigationTitle(rectifyingCollection == nil ? "Payment Entry" : "Rectify Collection")
             .navigationBarTitleDisplayMode(.inline)
-            .onAppear(perform: applyRectifyPrefill)
-            .onChange(of: paymentMode) { oldValue, newValue in
-                guard oldValue != newValue else { return }
-                if newValue.isCash {
-                    reference = ""
-                }
-                if !newValue.isInstrument {
-                    bankName = ""
-                    branchName = ""
-                    paymentInstrumentDate = Date()
-                }
+            .task { await prepareForm() }
+            .onChange(of: caseId) { _, _ in saveDraftIfNeeded() }
+            .onChange(of: amount) { _, _ in saveDraftIfNeeded() }
+            .onChange(of: reference) { _, _ in saveDraftIfNeeded() }
+            .onChange(of: notes) { _, _ in saveDraftIfNeeded() }
+            .onChange(of: paymentMode) { _, _ in saveDraftIfNeeded() }
+            .onChange(of: proofFile) { _, _ in saveDraftIfNeeded() }
+            .onChange(of: proofImage) { _, image in
+                guard let image else { return }
+                Task { await uploadCameraProof(image) }
             }
             .sheet(isPresented: $showingBookingSelection) {
                 CollectionBookingSelectionSheet(
@@ -1994,6 +1953,10 @@ private struct CollectionSubmitSheet: View {
                 allowsMultipleSelection: false
             ) { result in
                 Task { await importProof(result) }
+            }
+            .fullScreenCover(isPresented: $showingProofCamera) {
+                PunchCameraView(capturedImage: $proofImage)
+                    .ignoresSafeArea()
             }
             .toolbar {
                 ToolbarItem(placement: .cancellationAction) {
@@ -2020,33 +1983,41 @@ private struct CollectionSubmitSheet: View {
         amount = row.amount.map { String($0) } ?? ""
         paymentMode = CollectionEntryPaymentMode(rawValue: row.paymentMode ?? "") ?? .upi
         reference = row.transactionReference ?? ""
-        bankName = row.bankName ?? ""
-        branchName = row.branchName ?? ""
-        if let date = Self.dateOnlyFormatter.date(from: row.paymentInstrumentDate ?? "") {
-            paymentInstrumentDate = date
-        }
         notes = row.notes ?? row.verificationNotes ?? ""
     }
 
     @MainActor
-    private func searchCases() async {
+    private func prepareForm() async {
+        guard !hasPreparedForm else { return }
+        hasPreparedForm = true
+        if rectifyingCollection != nil {
+            applyRectifyPrefill()
+            return
+        }
+        restoreDraft()
+        await loadOpenBookings()
+    }
+
+    @MainActor
+    private func loadOpenBookings() async {
+        if caseMatches.isEmpty,
+           let cached = LocalCache.get(openBookingsCacheKey, as: [PostSaleCaseSummary].self) {
+            caseMatches = cached
+            if let restored = cached.first(where: { $0.id == caseId }) {
+                selectedCase = restored
+            }
+        }
         guard let token = authStore.currentSession?.token else { return }
-        isSearching = true
+        isSearching = caseMatches.isEmpty
         defer { isSearching = false }
         do {
-            selectedCase = nil
-            caseId = ""
-            caseMatches = try await PostSalesConvexAPIService.getCasesByMobile(
-                token: token,
-                mobile: AppModuleFormatters.normalizePhone(mobile)
-            )
-            if caseMatches.isEmpty {
-                errorMessage = "No bookings found for this mobile number."
-            } else {
-                showingBookingSelection = true
+            caseMatches = try await PostSalesConvexAPIService.listOpenBookings(token: token)
+            LocalCache.put(openBookingsCacheKey, caseMatches)
+            if let restored = caseMatches.first(where: { $0.id == caseId }) {
+                selectedCase = restored
             }
         } catch {
-            errorMessage = error.localizedDescription
+            if caseMatches.isEmpty { errorMessage = error.localizedDescription }
         }
     }
 
@@ -2077,6 +2048,29 @@ private struct CollectionSubmitSheet: View {
     }
 
     @MainActor
+    private func uploadCameraProof(_ image: UIImage) async {
+        guard let token = authStore.currentSession?.token,
+              let data = image.jpegData(compressionQuality: 0.72) else { return }
+        isUploading = true
+        defer { isUploading = false }
+        do {
+            let storageId = try await PostSalesStorageService.uploadData(
+                token: token,
+                data: data,
+                mimeType: "image/jpeg"
+            )
+            proofFile = PostSalesUploadedFile(
+                storageId: storageId,
+                fileName: "collection-proof.jpg",
+                mimeType: "image/jpeg",
+                fileSize: data.count
+            )
+        } catch {
+            errorMessage = error.localizedDescription
+        }
+    }
+
+    @MainActor
     private func submit() async {
         guard let token = authStore.currentSession?.token, let amountValue else { return }
         isSubmitting = true
@@ -2089,17 +2083,16 @@ private struct CollectionSubmitSheet: View {
                     caseId: caseId.trimmingCharacters(in: .whitespacesAndNewlines),
                     amount: amountValue,
                     paymentMode: paymentMode.rawValue,
-                    transactionReference: paymentMode.isCash ? nil : reference.nonBlank,
-                    bankName: paymentMode.isInstrument ? bankName.nonBlank : nil,
-                    branchName: paymentMode.isInstrument ? branchName.nonBlank : nil,
-                    paymentInstrumentDate: paymentMode.isInstrument
-                        ? Self.dateOnlyFormatter.string(from: paymentInstrumentDate)
-                        : nil,
+                    transactionReference: reference.nonBlank,
+                    bankName: nil,
+                    branchName: nil,
+                    paymentInstrumentDate: nil,
                     proofStorageId: proofFile?.storageId,
                     proofFileName: proofFile?.fileName,
                     notes: notes.nonBlank
                 )
             )
+            clearDraft()
             await onSaved()
             dismiss()
         } catch {
@@ -2107,13 +2100,49 @@ private struct CollectionSubmitSheet: View {
         }
     }
 
-    private static let dateOnlyFormatter: DateFormatter = {
-        let formatter = DateFormatter()
-        formatter.locale = Locale(identifier: "en_US_POSIX")
-        formatter.calendar = Calendar(identifier: .gregorian)
-        formatter.dateFormat = "yyyy-MM-dd"
-        return formatter
-    }()
+    private static let draftKey = "collection.form.draft.v1"
+
+    private func saveDraftIfNeeded() {
+        guard hasPreparedForm, rectifyingCollection == nil else { return }
+        let draft = CollectionFormDraft(
+            caseId: caseId,
+            amount: amount,
+            paymentMode: paymentMode.rawValue,
+            reference: reference,
+            notes: notes,
+            proofFile: proofFile
+        )
+        guard !draft.isEmpty, let data = try? JSONEncoder().encode(draft) else { return }
+        UserDefaults.standard.set(data, forKey: Self.draftKey)
+    }
+
+    private func restoreDraft() {
+        guard let data = UserDefaults.standard.data(forKey: Self.draftKey),
+              let draft = try? JSONDecoder().decode(CollectionFormDraft.self, from: data) else { return }
+        caseId = draft.caseId
+        amount = draft.amount
+        paymentMode = CollectionEntryPaymentMode(rawValue: draft.paymentMode) ?? .upi
+        reference = draft.reference
+        notes = draft.notes
+        proofFile = draft.proofFile
+    }
+
+    private func clearDraft() {
+        UserDefaults.standard.removeObject(forKey: Self.draftKey)
+    }
+}
+
+private struct CollectionFormDraft: Codable {
+    let caseId: String
+    let amount: String
+    let paymentMode: String
+    let reference: String
+    let notes: String
+    let proofFile: PostSalesUploadedFile?
+
+    var isEmpty: Bool {
+        caseId.isEmpty && amount.isEmpty && reference.isEmpty && notes.isEmpty && proofFile == nil
+    }
 }
 
 private struct RejectCollectionSheet: View {
@@ -2621,6 +2650,14 @@ private extension CustomerCollectionRow {
     func matchesCollectionDate(_ selectedDate: Date) -> Bool {
         let calendar = Calendar.current
         return collectionFilterDates.contains { calendar.isDate($0, inSameDayAs: selectedDate) }
+    }
+
+    func matchesCollectionDateRange(from: Date, to: Date) -> Bool {
+        let calendar = Calendar.current
+        let lowerBound = calendar.startOfDay(for: min(from, to))
+        let upperDay = calendar.startOfDay(for: max(from, to))
+        let upperBound = calendar.date(byAdding: .day, value: 1, to: upperDay) ?? upperDay
+        return collectionFilterDates.contains { $0 >= lowerBound && $0 < upperBound }
     }
 
     private var collectionFilterDates: [Date] {

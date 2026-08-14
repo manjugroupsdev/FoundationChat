@@ -40,6 +40,12 @@ struct PunchFlowView: View {
         location != nil && !isSubmitting
     }
 
+    private var todayAttendanceCacheKey: String? {
+        guard let user = authStore.currentSession?.user else { return nil }
+        let staff = user.staffId?.nonBlank ?? user._id
+        return "hr.attendance.today.\(staff)"
+    }
+
     var body: some View {
         NavigationStack {
             ScrollView {
@@ -409,9 +415,18 @@ struct PunchFlowView: View {
             currentAttendance = nil
             return
         }
+        if currentAttendance == nil,
+           let cacheKey = todayAttendanceCacheKey,
+           let cached = LocalCache.get(cacheKey, as: ConvexTodayAttendance.self) {
+            currentAttendance = cached
+        }
         isStatusLoading = true
         defer { isStatusLoading = false }
-        currentAttendance = try? await HRConvexAPIService.getTodayAttendance(token: token)
+        guard let attendance = try? await HRConvexAPIService.getTodayAttendance(token: token) else { return }
+        currentAttendance = attendance
+        if let cacheKey = todayAttendanceCacheKey {
+            LocalCache.put(cacheKey, attendance)
+        }
     }
 
     private var currentStatusText: String {

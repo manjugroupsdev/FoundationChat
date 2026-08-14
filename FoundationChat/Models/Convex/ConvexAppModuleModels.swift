@@ -566,6 +566,7 @@ struct BookingClientProfile: Decodable, Identifiable, Sendable {
     let nationality: String?
     let homeAddress: String?
     let doorNo: String?
+    let streetName: String?
     let addressLine1: String?
     let addressLine2: String?
     let landmark: String?
@@ -583,6 +584,10 @@ struct BookingClientProfile: Decodable, Identifiable, Sendable {
     let incomePerAnnum: String?
     let officeName: String?
     let officeAddress: String?
+    let officeDoorNo: String?
+    let officeStreet: String?
+    let officeAddressLine1: String?
+    let officeAddressLine2: String?
     let officeArea: String?
     let officePincode: String?
     let officeMobile: String?
@@ -606,11 +611,12 @@ struct BookingClientProfile: Decodable, Identifiable, Sendable {
         case mobileNumber, alternateNumbers, whatsappNumber, email
         case title, clientName, clientImageStorageId, clientImageFileName
         case fatherSpouseName, dateOfBirth, anniversaryDate, nationality
-        case homeAddress, doorNo, addressLine1, addressLine2, landmark
+        case homeAddress, doorNo, streetName, addressLine1, addressLine2, landmark
         case pincode, state, district, location, formattedAddress
         case googleMapsLink, lat, lng
         case profession, designation, department, incomePerAnnum
-        case officeName, officeAddress, officeArea, officePincode
+        case officeName, officeAddress, officeDoorNo, officeStreet
+        case officeAddressLine1, officeAddressLine2, officeArea, officePincode
         case officeMobile, officePhone, officeEmail
         case aadhaar, aadhaarDocumentStorageId, aadhaarDocumentFileName
         case pan, panDocumentStorageId, panDocumentFileName
@@ -747,9 +753,15 @@ struct CreateBookingRequest: Encodable, Sendable {
     let aadhaar: String?
     let aadhaarDocumentStorageId: String?
     let aadhaarDocumentFileName: String?
+    let aadhaarBackDocumentStorageId: String?
+    let aadhaarBackDocumentFileName: String?
     let pan: String?
     let panDocumentStorageId: String?
     let panDocumentFileName: String?
+    let cefFormFrontDocumentStorageId: String?
+    let cefFormFrontDocumentFileName: String?
+    let cefFormBackDocumentStorageId: String?
+    let cefFormBackDocumentFileName: String?
     let referenceName1: String?
     let referenceMobile1: String?
     let referenceProfession1: String?
@@ -785,6 +797,8 @@ struct CreateBookingRequest: Encodable, Sendable {
     // Booking follow-up: backend spawns a booking_cp for this date/time.
     let bookingCpDate: String?
     let bookingCpTime: String?
+    let conversionExchangeAmount: Double?
+    let skipApproval: Bool?
     let notes: String?
 
     init(
@@ -885,9 +899,15 @@ struct CreateBookingRequest: Encodable, Sendable {
         aadhaar: String? = nil,
         aadhaarDocumentStorageId: String? = nil,
         aadhaarDocumentFileName: String? = nil,
+        aadhaarBackDocumentStorageId: String? = nil,
+        aadhaarBackDocumentFileName: String? = nil,
         pan: String? = nil,
         panDocumentStorageId: String? = nil,
         panDocumentFileName: String? = nil,
+        cefFormFrontDocumentStorageId: String? = nil,
+        cefFormFrontDocumentFileName: String? = nil,
+        cefFormBackDocumentStorageId: String? = nil,
+        cefFormBackDocumentFileName: String? = nil,
         referenceName1: String? = nil,
         referenceMobile1: String? = nil,
         referenceProfession1: String? = nil,
@@ -922,6 +942,8 @@ struct CreateBookingRequest: Encodable, Sendable {
         sourceSiteVisitId: String? = nil,
         bookingCpDate: String? = nil,
         bookingCpTime: String? = nil,
+        conversionExchangeAmount: Double? = nil,
+        skipApproval: Bool? = nil,
         notes: String? = nil
     ) {
         self.clientName = clientName
@@ -1021,9 +1043,15 @@ struct CreateBookingRequest: Encodable, Sendable {
         self.aadhaar = aadhaar
         self.aadhaarDocumentStorageId = aadhaarDocumentStorageId
         self.aadhaarDocumentFileName = aadhaarDocumentFileName
+        self.aadhaarBackDocumentStorageId = aadhaarBackDocumentStorageId
+        self.aadhaarBackDocumentFileName = aadhaarBackDocumentFileName
         self.pan = pan
         self.panDocumentStorageId = panDocumentStorageId
         self.panDocumentFileName = panDocumentFileName
+        self.cefFormFrontDocumentStorageId = cefFormFrontDocumentStorageId
+        self.cefFormFrontDocumentFileName = cefFormFrontDocumentFileName
+        self.cefFormBackDocumentStorageId = cefFormBackDocumentStorageId
+        self.cefFormBackDocumentFileName = cefFormBackDocumentFileName
         self.referenceName1 = referenceName1
         self.referenceMobile1 = referenceMobile1
         self.referenceProfession1 = referenceProfession1
@@ -1058,6 +1086,8 @@ struct CreateBookingRequest: Encodable, Sendable {
         self.sourceSiteVisitId = sourceSiteVisitId
         self.bookingCpDate = bookingCpDate
         self.bookingCpTime = bookingCpTime
+        self.conversionExchangeAmount = conversionExchangeAmount
+        self.skipApproval = skipApproval
         self.notes = notes
     }
 }
@@ -1065,37 +1095,29 @@ struct CreateBookingRequest: Encodable, Sendable {
 struct SetSiteVisitOutcomeRequest: Encodable, Sendable {
     let id: String
     let outcome: String
-    // VERIFY: Android's setSiteVisitOutcome does not send reasons/bookingId — confirm backend tolerates them
-    let reasons: [String]?
     let postponeReasons: [String]?
     let notInterestedReasons: [String]?
     let notInterestedDetails: [SiteVisitNotInterestedDetail]?
     let notes: String?
-    let bookingId: String?
-    // Follow-up scheduling for the `follow_up` outcome (Android SV outcome fields).
     let followupDueDate: String?
     let followupDueTime: String?
 
     init(
         id: String,
         outcome: String,
-        reasons: [String]? = nil,
         postponeReasons: [String]? = nil,
         notInterestedReasons: [String]? = nil,
         notInterestedDetails: [SiteVisitNotInterestedDetail]? = nil,
         notes: String? = nil,
-        bookingId: String? = nil,
         followupDueDate: String? = nil,
         followupDueTime: String? = nil
     ) {
         self.id = id
         self.outcome = outcome
-        self.reasons = reasons
         self.postponeReasons = postponeReasons
         self.notInterestedReasons = notInterestedReasons
         self.notInterestedDetails = notInterestedDetails
         self.notes = notes
-        self.bookingId = bookingId
         self.followupDueDate = followupDueDate
         self.followupDueTime = followupDueTime
     }
@@ -1121,13 +1143,37 @@ struct CancelSiteVisitRequest: Encodable, Sendable {
     let reason: String?
 }
 
+struct ConvertSiteVisitToBookingRequest: Encodable, Sendable {
+    let id: String
+    let plotId: String
+    let clientName: String
+    let mobileNumber: String
+    let bookingDate: String
+    let bookingType: String?
+    let propertyType: String?
+    let bookingMode: String?
+    let bookingCost: Double?
+    let advanceAmount: Double?
+    let paymentMode: String?
+    let notes: String?
+    let originalTelecallerStaffId: String?
+}
+
+struct ConvertSiteVisitToBookingResponse: Decodable, Sendable {
+    let success: Bool
+    let bookingId: String?
+    let siteVisitId: String?
+    let error: String?
+}
+
 struct SiteVisitNotInterestedDetail: Encodable, Sendable {
     let reason: String
     let detail: String?
 }
 
-struct AppBooking: Decodable, Identifiable, Equatable, Sendable {
+struct AppBooking: Codable, Identifiable, Equatable, Sendable {
     let id: String
+    let creationTime: Double?
     let bookingRefNo: String?
     let clientName: String?
     let mobileNumber: String?
@@ -1135,6 +1181,7 @@ struct AppBooking: Decodable, Identifiable, Equatable, Sendable {
     let projectName: String?
     let plotId: String?
     let plotNo: String?
+    let plotNumber: String?
     let bookingDate: String?
     let bookingType: String?
     let bookingMode: String?
@@ -1156,47 +1203,218 @@ struct AppBooking: Decodable, Identifiable, Equatable, Sendable {
     let location: String?
     let profession: String?
     let designation: String?
+    let department: String?
     let incomePerAnnum: String?
     let officeName: String?
     let officeEmail: String?
     let officeMobile: String?
     let officePhone: String?
     let officeAddress: String?
+    let officeArea: String?
+    let officePincode: String?
     let guidelineValue: Double?
+    let conversionManualEntry: Bool?
+    let manualConversionProjectName: String?
+    let manualConversionPlotNo: String?
+    let manualConversionCredit: Double?
+    let conversionNotes: String?
+    let sourceExchangeBookingId: String?
+    let exchangeManualEntry: Bool?
+    let exchangeLookupProjectId: String?
+    let exchangeLookupPlotNo: String?
+    let exchangeConnectedMobileNumber: String?
+    let manualExchangeProjectName: String?
+    let manualExchangePlotNo: String?
+    let manualExchangeExtentSqft: Double?
+    let exchangeOldRegisteredValue: Double?
+    let exchangeNewValue: Double?
+    let exchangeBalancePayable: Double?
+    let exchangeNotes: String?
+    let cefNo: String?
+    let isDuplicateBooking: Bool?
+    let isAgainstSV: Bool?
+    let svName: String?
+    let svMobileNo: String?
+    let propertyType: String?
+    let clientSource: String?
+    let clientSourceName: String?
+    let clientSourceMobile: String?
+    let referralBenefit: String?
+    let specialConsideration: Double?
+    let specialConsiderationReason: String?
+    let discountApprovedBy: String?
+    let specialConsiderationValidity: Double?
+    let promotionalOffers: String?
+    let promotionalOffersTnC: String?
+    let promotionalOfferValue: Double?
+    let offerValidityPeriod: Double?
     let registrationCharges: Double?
+    let gstApplicable: Bool?
     let gstAmount: Double?
     let documentCharges: Double?
     let pattaCharges: Double?
+    let otherChargesApplicable: Bool?
     let otherCharges: Double?
     let paymentMode: String?
+    let advanceTransactionId: String?
+    let advancePaymentProofStorageId: String?
+    let advancePaymentProofFileName: String?
+    let advanceInstrumentNo: String?
+    let advanceBankName: String?
+    let advanceBankBranch: String?
+    let advanceInstrumentDate: String?
     let customerPaymentCategory: String?
     let loanAmountRequested: Double?
     let paymentPlan: String?
+    let freePayment: Bool?
+    let allotmentDueAmount: Double?
+    let allotmentDueDate: String?
+    let secondPaymentAmount: Double?
+    let secondPaymentDate: String?
+    let thirdPaymentAmount: Double?
+    let thirdPaymentDate: String?
+    let fourthPaymentAmount: Double?
+    let fourthPaymentDate: String?
+    let preferredRegistrationDate: String?
     let advanceAmount: Double?
     let balanceAmount: Double?
+    let agreedAmount: Double?
+    let aadhaar: String?
+    let aadhaarDocumentStorageId: String?
+    let aadhaarDocumentFileName: String?
+    let aadhaarBackDocumentStorageId: String?
+    let aadhaarBackDocumentFileName: String?
+    let pan: String?
+    let panDocumentStorageId: String?
+    let panDocumentFileName: String?
+    let cefFormFrontDocumentStorageId: String?
+    let cefFormFrontDocumentFileName: String?
+    let cefFormBackDocumentStorageId: String?
+    let cefFormBackDocumentFileName: String?
+    let referenceName1: String?
+    let referenceMobile1: String?
+    let referenceProfession1: String?
+    let referenceName2: String?
+    let referenceMobile2: String?
+    let referenceProfession2: String?
+    let docPreparedIn: String?
     let source: String?
     let status: String?
     let approvalStatus: String?
+    let approvalStage: String?
+    let sourceType: String?
+    let createdByStaffId: String?
+    let accountsTransactionId: String?
+    let accountsPaymentProofStorageId: String?
+    let accountsPaymentProofFileName: String?
+    let approvalRequest: AppBookingApprovalRequest?
+    let approvalWorkflow: AppBookingApprovalWorkflow?
+    let cancellationRequest: AppBookingApprovalRequest?
+    let cancellationApprovalStage: String?
+    let cancellationRequestedAt: Double?
+    let plot: AppBookingPlotDetail?
+    let sourceTelecallerStaff: AppBookingStaffBrief?
+    let sourceAvpStaff: AppBookingStaffBrief?
     let notes: String?
     let createdAt: Double?
     let updatedAt: Double?
 
     enum CodingKeys: String, CodingKey {
         case id = "_id"
+        case creationTime = "_creationTime"
         case bookingRefNo, clientName, mobileNumber, projectId, projectName
-        case plotId, plotNo, bookingDate, bookingType, bookingMode
+        case plotId, plotNo, plotNumber, bookingDate, bookingType, bookingMode
         case clientImageStorageId, clientImageFileName
         case title, fatherSpouseName, dateOfBirth, anniversaryDate, alternateNumbers, whatsappNumber
         case email, nationality, homeAddress, pincode, state, district, location
-        case profession, designation, incomePerAnnum, officeName, officeEmail, officeMobile, officePhone, officeAddress
-        case guidelineValue, registrationCharges, gstAmount, documentCharges, pattaCharges, otherCharges, paymentMode
-        case customerPaymentCategory, loanAmountRequested, paymentPlan
-        case bookingCost, advanceAmount, balanceAmount, source, status
-        case approvalStatus, notes, createdAt, updatedAt
+        case profession, designation, department, incomePerAnnum, officeName, officeEmail, officeMobile, officePhone, officeAddress
+        case officeArea, officePincode
+        case guidelineValue
+        case conversionManualEntry, manualConversionProjectName, manualConversionPlotNo, manualConversionCredit, conversionNotes
+        case sourceExchangeBookingId, exchangeManualEntry, exchangeLookupProjectId, exchangeLookupPlotNo, exchangeConnectedMobileNumber
+        case manualExchangeProjectName, manualExchangePlotNo, manualExchangeExtentSqft
+        case exchangeOldRegisteredValue, exchangeNewValue, exchangeBalancePayable, exchangeNotes
+        case cefNo, isDuplicateBooking, isAgainstSV, svName, svMobileNo, propertyType
+        case clientSource, clientSourceName, clientSourceMobile, referralBenefit
+        case specialConsideration, specialConsiderationReason, discountApprovedBy, specialConsiderationValidity
+        case promotionalOffers, promotionalOffersTnC, promotionalOfferValue, offerValidityPeriod
+        case registrationCharges, gstApplicable, gstAmount, documentCharges, pattaCharges, otherChargesApplicable, otherCharges, paymentMode
+        case advanceTransactionId, advancePaymentProofStorageId, advancePaymentProofFileName
+        case advanceInstrumentNo, advanceBankName, advanceBankBranch, advanceInstrumentDate
+        case customerPaymentCategory, loanAmountRequested, paymentPlan, freePayment
+        case allotmentDueAmount, allotmentDueDate, secondPaymentAmount, secondPaymentDate
+        case thirdPaymentAmount, thirdPaymentDate, fourthPaymentAmount, fourthPaymentDate, preferredRegistrationDate
+        case bookingCost, advanceAmount, balanceAmount, agreedAmount
+        case aadhaar, aadhaarDocumentStorageId, aadhaarDocumentFileName
+        case aadhaarBackDocumentStorageId, aadhaarBackDocumentFileName
+        case pan, panDocumentStorageId, panDocumentFileName
+        case cefFormFrontDocumentStorageId, cefFormFrontDocumentFileName
+        case cefFormBackDocumentStorageId, cefFormBackDocumentFileName
+        case referenceName1, referenceMobile1, referenceProfession1
+        case referenceName2, referenceMobile2, referenceProfession2, docPreparedIn
+        case source, status
+        case approvalStatus, approvalStage, sourceType, createdByStaffId
+        case accountsTransactionId, accountsPaymentProofStorageId, accountsPaymentProofFileName
+        case approvalRequest, approvalWorkflow, cancellationRequest, cancellationApprovalStage, cancellationRequestedAt
+        case plot, sourceTelecallerStaff, sourceAvpStaff
+        case notes, createdAt, updatedAt
     }
 
     var displayStatus: String {
         approvalStatus?.nilIfBlank ?? status?.nilIfBlank ?? "pending"
+    }
+}
+
+struct AppBookingApprovalHistory: Codable, Equatable, Sendable {
+    let stepOrder: Int?
+    let action: String?
+    let approverName: String?
+    let comment: String?
+    let timestamp: String?
+}
+
+struct AppBookingApprovalRequest: Codable, Equatable, Sendable {
+    let requestedBy: String?
+    let requestedOn: String?
+    let currentStep: Int?
+    let totalSteps: Int?
+    let currentApproverId: String?
+    let currentApproverName: String?
+    let currentApproverRole: String?
+    let status: String?
+    let approvalHistory: [AppBookingApprovalHistory]?
+}
+
+struct AppBookingApprovalWorkflow: Codable, Equatable, Sendable {
+    let steps: [AppBookingApprovalStep]?
+}
+
+struct AppBookingApprovalStep: Codable, Equatable, Sendable {
+    let stepOrder: Int?
+    let approverRole: String?
+    let requiresTransactionId: Bool?
+    let allowsPaymentProof: Bool?
+}
+
+struct AppBookingPlotDetail: Codable, Identifiable, Equatable, Sendable {
+    let id: String?
+    let unitNumber: String?
+    let plotNo: String?
+    let status: String?
+
+    enum CodingKeys: String, CodingKey {
+        case id = "_id"
+        case unitNumber, plotNo, status
+    }
+}
+
+struct AppBookingStaffBrief: Codable, Identifiable, Equatable, Sendable {
+    let id: String?
+    let name: String?
+
+    enum CodingKeys: String, CodingKey {
+        case id = "_id"
+        case name
     }
 }
 
@@ -1333,6 +1551,7 @@ struct CreateCpVisitRequest: Encodable, Sendable {
     let clientName: String?
     let mobileNumber: String
     let assignedStaffId: String
+    let lmoStaffId: String?
     let scheduledDate: String
     let scheduledTime: String?
     let cpType: String?

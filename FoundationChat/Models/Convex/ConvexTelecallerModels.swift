@@ -77,6 +77,32 @@ struct ConvexLead: Codable, Identifiable, Equatable, Sendable {
         creationTime = try? c.decodeIfPresent(Double.self, forKey: .creationTime)
     }
 
+    func encode(to encoder: Encoder) throws {
+        var c = encoder.container(keyedBy: CodingKeys.self)
+        try c.encode(_id, forKey: ._id)
+        try c.encodeIfPresent(source, forKey: .source)
+        try c.encodeIfPresent(contactName, forKey: .contactName)
+        try c.encodeIfPresent(mobileNumber, forKey: .mobileNumber)
+        try c.encodeIfPresent(mobileNumberNormalized, forKey: .mobileNumberNormalized)
+        try c.encodeIfPresent(emailId, forKey: .emailId)
+        try c.encodeIfPresent(alternateNumber, forKey: .alternateNumber)
+        try c.encodeIfPresent(campaignName, forKey: .campaignName)
+        try c.encodeIfPresent(primaryCampaign, forKey: .primaryCampaign)
+        try c.encodeIfPresent(secondaryCampaign, forKey: .secondaryCampaign)
+        try c.encodeIfPresent(assignedToStaffName, forKey: .assignedToStaffName)
+        try c.encodeIfPresent(assignedDate, forKey: .assignedDate)
+        try c.encodeIfPresent(assignedTime, forKey: .assignedTime)
+        try c.encodeIfPresent(assignedDateTime, forKey: .assignedDateTime)
+        try c.encodeIfPresent(leadReceivedAt, forKey: .leadReceivedAt)
+        try c.encodeIfPresent(followUpStatus, forKey: .followUpStatus)
+        try c.encodeIfPresent(followUpRemarks, forKey: .followUpRemarks)
+        try c.encodeIfPresent(followUpDate, forKey: .followUpDate)
+        try c.encodeIfPresent(clientCity, forKey: .clientCity)
+        try c.encodeIfPresent(locationPreferred, forKey: .locationPreferred)
+        try c.encodeIfPresent(budget, forKey: .budget)
+        try c.encodeIfPresent(creationTime, forKey: .creationTime)
+    }
+
     var id: String { _id }
 
     // MARK: Compatibility accessors (used across the Telecaller views)

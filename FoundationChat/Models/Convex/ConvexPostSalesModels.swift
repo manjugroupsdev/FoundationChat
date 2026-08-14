@@ -1,6 +1,6 @@
 import Foundation
 
-struct PostSaleCaseSummary: Decodable, Identifiable, Equatable, Sendable {
+struct PostSaleCaseSummary: Codable, Identifiable, Equatable, Sendable {
     let id: String
     let bookingId: String?
     let bookingRefNo: String?
@@ -28,7 +28,7 @@ struct PostSaleCaseSummary: Decodable, Identifiable, Equatable, Sendable {
     }
 }
 
-struct CustomerCollectionRow: Decodable, Identifiable, Equatable, Sendable {
+struct CustomerCollectionRow: Codable, Identifiable, Equatable, Sendable {
     let id: String
     let collectionRefNo: String?
     let caseId: String?

@@ -22,6 +22,7 @@ struct CpVisitsView: View {
     @State private var showPunchIn = false
     @State private var showHomeFenceWarning = false
     @State private var isCheckingHomeFence = false
+    @State private var searchTask: Task<Void, Never>?
 
     private var filteredVisits: [CpListVisit] {
         visits.filter { visit in
@@ -160,6 +161,12 @@ struct CpVisitsView: View {
             }
         }
         .task { if !hasLoaded { await load() } }
+        .onChange(of: searchText) { _, value in
+            scheduleServerSearch(value)
+        }
+        .onDisappear {
+            searchTask?.cancel()
+        }
         .sheet(isPresented: $showCreateSheet) {
             CreateCpVisitSheet {
                 showCreateSheet = false
@@ -348,32 +355,85 @@ struct CpVisitsView: View {
     }
 
     @MainActor
-    private func load() async {
+    private func load(searchOverride: String? = nil) async {
         guard let token = authStore.currentSession?.token else {
             errorMessage = "Not signed in."
             hasLoaded = true
             return
         }
-        isLoading = true
+        let fromDate = filterFromDate.map { AppModuleFormatters.ymd.string(from: $0) }
+        let effectiveTo = filterToDate ?? filterFromDate
+        let toDate = effectiveTo.map { AppModuleFormatters.ymd.string(from: $0) }
+        let query = (searchOverride ?? searchText).trimmingCharacters(in: .whitespacesAndNewlines)
+        let cacheKey = cpCacheKey(fromDate: fromDate, toDate: toDate, search: query)
+        if visits.isEmpty, let cached = LocalCache.get(cacheKey, as: [CpVisitDetail].self) {
+            visits = cached.compactMap(CpListVisit.init(detail:)).sorted(by: CpListVisit.androidOrder)
+        }
+
+        isLoading = visits.isEmpty
         defer { isLoading = false; hasLoaded = true }
         do {
-            let fromDate = filterFromDate.map { AppModuleFormatters.ymd.string(from: $0) }
-            let effectiveTo = filterToDate ?? filterFromDate
-            let toDate = effectiveTo.map { AppModuleFormatters.ymd.string(from: $0) }
-            async let visitsRequest = MarketingConvexAPIService.getMyMarketingCpVisits(
+            async let visitsRequest = fetchCpVisits(
                 token: token,
                 fromDate: fromDate,
-                toDate: toDate
+                toDate: toDate,
+                search: query
             )
             async let attendanceRequest = loadClockInState(token: token)
             let all = try await visitsRequest
-            isClockedIn = await attendanceRequest
             visits = all
                 .compactMap(CpListVisit.init(detail:))
                 .sorted(by: CpListVisit.androidOrder)
+            LocalCache.put(cacheKey, all)
             errorMessage = nil
+            isClockedIn = await attendanceRequest
         } catch {
             errorMessage = error.localizedDescription
+        }
+    }
+
+    private func fetchCpVisits(
+        token: String,
+        fromDate: String?,
+        toDate: String?,
+        search: String
+    ) async throws -> [CpVisitDetail] {
+        var lastError: Error?
+        for attempt in 0..<2 {
+            do {
+                return try await MarketingConvexAPIService.getMyMarketingCpVisits(
+                    token: token,
+                    fromDate: fromDate,
+                    toDate: toDate,
+                    limit: 200,
+                    search: search.nilIfEmpty
+                )
+            } catch is CancellationError {
+                throw CancellationError()
+            } catch {
+                lastError = error
+                guard attempt == 0 else { break }
+                try await Task.sleep(for: .milliseconds(500))
+            }
+        }
+        throw lastError ?? MarketingAPIError.server("Failed to load CP visits")
+    }
+
+    private func cpCacheKey(fromDate: String?, toDate: String?, search: String) -> String {
+        let user = authStore.currentSession?.user
+        let staffId = user?.staffId ?? user?._id ?? "unknown"
+        let range = "\(fromDate ?? "all")-\(toDate ?? "all")"
+        let query = search.isEmpty ? "all" : String(search.lowercased().prefix(80))
+        return "marketing.cp-visits.my.\(staffId).\(range).\(query)"
+    }
+
+    @MainActor
+    private func scheduleServerSearch(_ rawValue: String) {
+        searchTask?.cancel()
+        searchTask = Task {
+            try? await Task.sleep(for: .milliseconds(350))
+            guard !Task.isCancelled else { return }
+            await load(searchOverride: rawValue)
         }
     }
 
@@ -1642,6 +1702,7 @@ private struct CreateCpVisitSheet: View {
     @State private var selectedProject: MarketingProject?
     @State private var staff: [ConvexStaffListItem] = []
     @State private var selectedStaff: ConvexStaffListItem?
+    @State private var selectedLmo: ConvexStaffListItem?
     @State private var leadMatches: [TelecallerLeadSearchData] = []
     @State private var selectedLead: TelecallerLeadSearchData?
     @State private var isLoadingProjects = false
@@ -1650,6 +1711,7 @@ private struct CreateCpVisitSheet: View {
     @State private var isSubmitting = false
     @State private var errorMessage: String?
     @State private var showStaffPicker = false
+    @State private var showLmoPicker = false
     @State private var showProjectPicker = false
     @State private var showMapPinPicker = false
     @State private var pinnedAddress: String?
@@ -1657,6 +1719,7 @@ private struct CreateCpVisitSheet: View {
     @State private var leadLookupTask: Task<Void, Never>?
     @State private var addressParseTask: Task<Void, Never>?
     @State private var lastParsedAddressLine1 = ""
+    private let directionsClient = GeoTrackDirectionsClient()
 
     var body: some View {
         ZStack(alignment: .bottom) {
@@ -1683,7 +1746,7 @@ private struct CreateCpVisitSheet: View {
                             scheduleAutomaticLeadLookup(for: newValue)
                         }
 
-                    cpTextField("Client Name", placeholder: "Enter Client Name", text: $clientName, systemImage: "person")
+                    cpTextField("Client Name *", placeholder: "Enter Client Name", text: $clientName, systemImage: "person")
 
                     Button {
                         Task { await searchLead() }
@@ -1743,6 +1806,7 @@ private struct CreateCpVisitSheet: View {
                     }
 
                     staffPicker
+                    lmoPicker
                     projectPicker
                     cpTypePicker
                     cpDatePicker
@@ -1893,6 +1957,27 @@ private struct CreateCpVisitSheet: View {
             )
             .appLibraryNativeSheet([.medium, .large])
         }
+        .sheet(isPresented: $showLmoPicker) {
+            NativeSearchableSelectionSheet(
+                title: "Select LMO / Channel Partner / BDO",
+                prompt: "Search eligible staff",
+                items: eligibleLmoStaff,
+                selectedId: selectedLmo?.id,
+                searchText: { item in
+                    [item.displayName, item.designation, item.department, item.phone]
+                        .compactMap(\.self)
+                        .joined(separator: " ")
+                },
+                rowContent: { item, isSelected in
+                    staffSelectionRow(item, isSelected: isSelected)
+                },
+                onSelect: { item in
+                    selectedLmo = item
+                    showLmoPicker = false
+                }
+            )
+            .appLibraryNativeSheet([.medium, .large])
+        }
         .sheet(isPresented: $showMapPinPicker) {
             CpMapPinPicker(
                 initialCoordinate: selectedCoordinate,
@@ -1902,7 +1987,14 @@ private struct CreateCpVisitSheet: View {
                 longitude = String(result.longitude)
                 mapsLink = result.googleMapsLink
                 pinnedAddress = result.address
-                fillIfBlank($addressLine1, result.address)
+                doorNo = ""
+                street = ""
+                addressLine2 = ""
+                city = ""
+                state = ""
+                pincode = ""
+                lastParsedAddressLine1 = ""
+                addressLine1 = result.address
                 showMapPinPicker = false
             }
             .appLibraryNativeSheet([.large])
@@ -1987,6 +2079,32 @@ private struct CreateCpVisitSheet: View {
             }
             .buttonStyle(.plain)
             .disabled(isLoadingProjects || projects.isEmpty)
+        }
+    }
+
+    private var lmoPicker: some View {
+        pickerShell(title: "LMO / Channel Partner / BDO *", icon: "person.2.badge.gearshape") {
+            Button {
+                showLmoPicker = true
+            } label: {
+                pickerLabel(selectedLmo?.displayName ?? "Select LMO / CP / BDO")
+            }
+            .buttonStyle(.plain)
+            .disabled(isLoadingStaff || eligibleLmoStaff.isEmpty)
+        }
+    }
+
+    private var eligibleLmoStaff: [ConvexStaffListItem] {
+        staff.filter { item in
+            guard (item.status ?? "active").caseInsensitiveCompare("active") == .orderedSame else { return false }
+            let department = (item.department ?? "").lowercased()
+            let designation = (item.designation ?? "").lowercased()
+            let telesalesLmo = department.contains("telesales")
+                && (designation == "lmo" || designation.contains("lead management executive") || designation.contains("telecaller"))
+            let channelPartner = department.contains("channel partner")
+            let salesMarketingBdo = department.contains("sales") && department.contains("marketing")
+                && (designation == "bdo" || designation.contains("business development officer") || designation.contains("business development executive"))
+            return telesalesLmo || channelPartner || salesMarketingBdo
         }
     }
 
@@ -2350,10 +2468,16 @@ private struct CreateCpVisitSheet: View {
     private func submit() async {
         let normalizedPhone = AppModuleFormatters.normalizePhone(phone)
         guard normalizedPhone.count == 10 else { errorMessage = "Enter 10 digit phone"; return }
+        let trimmedClientName = clientName.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !trimmedClientName.isEmpty else { errorMessage = "Client name is required"; return }
         let staffId = selectedStaff?.id ?? authStore.currentSession?.user.staffId ?? authStore.currentSession?.user._id
         guard let staffId, !staffId.isEmpty else { errorMessage = "Staff session missing"; return }
         guard selectedProject != nil else { errorMessage = "Project is required"; return }
         guard selectedStaff != nil || !(staffId.isEmpty) else { errorMessage = "Field staff is required"; return }
+        guard let lmoStaffId = selectedLmo?.id.nilIfEmpty else {
+            errorMessage = "Select the LMO, Channel Partner, or BDO"
+            return
+        }
         let trimmedAddress = composedAddress
         guard !addressLine1.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else {
             errorMessage = "Address Line 1 is required"
@@ -2386,18 +2510,34 @@ private struct CreateCpVisitSheet: View {
             }
         }
 
+        var resolvedLatitude = coordinateValue(latitude)
+        var resolvedLongitude = coordinateValue(longitude)
+        if resolvedLatitude == nil || resolvedLongitude == nil {
+            let plainAddress = [doorNo, street, addressLine1, addressLine2, city, state, normalizedPincode]
+                .compactMap(\.blankToNil)
+                .joined(separator: ", ")
+            guard let geocode = await directionsClient.geocodeAddress(plainAddress) else {
+                errorMessage = "Couldn't locate this address on the map. Drop a pin to set the exact client location."
+                showMapPinPicker = true
+                return
+            }
+            resolvedLatitude = geocode.coordinate.latitude
+            resolvedLongitude = geocode.coordinate.longitude
+        }
+
         let request = CreateCpVisitRequest(
             leadId: selectedLead?.id,
             projectId: selectedProject?.id,
-            clientName: clientName.trimmingCharacters(in: .whitespacesAndNewlines).nilIfEmpty,
+            clientName: trimmedClientName,
             mobileNumber: normalizedPhone,
             assignedStaffId: staffId,
+            lmoStaffId: lmoStaffId,
             scheduledDate: AppModuleFormatters.ymd.string(from: date),
             scheduledTime: Self.timeFormatter.string(from: date),
             cpType: selectedCpType?.rawValue,
             visitAddress: trimmedAddress,
-            visitLat: coordinateValue(latitude),
-            visitLng: coordinateValue(longitude),
+            visitLat: resolvedLatitude,
+            visitLng: resolvedLongitude,
             googleMapsLink: mapsLink.trimmingCharacters(in: .whitespacesAndNewlines).nilIfEmpty,
             notes: serializedNotes
         )

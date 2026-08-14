@@ -56,6 +56,7 @@ struct ConvexAttendanceListView: View {
     @State private var isLoading = false
     @State private var loadingTabs: Set<AttendanceListTab> = []
     @State private var loadedTabs: Set<AttendanceListTab> = []
+    @State private var refreshedTabs: Set<AttendanceListTab> = []
     @State private var errorMessage: String?
     @State private var filter: AttendanceFilter = .currentMonth()
     @State private var selectedTab: AttendanceListTab = .my
@@ -68,6 +69,7 @@ struct ConvexAttendanceListView: View {
     @State private var requestReviewRecord: ConvexAttendanceRecord?
     @State private var editRecord: ConvexAttendanceRecord?
     @State private var submittedRequestDates: Set<String> = []
+    @State private var displayedMyAttendanceCacheKey: String?
 
     private var visibleTabs: [AttendanceListTab] {
         var tabs: [AttendanceListTab] = [.my]
@@ -161,6 +163,33 @@ struct ConvexAttendanceListView: View {
     private var allServerQueryKey: String {
         let range = filter.apiRange
         return "\(selectedTab.rawValue)|\(range.from)|\(range.to)|\(normalizedSearchText)"
+    }
+
+    private var myAttendanceCacheKey: String? {
+        guard let user = authStore.currentSession?.user else { return nil }
+        let userKey = user.staffId?.nilIfBlank ?? user._id
+        let range = filter.apiRange
+        return "hr.attendance.my.\(userKey).\(range.from).\(range.to)"
+    }
+
+    private func attendanceCacheKey(for tab: AttendanceListTab) -> String? {
+        guard let user = authStore.currentSession?.user else { return nil }
+        let userKey = user.staffId?.nilIfBlank ?? user._id
+        let range = filter.apiRange
+        switch tab {
+        case .my:
+            return myAttendanceCacheKey
+        case .team:
+            return "hr.attendance.team.\(userKey).\(range.from).\(range.to)"
+        case .approval:
+            return "hr.attendance.approval.direct.requests.\(userKey)"
+        case .allApproval:
+            return "hr.attendance.approval.all.\(userKey)"
+        case .hrReview:
+            return "hr.attendance.hrReview.\(userKey).allTime"
+        case .all:
+            return "hr.attendance.all.\(userKey).\(range.from).\(range.to).\(normalizedSearchText)"
+        }
     }
 
     private var presentDays: Int {
@@ -468,6 +497,9 @@ struct ConvexAttendanceListView: View {
 
     private var shouldShowLoadingSkeleton: Bool {
         guard errorMessage == nil, normalizedSearchText.isEmpty else { return false }
+        if selectedTab == .my, !records.isEmpty {
+            return false
+        }
         return isTabLoading(selectedTab) || !loadedTabs.contains(selectedTab)
     }
 
@@ -634,16 +666,23 @@ struct ConvexAttendanceListView: View {
         guard let token = authStore.currentSession?.token else { return }
         let (from, to) = filter.apiRange
         loadedTabs.removeAll()
+        refreshedTabs.removeAll()
         loadingTabs.removeAll()
         teamRecords = []
         approvalRecords = []
         allApprovalRecords = []
         hrReviewRecords = []
         allRecords = []
+        hydrateMyAttendanceCacheIfNeeded()
         isLoading = true
         do {
-            records = try await HRConvexAPIService.getMyAttendance(token: token, fromDate: from, toDate: to)
+            let loadedRecords = try await HRConvexAPIService.getMyAttendance(token: token, fromDate: from, toDate: to)
+            records = loadedRecords
+            if let cacheKey = myAttendanceCacheKey {
+                LocalCache.put(cacheKey, loadedRecords)
+            }
             loadedTabs.insert(.my)
+            refreshedTabs.insert(.my)
             errorMessage = nil
         } catch {
             if error is CancellationError || (error as NSError).code == NSURLErrorCancelled {
@@ -656,6 +695,23 @@ struct ConvexAttendanceListView: View {
         if selectedTab != .all {
             loadTabIfNeeded(selectedTab)
         }
+    }
+
+    @MainActor
+    private func hydrateMyAttendanceCacheIfNeeded() {
+        guard let cacheKey = myAttendanceCacheKey,
+              displayedMyAttendanceCacheKey != cacheKey
+        else { return }
+
+        displayedMyAttendanceCacheKey = cacheKey
+        guard let cached = LocalCache.get(cacheKey, as: [ConvexAttendanceRecord].self) else {
+            records = []
+            return
+        }
+
+        records = cached
+        loadedTabs.insert(.my)
+        errorMessage = nil
     }
 
     @MainActor
@@ -675,70 +731,70 @@ struct ConvexAttendanceListView: View {
     private func loadTabIfNeeded(_ tab: AttendanceListTab) {
         guard visibleTabs.contains(tab),
               tab != .my,
-              !loadedTabs.contains(tab),
               !loadingTabs.contains(tab),
+              !refreshedTabs.contains(tab),
               let token = authStore.currentSession?.token
         else { return }
 
+        hydrateAttendanceTabCache(tab)
         let (from, to) = filter.apiRange
         loadingTabs.insert(tab)
         Task {
-            let loadedRecords: [ConvexAttendanceRecord]
-            switch tab {
-            case .my:
-                loadedRecords = []
-            case .team:
-                loadedRecords = await Self.optionalAttendanceLoad {
-                    try await HRConvexAPIService.getTeamAttendance(token: token, fromDate: from, toDate: to)
-                }
-            case .approval:
-                loadedRecords = await Self.optionalAttendanceLoad {
-                    try await HRConvexAPIService.getPendingAttendanceApprovals(
+            do {
+                let loadedRecords: [ConvexAttendanceRecord]
+                switch tab {
+                case .my:
+                    loadedRecords = []
+                case .team:
+                    loadedRecords = try await HRConvexAPIService.getTeamAttendance(token: token, fromDate: from, toDate: to)
+                case .approval:
+                    loadedRecords = try await HRConvexAPIService.getPendingAttendanceApprovals(
                         token: token,
                         scope: "direct",
                         includeRequests: true
                     )
-                }
-            case .allApproval:
-                loadedRecords = await Self.optionalAttendanceLoad {
-                    try await HRConvexAPIService.getPendingAttendanceApprovals(token: token, all: true)
-                }
-            case .hrReview:
-                loadedRecords = await Self.optionalAttendanceLoad {
-                    try await HRConvexAPIService.getHrReview(
+                case .allApproval:
+                    loadedRecords = try await HRConvexAPIService.getPendingAttendanceApprovals(token: token, all: true)
+                case .hrReview:
+                    loadedRecords = try await HRConvexAPIService.getHrReview(
                         token: token,
                         fromDate: Self.allTimeReviewRange.from,
                         toDate: Self.allTimeReviewRange.to
                     )
-                }
-            case .all:
-                loadedRecords = await Self.optionalAttendanceLoad {
-                    try await HRConvexAPIService.getAllAttendance(
+                case .all:
+                    loadedRecords = try await HRConvexAPIService.getAllAttendance(
                         token: token,
                         fromDate: from,
                         toDate: to,
                         search: normalizedSearchText.nilIfBlank
                     )
                 }
+
+                await MainActor.run {
+                    assignAttendanceRecords(loadedRecords, to: tab)
+                    if let cacheKey = attendanceCacheKey(for: tab) {
+                        LocalCache.put(cacheKey, loadedRecords)
+                    }
+                    loadedTabs.insert(tab)
+                    refreshedTabs.insert(tab)
+                    errorMessage = nil
+                }
+            } catch {
+                if error is CancellationError || (error as NSError).code == NSURLErrorCancelled {
+                    await MainActor.run {
+                        _ = loadingTabs.remove(tab)
+                    }
+                    return
+                }
+                await MainActor.run {
+                    if !loadedTabs.contains(tab) {
+                        errorMessage = error.localizedDescription
+                    }
+                }
             }
 
             await MainActor.run {
-                switch tab {
-                case .my:
-                    break
-                case .team:
-                    teamRecords = loadedRecords
-                case .approval:
-                    approvalRecords = loadedRecords
-                case .allApproval:
-                    allApprovalRecords = loadedRecords
-                case .hrReview:
-                    hrReviewRecords = loadedRecords
-                case .all:
-                    allRecords = loadedRecords
-                }
-                loadingTabs.remove(tab)
-                loadedTabs.insert(tab)
+                _ = loadingTabs.remove(tab)
             }
         }
     }
@@ -751,6 +807,7 @@ struct ConvexAttendanceListView: View {
 
         let range = filter.apiRange
         let query = normalizedSearchText.nilIfBlank
+        hydrateAttendanceTabCache(.all)
         loadingTabs.insert(.all)
         do {
             let loadedRecords = try await HRConvexAPIService.getAllAttendance(
@@ -761,22 +818,48 @@ struct ConvexAttendanceListView: View {
             )
             guard !Task.isCancelled else { return }
             allRecords = loadedRecords
+            if let cacheKey = attendanceCacheKey(for: .all) {
+                LocalCache.put(cacheKey, loadedRecords)
+            }
             loadedTabs.insert(.all)
+            refreshedTabs.insert(.all)
             errorMessage = nil
         } catch {
             guard !(error is CancellationError),
                   (error as NSError).code != NSURLErrorCancelled
             else { return }
-            errorMessage = error.localizedDescription
+            if !loadedTabs.contains(.all) {
+                errorMessage = error.localizedDescription
+            }
         }
-        loadingTabs.remove(.all)
+        _ = loadingTabs.remove(.all)
     }
 
-    private static func optionalAttendanceLoad(_ loader: @escaping () async throws -> [ConvexAttendanceRecord]) async -> [ConvexAttendanceRecord] {
-        do {
-            return try await loader()
-        } catch {
-            return []
+    @MainActor
+    private func hydrateAttendanceTabCache(_ tab: AttendanceListTab) {
+        guard let cacheKey = attendanceCacheKey(for: tab),
+              !loadedTabs.contains(tab),
+              let cached = LocalCache.get(cacheKey, as: [ConvexAttendanceRecord].self)
+        else { return }
+        assignAttendanceRecords(cached, to: tab)
+        loadedTabs.insert(tab)
+    }
+
+    @MainActor
+    private func assignAttendanceRecords(_ loadedRecords: [ConvexAttendanceRecord], to tab: AttendanceListTab) {
+        switch tab {
+        case .my:
+            records = loadedRecords
+        case .team:
+            teamRecords = loadedRecords
+        case .approval:
+            approvalRecords = loadedRecords
+        case .allApproval:
+            allApprovalRecords = loadedRecords
+        case .hrReview:
+            hrReviewRecords = loadedRecords
+        case .all:
+            allRecords = loadedRecords
         }
     }
 

@@ -17,6 +17,13 @@ struct AttendanceReviewView: View {
         records.filter { filter.matches($0) }
     }
 
+    private var reviewCacheKey: String {
+        let staff = authStore.currentSession?.user.staffId?.nonBlank
+            ?? authStore.currentSession?.user._id.nonBlank
+            ?? "anon"
+        return "hr.attendance.reviews.pending.\(staff)"
+    }
+
     var body: some View {
         GeometryReader { proxy in
             ScrollView {
@@ -268,6 +275,10 @@ struct AttendanceReviewView: View {
     @MainActor
     private func loadReviews() async {
         guard let token = authStore.currentSession?.token else { return }
+        if records.isEmpty,
+           let cached = LocalCache.get(reviewCacheKey, as: [ConvexAttendanceRecord].self) {
+            records = cached
+        }
         isLoading = true
         errorMessage = nil
         defer { isLoading = false }
@@ -275,11 +286,14 @@ struct AttendanceReviewView: View {
         do {
             records = try await HRConvexAPIService.getPendingAttendanceApprovals(token: token)
                 .sorted { ($0.date ?? "") > ($1.date ?? "") }
+            LocalCache.put(reviewCacheKey, records)
         } catch {
             if error is CancellationError || (error as NSError).code == NSURLErrorCancelled {
                 return
             }
-            errorMessage = error.localizedDescription
+            if records.isEmpty {
+                errorMessage = error.localizedDescription
+            }
         }
     }
 

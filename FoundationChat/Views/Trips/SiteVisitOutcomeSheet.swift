@@ -5,12 +5,15 @@ struct SiteVisitOutcomeSheet: View {
     let siteVisitId: String
     let initialOutcome: String?
     let locksOutcome: Bool
+    let initialClientName: String?
+    let initialClientPhone: String?
     let onCompleted: () -> Void
 
     @Environment(AuthStore.self) private var authStore
     @Environment(\.dismiss) private var dismiss
 
     @State private var selectedOutcome: SiteVisitOutcome?
+    @State private var showFullBookingForm = false
     @State private var bookingSub: SiteVisitBookingSub = .client
     @State private var booking = SiteVisitBookingDraft()
     @State private var projects: [MarketingProject] = []
@@ -48,10 +51,19 @@ struct SiteVisitOutcomeSheet: View {
     private let paymentModeOptions = ["Cash", "Cheque", "NEFT", "Online", "Loan"]
     private let documentLanguageOptions = ["English", "Tamil", "Hindi"]
 
-    init(siteVisitId: String, initialOutcome: String? = nil, locksOutcome: Bool = false, onCompleted: @escaping () -> Void) {
+    init(
+        siteVisitId: String,
+        initialOutcome: String? = nil,
+        locksOutcome: Bool = false,
+        initialClientName: String? = nil,
+        initialClientPhone: String? = nil,
+        onCompleted: @escaping () -> Void
+    ) {
         self.siteVisitId = siteVisitId
         self.initialOutcome = initialOutcome
         self.locksOutcome = locksOutcome
+        self.initialClientName = initialClientName
+        self.initialClientPhone = initialClientPhone
         self.onCompleted = onCompleted
         // Nothing pre-selected unless an explicit initial outcome is passed in
         // (e.g. the list view's locked quick-outcome buttons). Matches Android.
@@ -67,7 +79,7 @@ struct SiteVisitOutcomeSheet: View {
 
                     switch selectedOutcome {
                     case .booking:
-                        bookingSection
+                        fullBookingLaunchSection
                     case .followUp:
                         followUpSection
                     case .notInterested:
@@ -84,7 +96,7 @@ struct SiteVisitOutcomeSheet: View {
                             .foregroundStyle(Color(hex: 0xB42318))
                     }
 
-                    if selectedOutcome != nil {
+                    if selectedOutcome != nil, selectedOutcome != .booking {
                         Button {
                             Task { await submit() }
                         } label: {
@@ -118,7 +130,11 @@ struct SiteVisitOutcomeSheet: View {
                         .disabled(isSaving)
                 }
             }
-            .task { await loadInitialData() }
+            .task {
+                guard selectedOutcome == .booking else { return }
+                await Task.yield()
+                showFullBookingForm = true
+            }
             .sheet(isPresented: $showProjectPicker) { projectPickerSheet }
             .sheet(isPresented: $showUnitPicker) { unitPickerSheet }
             .sheet(isPresented: $showLeadPicker) { leadPickerSheet }
@@ -147,6 +163,28 @@ struct SiteVisitOutcomeSheet: View {
             }
         }
         .appFormActivity()
+        .fullScreenCover(isPresented: $showFullBookingForm) {
+            NavigationStack {
+                BookingCreateView(
+                    sourceContext: .siteVisit(
+                        id: siteVisitId,
+                        clientName: initialClientName,
+                        clientPhone: initialClientPhone
+                    ),
+                    onCreated: { _ in
+                        showFullBookingForm = false
+                        onCompleted()
+                        dismiss()
+                    }
+                )
+                .environment(authStore)
+                .toolbar {
+                    ToolbarItem(placement: .cancellationAction) {
+                        Button("Cancel") { showFullBookingForm = false }
+                    }
+                }
+            }
+        }
     }
 
     private var header: some View {
@@ -195,6 +233,7 @@ struct SiteVisitOutcomeSheet: View {
                     guard !locksOutcome || outcome == selectedOutcome else { return }
                     selectedOutcome = outcome
                     errorMessage = nil
+                    if outcome == .booking { showFullBookingForm = true }
                 } label: {
                     SiteVisitOutcomeTabView(outcome: outcome, isSelected: selectedOutcome == outcome)
                         .frame(maxWidth: .infinity)
@@ -210,6 +249,20 @@ struct SiteVisitOutcomeSheet: View {
                 }
             }
         }
+        .padding(.top, 14)
+    }
+
+    private var fullBookingLaunchSection: some View {
+        Button {
+            showFullBookingForm = true
+        } label: {
+            Label("Open Booking Form", systemImage: "doc.text.fill")
+                .font(.system(size: 14, weight: .semibold))
+                .frame(maxWidth: .infinity)
+        }
+        .buttonStyle(.borderedProminent)
+        .controlSize(.large)
+        .tint(Color(hex: 0x2DAE12))
         .padding(.top, 14)
     }
 
@@ -781,8 +834,9 @@ struct SiteVisitOutcomeSheet: View {
         do {
             switch outcome {
             case .booking:
-                let bookingId = try await createBooking(token: token)
-                try await saveOutcome(token: token, outcome: outcome, bookingId: bookingId)
+                _ = try await createBooking(token: token)
+                // Creating with sourceSiteVisitId converts the SV atomically.
+                // Do not submit a second outcome against an already-terminal SV.
             case .followUp:
                 guard !selectedPostponeReasons.isEmpty else {
                     errorMessage = "Select at least one follow-up reason"
@@ -796,19 +850,19 @@ struct SiteVisitOutcomeSheet: View {
                     errorMessage = "Pick a follow-up date to schedule the revisit"
                     return
                 }
-                try await saveOutcome(token: token, outcome: outcome, bookingId: nil)
+                try await saveOutcome(token: token, outcome: outcome)
             case .notInterested:
                 guard !selectedNotInterestedReasons.isEmpty else {
                     errorMessage = "Select at least one not interested reason"
                     return
                 }
-                try await saveOutcome(token: token, outcome: outcome, bookingId: nil)
+                try await saveOutcome(token: token, outcome: outcome)
             case .other:
                 guard otherRemarks.outcomeNilIfBlank != nil else {
                     errorMessage = "Add remarks to explain this outcome"
                     return
                 }
-                try await saveOutcome(token: token, outcome: outcome, bookingId: nil)
+                try await saveOutcome(token: token, outcome: outcome)
             }
             onCompleted()
             dismiss()
@@ -836,23 +890,17 @@ struct SiteVisitOutcomeSheet: View {
         )
     }
 
-    private func saveOutcome(token: String, outcome: SiteVisitOutcome, bookingId: String?) async throws {
-        // Best-effort unlock: the outcome buttons unlock at on_site, but setOutcome
-        // only accepts on_counselling|picked_from_site|dropped, so nudge first.
-        try? await MarketingConvexAPIService.markSiteVisitOnCounselling(token: token, id: siteVisitId)
-
+    private func saveOutcome(token: String, outcome: SiteVisitOutcome) async throws {
         let reasonCodes = selectedReasonCodes(for: outcome)
         try await MarketingConvexAPIService.setSiteVisitOutcome(
             token: token,
             request: SetSiteVisitOutcomeRequest(
                 id: siteVisitId,
                 outcome: outcome.rawValue,
-                reasons: reasonCodes,
                 postponeReasons: outcome == .followUp ? reasonCodes : nil,
                 notInterestedReasons: outcome == .notInterested ? reasonCodes : nil,
                 notInterestedDetails: outcome == .notInterested ? notInterestedDetailPayload : nil,
-                notes: outcome == .other ? otherRemarks.outcomeNilIfBlank : outcomeNotes(outcome: outcome, bookingId: bookingId),
-                bookingId: bookingId,
+                notes: outcome == .other ? otherRemarks.outcomeNilIfBlank : outcomeNotes(outcome: outcome, bookingId: nil),
                 followupDueDate: outcome == .followUp ? followupDueDate.outcomeNilIfBlank : nil,
                 followupDueTime: nil
             )

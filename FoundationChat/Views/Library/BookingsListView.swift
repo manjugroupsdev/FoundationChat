@@ -3,7 +3,7 @@ import SwiftUI
 struct BookingsListView: View {
     @Environment(AuthStore.self) private var authStore
     @State private var bookings: [AppBooking] = []
-    @State private var selectedStatus: BookingStatusFilter = .all
+    @State private var selectedStatus: BookingStatusFilter = .draft
     @State private var searchText = ""
     @State private var isLoading = false
     @State private var hasLoaded = false
@@ -16,7 +16,7 @@ struct BookingsListView: View {
     }
 
     private var filteredBookings: [AppBooking] {
-        let query = searchText.trimmingCharacters(in: .whitespacesAndNewlines).lowercased()
+        let query = searchText.trimmingCharacters(in: .whitespacesAndNewlines)
         return bookings.filter { booking in
             guard !query.isEmpty else { return true }
             return [
@@ -25,11 +25,12 @@ struct BookingsListView: View {
                 booking.mobileNumber,
                 booking.projectName,
                 booking.plotNo,
+                booking.plotNumber,
                 booking.source,
                 booking.displayStatus
             ]
-            .compactMap { $0?.lowercased() }
-            .contains { $0.contains(query) }
+            .compactMap { $0 }
+            .contains { $0.localizedStandardContains(query) }
         }
     }
 
@@ -168,18 +169,60 @@ struct BookingsListView: View {
             hasLoaded = true
             return
         }
-        isLoading = true
+        let cacheKey = BookingCache.listKey(status: selectedStatus.apiValue)
+        let cached = BookingCache.readList(forKey: cacheKey)
+        if !cached.isEmpty {
+            bookings = cached
+            errorMessage = nil
+            hasLoaded = true
+        }
+        isLoading = bookings.isEmpty
         defer { isLoading = false; hasLoaded = true }
         do {
-            bookings = try await MarketingConvexAPIService.listBookings(
+            let refreshedBookings = try await MarketingConvexAPIService.listBookings(
                 token: token,
                 status: selectedStatus.apiValue
             )
                 .sorted { ($0.bookingDate ?? "") > ($1.bookingDate ?? "") }
+            bookings = refreshedBookings
+            BookingCache.writeList(refreshedBookings, forKey: cacheKey)
+            refreshedBookings.forEach(BookingCache.writeDetail)
             errorMessage = nil
         } catch {
             errorMessage = error.localizedDescription
         }
+    }
+}
+
+private enum BookingCache {
+    private static let prefix = "FoundationChat.BookingCache"
+
+    static func listKey(status: String?) -> String {
+        "\(prefix).list.\(status?.nilIfBlank ?? "all")"
+    }
+
+    static func detailKey(id: String) -> String {
+        "\(prefix).detail.\(id)"
+    }
+
+    static func readList(forKey key: String) -> [AppBooking] {
+        guard let data = UserDefaults.standard.data(forKey: key) else { return [] }
+        return (try? JSONDecoder().decode([AppBooking].self, from: data)) ?? []
+    }
+
+    static func writeList(_ bookings: [AppBooking], forKey key: String) {
+        guard let data = try? JSONEncoder().encode(bookings) else { return }
+        UserDefaults.standard.set(data, forKey: key)
+    }
+
+    static func readDetail(id: String) -> AppBooking? {
+        guard let data = UserDefaults.standard.data(forKey: detailKey(id: id)) else { return nil }
+        return try? JSONDecoder().decode(AppBooking.self, from: data)
+    }
+
+    static func writeDetail(_ booking: AppBooking) {
+        guard let data = try? JSONEncoder().encode(booking) else { return }
+        UserDefaults.standard.set(data, forKey: detailKey(id: booking.id))
     }
 }
 
@@ -566,7 +609,7 @@ private struct BookingDetailView: View {
                 Label(booking.projectName?.nilIfBlank ?? booking.projectId?.nilIfBlank ?? "No project", systemImage: "building.2")
                     .lineLimit(1)
 
-                if let plot = booking.plotNo?.nilIfBlank {
+                if let plot = (booking.plotNo ?? booking.plotNumber)?.nilIfBlank {
                     Label("Plot \(plot)", systemImage: "square.grid.2x2")
                         .lineLimit(1)
                 }
@@ -620,13 +663,13 @@ private struct BookingDetailView: View {
                 BookingDrawerGridItem(title: "Client", value: booking.clientName)
                 BookingDrawerGridItem(title: "Mobile", value: booking.mobileNumber)
                 BookingDrawerGridItem(title: "Project", value: booking.projectName ?? booking.projectId)
-                BookingDrawerGridItem(title: "Plot", value: booking.plotNo)
+                BookingDrawerGridItem(title: "Plot", value: booking.plotNo ?? booking.plotNumber)
                 BookingDrawerGridItem(title: "Status", value: booking.displayStatus.capitalized)
-                BookingDrawerGridItem(title: "Approval Stage", value: booking.approvalStatus)
-                BookingDrawerGridItem(title: "Agreed Amount", value: booking.bookingCost.map(AppModuleFormatters.rupees))
+                BookingDrawerGridItem(title: "Approval Stage", value: booking.approvalStage ?? booking.approvalStatus)
+                BookingDrawerGridItem(title: "Agreed Amount", value: (booking.agreedAmount ?? booking.bookingCost).map(AppModuleFormatters.rupees))
                 BookingDrawerGridItem(title: "Advance", value: booking.advanceAmount.map(AppModuleFormatters.rupees))
-                BookingDrawerGridItem(title: "Telecaller", value: "-")
-                BookingDrawerGridItem(title: "Source AVP", value: "-")
+                BookingDrawerGridItem(title: "Telecaller", value: booking.sourceTelecallerStaff?.name)
+                BookingDrawerGridItem(title: "Source AVP", value: booking.sourceAvpStaff?.name)
             }
 
             VStack(alignment: .leading, spacing: 10) {
@@ -694,7 +737,7 @@ private struct BookingDetailView: View {
             drawerField("Booking Reference", text: .constant(booking.bookingRefNo ?? ""), value: booking.bookingRefNo, editableOverride: false)
             drawerField("Booking Date", text: $editDraft.bookingDate, value: formattedDrawerDate(booking.bookingDate))
             drawerField("Project", text: .constant(booking.projectName ?? booking.projectId ?? ""), value: booking.projectName ?? booking.projectId, editableOverride: false)
-            drawerField("Plot", text: .constant(booking.plotNo ?? ""), value: booking.plotNo, editableOverride: false)
+            drawerField("Plot", text: .constant(booking.plotNo ?? booking.plotNumber ?? ""), value: booking.plotNo ?? booking.plotNumber, editableOverride: false)
             drawerField("Booking Type", text: $editDraft.bookingType, value: booking.bookingType)
             drawerField("Booking Mode", text: $editDraft.bookingMode, value: booking.bookingMode)
 
@@ -842,9 +885,14 @@ private struct BookingDetailView: View {
     @MainActor
     private func load() async {
         guard let token = authStore.currentSession?.token else { return }
+        if booking == nil, let cachedBooking = BookingCache.readDetail(id: bookingId) {
+            booking = cachedBooking
+            editDraft = BookingDrawerEditDraft(booking: cachedBooking)
+            errorMessage = nil
+        }
         let loadID = UUID()
         activeLoadID = loadID
-        isLoading = true
+        isLoading = booking == nil
         defer {
             if activeLoadID == loadID {
                 activeLoadID = nil
@@ -856,6 +904,7 @@ private struct BookingDetailView: View {
             guard activeLoadID == loadID, !Task.isCancelled else { return }
 
             booking = refreshedBooking
+            BookingCache.writeDetail(refreshedBooking)
             errorMessage = nil
             if !isEditing {
                 editDraft = BookingDrawerEditDraft(booking: refreshedBooking)
@@ -1048,7 +1097,7 @@ private struct BookingDetailHero: View {
 
             HStack(spacing: 10) {
                 BookingMetricChip(title: "Project", value: booking.projectName ?? booking.projectId)
-                BookingMetricChip(title: "Plot", value: booking.plotNo)
+                BookingMetricChip(title: "Plot", value: booking.plotNo ?? booking.plotNumber)
             }
         }
         .padding(16)
@@ -1295,14 +1344,15 @@ private struct BookingRow: View {
         }
         if booking.projectName?.nilIfBlank == nil,
            booking.projectId?.nilIfBlank == nil,
-           booking.plotNo?.nilIfBlank == nil {
+           booking.plotNo?.nilIfBlank == nil,
+           booking.plotNumber?.nilIfBlank == nil {
             return booking.mobileNumber?.nilIfBlank ?? "Reference not available"
         }
         return "Reference not available"
     }
 
     private var plotText: String {
-        booking.plotNo?.nilIfBlank ?? "-"
+        booking.plotNo?.nilIfBlank ?? booking.plotNumber?.nilIfBlank ?? "-"
     }
 
     private var statusTint: Color {

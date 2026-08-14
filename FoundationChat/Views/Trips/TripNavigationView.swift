@@ -2,6 +2,7 @@ import CoreLocation
 import MapKit
 import SwiftUI
 import UIKit
+import UniformTypeIdentifiers
 
 /// In-app navigation page for an active site visit.
 ///
@@ -25,6 +26,8 @@ struct TripNavigationView: View {
     let destination: CLLocationCoordinate2D?
     let initialStatus: String?
     let tripType: String?
+    let travelMode: String?
+    let vehiclePreference: String?
     let clientPlaceVisitId: String?
     let cpClientMet: Bool?
     let cpOutcome: String?
@@ -99,6 +102,8 @@ struct TripNavigationView: View {
         destination: CLLocationCoordinate2D? = nil,
         initialStatus: String? = nil,
         tripType: String? = nil,
+        travelMode: String? = nil,
+        vehiclePreference: String? = nil,
         clientPlaceVisitId: String? = nil,
         cpClientMet: Bool? = nil,
         cpOutcome: String? = nil,
@@ -119,6 +124,8 @@ struct TripNavigationView: View {
         self.destination = destination
         self.initialStatus = initialStatus
         self.tripType = tripType
+        self.travelMode = travelMode
+        self.vehiclePreference = vehiclePreference
         self.clientPlaceVisitId = clientPlaceVisitId
         self.cpClientMet = cpClientMet
         self.cpOutcome = cpOutcome
@@ -1570,11 +1577,10 @@ struct TripNavigationView: View {
     }
 
     private var isOwnVehicleSiteVisit: Bool {
-        let marker = tripType.normalizedTripCpMarker
-        return marker == "own_vehicle"
-            || marker == "own"
-            || marker == "self"
-            || marker == "self_vehicle"
+        let markers = [travelMode, vehiclePreference, tripType]
+            .compactMap { $0?.normalizedTripCpMarker }
+        let ownVehicleMarkers: Set<String> = ["own_vehicle", "own", "self", "self_vehicle"]
+        return markers.contains { ownVehicleMarkers.contains($0) }
     }
 
     private func formatDistance(_ meters: Double) -> String {
@@ -2378,8 +2384,11 @@ private struct SpecialCpCompletionSheet: View {
     @State private var paymentInstrumentDate = Date()
     @State private var remarks = ""
     @State private var proofImage: UIImage?
+    @State private var collectionProofFile: PostSalesUploadedFile?
     @State private var collectionNotCollected = false
     @State private var showProofCamera = false
+    @State private var showCollectionProofImporter = false
+    @State private var isUploadingCollectionProof = false
     @State private var isLoading = false
     @State private var isSaving = false
     @State private var errorMessage: String?
@@ -2389,6 +2398,15 @@ private struct SpecialCpCompletionSheet: View {
         Calendar.current.date(byAdding: .day, value: 1, to: Date()) ?? Date()
 
     private var selectedCasePending: Double { selectedCase?.balanceAmount ?? 0 }
+
+    private var cpVisitDetailCacheKey: String {
+        "marketing.site-visit.detail.\(cpVisitId)"
+    }
+
+    private func collectionCasesCacheKey(phone: String) -> String {
+        let staffId = authStore.viewer?.subject ?? authStore.currentSession?.user._id ?? "anonymous"
+        return "postsales.collection-cases.\(staffId).\(phone)"
+    }
 
     var body: some View {
         VStack(spacing: 0) {
@@ -2422,6 +2440,16 @@ private struct SpecialCpCompletionSheet: View {
         .task { await load() }
         .fullScreenCover(isPresented: $showProofCamera) {
             PunchCameraView(capturedImage: $proofImage)
+        }
+        .fileImporter(
+            isPresented: $showCollectionProofImporter,
+            allowedContentTypes: [.pdf, .jpeg, .png, .webP],
+            allowsMultipleSelection: false
+        ) { result in
+            Task { await importCollectionProof(result) }
+        }
+        .onChange(of: proofImage) { _, image in
+            if image != nil { collectionProofFile = nil }
         }
     }
 
@@ -2545,7 +2573,8 @@ private struct SpecialCpCompletionSheet: View {
                     .frame(maxWidth: .infinity, alignment: .leading)
             }
 
-            VStack(alignment: .leading, spacing: 6) {
+            if needsCollectionFollowUp {
+                VStack(alignment: .leading, spacing: 6) {
                 Text("Follow-up visit (if a balance remains)")
                     .font(.system(size: 13, weight: .semibold))
                     .foregroundStyle(.primary)
@@ -2557,6 +2586,7 @@ private struct SpecialCpCompletionSheet: View {
                 )
                 .labelsHidden()
                 .frame(maxWidth: .infinity, alignment: .leading)
+                }
             }
         }
     }
@@ -2622,6 +2652,24 @@ private struct SpecialCpCompletionSheet: View {
                 }
             }
             .buttonStyle(.plain)
+            if kind == .collection {
+                Button {
+                    showCollectionProofImporter = true
+                } label: {
+                    Label("Attach PDF or image", systemImage: "paperclip")
+                        .font(.system(size: 13, weight: .semibold))
+                }
+                .buttonStyle(.bordered)
+            }
+            if isUploadingCollectionProof {
+                ProgressView("Uploading proof...")
+                    .font(.caption)
+            } else if let collectionProofFile, kind == .collection {
+                Label(collectionProofFile.fileName, systemImage: "doc.fill")
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+                    .lineLimit(1)
+            }
         }
     }
 
@@ -2645,7 +2693,7 @@ private struct SpecialCpCompletionSheet: View {
             .frame(height: 54)
             .background(Color(hex: 0x1BCA0B), in: Capsule())
             .disabled(
-                isSaving || isLoading ||
+                isSaving || isLoading || isUploadingCollectionProof ||
                     (kind == .collection && !collectionNotCollected && selectedCaseId.isEmpty) ||
                     (kind == .collection && !collectionNotCollected && !hasValidCollectionPayment)
             )
@@ -2701,6 +2749,13 @@ private struct SpecialCpCompletionSheet: View {
                 && !branchName.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
         }
         return true
+    }
+
+    private var needsCollectionFollowUp: Bool {
+        guard kind == .collection else { return false }
+        if collectionNotCollected { return true }
+        guard let amountValue = Double(amount), amountValue > 0 else { return false }
+        return selectedCasePending > 0.005 && amountValue < selectedCasePending - 0.005
     }
 
     private func pickerRow(_ title: String, subtitle: String?) -> some View {
@@ -2761,32 +2816,64 @@ private struct SpecialCpCompletionSheet: View {
     private func load() async {
         guard !isLoading else { return }
         guard let token = authStore.currentSession?.token else { return }
-        isLoading = true
+
+        if cpVisit == nil,
+           let cachedDetail = LocalCache.get(cpVisitDetailCacheKey, as: CpVisitDetail.self) {
+            cpVisit = cachedDetail
+            restoreCachedCollectionCases(from: cachedDetail)
+        }
+
+        isLoading = cpVisit == nil || (kind == .collection && cases.isEmpty)
         defer { isLoading = false }
         do {
             let detail = try await MarketingConvexAPIService.getCpVisitDetail(token: token, id: cpVisitId)
             cpVisit = detail
+            LocalCache.put(cpVisitDetailCacheKey, detail)
             guard kind == .collection else { return }
-            let phone = [
-                detail.client?.mobileNumber,
-                detail.lead?.mobileNumber,
-                detail.clientPlace?.contactPhone
-            ]
-            .compactMap { $0 }
-            .map(AppModuleFormatters.normalizePhone)
-            .first { $0.count == 10 }
+            let phone = collectionPhone(from: detail)
             guard let phone else {
                 errorMessage = "Client mobile is missing for payment collection."
                 return
             }
             cases = try await PostSalesConvexAPIService.getCasesByMobile(token: token, mobile: phone)
+            LocalCache.put(collectionCasesCacheKey(phone: phone), cases)
             if let first = cases.first {
-                selectedCaseId = first.id
+                if !cases.contains(where: { $0.id == selectedCaseId }) {
+                    selectedCaseId = first.id
+                }
             } else {
                 await closeCollectionAsIneligible(token: token)
             }
         } catch {
-            errorMessage = error.localizedDescription
+            if cpVisit == nil || (kind == .collection && cases.isEmpty) {
+                errorMessage = error.localizedDescription
+            }
+        }
+    }
+
+    private func collectionPhone(from detail: CpVisitDetail) -> String? {
+        [
+            detail.client?.mobileNumber,
+            detail.lead?.mobileNumber,
+            detail.clientPlace?.contactPhone
+        ]
+        .compactMap { $0 }
+        .map(AppModuleFormatters.normalizePhone)
+        .first { $0.count == 10 }
+    }
+
+    @MainActor
+    private func restoreCachedCollectionCases(from detail: CpVisitDetail) {
+        guard kind == .collection,
+              let phone = collectionPhone(from: detail),
+              let cached = LocalCache.get(
+                collectionCasesCacheKey(phone: phone),
+                as: [PostSaleCaseSummary].self
+              )
+        else { return }
+        cases = cached
+        if !cached.contains(where: { $0.id == selectedCaseId }) {
+            selectedCaseId = cached.first?.id ?? ""
         }
     }
 
@@ -2845,7 +2932,12 @@ private struct SpecialCpCompletionSheet: View {
                         errorMessage = "Enter bank, branch and cheque/DD date."
                         return
                     }
-                    let paymentProofId = try await uploadProofIfPresent(token: token)
+                    let paymentProofId: String?
+                    if let uploadedProofId = collectionProofFile?.storageId {
+                        paymentProofId = uploadedProofId
+                    } else {
+                        paymentProofId = try await uploadProofIfPresent(token: token)
+                    }
                     let submission = try await PostSalesConvexAPIService.submitCollection(
                         token: token,
                         request: SubmitCollectionRequest(
@@ -2858,7 +2950,8 @@ private struct SpecialCpCompletionSheet: View {
                             branchName: isInstrumentPayment ? trimmedBranchName.nilIfEmpty : nil,
                             paymentInstrumentDate: isInstrumentPayment ? collectionDateString(paymentInstrumentDate) : nil,
                             proofStorageId: paymentProofId,
-                            proofFileName: paymentProofId == nil ? nil : "cp-collection-proof.jpg",
+                            proofFileName: collectionProofFile?.fileName
+                                ?? (paymentProofId == nil ? nil : "cp-collection-proof.jpg"),
                             notes: notes.nilIfEmpty
                         )
                     )
@@ -2936,6 +3029,32 @@ private struct SpecialCpCompletionSheet: View {
             throw TripError.message("Could not encode proof photo")
         }
         return try await HRConvexAPIService.uploadPhoto(token: token, imageData: data)
+    }
+
+    @MainActor
+    private func importCollectionProof(_ result: Result<[URL], Error>) async {
+        guard let token = authStore.currentSession?.token else { return }
+        do {
+            guard let url = try result.get().first else { return }
+            let values = try url.resourceValues(forKeys: [.fileSizeKey])
+            let fileSize = values.fileSize ?? 0
+            let allowedTypes: Set<UTType> = [.pdf, .jpeg, .png, .webP]
+            guard let type = UTType(filenameExtension: url.pathExtension),
+                  allowedTypes.contains(type) else {
+                errorMessage = "Proof must be PDF, JPG, PNG or WebP."
+                return
+            }
+            guard fileSize <= 10 * 1024 * 1024 else {
+                errorMessage = "Proof must be 10 MB or smaller."
+                return
+            }
+            isUploadingCollectionProof = true
+            defer { isUploadingCollectionProof = false }
+            collectionProofFile = try await PostSalesStorageService.uploadFile(token: token, fileURL: url)
+            proofImage = nil
+        } catch {
+            errorMessage = error.localizedDescription
+        }
     }
 
     private func collectionDateString(_ date: Date) -> String {
@@ -3029,8 +3148,7 @@ final class TripLocationManager: NSObject, CLLocationManagerDelegate {
     }
 
     var needsSettings: Bool {
-        !CLLocationManager.locationServicesEnabled()
-            || authorizationStatus == .denied
+        authorizationStatus == .denied
             || authorizationStatus == .restricted
             || (
                 (authorizationStatus == .authorizedWhenInUse || authorizationStatus == .authorizedAlways)
@@ -3047,10 +3165,6 @@ final class TripLocationManager: NSObject, CLLocationManagerDelegate {
     /// before proximity checks. Mirror that behavior by waiting for a fresh,
     /// precise Core Location fix instead of sleeping and reading stale state.
     func freshPreciseLocation() async throws -> CLLocation {
-        guard CLLocationManager.locationServicesEnabled() else {
-            throw TripLocationError.servicesDisabled
-        }
-
         let status = manager.authorizationStatus
         authorizationStatus = status
         guard status != .denied && status != .restricted else {

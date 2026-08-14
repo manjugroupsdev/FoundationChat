@@ -31,9 +31,19 @@ struct MainTabView: View {
         let inactive = UIColor(red: 0.6, green: 0.615, blue: 0.635, alpha: 1)
         let tabBar = UITabBar.appearance()
         let appearance = UITabBarAppearance()
-        appearance.configureWithTransparentBackground()
-        appearance.backgroundEffect = UIBlurEffect(style: .systemUltraThinMaterialLight)
-        appearance.backgroundColor = UIColor.white.withAlphaComponent(0.62)
+        if #available(iOS 26.0, *) {
+            // The floating iOS 26 tab bar supplies its own glass backdrop. A
+            // second UIKit blur can be laid out as a full-height background
+            // after scroll/minimize transitions, covering Home content.
+            appearance.configureWithTransparentBackground()
+            appearance.backgroundEffect = nil
+            appearance.backgroundColor = .clear
+            appearance.shadowColor = .clear
+        } else {
+            appearance.configureWithTransparentBackground()
+            appearance.backgroundEffect = UIBlurEffect(style: .systemUltraThinMaterialLight)
+            appearance.backgroundColor = UIColor.white.withAlphaComponent(0.62)
+        }
         [appearance.stackedLayoutAppearance,
          appearance.inlineLayoutAppearance,
          appearance.compactInlineLayoutAppearance].forEach { itemAppearance in
@@ -100,7 +110,6 @@ struct MainTabView: View {
                 }
                 .tag(AppTab.apps)
         }
-        .tabBarMinimizeOnScrollIfAvailable()
         .onAppear {
             Self.configureTabBarColors()
         }
@@ -133,17 +142,6 @@ struct MainTabView: View {
         case .permissionRequest, .permissionApproved, .permissionRejected:
             selectedTab = .hr
             openHRRouteFromPush = route.workflowTargetMode?.lowercased() == "approval" ? .permissionApprovals : .permissions
-        }
-    }
-}
-
-private extension View {
-    @ViewBuilder
-    func tabBarMinimizeOnScrollIfAvailable() -> some View {
-        if #available(iOS 26.0, *) {
-            self.tabBarMinimizeBehavior(.onScrollDown)
-        } else {
-            self
         }
     }
 }

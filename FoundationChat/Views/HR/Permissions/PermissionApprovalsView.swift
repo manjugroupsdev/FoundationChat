@@ -10,6 +10,13 @@ struct PermissionApprovalsView: View {
     @State private var rejectReason = ""
     @State private var actionInFlightId: String?
 
+    private var approvalsCacheKey: String {
+        let staff = authStore.currentSession?.user.staffId?.nonBlank
+            ?? authStore.currentSession?.user._id.nonBlank
+            ?? "anon"
+        return "permissions.approvals.direct.\(staff)"
+    }
+
     var body: some View {
         List {
             if let errorMessage {
@@ -117,6 +124,10 @@ struct PermissionApprovalsView: View {
 
     private func loadData() {
         guard let token = authStore.currentSession?.token else { return }
+        if pendingPermissions.isEmpty,
+           let cached = LocalCache.get(approvalsCacheKey, as: [ConvexPermission].self) {
+            pendingPermissions = cached
+        }
         Task {
             isLoading = true
             errorMessage = nil
@@ -127,8 +138,11 @@ struct PermissionApprovalsView: View {
                     scope: "direct",
                     viewerStaffId: authStore.currentSession?.user._id
                 )
+                LocalCache.put(approvalsCacheKey, pendingPermissions)
             } catch {
-                errorMessage = error.localizedDescription
+                if pendingPermissions.isEmpty {
+                    errorMessage = error.localizedDescription
+                }
             }
         }
     }

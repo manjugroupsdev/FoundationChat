@@ -501,7 +501,7 @@ struct GeoTrackAssignedPlacesResponse: Decodable, Sendable {
 
 // MARK: - Today Visits
 
-struct GeoTrackTodayVisit: Decodable, Sendable {
+struct GeoTrackTodayVisit: Codable, Sendable {
     let id: String
     let clientPlaceId: String
     let scheduledDate: String
@@ -537,7 +537,7 @@ struct GeoTrackTodayVisit: Decodable, Sendable {
     }
 }
 
-struct GeoTrackCPVisitState: Decodable, Sendable {
+struct GeoTrackCPVisitState: Codable, Sendable {
     let clientMet: Bool?
     let clientMetAt: Double?
     let clientNoShowReason: String?

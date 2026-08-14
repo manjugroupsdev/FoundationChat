@@ -9,12 +9,15 @@ struct TasksListView: View {
     @State private var tasks: [DailyTask] = []
     @State private var teamIds: Set<String> = []
     @State private var scope: String?
-    @State private var selectedTaskScope: DailyTaskScopeFilter = .teamTasks
+    @State private var moduleLabels: [String: String] = [:]
     @State private var statusFilter: DailyTaskStatusFilter = .all
     @State private var categoryFilter = "All"
+    @State private var renderedTaskLimit = 20
+    @State private var hasLoadedOnce = false
     @State private var isLoading = false
     @State private var errorMessage: String?
     @State private var webLinkTask: DailyTask?
+    @State private var selectedRoute: TaskManagerRoute?
 
     private var todayString: String {
         AppModuleFormatters.ymd.string(from: Date())
@@ -24,35 +27,30 @@ struct TasksListView: View {
         authStore.currentSession?.user.staffId?.nonBlank ?? authStore.currentSession?.user._id.nonBlank
     }
 
+    private var isSuperTaskManagerViewer: Bool {
+        authStore.isAdmin
+            || authStore.currentSession?.user.role?
+                .trimmingCharacters(in: .whitespacesAndNewlines)
+                .lowercased() == "super-admin"
+    }
+
     private var metrics: DailyTaskMetrics {
         DailyTaskMetrics(tasks: tasks, teamIds: teamIds, scope: scope, staffId: currentStaffId, todayString: todayString)
     }
 
-    private var scopedTasks: [DailyTask] {
-        tasks.filter {
-            selectedTaskScope.matches(
-                $0,
-                teamIds: teamIds,
-                scope: scope,
-                staffId: currentStaffId,
-                todayString: todayString
-            )
-        }
-    }
-
-    private var scopedMetrics: DailyTaskMetrics {
-        DailyTaskMetrics(tasks: scopedTasks, teamIds: teamIds, scope: scope, staffId: currentStaffId, todayString: todayString)
-    }
-
     private var categories: [String] {
-        let modules = Set(scopedTasks.map(moduleLabel(for:))).sorted()
+        let modules = Set(tasks.map(moduleLabel(for:))).sorted()
         return ["All"] + modules
     }
 
     private var visibleTasks: [DailyTask] {
-        scopedTasks
+        tasks
             .filter { statusFilter.matches($0, todayString: todayString) }
             .filter { categoryFilter == "All" || moduleLabel(for: $0) == categoryFilter }
+    }
+
+    private var renderedTasks: [DailyTask] {
+        Array(visibleTasks.prefix(renderedTaskLimit))
     }
 
     var body: some View {
@@ -64,11 +62,12 @@ struct TasksListView: View {
                     ForEach(DailyTaskStatusFilter.allCases) { filter in
                         TaskManagerChip(
                             title: filter.title,
-                            count: scopedMetrics.count(for: filter),
+                            count: metrics.count(for: filter),
                             isSelected: statusFilter == filter
                         ) {
                             withAnimation(.easeInOut(duration: 0.18)) {
                                 statusFilter = filter
+                                renderedTaskLimit = 20
                             }
                         }
                     }
@@ -82,6 +81,7 @@ struct TasksListView: View {
                         ) {
                             withAnimation(.easeInOut(duration: 0.18)) {
                                 categoryFilter = category
+                                renderedTaskLimit = 20
                             }
                         }
                     }
@@ -100,11 +100,19 @@ struct TasksListView: View {
         .toolbarBackground(.visible, for: .navigationBar)
         .toolbar(.hidden, for: .tabBar)
         .task { await loadTasks() }
+        .onAppear {
+            if hasLoadedOnce {
+                Task { await loadTasks() }
+            }
+        }
         .refreshable { await loadTasks() }
         .sheet(item: $webLinkTask) { task in
             TaskWebLinkSheet(task: task)
                 .presentationDetents([.height(300)])
                 .presentationBackground(Color.white)
+        }
+        .navigationDestination(item: $selectedRoute) { route in
+            route.view
         }
         .alert("Error", isPresented: errorAlertBinding, actions: {
             Button("OK", role: .cancel) { errorMessage = nil }
@@ -127,15 +135,8 @@ struct TasksListView: View {
                     TaskMetricCard(
                         title: filter.title,
                         value: filter.count(in: metrics),
-                        isSelected: selectedTaskScope == filter,
                         isDanger: filter == .overdue
-                    ) {
-                        withAnimation(.easeInOut(duration: 0.18)) {
-                            selectedTaskScope = filter
-                            statusFilter = .all
-                            categoryFilter = "All"
-                        }
-                    }
+                    )
                 }
             }
             .padding(.vertical, 2)
@@ -145,26 +146,19 @@ struct TasksListView: View {
     @ViewBuilder
     private var taskContent: some View {
         if isLoading && tasks.isEmpty {
-            VStack(spacing: 12) {
-                ForEach(0..<5, id: \.self) { _ in
-                    RoundedRectangle(cornerRadius: 14, style: .continuous)
-                        .fill(Color.white)
-                        .frame(height: 112)
-                        .redacted(reason: .placeholder)
-                }
-            }
-            .padding(.top, 4)
+            TaskManagerLoadingSkeleton()
+                .padding(.top, 4)
         } else if visibleTasks.isEmpty {
             VStack(spacing: 12) {
                 Image(systemName: "checklist.unchecked")
                     .font(.system(size: 44, weight: .regular))
                     .foregroundStyle(Color(hex: 0x98A2B3))
 
-                Text("No tasks")
+                Text("Inbox zero")
                     .font(.system(size: 20, weight: .bold))
                     .foregroundStyle(Color(hex: 0x101828))
 
-                Text("Task manager items will land here.")
+                Text("No tasks match this filter.")
                     .font(.system(size: 13, weight: .medium))
                     .foregroundStyle(Color(hex: 0x667085))
             }
@@ -172,19 +166,33 @@ struct TasksListView: View {
             .padding(.top, 150)
         } else {
             LazyVStack(spacing: 12) {
-                ForEach(visibleTasks) { task in
+                ForEach(renderedTasks) { task in
                     DailyTaskManagerCard(
                         task: task,
                         module: moduleLabel(for: task),
                         isOverdue: DailyTaskStatusFilter.isOverdue(task, todayString: todayString),
+                        onOpen: { openTask(task) },
                         onComplete: { Task { await updateDailyTaskStatus(task, to: "completed") } },
                         onCancel: { Task { await updateDailyTaskStatus(task, to: "cancelled") } }
                     )
-                    .contentShape(Rectangle())
-                    .onTapGesture { webLinkTask = task }
+                }
+
+                if renderedTasks.count < visibleTasks.count {
+                    ProgressView()
+                        .frame(maxWidth: .infinity)
+                        .padding(.vertical, 10)
+                        .onAppear(perform: loadMoreTasks)
                 }
             }
             .padding(.top, 2)
+        }
+    }
+
+    private func openTask(_ task: DailyTask) {
+        if let route = TaskManagerRoute(task: task) {
+            selectedRoute = route
+        } else {
+            webLinkTask = task
         }
     }
 
@@ -211,9 +219,14 @@ struct TasksListView: View {
         // shows on a genuine first load with nothing cached (Android parity).
         if tasks.isEmpty,
            let cached = LocalCache.get(tasksCacheKey(), as: DailyTaskManagerCacheSnapshot.self) {
-            tasks = cached.tasks
-            teamIds = Set(cached.teamIds)
+            let cachedTeamIds = Set(cached.teamIds)
+            let scoped = scopedTaskManagerTasks(cached.tasks, teamIds: cachedTeamIds)
+                .sorted { ($0.creationTime ?? 0) > ($1.creationTime ?? 0) }
+            tasks = scoped
+            teamIds = cachedTeamIds
             scope = cached.scope
+            moduleLabels = moduleLabelCache(for: scoped)
+            renderedTaskLimit = 20
         }
 
         isLoading = true
@@ -221,12 +234,16 @@ struct TasksListView: View {
 
         do {
             let payload = try await TasksConvexAPIService.getTaskManagerTasks(token: token, today: todayString)
-            tasks = payload.tasks.sorted { ($0.creationTime ?? 0) > ($1.creationTime ?? 0) }
+            let scoped = scopedTaskManagerTasks(payload.tasks, teamIds: payload.teamIds)
+                .sorted { ($0.creationTime ?? 0) > ($1.creationTime ?? 0) }
+            tasks = scoped
             teamIds = payload.teamIds
             scope = payload.scope
+            moduleLabels = moduleLabelCache(for: scoped)
+            renderedTaskLimit = 20
             LocalCache.put(
                 tasksCacheKey(),
-                DailyTaskManagerCacheSnapshot(tasks: tasks, teamIds: Array(teamIds), scope: scope)
+                DailyTaskManagerCacheSnapshot(tasks: payload.tasks, teamIds: Array(teamIds), scope: scope)
             )
             if !categories.contains(categoryFilter) {
                 categoryFilter = "All"
@@ -238,9 +255,32 @@ struct TasksListView: View {
                 errorMessage = error.localizedDescription
             }
         }
+        hasLoadedOnce = true
+    }
+
+    private func loadMoreTasks() {
+        guard renderedTaskLimit < visibleTasks.count else { return }
+        renderedTaskLimit += 20
+    }
+
+    private func scopedTaskManagerTasks(_ source: [DailyTask], teamIds: Set<String>) -> [DailyTask] {
+        guard !isSuperTaskManagerViewer else { return source }
+        guard let staffId = currentStaffId else { return [] }
+        return source.filter { task in
+            task.assignedTo == staffId || task.assignedTo.map(teamIds.contains) == true
+        }
+    }
+
+    private func moduleLabelCache(for tasks: [DailyTask]) -> [String: String] {
+        Dictionary(uniqueKeysWithValues: tasks.map { ($0.id, computeModuleLabel(for: $0)) })
     }
 
     private func moduleLabel(for task: DailyTask) -> String {
+        if let cached = moduleLabels[task.id] { return cached }
+        return computeModuleLabel(for: task)
+    }
+
+    private func computeModuleLabel(for task: DailyTask) -> String {
         if let module = task.module?.nonBlank { return module }
         let path = normalizedPath(task.actionUrl)
         let source = task.sourceReferenceType?.lowercased() ?? ""
@@ -291,6 +331,90 @@ private struct DailyTaskManagerCacheSnapshot: Codable {
     let tasks: [DailyTask]
     let teamIds: [String]
     let scope: String?
+}
+
+private enum TaskManagerRoute: String, Identifiable {
+    case attendance
+    case cpVisits
+    case siteVisits
+    case landInspection
+    case issues
+    case leaves
+    case permissions
+    case fines
+    case loanDesk
+    case loans
+    case bookings
+
+    var id: String { rawValue }
+
+    init?(task: DailyTask) {
+        let source = (task.sourceReferenceType ?? "")
+            .trimmingCharacters(in: .whitespacesAndNewlines)
+            .lowercased()
+            .replacingOccurrences(of: "-", with: "_")
+
+        switch source {
+        case "staff_attendance":
+            self = .attendance
+        case "client_place_visit", "clientplacevisit":
+            self = .cpVisits
+        case "site_visit", "sitevisit":
+            self = .siteVisits
+        case "land_inspection", "landinspection", "landproperty":
+            self = .landInspection
+        case "issue":
+            self = .issues
+        case "leave":
+            self = .leaves
+        case "permission":
+            self = .permissions
+        case "fine", "fines":
+            self = .fines
+        case "loan":
+            self = .loans
+        default:
+            if source.hasPrefix("fine_") {
+                self = .fines
+            } else if source.hasPrefix("loan_") {
+                self = .loanDesk
+            } else if source.hasPrefix("loan") {
+                self = .loans
+            } else if source.contains("booking") {
+                self = .bookings
+            } else {
+                return nil
+            }
+        }
+    }
+
+    @ViewBuilder
+    var view: some View {
+        switch self {
+        case .attendance:
+            ConvexAttendanceListView()
+        case .cpVisits:
+            CpVisitsView()
+        case .siteVisits:
+            SiteVisitsListView()
+        case .landInspection:
+            LandInspectionView()
+        case .issues:
+            IssuesView()
+        case .leaves:
+            LeavesListView()
+        case .permissions:
+            ConvexPermissionListView()
+        case .fines:
+            FinesDeductionsView()
+        case .loanDesk:
+            LoanDeskView()
+        case .loans:
+            LoansView()
+        case .bookings:
+            BookingsListView()
+        }
+    }
 }
 
 private struct DailyTaskMetrics {
@@ -428,64 +552,84 @@ private enum DailyTaskScopeFilter: String, CaseIterable, Identifiable {
         }
     }
 
-    func matches(
-        _ task: DailyTask,
-        teamIds: Set<String>,
-        scope: String?,
-        staffId: String?,
-        todayString: String
-    ) -> Bool {
-        switch self {
-        case .myTasks:
-            guard let staffId else { return false }
-            return task.assignedTo == staffId
-        case .teamTasks:
-            return scope == "all" || task.assignedTo.map(teamIds.contains) == true
-        case .assignedByMe:
-            guard let staffId else { return false }
-            return task.assignedBy == staffId
-        case .extensionRequests:
-            return task.pendingExtensionRequest == true
-        case .overdue:
-            return DailyTaskStatusFilter.isOverdue(task, todayString: todayString)
-        }
-    }
 }
 
 private struct TaskMetricCard: View {
     let title: String
     let value: Int
-    let isSelected: Bool
     let isDanger: Bool
-    let action: () -> Void
 
     var body: some View {
-        Button(action: action) {
-            VStack(alignment: .leading, spacing: 8) {
-                Text(title)
-                    .font(.system(size: 11, weight: .medium))
-                    .foregroundStyle(isSelected ? Color(hex: 0x0B61CA) : Color(hex: 0x475467))
-                    .lineLimit(1)
+        VStack(alignment: .leading, spacing: 8) {
+            Text(title)
+                .font(.system(size: 11, weight: .medium))
+                .foregroundStyle(Color(hex: 0x475467))
+                .lineLimit(1)
 
-                Text("\(value)")
-                    .font(.system(size: 22, weight: .bold))
-                    .foregroundStyle(isDanger ? Color(hex: 0xDC2626) : Color(hex: 0x101828))
-                    .monospacedDigit()
-            }
-            .frame(width: 112, alignment: .leading)
-            .padding(.horizontal, 12)
-            .padding(.vertical, 12)
-            .background(
-                isSelected ? Color(hex: 0xEFF6FF) : Color.white,
-                in: RoundedRectangle(cornerRadius: 12, style: .continuous)
-            )
-            .overlay {
-                RoundedRectangle(cornerRadius: 12, style: .continuous)
-                    .stroke(isSelected ? Color(hex: 0x0B61CA) : Color(hex: 0xE5E7EB), lineWidth: isSelected ? 1.4 : 1)
-            }
-            .contentShape(RoundedRectangle(cornerRadius: 12, style: .continuous))
+            Text("\(value)")
+                .font(.system(size: 22, weight: .bold))
+                .foregroundStyle(isDanger ? Color(hex: 0xDC2626) : Color(hex: 0x101828))
+                .monospacedDigit()
         }
-        .buttonStyle(.plain)
+        .frame(width: 112, alignment: .leading)
+        .padding(.horizontal, 12)
+        .padding(.vertical, 12)
+        .background(Color.white, in: RoundedRectangle(cornerRadius: 12, style: .continuous))
+        .overlay {
+            RoundedRectangle(cornerRadius: 12, style: .continuous)
+                .stroke(Color(hex: 0xE5E7EB), lineWidth: 1)
+        }
+    }
+}
+
+private struct TaskManagerLoadingSkeleton: View {
+    var body: some View {
+        LazyVStack(spacing: 12) {
+            ForEach(0..<4, id: \.self) { _ in
+                VStack(alignment: .leading, spacing: 12) {
+                    HStack(alignment: .top, spacing: 10) {
+                        VStack(alignment: .leading, spacing: 7) {
+                            RoundedRectangle(cornerRadius: 4, style: .continuous)
+                                .fill(Color(hex: 0xE8EEF6))
+                                .frame(width: 178, height: 15)
+                            RoundedRectangle(cornerRadius: 4, style: .continuous)
+                                .fill(Color(hex: 0xEEF2F6))
+                                .frame(width: 130, height: 11)
+                        }
+                        Spacer()
+                        RoundedRectangle(cornerRadius: 9, style: .continuous)
+                            .fill(Color(hex: 0xFFF3D6))
+                            .frame(width: 74, height: 24)
+                    }
+
+                    HStack(spacing: 16) {
+                        skeletonMetric(width: 86)
+                        Spacer(minLength: 12)
+                        skeletonMetric(width: 112)
+                            .frame(width: 132, alignment: .leading)
+                    }
+
+                    RoundedRectangle(cornerRadius: 10, style: .continuous)
+                        .fill(Color(hex: 0xF2F4F7))
+                        .frame(width: 108, height: 20)
+                }
+                .padding(.horizontal, 14)
+                .padding(.vertical, 14)
+                .background(Color.white, in: RoundedRectangle(cornerRadius: 12, style: .continuous))
+                .redacted(reason: .placeholder)
+            }
+        }
+    }
+
+    private func skeletonMetric(width: CGFloat) -> some View {
+        VStack(alignment: .leading, spacing: 5) {
+            RoundedRectangle(cornerRadius: 3, style: .continuous)
+                .fill(Color(hex: 0xEEF2F6))
+                .frame(width: 62, height: 10)
+            RoundedRectangle(cornerRadius: 4, style: .continuous)
+                .fill(Color(hex: 0xE8EEF6))
+                .frame(width: width, height: 13)
+        }
     }
 }
 
@@ -572,6 +716,7 @@ private struct DailyTaskManagerCard: View {
     let task: DailyTask
     let module: String
     let isOverdue: Bool
+    let onOpen: () -> Void
     var onComplete: (() -> Void)? = nil
     var onCancel: (() -> Void)? = nil
 
@@ -584,60 +729,67 @@ private struct DailyTaskManagerCard: View {
 
     var body: some View {
         VStack(alignment: .leading, spacing: 12) {
-            HStack(alignment: .top, spacing: 10) {
-                VStack(alignment: .leading, spacing: 4) {
-                    Text(task.displayTitle)
-                        .font(.system(size: 14, weight: .bold))
-                        .foregroundStyle(Color(hex: 0x101828))
-                        .lineLimit(2)
+            Button(action: onOpen) {
+                VStack(alignment: .leading, spacing: 12) {
+                    HStack(alignment: .top, spacing: 10) {
+                        VStack(alignment: .leading, spacing: 4) {
+                            Text(task.displayTitle)
+                                .font(.system(size: 14, weight: .bold))
+                                .foregroundStyle(Color(hex: 0x101828))
+                                .lineLimit(2)
 
-                    if let subtitle = task.displaySubtitle {
-                        Text(subtitle)
-                            .font(.system(size: 11, weight: .regular))
-                            .foregroundStyle(Color(hex: 0x667085))
-                            .lineLimit(2)
+                            if let subtitle = task.displaySubtitle {
+                                Text(subtitle)
+                                    .font(.system(size: 11, weight: .regular))
+                                    .foregroundStyle(Color(hex: 0x667085))
+                                    .lineLimit(2)
+                            }
+                        }
+
+                        Spacer(minLength: 8)
+
+                        statusPill
+                    }
+
+                    HStack(alignment: .top, spacing: 16) {
+                        VStack(alignment: .leading, spacing: 4) {
+                            Text("Deadline")
+                                .font(.system(size: 10, weight: .regular))
+                                .foregroundStyle(Color(hex: 0x98A2B3))
+
+                            Text(shortDeadline)
+                                .font(.system(size: 12, weight: .semibold))
+                                .foregroundStyle(Color(hex: 0x101828))
+                        }
+
+                        Spacer(minLength: 12)
+
+                        VStack(alignment: .leading, spacing: 4) {
+                            Text("Assigned to")
+                                .font(.system(size: 10, weight: .regular))
+                                .foregroundStyle(Color(hex: 0x98A2B3))
+
+                            Text(task.displayAssignedTo)
+                                .font(.system(size: 12, weight: .semibold))
+                                .foregroundStyle(Color(hex: 0x101828))
+                                .lineLimit(1)
+                        }
+                        .frame(width: 132, alignment: .leading)
+                    }
+
+                    if let badge = badgeText {
+                        Text(badge)
+                            .font(.system(size: 9, weight: .medium))
+                            .foregroundStyle(Color(hex: 0x475467))
+                            .padding(.horizontal, 8)
+                            .frame(height: 20)
+                            .background(Color(hex: 0xF2F4F7), in: Capsule())
                     }
                 }
-
-                Spacer(minLength: 8)
-
-                statusPill
+                .frame(maxWidth: .infinity, alignment: .leading)
+                .contentShape(Rectangle())
             }
-
-            HStack(alignment: .top, spacing: 16) {
-                VStack(alignment: .leading, spacing: 4) {
-                    Text("Deadline")
-                        .font(.system(size: 10, weight: .regular))
-                        .foregroundStyle(Color(hex: 0x98A2B3))
-
-                    Text(shortDeadline)
-                        .font(.system(size: 12, weight: .semibold))
-                        .foregroundStyle(Color(hex: 0x101828))
-                }
-
-                Spacer(minLength: 12)
-
-                VStack(alignment: .leading, spacing: 4) {
-                    Text("Assigned to")
-                        .font(.system(size: 10, weight: .regular))
-                        .foregroundStyle(Color(hex: 0x98A2B3))
-
-                    Text(task.displayAssignedTo)
-                        .font(.system(size: 12, weight: .semibold))
-                        .foregroundStyle(Color(hex: 0x101828))
-                        .lineLimit(1)
-                }
-                .frame(width: 132, alignment: .leading)
-            }
-
-            if let badge = badgeText {
-                Text(badge)
-                    .font(.system(size: 9, weight: .medium))
-                    .foregroundStyle(Color(hex: 0x475467))
-                    .padding(.horizontal, 8)
-                    .frame(height: 20)
-                    .background(Color(hex: 0xF2F4F7), in: Capsule())
-            }
+            .buttonStyle(.plain)
 
             if showsHandoffActions {
                 HStack(spacing: 10) {

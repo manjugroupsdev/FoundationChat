@@ -431,7 +431,12 @@ struct TaskUpdateSheet: View {
         case .pending:
             progress = 0
             progressText = "0%"
-        case .inProgress, .delayed:
+        case .inProgress:
+            if progress.rounded() == 0 {
+                progress = 10
+                progressText = "10%"
+            }
+        case .delayed:
             break
         }
     }

@@ -133,6 +133,12 @@ struct ApplyLeaveView: View {
         return Self.compOffCreditLabel(selectedCompOffCredit)
     }
 
+    private var compOffCreditsCacheKey: String? {
+        guard let user = authStore.currentSession?.user else { return nil }
+        let staff = user.staffId?.nonBlank ?? user._id
+        return "leaves.compoff.credits.\(staff)"
+    }
+
     var body: some View {
         VStack(spacing: 0) {
             ScrollView {
@@ -506,6 +512,10 @@ struct ApplyLeaveView: View {
             return
         }
         guard let token = authStore.currentSession?.token else { return }
+        if let cacheKey = compOffCreditsCacheKey,
+           let cached = LocalCache.get(cacheKey, as: [ConvexCompOffCredit].self) {
+            compOffCredits = cached
+        }
         isLoadingCompOffCredits = true
         defer {
             isLoadingCompOffCredits = false
@@ -513,15 +523,17 @@ struct ApplyLeaveView: View {
         }
         do {
             compOffCredits = try await HRConvexAPIService.getCompOffCredits(token: token)
+            if let cacheKey = compOffCreditsCacheKey {
+                LocalCache.put(cacheKey, compOffCredits)
+            }
             if openWhenLoaded, !compOffCredits.isEmpty {
                 showCompOffCreditSheet = true
             } else if openWhenLoaded {
                 errorMessage = "No comp-off credits available"
             }
         } catch {
-            compOffCredits = []
             if openWhenLoaded {
-                errorMessage = error.localizedDescription
+                errorMessage = compOffCredits.isEmpty ? error.localizedDescription : nil
             }
         }
     }

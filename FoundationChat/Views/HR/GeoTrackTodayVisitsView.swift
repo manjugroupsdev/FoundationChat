@@ -50,6 +50,8 @@ struct GeoTrackTodayVisitsView: View {
                 destination: coordinate(for: visit),
                 initialStatus: visit.status,
                 tripType: visit.tripType,
+                travelMode: visit.travelMode,
+                vehiclePreference: visit.vehiclePreference,
                 clientPlaceVisitId: visit.clientPlaceVisitId,
                 cpClientMet: visit.cpVisit?.clientMet,
                 cpOutcome: visit.cpVisit?.outcome,

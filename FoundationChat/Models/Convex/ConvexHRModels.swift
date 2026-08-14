@@ -70,7 +70,7 @@ struct ConvexLeaveBalance: Codable, Equatable, Sendable {
     var earnedRemaining: Double { (earned ?? 0) - (earnedUsed ?? 0) }
 }
 
-struct ConvexCompOffCredit: Decodable, Identifiable, Equatable, Sendable {
+struct ConvexCompOffCredit: Codable, Identifiable, Equatable, Sendable {
     let id: String
     let earnedDate: String?
     let expiresAt: String?
@@ -141,7 +141,7 @@ struct ConvexPermissionUsage: Codable, Equatable, Sendable {
 
 // MARK: - Fines & Deductions
 
-struct ConvexFineDeduction: Decodable, Identifiable, Equatable, Sendable {
+struct ConvexFineDeduction: Codable, Identifiable, Equatable, Sendable {
     let _id: String
     let staffName: String?
     let employeeId: String?

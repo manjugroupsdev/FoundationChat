@@ -14,6 +14,7 @@ struct SiteVisitsListView: View {
     @State private var errorMessage: String?
     @State private var hasLoadedOnce = false
     @State private var selectedVisit: ConvexSiteVisit?
+    @State private var bdoNamesByVisitId: [String: String] = [:]
     @State private var searchText = ""
     @State private var selectedFilter: SiteVisitListFilter = .all
     @State private var showingDateFilter = false
@@ -29,19 +30,19 @@ struct SiteVisitsListView: View {
     }()
 
     private var filteredVisits: [ConvexSiteVisit] {
-        visits
+        let needle = searchText.trimmingCharacters(in: .whitespacesAndNewlines)
+        return visits
             .filter { ($0.tripType ?? "").lowercased() != "client_place" && $0.clientPlaceVisitId == nil }
             .filter { selectedFilter.matches($0) }
             .filter { visit in
-                let needle = searchText.trimmingCharacters(in: .whitespacesAndNewlines).lowercased()
                 guard !needle.isEmpty else { return true }
                 return [
                     visit.leadName,
                     visit.placeName,
                     visit.placeAddress
                 ]
-                .compactMap { $0?.lowercased() }
-                .contains { $0.contains(needle) }
+                .compactMap { $0 }
+                .contains { $0.localizedStandardContains(needle) }
             }
     }
 
@@ -126,7 +127,10 @@ struct SiteVisitsListView: View {
                         Button {
                             selectedVisit = visit
                         } label: {
-                            SiteVisitRow(visit: visit)
+                            SiteVisitRow(
+                                visit: visit,
+                                resolvedBdoName: bdoNamesByVisitId[visit.id]
+                            )
                         }
                         .buttonStyle(.plain)
                     }
@@ -206,26 +210,33 @@ struct SiteVisitsListView: View {
 
     @MainActor
     private func load() async {
-        guard let token = authStore.currentSession?.token else {
+        guard let session = authStore.currentSession else {
             loadFailed = true
             errorMessage = "Not signed in."
             return
         }
-        isLoading = true
+        let fromDateText = Self.dateFormatter.string(from: min(fromDate, toDate))
+        let toDateText = Self.dateFormatter.string(from: max(fromDate, toDate))
+        let key = cacheKey(fromDate: fromDateText, toDate: toDateText)
+        if visits.isEmpty, let cached = LocalCache.get(key, as: [ConvexSiteVisit].self) {
+            visits = cached
+            loadFailed = false
+            errorMessage = nil
+            Task { await hydrateBdoNames(for: cached, token: session.token) }
+        }
+
+        isLoading = visits.isEmpty
         loadFailed = false
         errorMessage = nil
         defer { isLoading = false; hasLoadedOnce = true }
 
-        let fromDateText = Self.dateFormatter.string(from: min(fromDate, toDate))
-        let toDateText = Self.dateFormatter.string(from: max(fromDate, toDate))
-
         do {
             let result = try await HRConvexAPIService.getMySiteVisits(
-                token: token,
+                token: session.token,
                 fromDate: fromDateText,
                 toDate: toDateText
             )
-            visits = result
+            let normalized = result
                 .filter { ($0.tripType ?? "").lowercased() != "client_place" && $0.clientPlaceVisitId == nil }
                 .sorted {
                     let left = $0.creationTime ?? 0
@@ -233,10 +244,86 @@ struct SiteVisitsListView: View {
                     if left != right { return left > right }
                     return ($0.scheduledDate ?? "") > ($1.scheduledDate ?? "")
                 }
+            visits = normalized
+            LocalCache.put(key, normalized)
+            Task { await hydrateBdoNames(for: normalized, token: session.token) }
         } catch {
-            loadFailed = true
+            loadFailed = visits.isEmpty
             errorMessage = error.localizedDescription
         }
+    }
+
+    private func cacheKey(fromDate: String, toDate: String) -> String {
+        let user = authStore.currentSession?.user
+        let staffId = user?.staffId ?? user?._id ?? "unknown"
+        return "marketing.site-visits.my.\(staffId).\(fromDate).\(toDate)"
+    }
+
+    @MainActor
+    private func hydrateBdoNames(for visits: [ConvexSiteVisit], token: String) async {
+        var resolved = bdoNamesByVisitId
+        for visit in visits {
+            if let name = visit.bdoName?.nilIfBlank {
+                resolved[visit.id] = name
+            }
+        }
+        bdoNamesByVisitId = resolved
+
+        let unresolved = visits.filter { resolved[$0.id] == nil }
+        guard !unresolved.isEmpty else { return }
+
+        var detailsByVisitId: [String: CpVisitDetail] = [:]
+        var needsRemoteDetail: [ConvexSiteVisit] = []
+        for visit in unresolved {
+            let key = "marketing.site-visit.detail.\(visit.id)"
+            if let cached = LocalCache.get(key, as: CpVisitDetail.self) {
+                detailsByVisitId[visit.id] = cached
+            } else {
+                needsRemoteDetail.append(visit)
+            }
+        }
+
+        // Keep the list responsive and avoid issuing an unbounded request burst.
+        let remoteDetailIds = needsRemoteDetail.map(\.id)
+        for start in stride(from: 0, to: remoteDetailIds.count, by: 6) {
+            let end = min(start + 6, remoteDetailIds.count)
+            let batch = Array(remoteDetailIds[start..<end])
+            let fetched = await withTaskGroup(of: (String, CpVisitDetail?).self) { group in
+                for id in batch {
+                    group.addTask {
+                        let detail = try? await MarketingConvexAPIService.getCpVisitDetail(token: token, id: id)
+                        return (id, detail)
+                    }
+                }
+                var values: [(String, CpVisitDetail?)] = []
+                for await value in group { values.append(value) }
+                return values
+            }
+            for (id, detail) in fetched {
+                guard let detail else { continue }
+                detailsByVisitId[id] = detail
+                LocalCache.put("marketing.site-visit.detail.\(id)", detail)
+            }
+        }
+
+        let needsDirectory = detailsByVisitId.values.contains { detail in
+            detail.proposedSiteVisit?.bdoStaffId?.nilIfBlank != nil
+                || detail.assignedStaffId?.nilIfBlank != nil
+        }
+        let directory = needsDirectory
+            ? ((try? await HRConvexAPIService.listAllStaff(token: token)) ?? [])
+            : []
+
+        for visit in unresolved {
+            guard let detail = detailsByVisitId[visit.id] else { continue }
+            let bdoId = detail.proposedSiteVisit?.bdoStaffId?.nilIfBlank
+            let assignedId = detail.assignedStaffId?.nilIfBlank
+            let name = bdoId.flatMap { id in directory.first { $0.id == id }?.displayName.nilIfBlank }
+                ?? detail.assignedStaff?.displayName
+                ?? assignedId.flatMap { id in directory.first { $0.id == id }?.displayName.nilIfBlank }
+            if let name { resolved[visit.id] = name }
+        }
+        bdoNamesByVisitId = resolved
     }
 }
 
@@ -350,6 +437,7 @@ private struct SiteVisitSkeletonRow: View {
 
 struct SiteVisitRow: View {
     let visit: ConvexSiteVisit
+    let resolvedBdoName: String?
 
     var body: some View {
         HStack(alignment: .top, spacing: 12) {
@@ -404,7 +492,13 @@ struct SiteVisitRow: View {
                 VStack(alignment: .leading, spacing: 9) {
                     HStack(spacing: 12) {
                         footerItem(icon: "person.crop.circle", title: visit.lmoName?.nilIfBlank ?? "—", subtitle: "LMO")
-                        footerItem(icon: "person", title: visit.bdoName?.nilIfBlank ?? visit.staffName?.nilIfBlank ?? "—", subtitle: "BDO")
+                        footerItem(
+                            icon: "person",
+                            title: visit.bdoName?.nilIfBlank
+                                ?? resolvedBdoName?.nilIfBlank
+                                ?? "—",
+                            subtitle: "BDO"
+                        )
                     }
 
                     footerItem(icon: "mappin", title: visit.destinationTitle, subtitle: "ORIGIN")
@@ -936,7 +1030,13 @@ private struct SiteVisitOverviewSheet: View {
         .background(Color.appSurface)
         .task { await loadEnrichedDetail() }
         .sheet(item: $selectedOutcome) { outcome in
-            SiteVisitOutcomeSheet(siteVisitId: visit.id, initialOutcome: outcome.rawValue, locksOutcome: true) {
+            SiteVisitOutcomeSheet(
+                siteVisitId: visit.id,
+                initialOutcome: outcome.rawValue,
+                locksOutcome: true,
+                initialClientName: clientName,
+                initialClientPhone: clientPhone
+            ) {
                 onChanged()
                 dismiss()
             }
@@ -1062,10 +1162,11 @@ private struct SiteVisitOverviewSheet: View {
                 }
             }
 
-            HStack(spacing: 10) {
+            LazyVGrid(columns: [GridItem(.flexible()), GridItem(.flexible())], spacing: 10) {
                 outcomeButton("Booking", icon: "briefcase.fill", tint: Color(hex: 0x16A34A), outcome: .booking)
                 outcomeButton("Client Not Interested", icon: "hand.thumbsdown.fill", tint: Color(hex: 0xDC2626), outcome: .notInterested)
                 outcomeButton("Follow up", icon: "calendar.badge.clock", tint: Color(hex: 0xD97706), outcome: .followUp)
+                outcomeButton("Others", icon: "ellipsis.circle.fill", tint: Color(hex: 0x475467), outcome: .other)
             }
 
             if isVisitClosed {
@@ -1175,42 +1276,66 @@ private struct SiteVisitOverviewSheet: View {
     @MainActor
     private func loadEnrichedDetail() async {
         guard let token = authStore.currentSession?.token else { return }
-        isLoadingDetail = true
-        defer { isLoadingDetail = false }
+        let detailCacheKey = "marketing.site-visit.detail.\(visit.id)"
+        if detail == nil, let cached = LocalCache.get(detailCacheKey, as: CpVisitDetail.self) {
+            detail = cached
+        }
+        isLoadingDetail = detail == nil
 
-        async let detailTask: CpVisitDetail? = {
-            do {
-                return try await MarketingConvexAPIService.getCpVisitDetail(token: token, id: visit.id)
-            } catch {
+        if let refreshedDetail = await fetchDetailWithTimeout(token: token) {
+            detail = refreshedDetail
+            LocalCache.put(detailCacheKey, refreshedDetail)
+        }
+        isLoadingDetail = false
+
+        // Directory lookups are fallbacks only. They must never hold the detail
+        // sheet's loading state open after the visit payload has arrived.
+        await loadMissingReferenceData(token: token)
+    }
+
+    private func fetchDetailWithTimeout(token: String) async -> CpVisitDetail? {
+        await withTaskGroup(of: CpVisitDetail?.self) { group in
+            group.addTask {
+                try? await MarketingConvexAPIService.getCpVisitDetail(token: token, id: visit.id)
+            }
+            group.addTask {
+                try? await Task.sleep(for: .seconds(8))
                 return nil
             }
-        }()
+            let result = await group.next() ?? nil
+            group.cancelAll()
+            return result
+        }
+    }
 
-        async let staffTask: [ConvexStaffListItem] = {
-            do {
-                return try await HRConvexAPIService.listAllStaff(token: token)
-            } catch {
-                return []
+    @MainActor
+    private func loadMissingReferenceData(token: String) async {
+        let needsStaff = detail?.assignedStaff?.displayName == nil
+            && (detail?.assignedStaffId?.nilIfBlank != nil
+                || detail?.proposedSiteVisit?.bdoStaffId?.nilIfBlank != nil
+                || detail?.proposedSiteVisit?.inchargeStaffId?.nilIfBlank != nil)
+        let needsProjects = detail?.project?.name?.nilIfBlank == nil
+            && detail?.proposedSiteVisit?.projectId?.nilIfBlank != nil
+
+        await withTaskGroup(of: Void.self) { group in
+            if needsStaff {
+                group.addTask {
+                    let values = (try? await HRConvexAPIService.listAllStaff(token: token)) ?? []
+                    await MainActor.run { staffDirectory = values }
+                }
             }
-        }()
-
-        async let projectTask: [MarketingProject] = {
-            do {
-                return try await MarketingConvexAPIService.getMarketingProjects(token: token)
-            } catch {
-                return []
+            if needsProjects {
+                group.addTask {
+                    let values = (try? await MarketingConvexAPIService.getMarketingProjects(token: token)) ?? []
+                    await MainActor.run { projectDirectory = values }
+                }
             }
-        }()
-
-        detail = await detailTask
-        staffDirectory = await staffTask
-        projectDirectory = await projectTask
+        }
     }
 
     private var clientName: String {
         detail?.client?.clientName?.nilIfBlank
             ?? detail?.lead?.contactName?.nilIfBlank
-            ?? detail?.clientPlace?.name?.nilIfBlank
             ?? visit.leadName?.nilIfBlank
             ?? "—"
     }
@@ -1242,8 +1367,16 @@ private struct SiteVisitOverviewSheet: View {
 
     private var staffName: String {
         detail?.assignedStaff?.displayName
-            ?? detail?.telecaller?.displayName
+            ?? bdoFromDirectory
+            ?? visit.bdoName?.nilIfBlank
             ?? "—"
+    }
+
+    private var bdoFromDirectory: String? {
+        let id = detail?.proposedSiteVisit?.bdoStaffId?.nilIfBlank
+            ?? detail?.assignedStaffId?.nilIfBlank
+        guard let id else { return nil }
+        return staffDirectory.first { $0.id == id }?.displayName
     }
 
     private var pickupAddress: String {
@@ -1359,12 +1492,13 @@ private struct SiteVisitOverviewSheet: View {
 
     private var isVisitClosed: Bool {
         if isFleetOutcomePending { return false }
-        return visit.hasLockedOutcome
-            || detail?.convertedBookingId?.nilIfBlank != nil
-            || detail?.outcome?.nilIfBlank != nil
-            || detail?.completedAt != nil
-            || detail?.cancelledAt != nil
-            || ["completed", "complete", "done", "closed", "cancelled", "canceled"].contains(normalizedStatus)
+        return siteVisitOutcome?.nilIfBlank != nil
+            || siteVisitConvertedBookingID?.nilIfBlank != nil
+            || siteVisitCancelledAt != nil
+            || [
+                "cancelled", "canceled", "no_show", "converted_to_booking",
+                "not_interested", "postponed", "other"
+            ].contains(normalizedStatus.normalizedSiteVisitValue)
     }
 
     private var displayDateTime: String {
@@ -1493,14 +1627,35 @@ private struct SiteVisitOverviewSheet: View {
     private var isOutcomeEnabled: Bool {
         guard !isVisitClosed else { return false }
         return isFleetOutcomePending || [
-            "consulting", "on_counselling", "picked_from_site", "dropped"
+            "consulting", "on_counselling", "picked_from_site", "dropped",
+            "completed", "complete", "done", "closed"
         ].contains(normalizedStatus.normalizedSiteVisitValue)
     }
 
     private var isFleetOutcomePending: Bool {
         (detail?.completedOffline ?? visit.completedOffline) == true
-            && detail?.outcome?.nilIfBlank == nil
-            && visit.outcome?.nilIfBlank == nil
+            && siteVisitOutcome?.nilIfBlank == nil
+    }
+
+    private var siteVisitOutcome: String? {
+        if detail?.proposedSiteVisit != nil {
+            return detail?.proposedSiteVisit?.outcome
+        }
+        return detail?.outcome ?? visit.outcome
+    }
+
+    private var siteVisitConvertedBookingID: String? {
+        if detail?.proposedSiteVisit != nil {
+            return detail?.proposedSiteVisit?.convertedBookingId
+        }
+        return detail?.convertedBookingId ?? visit.convertedBookingId
+    }
+
+    private var siteVisitCancelledAt: Int64? {
+        if detail?.proposedSiteVisit != nil {
+            return detail?.proposedSiteVisit?.cancelledAt
+        }
+        return detail?.cancelledAt
     }
 
     private var canPostponeVisit: Bool {
@@ -1672,6 +1827,7 @@ private enum SiteVisitOverviewOutcome: String, Identifiable {
     case notInterested = "not_interested"
     // Was "postponed" — Android's SV outcome validator only accepts follow_up.
     case followUp = "follow_up"
+    case other
 
     var id: String { rawValue }
 }

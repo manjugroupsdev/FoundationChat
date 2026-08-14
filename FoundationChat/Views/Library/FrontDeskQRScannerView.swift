@@ -63,7 +63,7 @@ struct FrontDeskQRScannerView: View {
                         errorMessage: scanError,
                         actionError: visitorActionError,
                         isActionRunning: isVisitorActionRunning,
-                        canRecordOutcomeFallback: authStore.hasPermission("marketing.siteVisits.scanConsulting"),
+                        canOperateFallback: canOperateScannedSiteVisit,
                         onStart: startSiteVisitCounselling,
                         onOpenOutcome: openScannedSiteVisitOutcome,
                         onScanAnother: { showScanResult = false }
@@ -101,6 +101,16 @@ struct FrontDeskQRScannerView: View {
 
     private var canViewHistory: Bool {
         authStore.hasPermission("frontdesk.view")
+    }
+
+    private var canOperateScannedSiteVisit: Bool {
+        if authStore.hasPermission("marketing.siteVisits.scanConsulting") { return true }
+        guard let staffId = authStore.currentSession?.user.staffId ?? authStore.currentSession?.user._id,
+              let visit = scannedSiteVisit
+        else { return false }
+        return [visit.inchargeStaff?.id, visit.bdoStaff?.id, visit.telecallerStaff?.id]
+            .compactMap { $0 }
+            .contains(staffId)
     }
 
     private var scannerHeader: some View {
@@ -460,7 +470,7 @@ private struct SiteVisitCounsellingSheet: View {
     let errorMessage: String?
     let actionError: String?
     let isActionRunning: Bool
-    let canRecordOutcomeFallback: Bool
+    let canOperateFallback: Bool
     let onStart: () async -> Void
     let onOpenOutcome: () -> Void
     let onScanAnother: () -> Void
@@ -475,9 +485,18 @@ private struct SiteVisitCounsellingSheet: View {
     private var isCompleted: Bool {
         normalizedStatus == "completed" || visit?.outcome?.nilIfBlank != nil
     }
-    private var canStart: Bool { visit?.canStartCounselling == true && !isOngoing && !isCompleted }
+    private var canStartStatus: Bool {
+        ["scheduled", "client_started", "picked_up", "on_site"].contains(normalizedStatus)
+    }
+    private var canRecordStatus: Bool {
+        ["on_counselling", "picked_from_site", "dropped"].contains(normalizedStatus)
+    }
+    private var canStart: Bool {
+        ((visit?.canStartCounselling == true) || (canOperateFallback && canStartStatus))
+            && !isOngoing && !isCompleted
+    }
     private var canOpenOutcome: Bool {
-        ((visit?.canRecordOutcome == true) || canRecordOutcomeFallback) && isOngoing && !isCompleted
+        ((visit?.canRecordOutcome == true) || canOperateFallback) && canRecordStatus && !isCompleted
     }
 
     var body: some View {

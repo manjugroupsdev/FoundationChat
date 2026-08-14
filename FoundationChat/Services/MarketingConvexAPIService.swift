@@ -74,6 +74,26 @@ enum MarketingConvexAPIService {
         let error: String?
     }
 
+    private struct PincodeResponse: Decodable {
+        let postOffices: [PincodeOffice]?
+
+        enum CodingKeys: String, CodingKey {
+            case postOffices = "PostOffice"
+        }
+    }
+
+    private struct PincodeOffice: Decodable {
+        let name: String?
+        let district: String?
+        let state: String?
+
+        enum CodingKeys: String, CodingKey {
+            case name = "Name"
+            case district = "District"
+            case state = "State"
+        }
+    }
+
     private struct CreateBookingResponse: Decodable {
         let success: Bool
         let id: String?
@@ -472,6 +492,40 @@ enum MarketingConvexAPIService {
         return wrapper.bookings ?? []
     }
 
+    static func lookupPincode(token: String, pincode: String) async throws -> BookingPincodePrefill? {
+        guard pincode.range(of: #"^\d{6}$"#, options: .regularExpression) != nil else { return nil }
+        let data = try await get(
+            path: "/api/pincode",
+            token: token,
+            queryItems: [URLQueryItem(name: "pin", value: pincode)],
+            cachePolicy: .returnCacheDataElseLoad
+        )
+        let responses = try decode([PincodeResponse].self, from: data)
+        guard let offices = responses.first?.postOffices, !offices.isEmpty else { return nil }
+
+        func firstValue(_ keyPath: KeyPath<PincodeOffice, String?>, excludingNA: Bool = false) -> String? {
+            offices.lazy.compactMap { office -> String? in
+                guard let value = office[keyPath: keyPath]?.trimmingCharacters(in: .whitespacesAndNewlines),
+                      !value.isEmpty,
+                      !(excludingNA && value.caseInsensitiveCompare("NA") == .orderedSame) else { return nil }
+                return value
+            }.first
+        }
+
+        let locality = firstValue(\.name, excludingNA: true)?
+            .replacingOccurrences(
+                of: #"\s+(S\.O\.|B\.O\.|H\.O\.|GPO|HPO|SO|BO|HO)\s*$"#,
+                with: "",
+                options: [.regularExpression, .caseInsensitive]
+            )
+            .trimmingCharacters(in: .whitespacesAndNewlines)
+        return BookingPincodePrefill(
+            locality: locality,
+            district: firstValue(\.district),
+            state: firstValue(\.state)
+        )
+    }
+
     static func createBooking(token: String, request: CreateBookingRequest) async throws -> String {
         let data = try await post(path: "/api/bookings", token: token, body: request)
         let wrapper = try decode(CreateBookingResponse.self, from: data)
@@ -684,6 +738,10 @@ enum MarketingConvexAPIService {
         try await runSiteVisitLifecycle(path: "/api/marketing/siteVisits/markArrivedSite", token: token, id: id)
     }
 
+    static func markSiteVisitPickedFromSite(token: String, id: String) async throws {
+        try await runSiteVisitLifecycle(path: "/api/marketing/siteVisits/markPickedFromSite", token: token, id: id)
+    }
+
     static func markSiteVisitDropped(token: String, id: String) async throws {
         try await runSiteVisitLifecycle(path: "/api/marketing/siteVisits/markDropped", token: token, id: id)
     }
@@ -704,6 +762,22 @@ enum MarketingConvexAPIService {
         return wrapper
     }
 
+    static func convertSiteVisitToBooking(
+        token: String,
+        request: ConvertSiteVisitToBookingRequest
+    ) async throws -> ConvertSiteVisitToBookingResponse {
+        let data = try await post(
+            path: "/api/marketing/siteVisits/convertToBooking",
+            token: token,
+            body: request
+        )
+        let wrapper = try decode(ConvertSiteVisitToBookingResponse.self, from: data)
+        guard wrapper.success else {
+            throw MarketingAPIError.server(wrapper.error ?? "Failed to convert site visit to booking")
+        }
+        return wrapper
+    }
+
     static func getCpVisitDetail(token: String, id: String) async throws -> CpVisitDetail {
         let data = try await get(
             path: "/api/marketing/clientPlaceVisits/get",
@@ -719,14 +793,23 @@ enum MarketingConvexAPIService {
     static func getMyMarketingCpVisits(
         token: String,
         fromDate: String? = nil,
-        toDate: String? = nil
+        toDate: String? = nil,
+        scope: String = "all",
+        limit: Int? = nil,
+        search: String? = nil
     ) async throws -> [CpVisitDetail] {
-        var items: [URLQueryItem] = []
+        var items = [URLQueryItem(name: "scope", value: scope)]
         if let fromDate, !fromDate.isEmpty {
             items.append(URLQueryItem(name: "fromDate", value: fromDate))
         }
         if let toDate, !toDate.isEmpty {
             items.append(URLQueryItem(name: "toDate", value: toDate))
+        }
+        if let limit {
+            items.append(URLQueryItem(name: "limit", value: String(limit)))
+        }
+        if let search = search?.trimmingCharacters(in: .whitespacesAndNewlines), !search.isEmpty {
+            items.append(URLQueryItem(name: "search", value: search))
         }
         let data = try await get(path: "/api/marketing/clientPlaceVisits/my", token: token, queryItems: items)
         let wrapper = try decode(MyMarketingCpVisitsResponse.self, from: data)

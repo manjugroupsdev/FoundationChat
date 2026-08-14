@@ -9,6 +9,13 @@ struct LeaveApprovalsView: View {
     @State private var rejectReason = ""
     @State private var actionInFlightId: String?
 
+    private var approvalsCacheKey: String {
+        let staff = authStore.currentSession?.user.staffId?.nonBlank
+            ?? authStore.currentSession?.user._id.nonBlank
+            ?? "anon"
+        return "leaves.approvals.direct.\(staff)"
+    }
+
     var body: some View {
         List {
             if let errorMessage {
@@ -113,6 +120,10 @@ struct LeaveApprovalsView: View {
 
     private func loadData() {
         guard let token = authStore.currentSession?.token else { return }
+        if pendingLeaves.isEmpty,
+           let cached = LocalCache.get(approvalsCacheKey, as: [ConvexLeave].self) {
+            pendingLeaves = cached
+        }
         Task {
             isLoading = true
             defer { isLoading = false }
@@ -123,9 +134,12 @@ struct LeaveApprovalsView: View {
                     scope: "direct",
                     viewerStaffId: authStore.currentSession?.user._id
                 )
+                LocalCache.put(approvalsCacheKey, pendingLeaves)
             } catch {
                 if Self.isCancellation(error) { return }
-                errorMessage = error.localizedDescription
+                if pendingLeaves.isEmpty {
+                    errorMessage = error.localizedDescription
+                }
             }
         }
     }

@@ -34,6 +34,7 @@ struct HomeView: View {
     @State private var unreadCount = 0
     @State private var isLoading = true
     @State private var isVisitsLoading = false
+    @State private var hasCompletedInitialLoad = false
     @State private var loadError: String?
     @State private var visitToOpen: GeoTrackTodayVisit?
     @State private var backendDriverMode = false
@@ -132,29 +133,6 @@ struct HomeView: View {
                 }
                 .zIndex(2)
 
-                if showsBottomTaskPeek {
-                    GeometryReader { geometry in
-                        let isCollapsed = isBottomTaskPeekCollapsed
-                        let peekWidth: CGFloat = isCollapsed ? 52 : 264
-                        let peekHeight: CGFloat = isCollapsed ? 52 : 40
-                        let firstTabCenterX = geometry.size.width / 8
-
-                        bottomPendingTaskStrip
-                            .frame(width: peekWidth, height: peekHeight)
-                            .position(
-                                x: isCollapsed ? firstTabCenterX : geometry.size.width / 2,
-                                y: geometry.size.height - 82 - (peekHeight / 2)
-                            )
-                    }
-                    .ignoresSafeArea(edges: .bottom)
-                    .transition(.move(edge: .bottom).combined(with: .opacity))
-                    .animation(
-                        .interactiveSpring(response: 0.42, dampingFraction: 0.88, blendDuration: 0.16),
-                        value: isBottomTaskPeekCollapsed
-                    )
-                    .zIndex(9)
-                }
-
                 if !isHomeChromeCollapsed {
                     homeHeaderActions
                         .padding(.top, 8)
@@ -176,13 +154,13 @@ struct HomeView: View {
                         .transition(.opacity.combined(with: .move(edge: .trailing)))
                 }
             }
+            // Home has no editable controls. A keyboard inset left behind by a
+            // dismissed form/sheet must not shorten this scroll viewport and
+            // expose a blank layer above the tab bar.
+            .ignoresSafeArea(.keyboard, edges: .bottom)
             .navigationTitle("")
             .navigationBarTitleDisplayMode(.inline)
             .toolbar(.hidden, for: .navigationBar)
-            .toolbar(
-                (showQRPanel || showNotifications || showProfile) ? .hidden : .visible,
-                for: .tabBar
-            )
             .navigationDestination(item: $visitToOpen) { visit in
                 TripNavigationView(
                     visitId: visit.id,
@@ -192,6 +170,8 @@ struct HomeView: View {
                     destination: coordinate(for: visit),
                     initialStatus: visit.status,
                     tripType: visit.tripType,
+                    travelMode: visit.travelMode,
+                    vehiclePreference: visit.vehiclePreference,
                     clientPlaceVisitId: visit.clientPlaceVisitId,
                     cpClientMet: visit.cpVisit?.clientMet,
                     cpOutcome: visit.cpVisit?.outcome,
@@ -280,13 +260,16 @@ struct HomeView: View {
                 }
             }
             .onAppear {
+                UIApplication.shared.fc_dismissKeyboard()
                 guard appeared else { return }
                 headerEntryStarted = true
                 headerFloating = true
                 Task { await reload() }
             }
             .onDisappear {
-                headerFloating = false
+                if !hasPlayedEntryAnimation {
+                    headerFloating = false
+                }
             }
             .onChange(of: canViewManagementDashboard) { oldValue, newValue in
                 guard oldValue != newValue, appeared else { return }
@@ -360,7 +343,7 @@ struct HomeView: View {
                         Text("View My Summary")
                             .font(.system(size: 9.6, weight: .semibold))
 
-                        Image(systemName: "chevron.right.3")
+                        Image(systemName: "chevron.right")
                             .font(.system(size: 9, weight: .bold))
                     }
                     .foregroundStyle(HomePalette.headerBlue)
@@ -502,6 +485,7 @@ struct HomeView: View {
             headerEntryStarted = true
         }
         DispatchQueue.main.asyncAfter(deadline: .now() + 0.84) {
+            guard headerEntryStarted else { return }
             headerFloating = true
         }
     }
@@ -669,7 +653,7 @@ struct HomeView: View {
             // On refresh / return-to-Home, keep the existing trips visible instead
             // of flashing the skeleton over them (the "white layer" that covered the
             // view on every reload). Mirrors the dashboard's `managementDashboard == nil` gate.
-            if isLoading && visibleVisits.isEmpty {
+            if shouldShowTripSkeleton {
                 skeletonList
             } else if visibleVisits.isEmpty {
                 emptyTripCard
@@ -727,7 +711,7 @@ struct HomeView: View {
 
             managementDashboardTabs
 
-            if isManagementDashboardLoading && managementDashboard == nil {
+            if shouldShowManagementDashboardSkeleton {
                 managementDashboardSkeleton
             } else if let managementDashboard {
                 managementDashboardGrid(for: managementDashboard)
@@ -834,22 +818,20 @@ struct HomeView: View {
         LazyVGrid(columns: dashboardGridColumns, spacing: 12) {
             ForEach(0..<6, id: \.self) { index in
                 VStack(alignment: .leading, spacing: 12) {
-                    Circle()
-                        .fill(HomePalette.skeleton)
-                        .frame(width: 34, height: 34)
-                    RoundedRectangle(cornerRadius: 5)
-                        .fill(HomePalette.skeleton)
-                        .frame(width: index.isMultiple(of: 2) ? 64 : 82, height: 22)
-                    RoundedRectangle(cornerRadius: 4)
-                        .fill(HomePalette.skeleton)
-                        .frame(width: index.isMultiple(of: 2) ? 92 : 74, height: 10)
+                    HomeSkeletonBlock(shape: .rounded(11), width: 38, height: 38)
+                    HomeSkeletonBlock(shape: .rounded(6), width: index.isMultiple(of: 2) ? 64 : 82, height: 24)
+                    HomeSkeletonBlock(shape: .rounded(4), width: index.isMultiple(of: 2) ? 92 : 74, height: 10)
+                    Spacer(minLength: 0)
+                    HomeSkeletonBlock(shape: .rounded(4), width: 86, height: 10)
                 }
                 .padding(14)
                 .frame(maxWidth: .infinity, minHeight: 145, alignment: .leading)
-                .background(Color.appSurface.opacity(0.7), in: RoundedRectangle(cornerRadius: 14, style: .continuous))
-                .redacted(reason: .placeholder)
+                .background(.white, in: RoundedRectangle(cornerRadius: 16, style: .continuous))
+                .overlay(RoundedRectangle(cornerRadius: 16).stroke(Color(hex: 0xE5E7EB), lineWidth: 1))
+                .shadow(color: Color(hex: 0x101828).opacity(0.04), radius: 7, y: 3)
             }
         }
+        .transition(.opacity)
     }
 
     private var dashboardDatePickerSheet: some View {
@@ -912,100 +894,8 @@ struct HomeView: View {
         }
     }
 
-    private var showsBottomTaskPeek: Bool {
-        !pendingTaskNudgeTasks.isEmpty && !showPendingTasksSheet && !showQRPanel
-    }
-
     private var isHomeChromeCollapsed: Bool {
         homeScrollOffset < -10
-    }
-
-    private var isBottomTaskPeekCollapsed: Bool {
-        isHomeChromeCollapsed
-    }
-
-    private var bottomTaskPeekText: String {
-        if dueSoonTaskCount > 0 {
-            return "\(pendingTaskNudgeTasks.count) pending · \(dueSoonTaskCount) due"
-        }
-        return "\(pendingTaskNudgeTasks.count) pending"
-    }
-
-    private var bottomPendingTaskStrip: some View {
-        let isCollapsed = isBottomTaskPeekCollapsed
-
-        return Button {
-            presentPendingTasksSheet(force: true)
-        } label: {
-            ZStack {
-                ZStack(alignment: .topTrailing) {
-                    Image(systemName: "checkmark.circle.fill")
-                        .font(.system(size: 23, weight: .bold))
-                        .foregroundStyle(Color(hex: 0xB42318))
-                        .frame(width: 48, height: 48)
-
-                    Text("\(pendingTaskNudgeTasks.count)")
-                        .font(.system(size: 9, weight: .heavy))
-                        .foregroundStyle(.white)
-                        .monospacedDigit()
-                        .frame(minWidth: 20, minHeight: 20)
-                        .background(Color(hex: 0xE53935), in: Circle())
-                        .overlay {
-                            Circle().stroke(.white, lineWidth: 1.5)
-                        }
-                        .offset(x: 3, y: -3)
-                }
-                .opacity(isCollapsed ? 1 : 0)
-                .scaleEffect(isCollapsed ? 1 : 0.72)
-
-                HStack(spacing: 10) {
-                    Image(systemName: "chevron.up")
-                        .font(.system(size: 12, weight: .heavy))
-
-                    Text(bottomTaskPeekText)
-                        .font(.system(size: 16, weight: .heavy))
-                        .lineLimit(1)
-                        .minimumScaleFactor(0.72)
-                        .monospacedDigit()
-                }
-                .foregroundStyle(Color(hex: 0xA61B18))
-                .frame(maxWidth: .infinity)
-                .opacity(isCollapsed ? 0 : 1)
-                .scaleEffect(isCollapsed ? 0.92 : 1)
-            }
-            .frame(height: isCollapsed ? 52 : 40)
-            .background {
-                LinearGradient(
-                    colors: isCollapsed
-                        ? [Color.white.opacity(0.98), Color.white.opacity(0.92)]
-                        : [Color(hex: 0xFFF7F7).opacity(0.98), Color(hex: 0xFCE7E7).opacity(0.96)],
-                    startPoint: .top,
-                    endPoint: .bottom
-                )
-                .clipShape(
-                    UnevenRoundedRectangle(
-                        topLeadingRadius: isCollapsed ? 26 : 18,
-                        bottomLeadingRadius: isCollapsed ? 26 : 0,
-                        bottomTrailingRadius: isCollapsed ? 26 : 0,
-                        topTrailingRadius: isCollapsed ? 26 : 18,
-                        style: .continuous
-                    )
-                )
-            }
-            .overlay {
-                UnevenRoundedRectangle(
-                    topLeadingRadius: isCollapsed ? 26 : 18,
-                    bottomLeadingRadius: isCollapsed ? 26 : 0,
-                    bottomTrailingRadius: isCollapsed ? 26 : 0,
-                    topTrailingRadius: isCollapsed ? 26 : 18,
-                    style: .continuous
-                )
-                .stroke(Color(hex: 0xF0A8A8).opacity(0.8), lineWidth: 1.2)
-            }
-            .shadow(color: Color(hex: 0xB42318).opacity(isCollapsed ? 0.08 : 0.16), radius: isCollapsed ? 6 : 12, x: 0, y: isCollapsed ? 3 : 6)
-        }
-        .buttonStyle(.plain)
-        .accessibilityLabel(bottomTaskPeekText)
     }
 
     private var tripFilterRow: some View {
@@ -1185,26 +1075,8 @@ struct HomeView: View {
     }
 
     private var skeletonList: some View {
-        VStack(spacing: 10) {
-            ForEach(0..<2, id: \.self) { index in
-                VStack(alignment: .leading, spacing: 10) {
-                    RoundedRectangle(cornerRadius: 7)
-                        .fill(HomePalette.skeleton)
-                        .frame(width: index == 0 ? 170 : 140, height: 14)
-                    RoundedRectangle(cornerRadius: 5)
-                        .fill(HomePalette.skeleton)
-                        .frame(width: index == 0 ? 110 : 90, height: 10)
-                    RoundedRectangle(cornerRadius: 5)
-                        .fill(HomePalette.skeleton)
-                        .frame(width: 74, height: 10)
-                        .frame(maxWidth: .infinity, alignment: .trailing)
-                }
-                .padding(12)
-                .frame(height: 86)
-                .background(cardBackground)
-                .redacted(reason: .placeholder)
-            }
-        }
+        HomeTripSkeletonCard()
+            .transition(.opacity.combined(with: .move(edge: .bottom)))
     }
 
     private var cardBackground: some ShapeStyle {
@@ -1699,6 +1571,20 @@ struct HomeView: View {
 
     // MARK: - Loading
 
+    private var shouldShowTripSkeleton: Bool {
+        !canViewManagementDashboard
+            && isVisitsLoading
+            && visibleVisits.isEmpty
+            && !hasCompletedInitialLoad
+    }
+
+    private var shouldShowManagementDashboardSkeleton: Bool {
+        canViewManagementDashboard
+            && isManagementDashboardLoading
+            && managementDashboard == nil
+            && !hasCompletedInitialLoad
+    }
+
     @MainActor
     private func reload() async {
         // Cache-first: paint the last-known attendance + dashboard snapshots
@@ -1711,6 +1597,7 @@ struct HomeView: View {
         defer {
             isLoading = false
             isVisitsLoading = false
+            hasCompletedInitialLoad = true
         }
 
         await withTaskGroup(of: Void.self) { group in
@@ -1746,6 +1633,10 @@ struct HomeView: View {
         "home.dashboard.\(cacheStaffId).\(date ?? "today")"
     }
 
+    private func todayVisitsCacheKey(date: String) -> String {
+        "home.todayVisits.\(cacheStaffId).\(date)"
+    }
+
     /// Synchronously repaint attendance + dashboard from the last-known cache
     /// when in-memory state is still empty (first open / cold launch). Guarded so
     /// it never clobbers fresher network data on a later reload.
@@ -1759,6 +1650,11 @@ struct HomeView: View {
         if canViewManagementDashboard, managementDashboard == nil,
            let cached = LocalCache.get(dashboardCacheKey(date: dashboardDateQuery), as: ConvexMobileDashboard.self) {
             managementDashboard = cached
+        }
+        if !canViewManagementDashboard,
+           todayVisits.isEmpty,
+           let cached = LocalCache.get(todayVisitsCacheKey(date: todayDateKey), as: [GeoTrackTodayVisit].self) {
+            todayVisits = cached
         }
     }
 
@@ -1842,11 +1738,13 @@ struct HomeView: View {
                 backendDriverMode = false
                 driverTrips = []
             }
-            todayVisits = mergeTodayVisits(
+            let mergedVisits = mergeTodayVisits(
                 legacyVisits: legacyVisits,
                 cpVisits: sessionDriverMode || backendDriverMode ? [] : cpVisits,
                 driverTrips: sessionDriverMode || backendDriverMode ? driverTrips : []
             )
+            todayVisits = mergedVisits
+            LocalCache.put(todayVisitsCacheKey(date: today), mergedVisits)
             loadError = nil
         case .failure(let error) where error is CancellationError:
             loadError = nil
@@ -1855,8 +1753,13 @@ struct HomeView: View {
                 loadError = nil
                 return
             }
-            todayVisits = []
-            loadError = error.localizedDescription
+            if todayVisits.isEmpty,
+               let cached = LocalCache.get(todayVisitsCacheKey(date: today), as: [GeoTrackTodayVisit].self) {
+                todayVisits = cached
+                loadError = nil
+            } else {
+                loadError = todayVisits.isEmpty ? error.localizedDescription : nil
+            }
         }
     }
 
@@ -2625,6 +2528,130 @@ private struct HomeTripCard: View {
 
     private var initial: String {
         title.first.map { String($0).uppercased() } ?? "M"
+    }
+}
+
+private struct HomeTripSkeletonCard: View {
+    var body: some View {
+        VStack(spacing: 0) {
+            header
+            detailGrid
+                .padding(.top, 20)
+            HomeSkeletonBlock(shape: .capsule, height: 48)
+                .padding(.top, 20)
+        }
+        .padding(.horizontal, 16)
+        .padding(.top, 12)
+        .padding(.bottom, 16)
+        .frame(maxWidth: .infinity, minHeight: 278, alignment: .top)
+        .background(
+            RoundedRectangle(cornerRadius: 12)
+                .fill(.white)
+                .stroke(Color(red: 0.95, green: 0.96, blue: 0.97), lineWidth: 1)
+        )
+        .accessibilityLabel("Loading today's trip")
+    }
+
+    private var header: some View {
+        HStack(spacing: 8) {
+            HomeSkeletonBlock(shape: .circle, width: 44, height: 44)
+
+            VStack(alignment: .leading, spacing: 8) {
+                HomeSkeletonBlock(shape: .rounded(5), width: 150, height: 13)
+                HomeSkeletonBlock(shape: .rounded(5), width: 110, height: 10)
+            }
+            .frame(maxWidth: .infinity, alignment: .leading)
+
+            HomeSkeletonBlock(shape: .capsule, width: 72, height: 28)
+        }
+    }
+
+    private var detailGrid: some View {
+        HStack(spacing: 12) {
+            VStack(spacing: 16) {
+                detailRow(width: 112)
+                detailRow(width: 86)
+            }
+            .frame(maxWidth: .infinity)
+
+            Rectangle()
+                .fill(
+                    LinearGradient(
+                        colors: [.clear, Color(red: 0.90, green: 0.91, blue: 0.94), .clear],
+                        startPoint: .top,
+                        endPoint: .bottom
+                    )
+                )
+                .frame(width: 1, height: 96)
+
+            VStack(spacing: 16) {
+                detailRow(width: 92)
+                detailRow(width: 74)
+            }
+            .frame(maxWidth: .infinity)
+        }
+    }
+
+    private func detailRow(width: CGFloat) -> some View {
+        HStack(spacing: 12) {
+            HomeSkeletonBlock(shape: .rounded(12), width: 40, height: 40)
+            VStack(alignment: .leading, spacing: 6) {
+                HomeSkeletonBlock(shape: .rounded(4), width: 56, height: 9)
+                HomeSkeletonBlock(shape: .rounded(4), width: width, height: 10)
+            }
+            .frame(maxWidth: .infinity, alignment: .leading)
+        }
+        .frame(height: 40)
+    }
+}
+
+private struct HomeSkeletonBlock: View {
+    enum BlockShape {
+        case rounded(CGFloat)
+        case capsule
+        case circle
+    }
+
+    let shape: BlockShape
+    var width: CGFloat?
+    let height: CGFloat
+    var color: Color = HomePalette.skeleton
+
+    @State private var isBreathing = false
+
+    var body: some View {
+        block
+            .opacity(isBreathing ? 0.42 : 1)
+            .onAppear {
+                guard !isBreathing else { return }
+                withAnimation(
+                    .easeInOut(duration: 0.85)
+                    .repeatForever(autoreverses: true)
+                ) {
+                    isBreathing = true
+                }
+            }
+            .accessibilityHidden(true)
+    }
+
+    @ViewBuilder
+    private var block: some View {
+        switch shape {
+        case .rounded(let radius):
+            RoundedRectangle(cornerRadius: radius, style: .continuous)
+                .fill(color)
+                .frame(width: width, height: height)
+                .frame(maxWidth: width == nil ? .infinity : nil)
+        case .capsule:
+            Capsule()
+                .fill(color)
+                .frame(width: width, height: height)
+                .frame(maxWidth: width == nil ? .infinity : nil)
+        case .circle:
+            Circle()
+                .fill(color)
+                .frame(width: width ?? height, height: height)
+        }
     }
 }
 

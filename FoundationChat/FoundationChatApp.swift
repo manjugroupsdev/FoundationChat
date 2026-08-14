@@ -96,10 +96,16 @@ struct FoundationChatApp: App {
                 guard UIApplication.shared.applicationState == .active else { return }
                 Self.recoverVisibleWindowLayout()
             }
+            Task { await flushPendingAttendancePunchesIfSignedIn() }
 
         default:
             break
         }
+    }
+
+    private func flushPendingAttendancePunchesIfSignedIn() async {
+        guard let token = authStore.currentSession?.token else { return }
+        await PendingPunchSyncCoordinator.shared.flush(token: token)
     }
 
     private static func recoverVisibleWindowLayout() {

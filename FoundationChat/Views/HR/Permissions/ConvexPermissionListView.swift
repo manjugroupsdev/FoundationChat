@@ -629,6 +629,20 @@ struct ConvexPermissionListView: View {
         return "permissions.my.\(staff)"
     }
 
+    private var teamPermissionsCacheKey: String {
+        let staff = authStore.currentSession?.user.staffId?.nonBlank
+            ?? authStore.currentSession?.user._id.nonBlank
+            ?? "anon"
+        return "permissions.team.pending.\(staff)"
+    }
+
+    private var allPermissionsCacheKey: String {
+        let staff = authStore.currentSession?.user.staffId?.nonBlank
+            ?? authStore.currentSession?.user._id.nonBlank
+            ?? "anon"
+        return "permissions.all.pending.\(staff)"
+    }
+
     private func loadData() {
         guard let token = authStore.currentSession?.token else { return }
 
@@ -639,6 +653,14 @@ struct ConvexPermissionListView: View {
            let cached = LocalCache.get(permissionsCacheKey, as: PermissionsCacheSnapshot.self) {
             permissions = cached.permissions
             if let cachedUsage = cached.usage { usage = cachedUsage }
+        }
+        if pendingPermissions.isEmpty,
+           let cached = LocalCache.get(teamPermissionsCacheKey, as: [ConvexPermission].self) {
+            pendingPermissions = cached
+        }
+        if allPermissions.isEmpty,
+           let cached = LocalCache.get(allPermissionsCacheKey, as: [ConvexPermission].self) {
+            allPermissions = cached
         }
 
         Task {
@@ -664,8 +686,14 @@ struct ConvexPermissionListView: View {
                 permissions = try await permsReq
                 // Offline-keep: never null out cached usage on a transient failure.
                 if let freshUsage = try? await usageReq { usage = freshUsage }
-                pendingPermissions = (try? await pendingReq) ?? []
-                allPermissions = (try? await allReq) ?? []
+                if let loadedPending = try? await pendingReq {
+                    pendingPermissions = loadedPending
+                    LocalCache.put(teamPermissionsCacheKey, loadedPending)
+                }
+                if let loadedAll = try? await allReq {
+                    allPermissions = loadedAll
+                    LocalCache.put(allPermissionsCacheKey, loadedAll)
+                }
                 LocalCache.put(permissionsCacheKey, PermissionsCacheSnapshot(permissions: permissions, usage: usage))
             } catch {
                 // Offline-keep: keep cached rows; only surface an error when

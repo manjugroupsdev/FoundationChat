@@ -287,7 +287,12 @@ final class LocationTracker: NSObject {
             isMock: isMockLocationProvider(location),
             batteryPct: batteryPct,
             networkType: "UNKNOWN",   // Wire CTTelephonyNetworkInfo separately if needed
-            gpsEnabled: CLLocationManager.locationServicesEnabled(),
+            // Avoid the synchronous `locationServicesEnabled()` query on the
+            // main actor. Core Location reports permission/service changes via
+            // `locationManagerDidChangeAuthorization`, which keeps this cached
+            // status current without blocking UI work.
+            gpsEnabled: authorizationStatus == .authorizedAlways
+                || authorizationStatus == .authorizedWhenInUse,
             airplaneMode: false,      // No public iOS API; NWPathMonitor handles tamper detection
             recordedAt: Int64(location.timestamp.timeIntervalSince1970 * 1000)
         )

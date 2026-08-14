@@ -4,7 +4,7 @@ import SwiftUI
 /// Mirrors the Android `TodayVisit` payload returned by `GET /api/sitevisits/my`.
 /// Field aliases handle the historical name variants the Convex backend has
 /// emitted for the start/end times — see `Mconnect/network/GeoTrackApi.kt`.
-struct ConvexSiteVisit: Decodable, Identifiable, Equatable, Sendable {
+struct ConvexSiteVisit: Codable, Identifiable, Equatable, Sendable {
     let _id: String
     let clientPlaceId: String?
     let scheduledDate: String?
@@ -82,6 +82,41 @@ struct ConvexSiteVisit: Decodable, Identifiable, Equatable, Sendable {
         staffName = try container.decodeIfPresent(String.self, forKey: .staffName)
         scheduledStartTime = try container.decodeFirstPresentString(for: [.scheduledStartTime, .startTime, .scheduledTime, .scheduledFrom])
         scheduledEndTime = try container.decodeFirstPresentString(for: [.scheduledEndTime, .endTime, .scheduledTo])
+    }
+
+    func encode(to encoder: Encoder) throws {
+        var container = encoder.container(keyedBy: CodingKeys.self)
+        try container.encode(_id, forKey: ._id)
+        try container.encodeIfPresent(clientPlaceId, forKey: .clientPlaceId)
+        try container.encodeIfPresent(scheduledDate, forKey: .scheduledDate)
+        try container.encodeIfPresent(status, forKey: .status)
+        try container.encodeIfPresent(rawStatus, forKey: .rawStatus)
+        try container.encodeIfPresent(placeName, forKey: .placeName)
+        try container.encodeIfPresent(placeAddress, forKey: .placeAddress)
+        try container.encodeIfPresent(placeType, forKey: .placeType)
+        try container.encodeIfPresent(placeLat, forKey: .placeLat)
+        try container.encodeIfPresent(placeLng, forKey: .placeLng)
+        try container.encodeIfPresent(scheduledStartTime, forKey: .scheduledStartTime)
+        try container.encodeIfPresent(scheduledEndTime, forKey: .scheduledEndTime)
+        try container.encodeIfPresent(tripType, forKey: .tripType)
+        try container.encodeIfPresent(clientPlaceVisitId, forKey: .clientPlaceVisitId)
+        try container.encodeIfPresent(leadName, forKey: .leadName)
+        try container.encodeIfPresent(leadPhone, forKey: .leadPhone)
+        try container.encodeIfPresent(cpVisit, forKey: .cpVisit)
+        try container.encodeIfPresent(outcome, forKey: .outcome)
+        try container.encodeIfPresent(convertedBookingId, forKey: .convertedBookingId)
+        try container.encodeIfPresent(convertedSiteVisitId, forKey: .convertedSiteVisitId)
+        try container.encodeIfPresent(completedAt, forKey: .completedAt)
+        try container.encodeIfPresent(completedOffline, forKey: .completedOffline)
+        try container.encodeIfPresent(creationTime, forKey: .creationTime)
+        try container.encodeIfPresent(travelMode, forKey: .travelMode)
+        try container.encodeIfPresent(vehiclePreference, forKey: .vehiclePreference)
+        try container.encodeIfPresent(vehicleAssigned, forKey: .vehicleAssigned)
+        try container.encodeIfPresent(confirmationStatus, forKey: .confirmationStatus)
+        try container.encodeIfPresent(visitCategory, forKey: .visitCategory)
+        try container.encodeIfPresent(lmoName, forKey: .lmoName)
+        try container.encodeIfPresent(bdoName, forKey: .bdoName)
+        try container.encodeIfPresent(staffName, forKey: .staffName)
     }
 
     /// Canonical bucket (matches the Android `bindRow` mapping).
@@ -162,7 +197,13 @@ struct ScannedSiteVisitClient: Decodable, Sendable {
 }
 
 struct ScannedSiteVisitStaff: Decodable, Sendable {
+    let id: String?
     let name: String?
+
+    enum CodingKeys: String, CodingKey {
+        case id = "_id"
+        case name
+    }
 }
 
 struct ScannedSiteVisitAttendee: Decodable, Sendable {
@@ -173,20 +214,20 @@ struct ScannedSiteVisitAttendee: Decodable, Sendable {
     let notes: String?
 }
 
-struct CpVisitDetailResponse: Decodable, Sendable {
+struct CpVisitDetailResponse: Codable, Sendable {
     let success: Bool
     let visit: CpVisitDetail?
     let error: String?
 }
 
-struct MyMarketingCpVisitsResponse: Decodable, Sendable {
+struct MyMarketingCpVisitsResponse: Codable, Sendable {
     let success: Bool
     let total: Int?
     let visits: [CpVisitDetail]
     let error: String?
 }
 
-struct CpVisitDetail: Decodable, Identifiable, Sendable {
+struct CpVisitDetail: Codable, Identifiable, Sendable {
     let id: String
     let leadId: String?
     let clientId: String?
@@ -213,6 +254,8 @@ struct CpVisitDetail: Decodable, Identifiable, Sendable {
     let expectedAttendeeCount: Int?
     let foodPreferences: String?
     let vehiclePreference: String?
+    let driverName: String?
+    let driverPhone: String?
     let cpType: String?
     let projectId: String?
     let isBookingCompleted: Bool?
@@ -248,7 +291,8 @@ struct CpVisitDetail: Decodable, Identifiable, Sendable {
         case assignedAt, scheduledDate, scheduledTime, status, clientMet, clientMetAt
         case clientNoShowReason, outcome, postponeReasons, convertedSiteVisitId
         case convertedBookingId, fieldVisitId, notes, completedAt, completedOffline, cancelledAt
-        case expectedAttendeeCount, foodPreferences, vehiclePreference, cpType, projectId, isBookingCompleted
+        case expectedAttendeeCount, foodPreferences, vehiclePreference, driverName, driverPhone
+        case cpType, projectId, isBookingCompleted
         case createdAt, updatedAt, lead, client, telecaller, assignedStaff, clientPlace
         case proposedSiteVisit, attendees, fieldVisit, arrivalProof, project, inchargeStaff
         case rescheduleCount, lastNotMetDate, clientUnavailableWarning
@@ -256,7 +300,7 @@ struct CpVisitDetail: Decodable, Identifiable, Sendable {
     }
 }
 
-struct CpVisitProject: Decodable, Sendable {
+struct CpVisitProject: Codable, Sendable {
     let id: String?
     let name: String?
 
@@ -266,7 +310,8 @@ struct CpVisitProject: Decodable, Sendable {
     }
 }
 
-struct ProposedSiteVisit: Decodable, Sendable {
+struct ProposedSiteVisit: Codable, Sendable {
+    let id: String?
     let projectId: String?
     let scheduledDate: String?
     let scheduledTime: String?
@@ -277,11 +322,19 @@ struct ProposedSiteVisit: Decodable, Sendable {
     let gmStaffId: String?
     let seniorManagerStaffId: String?
     let status: String?
+    let outcome: String?
+    let convertedBookingId: String?
+    let cancelledAt: Int64?
     let travelMode: String?
     let vehicleId: String?
     let travelAgencyId: String?
+    let driverName: String?
+    let driverPhone: String?
     let pickedUpAt: Int64?
     let arrivedSiteAt: Int64?
+    let consultingAt: Int64?
+    let consultingVerifiedByStaffId: String?
+    let pickedFromSiteAt: Int64?
     let droppedAt: Int64?
     let completedAt: Int64?
     let travelDeskStartedAt: Int64?
@@ -289,6 +342,17 @@ struct ProposedSiteVisit: Decodable, Sendable {
     let travelDeskOnSiteAt: Int64?
     let travelDeskPickedFromSiteAt: Int64?
     let travelDeskEndedAt: Int64?
+
+    enum CodingKeys: String, CodingKey {
+        case id = "_id"
+        case projectId, scheduledDate, scheduledTime, inchargeStaffId, hodStaffId
+        case bdoStaffId, avpStaffId, gmStaffId, seniorManagerStaffId
+        case status, outcome, convertedBookingId, cancelledAt, travelMode, vehicleId, travelAgencyId
+        case driverName, driverPhone, pickedUpAt, arrivedSiteAt, consultingAt
+        case consultingVerifiedByStaffId, pickedFromSiteAt, droppedAt, completedAt
+        case travelDeskStartedAt, travelDeskArrivedAt, travelDeskOnSiteAt
+        case travelDeskPickedFromSiteAt, travelDeskEndedAt
+    }
 
     var isMeaningful: Bool {
         [
@@ -299,7 +363,7 @@ struct ProposedSiteVisit: Decodable, Sendable {
     }
 }
 
-struct CpVisitAttendee: Decodable, Sendable {
+struct CpVisitAttendee: Codable, Sendable {
     let name: String?
     let relation: String?
     let age: String?
@@ -307,7 +371,7 @@ struct CpVisitAttendee: Decodable, Sendable {
     let notes: String?
 }
 
-struct CpVisitLead: Decodable, Sendable {
+struct CpVisitLead: Codable, Sendable {
     let id: String?
     let contactName: String?
     let mobileNumber: String?
@@ -322,11 +386,11 @@ struct CpVisitLead: Decodable, Sendable {
     }
 }
 
-struct CpVisitLeadManualProfile: Decodable, Sendable {
+struct CpVisitLeadManualProfile: Codable, Sendable {
     let clientName: String?
 }
 
-struct CpVisitClient: Decodable, Sendable {
+struct CpVisitClient: Codable, Sendable {
     let id: String?
     let clientName: String?
     let mobileNumber: String?
@@ -338,7 +402,7 @@ struct CpVisitClient: Decodable, Sendable {
     }
 }
 
-struct CpVisitStaff: Decodable, Sendable {
+struct CpVisitStaff: Codable, Sendable {
     let id: String?
     let name: String?
     let staffName: String?
@@ -350,7 +414,7 @@ struct CpVisitStaff: Decodable, Sendable {
     }
 }
 
-struct CpVisitPlace: Decodable, Sendable {
+struct CpVisitPlace: Codable, Sendable {
     let id: String?
     let name: String?
     let address: String?
@@ -372,7 +436,7 @@ struct CpVisitPlace: Decodable, Sendable {
     }
 }
 
-struct CpVisitFieldVisit: Decodable, Sendable {
+struct CpVisitFieldVisit: Codable, Sendable {
     let id: String?
     let status: String?
     let startedAt: Int64?
@@ -386,7 +450,7 @@ struct CpVisitFieldVisit: Decodable, Sendable {
     }
 }
 
-struct CpVisitArrivalProof: Decodable, Sendable {
+struct CpVisitArrivalProof: Codable, Sendable {
     let photoStorageId: String?
     let photoUrl: String?
     let otpVerifiedAt: Int64?
@@ -416,7 +480,7 @@ struct ParsedAddressFields: Decodable, Equatable, Sendable {
     let pincode: String?
 }
 
-struct ConvexCPVisitState: Decodable, Equatable, Sendable {
+struct ConvexCPVisitState: Codable, Equatable, Sendable {
     let clientMet: Bool?
     let clientMetAt: Double?
     let clientNoShowReason: String?
@@ -466,6 +530,12 @@ struct BookingDraftGetResponse: Decodable, Sendable {
     let success: Bool
     let draft: BookingDraftPayload?
     let error: String?
+}
+
+struct BookingPincodePrefill: Sendable {
+    let locality: String?
+    let district: String?
+    let state: String?
 }
 
 enum SiteVisitStatus: String, CaseIterable, Identifiable, Sendable {
