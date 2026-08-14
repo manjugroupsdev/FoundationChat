@@ -106,7 +106,15 @@ enum PostSalesStorageService {
                 throw MarketingAPIError.unauthorized
             }
             guard (200..<300).contains(http.statusCode) else {
-                if let error = try? JSONDecoder().decode([String: String].self, from: data)["error"] {
+                // The error body is {success: false, error: "..."} — a MIXED-type
+                // object (bool + string), so decoding it as [String: String] fails
+                // and the real reason was lost behind a generic "Request failed
+                // (500)". Parse loosely and pull just the string `error`, matching
+                // MarketingConvexAPIService. This surfaces the backend's real
+                // message (e.g. a collection "no outstanding balance" / scope /
+                // workflow error) instead of an opaque 500.
+                if let json = try? JSONSerialization.jsonObject(with: data) as? [String: Any],
+                   let error = json["error"] as? String, !error.isEmpty {
                     throw MarketingAPIError.server(error)
                 }
                 throw MarketingAPIError.server("Request failed (\(http.statusCode))")
@@ -355,7 +363,15 @@ enum PostSalesConvexAPIService {
                 throw MarketingAPIError.unauthorized
             }
             guard (200..<300).contains(http.statusCode) else {
-                if let error = try? JSONDecoder().decode([String: String].self, from: data)["error"] {
+                // The error body is {success: false, error: "..."} — a MIXED-type
+                // object (bool + string), so decoding it as [String: String] fails
+                // and the real reason was lost behind a generic "Request failed
+                // (500)". Parse loosely and pull just the string `error`, matching
+                // MarketingConvexAPIService. This surfaces the backend's real
+                // message (e.g. a collection "no outstanding balance" / scope /
+                // workflow error) instead of an opaque 500.
+                if let json = try? JSONSerialization.jsonObject(with: data) as? [String: Any],
+                   let error = json["error"] as? String, !error.isEmpty {
                     throw MarketingAPIError.server(error)
                 }
                 throw MarketingAPIError.server("Request failed (\(http.statusCode))")
@@ -503,7 +519,15 @@ enum FleetConvexAPIService {
                 throw MarketingAPIError.unauthorized
             }
             guard (200..<300).contains(http.statusCode) else {
-                if let error = try? JSONDecoder().decode([String: String].self, from: data)["error"] {
+                // The error body is {success: false, error: "..."} — a MIXED-type
+                // object (bool + string), so decoding it as [String: String] fails
+                // and the real reason was lost behind a generic "Request failed
+                // (500)". Parse loosely and pull just the string `error`, matching
+                // MarketingConvexAPIService. This surfaces the backend's real
+                // message (e.g. a collection "no outstanding balance" / scope /
+                // workflow error) instead of an opaque 500.
+                if let json = try? JSONSerialization.jsonObject(with: data) as? [String: Any],
+                   let error = json["error"] as? String, !error.isEmpty {
                     throw MarketingAPIError.server(error)
                 }
                 throw MarketingAPIError.server("Request failed (\(http.statusCode))")

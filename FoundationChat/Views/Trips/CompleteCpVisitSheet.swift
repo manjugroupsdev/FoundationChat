@@ -1315,12 +1315,21 @@ struct CompleteCpVisitSheet: View {
         let inchargeStaffId = selectedIncharge?.id.nilIfBlank
             ?? cpVisitDetail?.assignedStaffId?.nilIfBlank
         if requiresSiteVisitConversion && inchargeStaffId == nil {
-            errorMessage = "Assign a Site Incharge before fixing this Site Visit"
+            errorMessage = "Site incharge is required"
             return
         }
         if requiresSiteVisitConversion && sessionStaffId == nil {
             errorMessage = "Assign a BDO before fixing this Site Visit"
             return
+        }
+        if requiresSiteVisitConversion {
+            let hasNamedVisitor = visitors.contains {
+                !$0.name.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
+            }
+            if !hasNamedVisitor {
+                errorMessage = "Add at least one visitor (name) before fixing this Site Visit"
+                return
+            }
         }
 
         isSaving = true

@@ -707,7 +707,12 @@ enum FleetDispatchAPIService {
             throw FleetDispatchAPIError.unauthorized
         }
         guard (200..<300).contains(http.statusCode) else {
-            let message = (try? JSONDecoder().decode([String: String].self, from: data)["error"])
+            // Body is {success: false, error: "..."} — mixed bool+string, which
+            // decoding as [String: String] fails on, so the real reason was lost
+            // behind "Fleet request failed (500)". Parse loosely for the string
+            // `error` (matches MarketingConvexAPIService).
+            let json = try? JSONSerialization.jsonObject(with: data) as? [String: Any]
+            let message = (json?["error"] as? String).flatMap { $0.isEmpty ? nil : $0 }
                 ?? "Fleet request failed (\(http.statusCode))."
             throw FleetDispatchAPIError.server(statusCode: http.statusCode, message: message)
         }

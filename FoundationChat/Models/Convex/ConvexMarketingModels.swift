@@ -34,6 +34,7 @@ struct ConvexSiteVisit: Codable, Identifiable, Equatable, Sendable {
     let confirmationStatus: String?
     let visitCategory: String?
     let lmoName: String?
+    // The visit's assigned BDO from the backend, never the signed-in viewer.
     let bdoName: String?
     let staffName: String?
 
