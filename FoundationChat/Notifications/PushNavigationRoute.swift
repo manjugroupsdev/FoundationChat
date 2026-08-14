@@ -9,6 +9,8 @@ enum PushNavigationType: String {
     case permissionRequest = "permission-request"
     case permissionApproved = "permission-approved"
     case permissionRejected = "permission-rejected"
+    // Out-of-geofence CP-completion GM approval — opens the CP approval queue.
+    case cpApproval = "cp-approval"
 
     // Legacy compatibility
     init?(fromRaw raw: String) {
@@ -21,6 +23,7 @@ enum PushNavigationType: String {
         case "permission-request": self = .permissionRequest
         case "permission-approved": self = .permissionApproved
         case "permission-rejected": self = .permissionRejected
+        case "cp-approval", "cp_approval", "approvals": self = .cpApproval
         default: return nil
         }
     }
@@ -64,6 +67,12 @@ struct PushNavigationRoute {
                 default:
                     return nil
                 }
+                conversationId = nil
+                channelId = nil
+            case "approvals":
+                // The GM "CP completion needs approval" push (Android
+                // WorkflowNotificationRoute targetTab == "approvals").
+                type = .cpApproval
                 conversationId = nil
                 channelId = nil
             default:
@@ -114,6 +123,9 @@ struct PushNavigationRoute {
             channelId = referenceType == "conversation" ? nil : referenceId
         case .leaveRequest, .leaveApproved, .leaveRejected,
              .permissionRequest, .permissionApproved, .permissionRejected:
+            conversationId = nil
+            channelId = nil
+        case .cpApproval:
             conversationId = nil
             channelId = nil
         }

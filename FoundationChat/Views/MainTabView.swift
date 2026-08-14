@@ -20,6 +20,7 @@ struct MainTabView: View {
     @State private var openConversationIDFromPush: String?
     @State private var openChannelIDFromPush: String?
     @State private var openHRRouteFromPush: HRDashboardRoute?
+    @State private var showApprovalQueueFromPush = false
     @State private var hasPlayedHomeEntryAnimation = false
 
     init() {
@@ -124,6 +125,18 @@ struct MainTabView: View {
                 applyPushRoute(pending)
             }
         }
+        .sheet(isPresented: $showApprovalQueueFromPush) {
+            NavigationStack {
+                CpApprovalQueueView()
+                    .navigationTitle("Approvals")
+                    .navigationBarTitleDisplayMode(.inline)
+                    .toolbar {
+                        ToolbarItem(placement: .cancellationAction) {
+                            Button("Done") { showApprovalQueueFromPush = false }
+                        }
+                    }
+            }
+        }
     }
 
     private func applyPushRoute(_ route: PushNavigationRoute) {
@@ -142,6 +155,9 @@ struct MainTabView: View {
         case .permissionRequest, .permissionApproved, .permissionRejected:
             selectedTab = .hr
             openHRRouteFromPush = route.workflowTargetMode?.lowercased() == "approval" ? .permissionApprovals : .permissions
+        case .cpApproval:
+            selectedTab = .apps
+            showApprovalQueueFromPush = true
         }
     }
 }
