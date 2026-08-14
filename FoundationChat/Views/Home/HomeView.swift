@@ -1107,8 +1107,8 @@ struct HomeView: View {
             LeavesListView()
         case .permissions:
             ConvexPermissionListView()
-        case .calls:
-            CallsReportView()
+        case .calls(let direction):
+            CallsReportView(initialDirection: direction)
         case .registrations:
             RegistrationsView()
         case .leads:
@@ -1274,7 +1274,7 @@ struct HomeView: View {
                     imageName: "HomeMarketing3DCalls",
                     imageSize: CGSize(width: 66, height: 66),
                     size: .large,
-                    destination: .calls
+                    destination: .calls(nil)
                 ),
                 .init(
                     title: "Incoming",
@@ -1288,7 +1288,7 @@ struct HomeView: View {
                     imageName: "HomeMarketing3DIncoming",
                     imageSize: CGSize(width: 66, height: 66),
                     size: .large,
-                    destination: .calls
+                    destination: .calls("inbound")
                 ),
                 .init(
                     title: "Outgoing",
@@ -1302,7 +1302,7 @@ struct HomeView: View {
                     imageName: "HomeMarketing3DOutgoing",
                     imageSize: CGSize(width: 66, height: 66),
                     size: .large,
-                    destination: .calls
+                    destination: .calls("outbound")
                 ),
                 .init(
                     title: "Hot",
@@ -2250,7 +2250,7 @@ private enum HomeDashboardDestination {
     case attendance
     case leaves
     case permissions
-    case calls
+    case calls(String?)
     case registrations
     case leads
     case cpVisits

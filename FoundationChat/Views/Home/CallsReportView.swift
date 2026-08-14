@@ -9,10 +9,17 @@ struct CallsReportView: View {
     @State private var direction: String?
     @State private var isLoading = false
     @State private var errorMessage: String?
+    @State private var loadedCacheKey: String?
 
     /// `nil` = all directions; "incoming"/"outgoing" filter.
     init(initialDirection: String? = nil) {
         _direction = State(initialValue: initialDirection)
+    }
+
+    private var cacheKey: String {
+        let staffId = authStore.viewer?.subject ?? authStore.currentSession?.user._id ?? "anonymous"
+        let day = AppModuleFormatters.ymd.string(from: Date())
+        return "dashboard.calls.\(staffId).\(day).\(direction ?? "all")"
     }
 
     var body: some View {
@@ -23,8 +30,8 @@ struct CallsReportView: View {
                     set: { direction = ($0 == "all") ? nil : $0 }
                 )) {
                     Text("All").tag("all")
-                    Text("Incoming").tag("incoming")
-                    Text("Outgoing").tag("outgoing")
+                    Text("Incoming").tag("inbound")
+                    Text("Outgoing").tag("outbound")
                 }
                 .pickerStyle(.segmented)
                 .listRowSeparator(.hidden)
@@ -32,7 +39,9 @@ struct CallsReportView: View {
             }
 
             if isLoading && calls.isEmpty {
-                centeredRow { ProgressView() }
+                ForEach(0..<5, id: \.self) { _ in
+                    DashboardDrilldownSkeletonRow()
+                }
             } else if let errorMessage, calls.isEmpty {
                 centeredRow {
                     VStack(spacing: 10) {
@@ -59,6 +68,7 @@ struct CallsReportView: View {
         .navigationTitle("Calls Report")
         .navigationBarTitleDisplayMode(.inline)
         .task(id: direction) { await load() }
+        .refreshable { await load(forceRefresh: true) }
     }
 
     private func callRow(_ call: DashboardCallRow) -> some View {
@@ -68,14 +78,14 @@ struct CallsReportView: View {
                 .foregroundStyle(directionTint(call.callType))
                 .frame(width: 30)
             VStack(alignment: .leading, spacing: 3) {
-                Text(call.phoneNumber?.nilIfBlank ?? "Unknown number")
+                Text(call.phoneNumber?.nonBlank ?? "Unknown number")
                     .font(.system(size: 15, weight: .semibold))
                     .foregroundStyle(.primary)
                 HStack(spacing: 6) {
-                    if let agent = call.agent?.nilIfBlank {
+                    if let agent = call.agent?.nonBlank {
                         Text(agent).font(.system(size: 12)).foregroundStyle(.secondary)
                     }
-                    if let status = call.status?.nilIfBlank {
+                    if let status = call.status?.nonBlank {
                         Text(status.capitalized)
                             .font(.system(size: 11, weight: .medium))
                             .padding(.horizontal, 7).padding(.vertical, 2)
@@ -86,10 +96,10 @@ struct CallsReportView: View {
             }
             Spacer(minLength: 6)
             VStack(alignment: .trailing, spacing: 3) {
-                if let time = call.time?.nilIfBlank {
+                if let time = call.time?.nonBlank {
                     Text(time).font(.system(size: 12, weight: .medium)).foregroundStyle(.secondary)
                 }
-                if let talk = (call.talkTime ?? call.duration)?.nilIfBlank {
+                if let talk = (call.talkTime ?? call.duration)?.nonBlank {
                     Text(talk).font(.system(size: 12).monospacedDigit()).foregroundStyle(.secondary)
                 }
             }
@@ -122,17 +132,58 @@ struct CallsReportView: View {
         }
     }
 
-    private func load() async {
-        guard let token = authStore.currentSession?.token else { return }
-        isLoading = true
+    @MainActor
+    private func load(forceRefresh: Bool = false) async {
+        let requestedCacheKey = cacheKey
+        if loadedCacheKey != requestedCacheKey {
+            calls = LocalCache.get(requestedCacheKey, as: [DashboardCallRow].self) ?? []
+            loadedCacheKey = requestedCacheKey
+        } else if !forceRefresh, calls.isEmpty,
+                  let cached = LocalCache.get(requestedCacheKey, as: [DashboardCallRow].self) {
+            calls = cached
+        }
+        guard let token = authStore.currentSession?.token else {
+            if calls.isEmpty { errorMessage = "Not signed in." }
+            return
+        }
+        isLoading = calls.isEmpty
         errorMessage = nil
+        defer { isLoading = false }
         do {
-            calls = try await DashboardConvexAPIService.getDashboardCalls(
+            let refreshed = try await DashboardConvexAPIService.getDashboardCalls(
                 token: token, date: nil, direction: direction
             )
+            guard !Task.isCancelled, cacheKey == requestedCacheKey else { return }
+            calls = refreshed
+            LocalCache.put(requestedCacheKey, refreshed)
         } catch {
-            errorMessage = error.localizedDescription
+            guard !Task.isCancelled else { return }
+            if calls.isEmpty { errorMessage = error.localizedDescription }
         }
-        isLoading = false
+    }
+}
+
+struct DashboardDrilldownSkeletonRow: View {
+    var body: some View {
+        HStack(spacing: 12) {
+            Circle()
+                .fill(Color.appSeparator.opacity(0.7))
+                .frame(width: 30, height: 30)
+            VStack(alignment: .leading, spacing: 7) {
+                RoundedRectangle(cornerRadius: 4)
+                    .fill(Color.appSeparator.opacity(0.7))
+                    .frame(width: 150, height: 15)
+                RoundedRectangle(cornerRadius: 4)
+                    .fill(Color.appSeparator.opacity(0.55))
+                    .frame(width: 105, height: 11)
+            }
+            Spacer()
+            RoundedRectangle(cornerRadius: 4)
+                .fill(Color.appSeparator.opacity(0.55))
+                .frame(width: 52, height: 12)
+        }
+        .padding(.vertical, 5)
+        .redacted(reason: .placeholder)
+        .accessibilityHidden(true)
     }
 }
