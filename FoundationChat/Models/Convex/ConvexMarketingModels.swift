@@ -229,6 +229,18 @@ struct CpVisitDetail: Decodable, Identifiable, Sendable {
     let arrivalProof: CpVisitArrivalProof?
     let project: CpVisitProject?
     let inchargeStaff: CpVisitStaff?
+    // Client-not-met auto-reschedule: how many times this visit has bounced on
+    // "client not met", the last not-met date, and — once the client has been
+    // not-met 3+ times in a row — a warning flag for the card.
+    let rescheduleCount: Int?
+    let lastNotMetDate: String?
+    let clientUnavailableWarning: Bool?
+    // Out-of-geofence GM approval: the GM the staff is waiting on (while
+    // pending_gm_approval), and — after a GM reject — the remark + the flag that
+    // this visit was reopened for the same staff.
+    let approvalGmName: String?
+    let rejectRemark: String?
+    let reassignedFromRejection: Bool?
 
     enum CodingKeys: String, CodingKey {
         case id = "_id"
@@ -239,6 +251,8 @@ struct CpVisitDetail: Decodable, Identifiable, Sendable {
         case expectedAttendeeCount, foodPreferences, vehiclePreference, cpType, projectId, isBookingCompleted
         case createdAt, updatedAt, lead, client, telecaller, assignedStaff, clientPlace
         case proposedSiteVisit, attendees, fieldVisit, arrivalProof, project, inchargeStaff
+        case rescheduleCount, lastNotMetDate, clientUnavailableWarning
+        case approvalGmName, rejectRemark, reassignedFromRejection
     }
 }
 

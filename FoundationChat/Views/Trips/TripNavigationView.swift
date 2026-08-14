@@ -2383,6 +2383,12 @@ private struct SpecialCpCompletionSheet: View {
     @State private var isLoading = false
     @State private var isSaving = false
     @State private var errorMessage: String?
+    // Collection follow-up: when the staff returns to collect a pending balance
+    // (nothing collected, or a partial). Defaults to tomorrow.
+    @State private var followUpDate =
+        Calendar.current.date(byAdding: .day, value: 1, to: Date()) ?? Date()
+
+    private var selectedCasePending: Double { selectedCase?.balanceAmount ?? 0 }
 
     var body: some View {
         VStack(spacing: 0) {
@@ -2531,6 +2537,27 @@ private struct SpecialCpCompletionSheet: View {
                 )
                 sheetTextField("Notes", text: $remarks, placeholder: "Payment notes", axis: .vertical)
             }
+
+            if let selectedCase {
+                Text("Payable \(AppModuleFormatters.rupees(selectedCase.totalAmount ?? 0)) · Paid \(AppModuleFormatters.rupees(selectedCase.approvedCollectedAmount ?? 0)) · Pending \(AppModuleFormatters.rupees(selectedCase.balanceAmount ?? 0))")
+                    .font(.system(size: 12, weight: .medium))
+                    .foregroundStyle(.secondary)
+                    .frame(maxWidth: .infinity, alignment: .leading)
+            }
+
+            VStack(alignment: .leading, spacing: 6) {
+                Text("Follow-up visit (if a balance remains)")
+                    .font(.system(size: 13, weight: .semibold))
+                    .foregroundStyle(.primary)
+                DatePicker(
+                    "Follow-up",
+                    selection: $followUpDate,
+                    in: Date()...,
+                    displayedComponents: [.date, .hourAndMinute]
+                )
+                .labelsHidden()
+                .frame(maxWidth: .infinity, alignment: .leading)
+            }
         }
     }
 
@@ -2599,11 +2626,11 @@ private struct SpecialCpCompletionSheet: View {
     }
 
     private var footer: some View {
-        VStack(spacing: 0) {
+        VStack(spacing: 10) {
             Divider()
                 .overlay(Color.appSeparator)
             Button {
-                Task { await submit() }
+                Task { await submit(notCollected: false) }
             } label: {
                 if isSaving {
                     ProgressView()
@@ -2623,9 +2650,9 @@ private struct SpecialCpCompletionSheet: View {
                     (kind == .collection && !collectionNotCollected && !hasValidCollectionPayment)
             )
             .padding(.horizontal, 24)
-            .padding(.vertical, 14)
-            .background(Color.appSurface)
         }
+        .padding(.vertical, 14)
+        .background(Color.white)
     }
 
     private var selectedCase: PostSaleCaseSummary? {
@@ -2764,7 +2791,7 @@ private struct SpecialCpCompletionSheet: View {
     }
 
     @MainActor
-    private func submit() async {
+    private func submit(notCollected: Bool) async {
         guard let token = authStore.currentSession?.token else { return }
         if kind == .oldClient, remarks.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
             errorMessage = "Please enter visit remarks."
@@ -2774,13 +2801,29 @@ private struct SpecialCpCompletionSheet: View {
             errorMessage = "Capture the gift handover photo."
             return
         }
+
+        let effectiveNotCollected = notCollected || collectionNotCollected
+        let dateFormatter = DateFormatter()
+        dateFormatter.dateFormat = "yyyy-MM-dd"
+        dateFormatter.locale = Locale(identifier: "en_IN")
+        let timeFormatter = DateFormatter()
+        timeFormatter.dateFormat = "HH:mm"
+        timeFormatter.locale = Locale(identifier: "en_IN")
+        let followUpDateValue = dateFormatter.string(from: followUpDate)
+        let followUpTimeValue = timeFormatter.string(from: followUpDate)
+
         isSaving = true
         defer { isSaving = false }
         do {
             var notes = remarks.trimmingCharacters(in: .whitespacesAndNewlines)
             var replacementProofId: String?
+            var outcome = kind.terminalOutcome
+            var sendFollowUp = false
+
             if kind == .collection {
-                if collectionNotCollected {
+                if effectiveNotCollected {
+                    outcome = "not_collected"
+                    sendFollowUp = true
                     notes = notes.isEmpty ? "Not collected" : "Not collected — \(notes)"
                 } else {
                     guard !selectedCaseId.isEmpty else {
@@ -2819,6 +2862,8 @@ private struct SpecialCpCompletionSheet: View {
                             notes: notes.nilIfEmpty
                         )
                     )
+                    sendFollowUp = selectedCasePending > 0.005
+                        && amountValue < selectedCasePending - 0.005
                     notes = [
                         "Collection submitted: \(AppModuleFormatters.rupees(amountValue))",
                         submission.reference.isEmpty ? nil : "Receipt: \(submission.reference)",
@@ -2844,10 +2889,12 @@ private struct SpecialCpCompletionSheet: View {
                 token: token,
                 request: SetCpVisitOutcomeRequest(
                     id: cpVisitId,
-                    outcome: kind == .collection && collectionNotCollected ? "not_collected" : kind.terminalOutcome,
+                    outcome: outcome,
                     postponeReasons: nil,
                     notes: notes.nilIfEmpty,
-                    arrivalPhotoStorageId: kind == .giftDistribution ? replacementProofId : nil
+                    arrivalPhotoStorageId: kind == .giftDistribution ? replacementProofId : nil,
+                    followUpDate: sendFollowUp ? followUpDateValue : nil,
+                    followUpTime: sendFollowUp ? followUpTimeValue : nil
                 )
             )
             onCompleted(replacementProofId)

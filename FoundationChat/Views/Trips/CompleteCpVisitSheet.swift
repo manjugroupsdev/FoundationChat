@@ -1393,14 +1393,26 @@ struct CompleteCpVisitSheet: View {
                     )
                 }
             } else {
+                // Postpone's next-visit date/time: for a Booking CP the backend
+                // spawns another booking_cp for this slot; ignored for others.
+                let isPostpone = selectedOutcome == .postponed
+                let followUpTimeFmt = DateFormatter()
+                followUpTimeFmt.dateFormat = "HH:mm"
+                followUpTimeFmt.locale = Locale(identifier: "en_IN")
                 try await MarketingConvexAPIService.setCpVisitOutcome(
                     token: token,
                     request: SetCpVisitOutcomeRequest(
                         id: cpVisitId,
                         outcome: selectedOutcome.rawValue,
-                        postponeReasons: selectedOutcome == .postponed ? selectedPostponeReasons.map(\.rawValue).sorted() : nil,
+                        postponeReasons: isPostpone ? selectedPostponeReasons.map(\.rawValue).sorted() : nil,
                         notes: buildOutcomeNotes(for: selectedOutcome),
-                        arrivalPhotoStorageId: nil
+                        arrivalPhotoStorageId: nil,
+                        followUpDate: isPostpone
+                            ? AppModuleFormatters.ymd.string(from: postponeFollowUpDate)
+                            : nil,
+                        followUpTime: isPostpone
+                            ? followUpTimeFmt.string(from: postponeFollowUpDate)
+                            : nil
                     )
                 )
             }
@@ -1948,6 +1960,10 @@ private struct BookingDraft: Codable, Equatable {
             homeAddress: homeAddress.nilIfBlank,
             cpVisitId: cpVisitId,
             status: saveAs.rawValue,
+            // Mark the CP the booking's source (mirrors Android) so the backend
+            // spawns a booking_cp for the same staff/client on the booking date.
+            sourceClientPlaceVisitId: cpVisitId,
+            bookingCpDate: bookingDateValue,
             notes: serializedNotes
         )
     }

@@ -645,6 +645,7 @@ private struct CpVisitCard: View {
                 .frame(maxWidth: .infinity, alignment: .leading)
                 .padding(.top, 10)
             }
+            notMetNotice
             statsGrid
                 .padding(.top, 20)
             actionPill
@@ -700,6 +701,51 @@ private struct CpVisitCard: View {
         .padding(.horizontal, 12)
         .frame(height: 28)
         .background(statusBackground, in: Capsule())
+    }
+
+    /// Client-not-met notice line. Priority: 3-strike unavailable warning →
+    /// "rescheduled Nth time" (only shown while the visit is live/not completed).
+    @ViewBuilder
+    private var notMetNotice: some View {
+        let d = visit.detail
+        let isLive = !(normalizedStatus.isCompleted)
+        let statusLc = (d.status ?? "").lowercased()
+        if isLive && d.clientUnavailableWarning == true {
+            noticeRow(text: "⚠ Client unavailable — last 3 visits missed")
+        } else if statusLc == "pending_gm_approval" {
+            let gm = d.approvalGmName?.blankToNil.map { "Awaiting: \($0)" } ?? "Awaiting GM approval"
+            noticeRow(text: gm)
+        } else if isLive && d.reassignedFromRejection == true {
+            let r = d.rejectRemark?.blankToNil.map { "GM sent back: \($0)" } ?? "Reassigned by GM"
+            noticeRow(text: r)
+        } else if isLive, let n = d.rescheduleCount, n > 0 {
+            let dateSuffix = d.lastNotMetDate.map { " on \($0)" } ?? ""
+            noticeRow(text: "Client not met\(dateSuffix) · rescheduled \(ordinalCp(n)) time")
+        }
+    }
+
+    private func noticeRow(text: String) -> some View {
+        Text(text)
+            .font(.system(size: 11, weight: .medium))
+            .foregroundStyle(Color(hex: 0xB54708))
+            .frame(maxWidth: .infinity, alignment: .leading)
+            .padding(.top, 10)
+    }
+
+    /// "1st", "2nd", "3rd", "4th"… for the "rescheduled Nth time" notice.
+    private func ordinalCp(_ n: Int) -> String {
+        let s: String
+        if (11...13).contains(n % 100) {
+            s = "th"
+        } else {
+            switch n % 10 {
+            case 1: s = "st"
+            case 2: s = "nd"
+            case 3: s = "rd"
+            default: s = "th"
+            }
+        }
+        return "\(n)\(s)"
     }
 
     private var statsGrid: some View {

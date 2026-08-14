@@ -782,6 +782,9 @@ struct CreateBookingRequest: Encodable, Sendable {
     let sourceType: String?
     let sourceClientPlaceVisitId: String?
     let sourceSiteVisitId: String?
+    // Booking follow-up: backend spawns a booking_cp for this date/time.
+    let bookingCpDate: String?
+    let bookingCpTime: String?
     let notes: String?
 
     init(
@@ -917,6 +920,8 @@ struct CreateBookingRequest: Encodable, Sendable {
         sourceType: String? = nil,
         sourceClientPlaceVisitId: String? = nil,
         sourceSiteVisitId: String? = nil,
+        bookingCpDate: String? = nil,
+        bookingCpTime: String? = nil,
         notes: String? = nil
     ) {
         self.clientName = clientName
@@ -1051,6 +1056,8 @@ struct CreateBookingRequest: Encodable, Sendable {
         self.sourceType = sourceType
         self.sourceClientPlaceVisitId = sourceClientPlaceVisitId
         self.sourceSiteVisitId = sourceSiteVisitId
+        self.bookingCpDate = bookingCpDate
+        self.bookingCpTime = bookingCpTime
         self.notes = notes
     }
 }
@@ -1365,19 +1372,28 @@ struct SetCpVisitOutcomeRequest: Encodable, Sendable {
     // Gift-distribution handover photo (captured post-OTP). Android sends it so the
     // backend can attach the proof before the completion check. Optional — omitted when nil.
     let arrivalPhotoStorageId: String?
+    // Collection-CP follow-up slot: when the staff picks a date/time to return and
+    // collect (nothing collected, or a partial with a balance still due), the
+    // backend spawns the next collection_cp for this date/time.
+    let followUpDate: String?
+    let followUpTime: String?
 
     init(
         id: String,
         outcome: String,
         postponeReasons: [String]? = nil,
         notes: String? = nil,
-        arrivalPhotoStorageId: String? = nil
+        arrivalPhotoStorageId: String? = nil,
+        followUpDate: String? = nil,
+        followUpTime: String? = nil
     ) {
         self.id = id
         self.outcome = outcome
         self.postponeReasons = postponeReasons
         self.notes = notes
         self.arrivalPhotoStorageId = arrivalPhotoStorageId
+        self.followUpDate = followUpDate
+        self.followUpTime = followUpTime
     }
 }
 

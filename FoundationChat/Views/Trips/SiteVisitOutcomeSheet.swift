@@ -788,6 +788,14 @@ struct SiteVisitOutcomeSheet: View {
                     errorMessage = "Select at least one follow-up reason"
                     return
                 }
+                // The follow-up date is now required: an SV "Follow up" spawns an
+                // sv_cum_cp revisit for that date (replacing the telecaller call-back),
+                // and the backend only spawns when a date is present. Without it the
+                // staff would get no follow-up at all.
+                guard followupDueDate.outcomeNilIfBlank != nil else {
+                    errorMessage = "Pick a follow-up date to schedule the revisit"
+                    return
+                }
                 try await saveOutcome(token: token, outcome: outcome, bookingId: nil)
             case .notInterested:
                 guard !selectedNotInterestedReasons.isEmpty else {
