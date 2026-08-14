@@ -998,6 +998,11 @@ private struct SiteVisitOverviewSheet: View {
                     bottomTintCard(title: "Notes", value: notesText, tint: Color.orange, bg: Color.orange.opacity(0.10))
                 }
 
+                if let detail {
+                    arrivalProofCard(for: detail)
+                    visitTimelineCard(for: detail)
+                }
+
                 if canPostponeVisit {
                     Button {
                         showPostponeVisit = true
@@ -1061,6 +1066,139 @@ private struct SiteVisitOverviewSheet: View {
                 dismiss()
             }
             .appLibraryNativeSheet([.medium])
+        }
+    }
+
+    // MARK: - Completed-visit detail: arrival proof + timeline
+    // Ports the Android CompletedVisitDetailFragment's arrival-proof card and the
+    // synthesized timeline. The data is already loaded in `detail` (CpVisitDetail) —
+    // these just render it.
+
+    private static let overviewTimestampFormatter: DateFormatter = {
+        let f = DateFormatter()
+        f.dateFormat = "dd MMM, h:mm a"
+        return f
+    }()
+
+    private func overviewTimestamp(_ millis: Int64?) -> String? {
+        guard let millis, millis > 0 else { return nil }
+        return Self.overviewTimestampFormatter.string(
+            from: Date(timeIntervalSince1970: Double(millis) / 1000)
+        )
+    }
+
+    private func overviewDistance(_ meters: Double?) -> String? {
+        guard let meters, meters >= 0 else { return nil }
+        if meters >= 1000 {
+            return "\((meters / 1000).formatted(.number.precision(.fractionLength(2)))) km"
+        }
+        return "\(Int(meters.rounded())) m"
+    }
+
+    @ViewBuilder
+    private func arrivalProofCard(for detail: CpVisitDetail) -> some View {
+        if let proof = detail.arrivalProof,
+           proof.photoUrl != nil || proof.otpVerifiedAt != nil || proof.distanceFromPlaceMeters != nil {
+            VStack(alignment: .leading, spacing: 12) {
+                Text("ARRIVAL PROOF")
+                    .font(.system(size: 12, weight: .bold))
+                    .foregroundStyle(.secondary)
+
+                if let urlString = proof.photoUrl, let url = URL(string: urlString) {
+                    AsyncImage(url: url) { phase in
+                        switch phase {
+                        case .success(let image):
+                            image.resizable().scaledToFill()
+                        case .failure:
+                            Color(hex: 0xF2F4F7).overlay(
+                                Image(systemName: "photo").foregroundStyle(.secondary)
+                            )
+                        default:
+                            Color(hex: 0xF2F4F7).overlay(ProgressView())
+                        }
+                    }
+                    .frame(height: 180)
+                    .frame(maxWidth: .infinity)
+                    .clipShape(RoundedRectangle(cornerRadius: 12, style: .continuous))
+                }
+
+                VStack(spacing: 8) {
+                    if let t = overviewTimestamp(proof.otpVerifiedAt) {
+                        overviewProofRow("OTP verified", t)
+                    }
+                    if let t = overviewTimestamp(proof.otpRequestedAt) {
+                        overviewProofRow("OTP requested", t)
+                    }
+                    if let lat = proof.gpsLat, let lng = proof.gpsLng {
+                        overviewProofRow("Arrival GPS", String(format: "%.5f, %.5f", lat, lng))
+                    }
+                    if let d = overviewDistance(proof.distanceFromPlaceMeters) {
+                        overviewProofRow("Distance from place", d)
+                    }
+                }
+            }
+            .padding(14)
+            .frame(maxWidth: .infinity, alignment: .leading)
+            .background(Color.appFieldBackground, in: RoundedRectangle(cornerRadius: 14, style: .continuous))
+        }
+    }
+
+    private func overviewProofRow(_ label: String, _ value: String) -> some View {
+        HStack {
+            Text(label)
+                .font(.system(size: 13, weight: .medium))
+                .foregroundStyle(.secondary)
+            Spacer()
+            Text(value)
+                .font(.system(size: 13, weight: .semibold).monospacedDigit())
+                .foregroundStyle(.primary)
+        }
+    }
+
+    @ViewBuilder
+    private func visitTimelineCard(for detail: CpVisitDetail) -> some View {
+        let events: [(String, Int64?)] = [
+            ("Created", detail.createdAt),
+            ("Assigned", detail.assignedAt),
+            ("Field visit started", detail.fieldVisit?.startedAt),
+            ("Arrival OTP verified", detail.arrivalProof?.otpVerifiedAt),
+            ("Client met", detail.clientMetAt),
+            ("Completed", detail.completedAt)
+        ].filter { ($0.1 ?? 0) > 0 }
+
+        if !events.isEmpty {
+            VStack(alignment: .leading, spacing: 12) {
+                Text("TIMELINE")
+                    .font(.system(size: 12, weight: .bold))
+                    .foregroundStyle(.secondary)
+                VStack(alignment: .leading, spacing: 0) {
+                    ForEach(Array(events.enumerated()), id: \.offset) { index, event in
+                        HStack(alignment: .top, spacing: 12) {
+                            VStack(spacing: 0) {
+                                Circle().fill(Color(hex: 0x0B61CA)).frame(width: 9, height: 9)
+                                if index < events.count - 1 {
+                                    Rectangle().fill(Color(hex: 0xD0D5DD)).frame(width: 2, height: 26)
+                                }
+                            }
+                            VStack(alignment: .leading, spacing: 1) {
+                                Text(event.0)
+                                    .font(.system(size: 13, weight: .semibold))
+                                    .foregroundStyle(.primary)
+                                if let t = overviewTimestamp(event.1) {
+                                    Text(t)
+                                        .font(.system(size: 12))
+                                        .foregroundStyle(.secondary)
+                                }
+                            }
+                            .padding(.bottom, index < events.count - 1 ? 10 : 0)
+                            Spacer()
+                        }
+                    }
+                }
+            }
+            .padding(14)
+            .frame(maxWidth: .infinity, alignment: .leading)
+            .background(Color.appFieldBackground, in: RoundedRectangle(cornerRadius: 14, style: .continuous))
         }
     }
 
