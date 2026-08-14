@@ -19,6 +19,48 @@ enum DashboardConvexAPIService {
         return dashboard
     }
 
+    /// Today's calls drill-down (optionally filtered to a direction). Mirrors
+    /// Android `getDashboardCalls` → `GET /api/dashboard/calls?date=&direction=`.
+    static func getDashboardCalls(
+        token: String,
+        date: String? = nil,
+        direction: String? = nil
+    ) async throws -> [DashboardCallRow] {
+        var items: [URLQueryItem] = []
+        if let date, !date.isEmpty { items.append(URLQueryItem(name: "date", value: date)) }
+        if let direction, !direction.isEmpty {
+            items.append(URLQueryItem(name: "direction", value: direction))
+        }
+        var comps = URLComponents()
+        comps.queryItems = items.isEmpty ? nil : items
+        let query = comps.percentEncodedQuery.map { "?\($0)" } ?? ""
+        let data = try await get(path: "/api/dashboard/calls\(query)", token: token)
+        let resp = try JSONDecoder().decode(DashboardCallsResponse.self, from: data)
+        guard resp.success else {
+            throw HRConvexAPIError.server(resp.error ?? "Failed to load calls")
+        }
+        return resp.calls ?? []
+    }
+
+    /// Today's completed registrations. Mirrors Android
+    /// `getDashboardRegistrations` → `GET /api/dashboard/registrations?date=`.
+    static func getDashboardRegistrations(
+        token: String,
+        date: String? = nil
+    ) async throws -> [DashboardRegistrationRow] {
+        var path = "/api/dashboard/registrations"
+        if let encoded = date?.addingPercentEncoding(withAllowedCharacters: .urlQueryAllowed),
+           !encoded.isEmpty {
+            path += "?date=\(encoded)"
+        }
+        let data = try await get(path: path, token: token)
+        let resp = try JSONDecoder().decode(DashboardRegistrationsResponse.self, from: data)
+        guard resp.success else {
+            throw HRConvexAPIError.server(resp.error ?? "Failed to load registrations")
+        }
+        return resp.registrations ?? []
+    }
+
     private static func get(path: String, token: String) async throws -> Data {
         guard let url = URL(string: "\(baseURL)\(path)") else { throw HRConvexAPIError.badURL }
         var request = URLRequest(url: url)

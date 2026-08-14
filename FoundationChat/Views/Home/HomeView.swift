@@ -1108,7 +1108,9 @@ struct HomeView: View {
         case .permissions:
             ConvexPermissionListView()
         case .calls:
-            DialerView()
+            CallsReportView()
+        case .registrations:
+            RegistrationsView()
         case .leads:
             MyLeadsView()
         case .cpVisits:
@@ -1343,6 +1345,22 @@ struct HomeView: View {
                     imageSize: CGSize(width: 72, height: 66),
                     size: .compact,
                     destination: .leads
+                ),
+                .init(
+                    // Registrations drill-down (Android RegistrationsFragment).
+                    // TODO(asset): swap in a registrations-specific 3D image.
+                    title: "Registrations",
+                    value: "\(dashboard.registrationCount ?? 0)",
+                    pill: "Completed today",
+                    systemImage: "checkmark.seal.fill",
+                    tint: green,
+                    background: greenBg,
+                    pillBackground: greenPill,
+                    pillTextColor: Color(hex: 0x047857),
+                    imageName: "HomeMarketing3DOutgoing",
+                    imageSize: CGSize(width: 66, height: 66),
+                    size: .compact,
+                    destination: .registrations
                 ),
                 .init(
                     title: "SV Fixed",
@@ -2233,6 +2251,7 @@ private enum HomeDashboardDestination {
     case leaves
     case permissions
     case calls
+    case registrations
     case leads
     case cpVisits
     case siteVisits
