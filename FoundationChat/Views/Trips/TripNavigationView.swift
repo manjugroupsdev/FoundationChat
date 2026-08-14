@@ -1911,6 +1911,12 @@ private struct SpecialCpCompletionSheet: View {
     @State private var isLoading = false
     @State private var isSaving = false
     @State private var errorMessage: String?
+    // Collection follow-up: when the staff returns to collect a pending balance
+    // (nothing collected, or a partial). Defaults to tomorrow.
+    @State private var followUpDate =
+        Calendar.current.date(byAdding: .day, value: 1, to: Date()) ?? Date()
+
+    private var selectedCasePending: Double { selectedCase?.balanceAmount ?? 0 }
 
     var body: some View {
         VStack(spacing: 0) {
@@ -2013,6 +2019,30 @@ private struct SpecialCpCompletionSheet: View {
             sheetTextField("Transaction Reference", text: $reference, placeholder: "UPI / cheque / transfer reference")
             sheetTextField("Bank Name", text: $bankName, placeholder: "Bank name")
             sheetTextField("Notes", text: $remarks, placeholder: "Payment notes", axis: .vertical)
+
+            if let c = selectedCase {
+                Text("Payable \(AppModuleFormatters.rupees(c.totalAmount ?? 0)) · Paid \(AppModuleFormatters.rupees(c.approvedCollectedAmount ?? 0)) · Pending \(AppModuleFormatters.rupees(c.balanceAmount ?? 0))")
+                    .font(.system(size: 12, weight: .medium))
+                    .foregroundStyle(Color(hex: 0x667085))
+                    .frame(maxWidth: .infinity, alignment: .leading)
+            }
+
+            // Follow-up slot: used when nothing is collected, or when the amount
+            // entered is less than the pending balance (partial). A full
+            // collection ignores it.
+            VStack(alignment: .leading, spacing: 6) {
+                Text("Follow-up visit (if a balance remains)")
+                    .font(.system(size: 13, weight: .semibold))
+                    .foregroundStyle(Color(hex: 0x344054))
+                DatePicker(
+                    "Follow-up",
+                    selection: $followUpDate,
+                    in: Date()...,
+                    displayedComponents: [.date, .hourAndMinute]
+                )
+                .labelsHidden()
+                .frame(maxWidth: .infinity, alignment: .leading)
+            }
         }
     }
 
@@ -2029,11 +2059,11 @@ private struct SpecialCpCompletionSheet: View {
     }
 
     private var footer: some View {
-        VStack(spacing: 0) {
+        VStack(spacing: 10) {
             Divider()
                 .overlay(Color(hex: 0xEAECF0))
             Button {
-                Task { await submit() }
+                Task { await submit(notCollected: false) }
             } label: {
                 if isSaving {
                     ProgressView()
@@ -2049,9 +2079,26 @@ private struct SpecialCpCompletionSheet: View {
             .background(Color(hex: 0x1BCA0B), in: Capsule())
             .disabled(isSaving || isLoading || (kind == .collection && (selectedCaseId.isEmpty || Double(amount) == nil)))
             .padding(.horizontal, 24)
-            .padding(.vertical, 14)
-            .background(Color.white)
+
+            // Collection only: close with nothing collected. Uses the follow-up
+            // date to spawn the next collection CP.
+            if kind == .collection {
+                Button {
+                    Task { await submit(notCollected: true) }
+                } label: {
+                    Text("Not Collected")
+                        .font(.system(size: 15, weight: .semibold))
+                        .foregroundStyle(Color(hex: 0xB42318))
+                        .frame(maxWidth: .infinity)
+                        .frame(height: 48)
+                        .background(Color(hex: 0xFEF3F2), in: Capsule())
+                }
+                .disabled(isSaving || isLoading)
+                .padding(.horizontal, 24)
+            }
         }
+        .padding(.vertical, 14)
+        .background(Color.white)
     }
 
     private var selectedCase: PostSaleCaseSummary? {
@@ -2144,12 +2191,18 @@ private struct SpecialCpCompletionSheet: View {
     }
 
     @MainActor
-    private func submit() async {
+    private func submit(notCollected: Bool) async {
         guard let token = authStore.currentSession?.token else { return }
         if kind == .oldClient, remarks.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
             errorMessage = "Please enter visit remarks."
             return
         }
+        // Follow-up slot (yyyy-MM-dd / HH:mm) — sent only when a balance remains.
+        let df = DateFormatter(); df.dateFormat = "yyyy-MM-dd"; df.locale = Locale(identifier: "en_IN")
+        let tf = DateFormatter(); tf.dateFormat = "HH:mm"; tf.locale = Locale(identifier: "en_IN")
+        let fuDate = df.string(from: followUpDate)
+        let fuTime = tf.string(from: followUpDate)
+
         isSaving = true
         defer { isSaving = false }
         do {
@@ -2158,32 +2211,45 @@ private struct SpecialCpCompletionSheet: View {
                 request: MarkClientMetRequest(id: cpVisitId, clientMet: true)
             )
             var notes = remarks.trimmingCharacters(in: .whitespacesAndNewlines)
+            var outcome = kind.terminalOutcome
+            var sendFollowUp = false
+
             if kind == .collection {
-                guard let amountValue = Double(amount), !selectedCaseId.isEmpty else {
-                    errorMessage = "Select booking and enter a valid amount."
-                    return
-                }
-                let refNo = try await PostSalesConvexAPIService.submitCollection(
-                    token: token,
-                    request: SubmitCollectionRequest(
-                        caseId: selectedCaseId,
-                        amount: amountValue,
-                        paymentMode: paymentMode,
-                        transactionReference: reference.trimmingCharacters(in: .whitespacesAndNewlines).nilIfEmpty,
-                        bankName: bankName.trimmingCharacters(in: .whitespacesAndNewlines).nilIfEmpty,
-                        proofStorageId: arrivalProofStorageId,
-                        proofFileName: arrivalProofStorageId == nil ? nil : "cp-arrival-proof.jpg",
-                        notes: notes.nilIfEmpty
+                if notCollected {
+                    // Nothing collected — close as not_collected + schedule the
+                    // next collection CP.
+                    outcome = "not_collected"
+                    sendFollowUp = true
+                    notes = notes.isEmpty ? "Not collected" : "Not collected — \(notes)"
+                } else {
+                    guard let amountValue = Double(amount), !selectedCaseId.isEmpty else {
+                        errorMessage = "Select booking and enter a valid amount."
+                        return
+                    }
+                    let refNo = try await PostSalesConvexAPIService.submitCollection(
+                        token: token,
+                        request: SubmitCollectionRequest(
+                            caseId: selectedCaseId,
+                            amount: amountValue,
+                            paymentMode: paymentMode,
+                            transactionReference: reference.trimmingCharacters(in: .whitespacesAndNewlines).nilIfEmpty,
+                            bankName: bankName.trimmingCharacters(in: .whitespacesAndNewlines).nilIfEmpty,
+                            proofStorageId: arrivalProofStorageId,
+                            proofFileName: arrivalProofStorageId == nil ? nil : "cp-arrival-proof.jpg",
+                            notes: notes.nilIfEmpty
+                        )
                     )
-                )
-                notes = [
-                    "Collection submitted: \(AppModuleFormatters.rupees(amountValue))",
-                    refNo.isEmpty ? nil : "Receipt: \(refNo)",
-                    reference.trimmingCharacters(in: .whitespacesAndNewlines).nilIfEmpty,
-                    notes.nilIfEmpty
-                ]
-                .compactMap { $0 }
-                .joined(separator: "\n")
+                    // Partial — a balance still remains after this collection.
+                    sendFollowUp = selectedCasePending > 0.005 && amountValue < selectedCasePending - 0.005
+                    notes = [
+                        "Collection submitted: \(AppModuleFormatters.rupees(amountValue))",
+                        refNo.isEmpty ? nil : "Receipt: \(refNo)",
+                        reference.trimmingCharacters(in: .whitespacesAndNewlines).nilIfEmpty,
+                        notes.nilIfEmpty
+                    ]
+                    .compactMap { $0 }
+                    .joined(separator: "\n")
+                }
             } else if kind == .giftDistribution, notes.isEmpty {
                 notes = "Gift distributed to client"
             }
@@ -2192,9 +2258,11 @@ private struct SpecialCpCompletionSheet: View {
                 token: token,
                 request: SetCpVisitOutcomeRequest(
                     id: cpVisitId,
-                    outcome: kind.terminalOutcome,
+                    outcome: outcome,
                     postponeReasons: nil,
-                    notes: notes.nilIfEmpty
+                    notes: notes.nilIfEmpty,
+                    followUpDate: sendFollowUp ? fuDate : nil,
+                    followUpTime: sendFollowUp ? fuTime : nil
                 )
             )
             onCompleted()

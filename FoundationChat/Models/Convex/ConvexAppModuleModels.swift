@@ -1308,19 +1308,28 @@ struct SetCpVisitOutcomeRequest: Encodable, Sendable {
     // Gift-distribution handover photo (captured post-OTP). Android sends it so the
     // backend can attach the proof before the completion check. Optional — omitted when nil.
     let arrivalPhotoStorageId: String?
+    // Collection-CP follow-up slot: when the staff picks a date/time to return and
+    // collect (nothing collected, or a partial with a balance still due), the
+    // backend spawns the next collection_cp for this date/time.
+    let followUpDate: String?
+    let followUpTime: String?
 
     init(
         id: String,
         outcome: String,
         postponeReasons: [String]? = nil,
         notes: String? = nil,
-        arrivalPhotoStorageId: String? = nil
+        arrivalPhotoStorageId: String? = nil,
+        followUpDate: String? = nil,
+        followUpTime: String? = nil
     ) {
         self.id = id
         self.outcome = outcome
         self.postponeReasons = postponeReasons
         self.notes = notes
         self.arrivalPhotoStorageId = arrivalPhotoStorageId
+        self.followUpDate = followUpDate
+        self.followUpTime = followUpTime
     }
 }
 
