@@ -769,6 +769,9 @@ struct CreateBookingRequest: Encodable, Sendable {
     let sourceType: String?
     let sourceClientPlaceVisitId: String?
     let sourceSiteVisitId: String?
+    // Booking follow-up: backend spawns a booking_cp for this date/time.
+    let bookingCpDate: String?
+    let bookingCpTime: String?
     let notes: String?
 
     init(
@@ -904,6 +907,8 @@ struct CreateBookingRequest: Encodable, Sendable {
         sourceType: String? = nil,
         sourceClientPlaceVisitId: String? = nil,
         sourceSiteVisitId: String? = nil,
+        bookingCpDate: String? = nil,
+        bookingCpTime: String? = nil,
         notes: String? = nil
     ) {
         self.clientName = clientName
@@ -1038,6 +1043,8 @@ struct CreateBookingRequest: Encodable, Sendable {
         self.sourceType = sourceType
         self.sourceClientPlaceVisitId = sourceClientPlaceVisitId
         self.sourceSiteVisitId = sourceSiteVisitId
+        self.bookingCpDate = bookingCpDate
+        self.bookingCpTime = bookingCpTime
         self.notes = notes
     }
 }
