@@ -14,6 +14,7 @@ struct SignatureCaptureView: View {
     /// Each stroke is a list of normalized points (x,y in 0…1).
     @State private var strokes: [[CGPoint]] = []
     @State private var current: [CGPoint] = []
+    @State private var exportError: String?
 
     private var isEmpty: Bool { strokes.isEmpty && current.isEmpty }
 
@@ -28,7 +29,7 @@ struct SignatureCaptureView: View {
                     Canvas { context, _ in
                         context.stroke(
                             strokePath(in: geo.size),
-                            with: .color(Color(hex: 0x101828)),
+                            with: .color(.black),
                             style: StrokeStyle(lineWidth: 2.5, lineCap: .round, lineJoin: .round)
                         )
                     }
@@ -45,8 +46,9 @@ struct SignatureCaptureView: View {
                     )
                 }
                 .frame(height: 220)
-                .background(Color(.secondarySystemBackground), in: RoundedRectangle(cornerRadius: 12))
+                .background(Color.white, in: RoundedRectangle(cornerRadius: 12))
                 .overlay(RoundedRectangle(cornerRadius: 12).stroke(Color(hex: 0xD0D5DD), lineWidth: 1))
+                .accessibilityLabel("Signature drawing area")
 
                 HStack {
                     Button {
@@ -73,6 +75,14 @@ struct SignatureCaptureView: View {
                     Button("Done") { finish() }
                         .disabled(isEmpty)
                 }
+            }
+            .alert("Signature", isPresented: Binding(
+                get: { exportError != nil },
+                set: { if !$0 { exportError = nil } }
+            )) {
+                Button("OK", role: .cancel) { exportError = nil }
+            } message: {
+                Text(exportError ?? "")
             }
         }
     }
@@ -112,8 +122,10 @@ struct SignatureCaptureView: View {
         renderer.scale = 2
         if let image = renderer.uiImage, let data = image.pngData() {
             onDone(data)
+            dismiss()
+        } else {
+            exportError = "The signature image could not be created. Please try again."
         }
-        dismiss()
     }
 }
 

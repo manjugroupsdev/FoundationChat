@@ -1,5 +1,14 @@
 import Foundation
 
+struct StaffDigitalSign: Decodable, Sendable {
+    let success: Bool
+    let hasSignature: Bool
+    let storageId: String?
+    let url: String?
+    let fileName: String?
+    let error: String?
+}
+
 enum MarketingConvexAPIService {
     private static let baseURL = AppConfig.baseURL
 
@@ -129,6 +138,16 @@ enum MarketingConvexAPIService {
     private struct RejectLoanRequest: Encodable {
         let id: String
         let reason: String
+    }
+
+    private struct ApproveLoanRequest: Encodable {
+        let id: String
+        let eSignatureId: String?
+    }
+
+    private struct DigitalSignRequest: Encodable {
+        let storageId: String
+        let fileName: String?
     }
 
     private struct RejectBookingRequest: Encodable {
@@ -301,10 +320,47 @@ enum MarketingConvexAPIService {
         guard wrapper.success else { throw MarketingAPIError.server(wrapper.error ?? "Failed to cancel loan") }
     }
 
-    static func approveLoan(token: String, id: String) async throws {
-        let data = try await post(path: "/api/hr/loans/approve", token: token, body: IdRequest(id: id))
+    static func approveLoan(token: String, id: String, eSignatureId: String? = nil) async throws {
+        let data = try await post(
+            path: "/api/hr/loans/approve",
+            token: token,
+            body: ApproveLoanRequest(id: id, eSignatureId: eSignatureId)
+        )
         let wrapper = try decode(BaseMutationResponse.self, from: data)
         guard wrapper.success else { throw MarketingAPIError.server(wrapper.error ?? "Failed to approve loan") }
+    }
+
+    static func getDigitalSign(token: String) async throws -> StaffDigitalSign {
+        let data = try await get(path: "/api/hr/staff/digital-sign", token: token)
+        let wrapper = try decode(StaffDigitalSign.self, from: data)
+        guard wrapper.success else {
+            throw MarketingAPIError.server(wrapper.error ?? "Failed to load digital signature")
+        }
+        return wrapper
+    }
+
+    static func saveDigitalSign(token: String, storageId: String, fileName: String) async throws {
+        let data = try await post(
+            path: "/api/hr/staff/digital-sign",
+            token: token,
+            body: DigitalSignRequest(storageId: storageId, fileName: fileName)
+        )
+        let wrapper = try decode(StaffDigitalSign.self, from: data)
+        guard wrapper.success else {
+            throw MarketingAPIError.server(wrapper.error ?? "Failed to save digital signature")
+        }
+    }
+
+    static func digitalSignPreviewURL(_ signature: StaffDigitalSign) -> URL? {
+        if let storageId = signature.storageId?.trimmingCharacters(in: .whitespacesAndNewlines),
+           !storageId.isEmpty,
+           var components = URLComponents(string: "\(baseURL)/api/storage/serve") {
+            components.queryItems = [URLQueryItem(name: "storageId", value: storageId)]
+            return components.url
+        }
+        guard let rawURL = signature.url?.trimmingCharacters(in: .whitespacesAndNewlines),
+              !rawURL.isEmpty else { return nil }
+        return URL(string: rawURL)
     }
 
     static func rejectLoan(token: String, id: String, reason: String = "Rejected by approver") async throws {

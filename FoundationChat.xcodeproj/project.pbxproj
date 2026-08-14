@@ -17,9 +17,22 @@
 		E91E57872E0C3BC90091F669 /* AppIcon.icon */ = {isa = PBXFileReference; lastKnownFileType = folder.iconcomposer.icon; path = AppIcon.icon; sourceTree = "<group>"; };
 /* End PBXFileReference section */
 
+/* Begin PBXFileSystemSynchronizedBuildFileExceptionSet section */
+		E91E57D02E0D1D000091F669 /* Exceptions for "FoundationChat" folder in "FoundationChat" target */ = {
+			isa = PBXFileSystemSynchronizedBuildFileExceptionSet;
+			membershipExceptions = (
+				Info.plist,
+			);
+			target = E91E56BC2E0BD67D0091F669 /* FoundationChat */;
+		};
+/* End PBXFileSystemSynchronizedBuildFileExceptionSet section */
+
 /* Begin PBXFileSystemSynchronizedRootGroup section */
 		E91E56BF2E0BD67D0091F669 /* FoundationChat */ = {
 			isa = PBXFileSystemSynchronizedRootGroup;
+			exceptions = (
+				E91E57D02E0D1D000091F669 /* Exceptions for "FoundationChat" folder in "FoundationChat" target */,
+			);
 			path = FoundationChat;
 			sourceTree = "<group>";
 		};
@@ -283,7 +296,8 @@
 				ENABLE_RESOURCE_ACCESS_USB = NO;
 				ENABLE_USER_SELECTED_FILES = readonly;
 				"EXCLUDED_ARCHS[sdk=iphonesimulator*]" = x86_64;
-				GENERATE_INFOPLIST_FILE = YES;
+				GENERATE_INFOPLIST_FILE = NO;
+				INFOPLIST_FILE = FoundationChat/Info.plist;
 				INFOPLIST_KEY_CFBundleDisplayName = "M-Connect";
 				INFOPLIST_KEY_CONVEX_URL = "https://industrious-bullfrog-820.convex.cloud";
 				INFOPLIST_KEY_ITSAppUsesNonExemptEncryption = NO;
@@ -301,7 +315,6 @@
 				"INFOPLIST_KEY_UIApplicationSceneManifest_Generation[sdk=iphonesimulator*]" = YES;
 				"INFOPLIST_KEY_UIApplicationSupportsIndirectInputEvents[sdk=iphoneos*]" = YES;
 				"INFOPLIST_KEY_UIApplicationSupportsIndirectInputEvents[sdk=iphonesimulator*]" = YES;
-				INFOPLIST_KEY_UIBackgroundModes = location;
 				"INFOPLIST_KEY_UILaunchScreen_Generation[sdk=iphoneos*]" = YES;
 				"INFOPLIST_KEY_UILaunchScreen_Generation[sdk=iphonesimulator*]" = YES;
 				"INFOPLIST_KEY_UIStatusBarStyle[sdk=iphoneos*]" = UIStatusBarStyleDefault;
@@ -354,7 +367,8 @@
 				ENABLE_RESOURCE_ACCESS_USB = NO;
 				ENABLE_USER_SELECTED_FILES = readonly;
 				"EXCLUDED_ARCHS[sdk=iphonesimulator*]" = x86_64;
-				GENERATE_INFOPLIST_FILE = YES;
+				GENERATE_INFOPLIST_FILE = NO;
+				INFOPLIST_FILE = FoundationChat/Info.plist;
 				INFOPLIST_KEY_CFBundleDisplayName = "M-Connect";
 				INFOPLIST_KEY_CONVEX_URL = "https://industrious-bullfrog-820.convex.cloud";
 				INFOPLIST_KEY_ITSAppUsesNonExemptEncryption = NO;
@@ -372,7 +386,6 @@
 				"INFOPLIST_KEY_UIApplicationSceneManifest_Generation[sdk=iphonesimulator*]" = YES;
 				"INFOPLIST_KEY_UIApplicationSupportsIndirectInputEvents[sdk=iphoneos*]" = YES;
 				"INFOPLIST_KEY_UIApplicationSupportsIndirectInputEvents[sdk=iphonesimulator*]" = YES;
-				INFOPLIST_KEY_UIBackgroundModes = location;
 				"INFOPLIST_KEY_UILaunchScreen_Generation[sdk=iphoneos*]" = YES;
 				"INFOPLIST_KEY_UILaunchScreen_Generation[sdk=iphonesimulator*]" = YES;
 				"INFOPLIST_KEY_UIStatusBarStyle[sdk=iphoneos*]" = UIStatusBarStyleDefault;

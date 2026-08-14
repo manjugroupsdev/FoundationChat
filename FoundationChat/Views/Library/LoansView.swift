@@ -14,6 +14,7 @@ struct LoansView: View {
     @State private var loanPendingCancel: AppLoan?
     @State private var isCancellingLoan = false
     @State private var actingLoanId: String?
+    @State private var signatureApprovalLoan: AppLoan?
 
     private var headerHeight: CGFloat {
         selectedTab == .salary ? 174 : 190
@@ -62,8 +63,14 @@ struct LoansView: View {
             .appLibraryNativeSheet([.height(520), .large])
             .presentationBackground(Color.white)
         }
-        .alert("Couldn't load loans", isPresented: Binding(
-            get: { errorMessage != nil && active.isEmpty && previous.isEmpty && hasLoaded },
+        .sheet(item: $signatureApprovalLoan) { loan in
+            LoanSignatureApprovalSheet(loan: loan) {
+                await load()
+            }
+            .appLibraryNativeSheet([.height(650), .large])
+        }
+        .alert("Loans", isPresented: Binding(
+            get: { errorMessage != nil && hasLoaded },
             set: { if !$0 { errorMessage = nil } }
         )) {
             Button("OK", role: .cancel) { errorMessage = nil }
@@ -109,7 +116,7 @@ struct LoansView: View {
     private var loansContent: some View {
         let visibleActive = activeLoansForSelectedTab
         let visiblePrevious = previousLoansForSelectedTab
-        let visibleApprovals = selectedTab == .salary ? pendingSalaryApprovals : []
+        let visibleApprovals = selectedTab == .salary ? pendingSalaryApprovals : pendingLoanApprovals
 
         return VStack(spacing: 0) {
             if selectedTab == .loans, let hero = visibleActive.first {
@@ -155,7 +162,11 @@ struct LoansView: View {
                         approvals: pendingSalaryApprovals
                     )
                 } else {
-                    loanSections(active: visibleActive, previous: visiblePrevious)
+                    loanSections(
+                        active: visibleActive,
+                        previous: visiblePrevious,
+                        approvals: pendingLoanApprovals
+                    )
                 }
             }
         }
@@ -187,8 +198,28 @@ struct LoansView: View {
         pendingApprovals.filter(\.isSalaryAdvance)
     }
 
+    private var pendingLoanApprovals: [AppLoan] {
+        pendingApprovals.filter { !$0.isSalaryAdvance }
+    }
+
     @ViewBuilder
-    private func loanSections(active: [AppLoan], previous: [AppLoan]) -> some View {
+    private func loanSections(active: [AppLoan], previous: [AppLoan], approvals: [AppLoan]) -> some View {
+        if !approvals.isEmpty {
+            loanSectionTitle("Requested Loan Approvals", count: approvals.count)
+                .padding(.top, 22)
+            LazyVStack(spacing: 12) {
+                ForEach(approvals) { loan in
+                    SalaryAdvanceRow(
+                        loan: loan,
+                        isActing: actingLoanId == loan.id,
+                        onReject: { Task { await rejectLoanApproval(loan) } },
+                        onAccept: { beginLoanApproval(loan) }
+                    )
+                }
+            }
+            .padding(.horizontal, 16)
+        }
+
         if active.count > 1 {
             loanSectionTitle("Requested Loans", count: active.count - 1)
                 .padding(.top, 22)
@@ -547,6 +578,16 @@ struct LoansView: View {
     }
 
     @MainActor
+    private func beginLoanApproval(_ loan: AppLoan) {
+        let stage = loan.currentStage?.trimmingCharacters(in: .whitespacesAndNewlines).lowercased()
+        if !loan.isSalaryAdvance && stage == "nominee_pending" {
+            signatureApprovalLoan = loan
+        } else {
+            Task { await approveLoanApproval(loan) }
+        }
+    }
+
+    @MainActor
     private func rejectLoanApproval(_ loan: AppLoan) async {
         guard actingLoanId == nil, let token = authStore.currentSession?.token else { return }
         actingLoanId = loan.id
@@ -580,6 +621,211 @@ struct LoansView: View {
             if Self.isCancellation(error) { return }
             errorMessage = error.localizedDescription
         }
+    }
+}
+
+private struct LoanSignatureApprovalSheet: View {
+    @Environment(AuthStore.self) private var authStore
+    @Environment(\.dismiss) private var dismiss
+
+    let loan: AppLoan
+    let onApproved: () async -> Void
+
+    @State private var savedSignature: StaffDigitalSign?
+    @State private var isLoadingSignature = false
+    @State private var isSubmitting = false
+    @State private var showingSignaturePad = false
+    @State private var errorMessage: String?
+
+    private var savedStorageId: String? {
+        guard savedSignature?.hasSignature == true else { return nil }
+        return savedSignature?.storageId?.nonBlank
+    }
+
+    var body: some View {
+        NavigationStack {
+            ScrollView {
+                VStack(alignment: .leading, spacing: 18) {
+                    VStack(alignment: .leading, spacing: 5) {
+                        Text(loan.requesterName?.nonBlank ?? loan.title)
+                            .font(.system(size: 18, weight: .semibold))
+                            .foregroundStyle(.primary)
+                        Text("\(loan.loanId.isEmpty ? "Loan request" : loan.loanId) · \(AppModuleFormatters.rupees(loan.principal))")
+                            .font(.system(size: 13, weight: .medium))
+                            .foregroundStyle(.secondary)
+                    }
+
+                    Text("Your signature confirms your approval as the nominated guarantor.")
+                        .font(.system(size: 13))
+                        .foregroundStyle(.secondary)
+
+                    if isLoadingSignature {
+                        ProgressView("Checking saved signature...")
+                            .frame(maxWidth: .infinity, minHeight: 180)
+                    } else if let storageId = savedStorageId {
+                        savedSignaturePreview(storageId: storageId)
+
+                        Button {
+                            Task { await approve(using: storageId) }
+                        } label: {
+                            actionLabel("Approve with Saved Signature", showsProgress: isSubmitting)
+                        }
+                        .buttonStyle(.plain)
+                        .disabled(isSubmitting)
+                    } else {
+                        ContentUnavailableView(
+                            "Signature Required",
+                            systemImage: "signature",
+                            description: Text("Draw your signature to approve this loan request.")
+                        )
+                        .frame(maxWidth: .infinity, minHeight: 180)
+                    }
+
+                    Button {
+                        showingSignaturePad = true
+                    } label: {
+                        Label(savedStorageId == nil ? "Draw Signature" : "Replace Signature", systemImage: "pencil.and.scribble")
+                            .font(.system(size: 15, weight: .semibold))
+                            .frame(maxWidth: .infinity)
+                            .frame(height: 48)
+                    }
+                    .buttonStyle(.bordered)
+                    .disabled(isSubmitting || isLoadingSignature)
+
+                    if let errorMessage {
+                        Text(errorMessage)
+                            .font(.system(size: 12, weight: .medium))
+                            .foregroundStyle(Color(hex: 0xB42318))
+                            .frame(maxWidth: .infinity, alignment: .leading)
+                    }
+                }
+                .padding(20)
+            }
+            .navigationTitle("Approve Loan")
+            .navigationBarTitleDisplayMode(.inline)
+            .toolbar {
+                ToolbarItem(placement: .cancellationAction) {
+                    Button("Cancel") { dismiss() }
+                        .disabled(isSubmitting)
+                }
+            }
+            .task { await loadSavedSignature() }
+            .sheet(isPresented: $showingSignaturePad) {
+                SignatureCaptureView(title: "Loan Signature") { data in
+                    Task { await uploadAndApprove(signatureData: data) }
+                }
+                .interactiveDismissDisabled(isSubmitting)
+            }
+            .interactiveDismissDisabled(isSubmitting)
+        }
+    }
+
+    private func savedSignaturePreview(storageId: String) -> some View {
+        Group {
+            if let signature = savedSignature,
+               let url = MarketingConvexAPIService.digitalSignPreviewURL(signature) {
+                AsyncImage(url: url) { phase in
+                    switch phase {
+                    case .success(let image):
+                        image.resizable().scaledToFit()
+                    case .failure:
+                        signaturePlaceholder
+                    default:
+                        ProgressView()
+                    }
+                }
+            } else {
+                signaturePlaceholder
+            }
+        }
+        .frame(maxWidth: .infinity)
+        .frame(height: 180)
+        .background(Color.white, in: RoundedRectangle(cornerRadius: 12))
+        .overlay(RoundedRectangle(cornerRadius: 12).stroke(Color.appSeparator, lineWidth: 1))
+        .accessibilityLabel("Saved signature")
+    }
+
+    private var signaturePlaceholder: some View {
+        VStack(spacing: 8) {
+            Image(systemName: "signature")
+                .font(.system(size: 32))
+            Text("Saved signature available")
+                .font(.system(size: 13, weight: .medium))
+        }
+        .foregroundStyle(.secondary)
+    }
+
+    private func actionLabel(_ title: String, showsProgress: Bool) -> some View {
+        ZStack {
+            Text(title).opacity(showsProgress ? 0 : 1)
+            if showsProgress { ProgressView().tint(.white) }
+        }
+        .font(.system(size: 15, weight: .semibold))
+        .foregroundStyle(.white)
+        .frame(maxWidth: .infinity)
+        .frame(height: 50)
+        .background(Color(hex: 0x16A34A), in: RoundedRectangle(cornerRadius: 10))
+    }
+
+    @MainActor
+    private func loadSavedSignature() async {
+        guard !isLoadingSignature,
+              let token = authStore.currentSession?.token else { return }
+        isLoadingSignature = true
+        defer { isLoadingSignature = false }
+        do {
+            savedSignature = try await MarketingConvexAPIService.getDigitalSign(token: token)
+        } catch {
+            savedSignature = nil
+            errorMessage = "A saved signature could not be loaded. Draw a new signature to continue."
+        }
+    }
+
+    @MainActor
+    private func uploadAndApprove(signatureData: Data) async {
+        guard let token = authStore.currentSession?.token else { return }
+        isSubmitting = true
+        errorMessage = nil
+        defer { isSubmitting = false }
+        do {
+            let storageId = try await PostSalesStorageService.uploadData(
+                token: token,
+                data: signatureData,
+                mimeType: "image/png"
+            )
+            try? await MarketingConvexAPIService.saveDigitalSign(
+                token: token,
+                storageId: storageId,
+                fileName: "signature.png"
+            )
+            try await finishApproval(token: token, storageId: storageId)
+        } catch {
+            errorMessage = error.localizedDescription
+        }
+    }
+
+    @MainActor
+    private func approve(using storageId: String) async {
+        guard let token = authStore.currentSession?.token else { return }
+        isSubmitting = true
+        errorMessage = nil
+        defer { isSubmitting = false }
+        do {
+            try await finishApproval(token: token, storageId: storageId)
+        } catch {
+            errorMessage = error.localizedDescription
+        }
+    }
+
+    @MainActor
+    private func finishApproval(token: String, storageId: String) async throws {
+        try await MarketingConvexAPIService.approveLoan(
+            token: token,
+            id: loan.id,
+            eSignatureId: storageId
+        )
+        await onApproved()
+        dismiss()
     }
 }
 
@@ -1897,9 +2143,10 @@ private struct SalaryAdvanceRow: View {
 
     private var displayTitle: String {
         let title = loan.title.trimmingCharacters(in: .whitespacesAndNewlines)
-        if title.isEmpty || title.lowercased() == "loan" {
+        if loan.isSalaryAdvance && (title.isEmpty || title.lowercased() == "loan") {
             return "Salary Advance"
         }
+        if title.isEmpty || title.lowercased() == "loan" { return "Loan Request" }
         return title
     }
 
