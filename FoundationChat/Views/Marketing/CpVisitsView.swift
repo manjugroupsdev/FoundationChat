@@ -505,8 +505,15 @@ private struct CpVisitCard: View {
     private var notMetNotice: some View {
         let d = visit.detail
         let isLive = !(normalizedStatus.isCompleted)
+        let statusLc = (d.status ?? "").lowercased()
         if isLive && d.clientUnavailableWarning == true {
             noticeRow(text: "⚠ Client unavailable — last 3 visits missed")
+        } else if statusLc == "pending_gm_approval" {
+            let gm = d.approvalGmName?.blankToNil.map { "Awaiting: \($0)" } ?? "Awaiting GM approval"
+            noticeRow(text: gm)
+        } else if isLive && d.reassignedFromRejection == true {
+            let r = d.rejectRemark?.blankToNil.map { "GM sent back: \($0)" } ?? "Reassigned by GM"
+            noticeRow(text: r)
         } else if isLive, let n = d.rescheduleCount, n > 0 {
             let dateSuffix = d.lastNotMetDate.map { " on \($0)" } ?? ""
             noticeRow(text: "Client not met\(dateSuffix) · rescheduled \(ordinalCp(n)) time")

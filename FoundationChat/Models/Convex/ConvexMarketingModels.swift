@@ -159,6 +159,12 @@ struct CpVisitDetail: Decodable, Identifiable, Sendable {
     let rescheduleCount: Int?
     let lastNotMetDate: String?
     let clientUnavailableWarning: Bool?
+    // Out-of-geofence GM approval: the GM the staff is waiting on (while
+    // pending_gm_approval), and — after a GM reject — the remark + the flag that
+    // this visit was reopened for the same staff.
+    let approvalGmName: String?
+    let rejectRemark: String?
+    let reassignedFromRejection: Bool?
 
     enum CodingKeys: String, CodingKey {
         case id = "_id"
@@ -170,6 +176,7 @@ struct CpVisitDetail: Decodable, Identifiable, Sendable {
         case createdAt, updatedAt, lead, client, telecaller, assignedStaff, clientPlace
         case proposedSiteVisit, attendees, fieldVisit, arrivalProof, project, inchargeStaff
         case rescheduleCount, lastNotMetDate, clientUnavailableWarning
+        case approvalGmName, rejectRemark, reassignedFromRejection
     }
 }
 
