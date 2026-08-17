@@ -1,5 +1,6 @@
 import Foundation
 import UIKit
+import Security
 
 /// Thin HTTP client for the Convex auth endpoints.
 enum AuthAPIService {
@@ -232,16 +233,65 @@ private struct LoginDeviceInfo {
   /// Captures the current device info, or `nil` when a stable device id can't
   /// be read (caller then omits all device fields — backend grace path).
   static func capture() -> LoginDeviceInfo? {
-    guard let deviceId = UIDevice.current.identifierForVendor?.uuidString,
-          !deviceId.isEmpty else {
-      return nil
-    }
+    guard let deviceId = persistentDeviceId() else { return nil }
     return LoginDeviceInfo(
       deviceId: deviceId,
       platform: "ios",
       model: modelName(),
       batteryPct: batteryPercent()
     )
+  }
+
+  // Keychain slot for the persisted device id.
+  private static let keychainService = "com.manjugroups.foundationchat.deviceBinding"
+  private static let keychainAccount = "device-id"
+
+  /// A device id that survives app REINSTALLS: a UUID persisted in the Keychain
+  /// (the Keychain is not wiped when an app is deleted, only on factory reset).
+  /// Seeded from `identifierForVendor` on first run so the value is identical to
+  /// what we'd have sent before — no re-binding. This is more stable than
+  /// identifierForVendor alone, which resets once every app from the vendor is
+  /// removed. Stored `…ThisDeviceOnly`, so it never syncs via iCloud Keychain
+  /// and is not migrated to a new phone on a backup restore — it stays bound to
+  /// this physical device. Still clears on factory reset (the intended "new
+  /// device" boundary; admins reset the lock for legitimate device swaps).
+  private static func persistentDeviceId() -> String? {
+    if let existing = keychainReadDeviceId() { return existing }
+    let seed = UIDevice.current.identifierForVendor?.uuidString ?? UUID().uuidString
+    keychainWriteDeviceId(seed)
+    // Prefer the stored value (confirms persistence); fall back to the seed.
+    return keychainReadDeviceId() ?? seed
+  }
+
+  private static func keychainReadDeviceId() -> String? {
+    let query: [String: Any] = [
+      kSecClass as String: kSecClassGenericPassword,
+      kSecAttrService as String: keychainService,
+      kSecAttrAccount as String: keychainAccount,
+      kSecReturnData as String: true,
+      kSecMatchLimit as String: kSecMatchLimitOne,
+    ]
+    var item: CFTypeRef?
+    guard SecItemCopyMatching(query as CFDictionary, &item) == errSecSuccess,
+          let data = item as? Data,
+          let value = String(data: data, encoding: .utf8),
+          !value.isEmpty else {
+      return nil
+    }
+    return value
+  }
+
+  private static func keychainWriteDeviceId(_ value: String) {
+    let base: [String: Any] = [
+      kSecClass as String: kSecClassGenericPassword,
+      kSecAttrService as String: keychainService,
+      kSecAttrAccount as String: keychainAccount,
+    ]
+    SecItemDelete(base as CFDictionary)
+    var add = base
+    add[kSecValueData as String] = Data(value.utf8)
+    add[kSecAttrAccessible as String] = kSecAttrAccessibleAfterFirstUnlockThisDeviceOnly
+    SecItemAdd(add as CFDictionary, nil)
   }
 
   /// Hardware model identifier (e.g. "iPhone15,2"), falling back to the
