@@ -164,6 +164,11 @@ enum MarketingConvexAPIService {
         let remark: String
     }
 
+    private struct CancelCpVisitRequest: Encodable {
+        let id: String
+        let reason: String?
+    }
+
     private struct CpApprovalsResponse: Decodable {
         let success: Bool
         let items: [CpApprovalItem]?
@@ -687,6 +692,18 @@ enum MarketingConvexAPIService {
         let data = try await post(path: "/api/marketing/clientPlaceVisits/setOutcome", token: token, body: request)
         let wrapper = try decode(BaseMutationResponse.self, from: data)
         guard wrapper.success else { throw MarketingAPIError.server(wrapper.error ?? "Failed to set outcome") }
+    }
+
+    /// Cancels a CP visit outright (separate endpoint from setOutcome). Used by
+    /// the SV-cum-CP "Cancel" outcome. Mirrors setCpVisitOutcome's request/decode.
+    static func cancelCpVisit(token: String, id: String, reason: String?) async throws {
+        let data = try await post(
+            path: "/api/marketing/clientPlaceVisits/cancel",
+            token: token,
+            body: CancelCpVisitRequest(id: id, reason: reason)
+        )
+        let wrapper = try decode(BaseMutationResponse.self, from: data)
+        guard wrapper.success else { throw MarketingAPIError.server(wrapper.error ?? "Failed to cancel CP visit") }
     }
 
     // MARK: - Out-of-geofence CP completion (GM approval)

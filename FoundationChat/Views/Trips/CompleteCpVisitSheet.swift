@@ -24,6 +24,7 @@ struct CompleteCpVisitSheet: View {
     @State private var selectedNotInterestedReasons: Set<CpNotInterestedReason> = []
     @State private var notInterestedReasonDetails: [CpNotInterestedReason: String] = [:]
     @State private var otherRemarks = ""
+    @State private var cancelReason = ""
     @State private var referralName = ""
     @State private var referralPhone = ""
     @State private var notInterestedBudgetConcern = ""
@@ -221,6 +222,7 @@ struct CompleteCpVisitSheet: View {
         case .notInterested: notInterestedSection
         case .other: EmptyView()
         case .referral: referralSection
+        case .cancel: cancelSection
         case nil:
             ContentUnavailableView("Choose an outcome", systemImage: "checklist")
         }
@@ -302,6 +304,18 @@ struct CompleteCpVisitSheet: View {
         effectiveCpType.normalizedCpMarker == "new_client_cp"
     }
 
+    /// SV-cum-CP completions add a "Cancel" outcome (cancels the CP via a
+    /// separate endpoint). Mirrors Android's sv_cum_cp cancel affordance.
+    private var isSvCumCp: Bool {
+        effectiveCpType.normalizedCpMarker == "sv_cum_cp"
+    }
+
+    /// Booking CP postpone offers a "site visit instead" shortcut into the
+    /// convert-to-SV flow. Mirrors Android's booking_cp postpone affordance.
+    private var isBookingCp: Bool {
+        effectiveCpType.normalizedCpMarker == "booking_cp"
+    }
+
     /// Selectable range for the postpone / next-visit date. VP follow-up window
     /// caps: a collection follow-up lands within 5 days, a booking-CP postpone
     /// within 7. Other cpTypes are effectively uncapped. Mirrors the setOutcome
@@ -326,7 +340,10 @@ struct CompleteCpVisitSheet: View {
         if isNewClientCp {
             return [.booking, .siteVisit, .postponed, .notInterested, .referral]
         }
-        var list = CpVisitOutcome.allCases.filter { $0 != .other && $0 != .referral }
+        var list = CpVisitOutcome.allCases.filter { $0 != .other && $0 != .referral && $0 != .cancel }
+        if isSvCumCp {
+            list.append(.cancel)
+        }
         if svStyle || cpTypeSupportsOtherOutcome(effectiveCpType) {
             list.append(.other)
         }
@@ -873,6 +890,20 @@ struct CompleteCpVisitSheet: View {
                 }
             }
             fieldEditor("Additional notes", text: $postponedNotes, minLines: 3)
+
+            if isBookingCp {
+                Button {
+                    selectedOutcome = .siteVisit
+                } label: {
+                    Label("Offer a site visit instead", systemImage: "building.2")
+                        .font(.subheadline.weight(.semibold))
+                        .frame(maxWidth: .infinity)
+                }
+                .buttonStyle(.bordered)
+                .controlSize(.large)
+                .tint(Color(hex: 0x0B61CA))
+                .padding(.top, 4)
+            }
         }
         .padding(.top, 4)
     }
@@ -907,6 +938,17 @@ struct CompleteCpVisitSheet: View {
         VStack(alignment: .leading, spacing: 10) {
             sectionLabel("Remarks")
             fieldEditor("Explain why this visit is being closed", text: $otherRemarks, minLines: 3)
+        }
+        .padding(.top, 4)
+    }
+
+    private var cancelSection: some View {
+        VStack(alignment: .leading, spacing: 10) {
+            Text("This cancels the CP visit. Add a short reason if you have one.")
+                .font(.caption)
+                .foregroundStyle(.secondary)
+            sectionLabel("Reason")
+            fieldEditor("Reason for cancelling (optional)", text: $cancelReason, minLines: 3)
         }
         .padding(.top, 4)
     }
@@ -950,6 +992,8 @@ struct CompleteCpVisitSheet: View {
             return bookingSub == .staff ? "Create \(booking.saveAs.title) Booking" : "Next"
         case .siteVisit, .postponed, .notInterested, .other, .referral:
             return "Save"
+        case .cancel:
+            return "Cancel Visit"
         case nil:
             return "Next"
         }
@@ -1405,6 +1449,17 @@ struct CompleteCpVisitSheet: View {
         defer { isSaving = false }
 
         do {
+            if selectedOutcome == .cancel {
+                try await MarketingConvexAPIService.cancelCpVisit(
+                    token: token,
+                    id: cpVisitId,
+                    reason: cancelReason.trimmingCharacters(in: .whitespacesAndNewlines).nilIfBlank
+                )
+                onCompleted()
+                dismiss()
+                return
+            }
+
             try await MarketingConvexAPIService.markClientMet(
                 token: token,
                 request: MarkClientMetRequest(id: cpVisitId, clientMet: true)
@@ -1576,6 +1631,8 @@ struct CompleteCpVisitSheet: View {
             return "Referral: \(trimmedName) · \(trimmedPhone)"
         case .siteVisit:
             return nil
+        case .cancel:
+            return nil
         }
     }
 
@@ -1716,6 +1773,9 @@ private enum CpVisitOutcome: String, CaseIterable, Identifiable {
     case notInterested = "not_interested"
     case other = "other"
     case referral = "referral"
+    // UI-only tab identity. Cancel is NOT a setOutcome value; submit() branches
+    // it to the separate clientPlaceVisits/cancel endpoint (SV-cum-CP only).
+    case cancel = "__cancel__"
 
     var id: String { rawValue }
 
@@ -1727,6 +1787,7 @@ private enum CpVisitOutcome: String, CaseIterable, Identifiable {
         case .notInterested: return "Not Interested"
         case .other: return "Others"
         case .referral: return "Referral"
+        case .cancel: return "Cancel"
         }
     }
 
@@ -1738,6 +1799,7 @@ private enum CpVisitOutcome: String, CaseIterable, Identifiable {
         case .notInterested: return "xmark.circle.fill"
         case .other: return "ellipsis.circle.fill"
         case .referral: return "person.crop.circle.badge.plus"
+        case .cancel: return "xmark.bin"
         }
     }
 }
@@ -2207,7 +2269,7 @@ private struct CpRejectReasonSheet: View {
     private var lockedOutcomeTabs: some View {
         // Referral is exclusive to new_client_cp; locked-SV confirmation never
         // shows it, so keep the canonical preview set here.
-        let lockedTabs = CpVisitOutcome.allCases.filter { $0 != .referral }
+        let lockedTabs = CpVisitOutcome.allCases.filter { $0 != .referral && $0 != .cancel }
         return HStack(spacing: 0) {
             ForEach(Array(lockedTabs.enumerated()), id: \.element.id) { index, outcome in
                 OutcomeTabView(outcome: outcome, isSelected: outcome == .siteVisit)
