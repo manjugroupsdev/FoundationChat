@@ -15,6 +15,11 @@ struct FoundationChatApp: App {
     @Environment(\.scenePhase) private var scenePhase
 
     @AppStorage("app.language") private var languagePreference = ProfileLanguage.english.rawValue
+    @AppStorage("app.appearance") private var appearancePreference = ProfileAppearance.light.rawValue
+
+    private var preferredColorScheme: ColorScheme? {
+        (ProfileAppearance(rawValue: appearancePreference) ?? .light).colorScheme
+    }
 
     @State private var authStore = AuthStore()
     @State private var launchPhase: LaunchPhase
@@ -60,7 +65,7 @@ struct FoundationChatApp: App {
                     .frame(width: 0, height: 0)
             }
             .environment(\.locale, Locale(identifier: languagePreference))
-            .preferredColorScheme(.light)
+            .preferredColorScheme(preferredColorScheme)
             .modelContainer(for: [Conversation.self, Message.self])
             .environment(authStore)
             .onChange(of: scenePhase) { oldPhase, newPhase in

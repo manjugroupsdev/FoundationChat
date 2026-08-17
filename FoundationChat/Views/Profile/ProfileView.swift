@@ -7,6 +7,7 @@ struct ProfileView: View {
   @AppStorage("notification_sounds_enabled") private var notificationSoundsEnabled = true
   @AppStorage("mention_notifications_enabled") private var mentionNotificationsEnabled = true
   @AppStorage("app.language") private var languagePreference = ProfileLanguage.english.rawValue
+  @AppStorage("app.appearance") private var appearancePreference = ProfileAppearance.light.rawValue
 
   @State private var remotePhotoURL: URL?
   @State private var isPresentingEdit = false
@@ -15,6 +16,10 @@ struct ProfileView: View {
 
   private var selectedLanguage: ProfileLanguage {
     ProfileLanguage(rawValue: languagePreference) ?? .english
+  }
+
+  private var selectedAppearance: ProfileAppearance {
+    ProfileAppearance(rawValue: appearancePreference) ?? .light
   }
 
   var body: some View {
@@ -36,12 +41,29 @@ struct ProfileView: View {
 
           ProfileDivider()
 
-          ProfileMenuRow(
-            title: "Language",
-            value: selectedLanguage.title,
-            systemImage: "globe",
-            showsChevron: false
-          )
+          NavigationLink {
+            AppearanceSettingsView(selection: $appearancePreference)
+          } label: {
+            ProfileMenuRow(
+              title: "Appearance",
+              value: selectedAppearance.title,
+              systemImage: "circle.lefthalf.filled"
+            )
+          }
+          .buttonStyle(.plain)
+
+          ProfileDivider()
+
+          NavigationLink {
+            LanguageSettingsView(selection: $languagePreference)
+          } label: {
+            ProfileMenuRow(
+              title: "Language",
+              value: selectedLanguage.title,
+              systemImage: "globe"
+            )
+          }
+          .buttonStyle(.plain)
 
           ProfileDivider()
 
@@ -306,6 +328,76 @@ private struct ProfileDivider: View {
   }
 }
 
+enum ProfileAppearance: String, CaseIterable, Identifiable {
+  case system
+  case light
+  case dark
+
+  var id: String { rawValue }
+
+  var title: String {
+    switch self {
+    case .system: return "System"
+    case .light: return "Light"
+    case .dark: return "Dark"
+    }
+  }
+
+  var subtitle: String {
+    switch self {
+    case .system: return "Match the device setting"
+    case .light: return "Always use the light theme"
+    case .dark: return "Always use the dark theme"
+    }
+  }
+
+  var systemImage: String {
+    switch self {
+    case .system: return "circle.lefthalf.filled"
+    case .light: return "sun.max"
+    case .dark: return "moon"
+    }
+  }
+
+  var colorScheme: ColorScheme? {
+    switch self {
+    case .system: return nil
+    case .light: return .light
+    case .dark: return .dark
+    }
+  }
+}
+
+private struct AppearanceSettingsView: View {
+  @Environment(\.dismiss) private var dismiss
+  @Binding var selection: String
+
+  var body: some View {
+    List {
+      Section {
+        ForEach(ProfileAppearance.allCases) { appearance in
+          Button {
+            selection = appearance.rawValue
+            dismiss()
+          } label: {
+            PreferenceOptionRow(
+              title: appearance.title,
+              subtitle: appearance.subtitle,
+              systemImage: appearance.systemImage,
+              isSelected: selection == appearance.rawValue
+            )
+          }
+          .buttonStyle(.plain)
+        }
+      } footer: {
+        Text("Choose how the app looks. Some older screens are still being polished for the dark theme.")
+      }
+    }
+    .navigationTitle("Appearance")
+    .navigationBarTitleDisplayMode(.inline)
+  }
+}
+
 private struct LanguageSettingsView: View {
   @Environment(\.dismiss) private var dismiss
   @Binding var selection: String
@@ -333,11 +425,6 @@ private struct LanguageSettingsView: View {
     }
     .navigationTitle("Language")
     .navigationBarTitleDisplayMode(.inline)
-    .toolbar {
-      ToolbarItem(placement: .cancellationAction) {
-        Button("Close") { dismiss() }
-      }
-    }
   }
 }
 
