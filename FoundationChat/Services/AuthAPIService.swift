@@ -1,4 +1,5 @@
 import Foundation
+import UIKit
 
 /// Thin HTTP client for the Convex auth endpoints.
 enum AuthAPIService {
@@ -76,9 +77,21 @@ enum AuthAPIService {
   /// Verify the OTP and return the session (token + user).
   static func verifyOTP(phone: String, otp: String) async throws -> OtpSession {
     let url = URL(string: "\(baseURL)/api/auth/verify-otp")!
-    let body: [String: String] = ["phone": phone, "otp": otp]
+    var body: [String: Any] = ["phone": phone, "otp": otp]
 
-    let (data, response) = try await post(url: url, body: body)
+    // Device-binding telemetry: lets the backend lock a staff account to one
+    // mobile device. All fields are optional — when `deviceId` can't be read
+    // we send none and the backend treats their absence as a grace path.
+    if let device = LoginDeviceInfo.capture() {
+      body["deviceId"] = device.deviceId
+      body["devicePlatform"] = device.platform
+      body["deviceModel"] = device.model
+      if let batteryPct = device.batteryPct {
+        body["batteryPct"] = batteryPct
+      }
+    }
+
+    let (data, response) = try await post(url: url, jsonBody: body)
     let decoded = try JSONDecoder().decode(VerifyOTPResponse.self, from: data)
 
     guard decoded.success, let token = decoded.token, let user = decoded.user else {
@@ -194,11 +207,61 @@ enum AuthAPIService {
   // MARK: - Helpers
 
   private static func post(url: URL, body: [String: String]) async throws -> (Data, URLResponse) {
+    try await post(url: url, jsonBody: body)
+  }
+
+  private static func post(url: URL, jsonBody: [String: Any]) async throws -> (Data, URLResponse) {
     var request = URLRequest(url: url)
     request.httpMethod = "POST"
     request.setValue("application/json", forHTTPHeaderField: "Content-Type")
-    request.httpBody = try JSONSerialization.data(withJSONObject: body)
+    request.httpBody = try JSONSerialization.data(withJSONObject: jsonBody)
     return try await URLSession.shared.data(for: request)
+  }
+}
+
+// MARK: - Device-binding telemetry
+
+/// Snapshot of the current device used to bind a staff account to a single
+/// phone on OTP login. Mirrors the Android + backend `verify-otp` device fields.
+private struct LoginDeviceInfo {
+  let deviceId: String
+  let platform: String
+  let model: String
+  let batteryPct: Int?
+
+  /// Captures the current device info, or `nil` when a stable device id can't
+  /// be read (caller then omits all device fields — backend grace path).
+  static func capture() -> LoginDeviceInfo? {
+    guard let deviceId = UIDevice.current.identifierForVendor?.uuidString,
+          !deviceId.isEmpty else {
+      return nil
+    }
+    return LoginDeviceInfo(
+      deviceId: deviceId,
+      platform: "ios",
+      model: modelName(),
+      batteryPct: batteryPercent()
+    )
+  }
+
+  /// Hardware model identifier (e.g. "iPhone15,2"), falling back to the
+  /// generic `UIDevice` model name.
+  private static func modelName() -> String {
+    var systemInfo = utsname()
+    uname(&systemInfo)
+    let machine = withUnsafeBytes(of: &systemInfo.machine) { raw -> String in
+      let bytes = raw.prefix { $0 != 0 }
+      return String(decoding: bytes, as: UTF8.self)
+    }
+    return machine.isEmpty ? UIDevice.current.model : machine
+  }
+
+  /// Battery percentage 0–100, or `nil` when the level is unavailable.
+  private static func batteryPercent() -> Int? {
+    UIDevice.current.isBatteryMonitoringEnabled = true
+    let level = UIDevice.current.batteryLevel
+    guard level >= 0 else { return nil }
+    return Int((level * 100).rounded())
   }
 }
 
