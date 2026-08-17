@@ -27,17 +27,17 @@
 	<key>LSRequiresIPhoneOS</key>
 	<true/>
 	<key>NSCameraUsageDescription</key>
-	<string>M-Chat needs camera access to take attendance selfie photos.</string>
+	<string>M-Connect needs camera access to take attendance selfie photos.</string>
 	<key>NSLocationAlwaysAndWhenInUseUsageDescription</key>
-	<string>M-Chat uses your location for GeoTrack attendance and visit tracking while a tracking session is active.</string>
+	<string>M-Connect uses your location for GeoTrack attendance and visit tracking while a tracking session is active.</string>
 	<key>NSLocationWhenInUseUsageDescription</key>
-	<string>M-Chat uses your location for attendance punch-in, visits, and GeoTrack tracking when required.</string>
+	<string>M-Connect uses your location for attendance punch-in, visits, and GeoTrack tracking when required.</string>
 	<key>NSMicrophoneUsageDescription</key>
-	<string>M-Chat needs microphone access to record and send voice messages.</string>
+	<string>M-Connect needs microphone access to record and send voice messages.</string>
 	<key>NSMotionUsageDescription</key>
-	<string>M-Chat uses motion data to improve location tracking accuracy and detect activity during trips.</string>
+	<string>M-Connect uses motion data to improve location tracking accuracy and detect activity during trips.</string>
 	<key>NSPhotoLibraryUsageDescription</key>
-	<string>M-Chat needs photo library access to attach photos when camera is unavailable or gallery is selected.</string>
+	<string>M-Connect needs photo library access to attach photos when camera is unavailable or gallery is selected.</string>
 	<key>UIApplicationSceneManifest</key>
 	<dict>
 		<key>UIApplicationSupportsMultipleScenes</key>

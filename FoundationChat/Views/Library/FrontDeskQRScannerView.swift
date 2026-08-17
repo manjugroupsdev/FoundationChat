@@ -1555,7 +1555,7 @@ private final class QRScannerViewController: UIViewController, AVCaptureMetadata
 
     private let session = AVCaptureSession()
     private let sessionQueue = DispatchQueue(
-        label: "com.manju.chat.frontdesk.camera",
+        label: "com.manjugroups.mconnect.frontdesk.camera",
         qos: .userInitiated
     )
     private var previewLayer: AVCaptureVideoPreviewLayer?
