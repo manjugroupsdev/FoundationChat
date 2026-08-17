@@ -107,6 +107,15 @@ enum TelecallerConvexAPIService {
         )
     }
 
+    /// Fetch the authenticated Modern Dialer mapping (WebRTC token + extension).
+    /// Mirrors the Android `ApiService.getMobileDialerConfig`, which hits
+    /// `GET api/mobile/dialer/config` with the bearer token. Used to decide
+    /// whether to route through the Modern Dialer softphone or fall back to Doocti.
+    static func getMobileDialerConfig(token: String) async throws -> MobileDialerConfig {
+        let data = try await get(path: "/api/mobile/dialer/config", token: token)
+        return try JSONDecoder().decode(MobileDialerConfig.self, from: data)
+    }
+
     // MARK: - HTTP
 
     private static func get(path: String, token: String) async throws -> Data {
@@ -130,6 +139,49 @@ enum TelecallerConvexAPIService {
         }
         return data
     }
+}
+
+// MARK: - Modern Dialer config
+//
+// Mirrors the Android `MobileDialerConfigResponse` shape
+// (app/.../network/ApiService.kt). Decoded defensively — every field optional —
+// so one renamed/absent field never aborts the parse.
+
+struct MobileDialerConfig: Decodable, Sendable, Equatable {
+    let success: Bool?
+    let configured: Bool?
+    let provider: String?
+    let mode: String?
+    let apiUrl: String?
+    let staff: MobileDialerStaff?
+    let mapping: MobileDialerMapping?
+    let features: MobileDialerFeatures?
+    let error: String?
+}
+
+struct MobileDialerStaff: Decodable, Sendable, Equatable {
+    let id: String?
+    let name: String?
+    let employeeId: String?
+}
+
+struct MobileDialerMapping: Decodable, Sendable, Equatable {
+    let staffName: String?
+    let `extension`: String?
+    let token: String?
+    let tokenExpiresAt: String?
+    let active: Bool?
+}
+
+struct MobileDialerFeatures: Decodable, Sendable, Equatable {
+    let outbound: Bool?
+    let incomingPush: Bool?
+    let pickup: Bool?
+    let hangup: Bool?
+    let mute: Bool?
+    let hold: Bool?
+    let pushProvider: String?
+    let pushConfigSource: String?
 }
 
 enum TelecallerAPIError: LocalizedError {
