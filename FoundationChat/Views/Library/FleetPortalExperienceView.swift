@@ -159,6 +159,7 @@ private struct FleetPortalTripsView: View {
     @State private var hasLoaded = false
     @State private var errorMessage: String?
     @State private var allocationTrip: FleetDispatchTrip?
+    @State private var allotTrip: FleetDispatchTrip?
     @State private var unassignTrip: FleetDispatchTrip?
     @State private var offlineTrip: FleetDispatchTrip?
     @State private var mutationTripIDs: Set<String> = []
@@ -250,6 +251,17 @@ private struct FleetPortalTripsView: View {
             .presentationDetents([.large])
             .presentationDragIndicator(.visible)
         }
+        .sheet(item: $allotTrip) { trip in
+            FleetAllotAgencySheet(
+                token: authStore.currentSession?.token ?? "",
+                trip: trip
+            ) {
+                await load()
+            }
+            .appFormActivity()
+            .presentationDetents([.medium, .large])
+            .presentationDragIndicator(.visible)
+        }
         .confirmationDialog(
             "Remove this driver assignment?",
             isPresented: Binding(
@@ -302,7 +314,9 @@ private struct FleetPortalTripsView: View {
                         status: filter,
                         isMutating: mutationTripIDs.contains(trip.id),
                         canCompleteOffline: canCompleteOffline(trip),
+                        canAllotAgency: scope == .mms,
                         onAllocate: { allocationTrip = trip },
+                        onAllotAgency: { allotTrip = trip },
                         onUnassign: { unassignTrip = trip },
                         onCompleteOffline: { offlineTrip = trip }
                     )
@@ -572,7 +586,9 @@ private struct FleetPortalTripCard: View {
     let status: FleetPortalTripFilter
     let isMutating: Bool
     let canCompleteOffline: Bool
+    let canAllotAgency: Bool
     let onAllocate: () -> Void
+    let onAllotAgency: () -> Void
     let onUnassign: () -> Void
     let onCompleteOffline: () -> Void
 
@@ -612,8 +628,25 @@ private struct FleetPortalTripCard: View {
                 }
 
                 if status == .pending {
-                    HStack {
+                    HStack(spacing: 10) {
                         Spacer()
+                        // MMS dispatchers can hand a pending trip to an external
+                        // travel agency instead of an in-house vehicle (mirrors
+                        // Android's allocate sheet "External agency" path).
+                        if canAllotAgency {
+                            Button(action: onAllotAgency) {
+                                HStack(spacing: 6) {
+                                    Image(systemName: "building.2")
+                                    Text("Allot Agency")
+                                }
+                                .font(.system(size: 13, weight: .semibold))
+                                .foregroundStyle(Color(hex: 0x0B61CA))
+                                .padding(.horizontal, 14)
+                                .frame(height: 38)
+                                .background(Color(hex: 0x0B61CA).opacity(0.1), in: RoundedRectangle(cornerRadius: 8))
+                            }
+                            .buttonStyle(.plain)
+                        }
                         Button(action: onAllocate) {
                             HStack(spacing: 6) {
                                 Text("Allocate")
@@ -708,6 +741,127 @@ private struct FleetPortalTag: View {
             .frame(height: 25)
             .background(Color.accentColor.opacity(0.1), in: Capsule())
             .overlay { Capsule().stroke(Color.accentColor.opacity(0.25), lineWidth: 1) }
+    }
+}
+
+/// MMS-only: allot a pending trip to an external travel agency. The agency then
+/// assigns its own cab in Travel Desk, so no vehicle/driver/rate is captured
+/// here. Mirrors Android's AllocateVehicleBottomSheet "External agency" path
+/// (network/TravelDeskApi.allotMmsAgency). Reuses the already-wired
+/// FleetDispatchAPIService.listAgencies / .allotAgency (both MMS routes).
+private struct FleetAllotAgencySheet: View {
+    @Environment(\.dismiss) private var dismiss
+
+    let token: String
+    let trip: FleetDispatchTrip
+    let onAllotted: () async -> Void
+
+    @State private var agencies: [FleetDispatchAgency] = []
+    @State private var selectedAgencyId = ""
+    @State private var isLoading = false
+    @State private var hasLoaded = false
+    @State private var isSubmitting = false
+    @State private var errorMessage: String?
+
+    private var activeAgencies: [FleetDispatchAgency] { agencies.filter(\.isActive) }
+
+    var body: some View {
+        NavigationStack {
+            Form {
+                Section {
+                    LabeledContent("Trip", value: trip.pickupAddress?.nonBlank ?? trip.project?.name?.nonBlank ?? "Site Visit")
+                    if let time = trip.scheduledTime?.nonBlank ?? trip.pickupTime?.nonBlank {
+                        LabeledContent("Pickup", value: [trip.scheduledDate?.nonBlank, time].compactMap { $0 }.joined(separator: " · "))
+                    }
+                } footer: {
+                    Text("Hand this trip to an external travel agency. The agency then assigns the cab in Travel Desk.")
+                }
+
+                Section("Travel Agency") {
+                    if isLoading && !hasLoaded {
+                        HStack(spacing: 10) {
+                            ProgressView()
+                            Text("Loading agencies…").foregroundStyle(.secondary)
+                        }
+                    } else if activeAgencies.isEmpty {
+                        Text("No travel agencies available yet.").foregroundStyle(.secondary)
+                    } else {
+                        Picker("Agency", selection: $selectedAgencyId) {
+                            Text("Select agency").tag("")
+                            ForEach(activeAgencies) { agency in
+                                Text(agencyLabel(agency)).tag(agency.id)
+                            }
+                        }
+                    }
+                }
+
+                if let errorMessage {
+                    Section {
+                        Label(errorMessage, systemImage: "exclamationmark.triangle.fill")
+                            .foregroundStyle(.red)
+                    }
+                }
+            }
+            .navigationTitle("Allot Agency")
+            .navigationBarTitleDisplayMode(.inline)
+            .toolbar {
+                ToolbarItem(placement: .cancellationAction) {
+                    Button("Cancel", role: .cancel) { dismiss() }
+                }
+                ToolbarItem(placement: .confirmationAction) {
+                    Button("Allot") { Task { await submit() } }
+                        .disabled(selectedAgencyId.isEmpty || isSubmitting)
+                }
+            }
+            .overlay {
+                if isSubmitting {
+                    ProgressView()
+                        .padding(18)
+                        .background(.regularMaterial, in: RoundedRectangle(cornerRadius: 8))
+                }
+            }
+            .task {
+                guard !hasLoaded else { return }
+                await load()
+            }
+        }
+    }
+
+    private func agencyLabel(_ agency: FleetDispatchAgency) -> String {
+        [agency.name?.nonBlank ?? "Agency", agency.mobileNumber?.nonBlank]
+            .compactMap { $0 }
+            .joined(separator: " · ")
+    }
+
+    @MainActor
+    private func load() async {
+        guard !isLoading else { return }
+        isLoading = true
+        defer { isLoading = false; hasLoaded = true }
+        do {
+            agencies = try await FleetDispatchAPIService.listAgencies(token: token)
+        } catch {
+            errorMessage = error.localizedDescription
+        }
+    }
+
+    @MainActor
+    private func submit() async {
+        guard !selectedAgencyId.isEmpty else { return }
+        isSubmitting = true
+        errorMessage = nil
+        defer { isSubmitting = false }
+        do {
+            try await FleetDispatchAPIService.allotAgency(
+                token: token,
+                tripId: trip.id,
+                travelAgencyId: selectedAgencyId
+            )
+            await onAllotted()
+            dismiss()
+        } catch {
+            errorMessage = error.localizedDescription
+        }
     }
 }
 
