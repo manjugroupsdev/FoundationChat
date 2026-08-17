@@ -632,6 +632,8 @@ private struct CpListVisit: Identifiable {
         case "collection_cp": return "Collection CP"
         case "old_client": return "Old Client"
         case "gift_distribution": return "Gift Distribution"
+        case "new_client_cp": return "New Client CP"
+        case "other_cp": return "Other CP"
         case let value? where value.isEmpty == false:
             return value.replacingOccurrences(of: "_", with: " ").capitalized
         default:
@@ -3052,11 +3054,13 @@ struct CpMapSearchResult: Identifiable {
 
 private enum CpVisitCreateType: String, CaseIterable, Identifiable {
     case svCumCp = "sv_cum_cp"
-    case followUp = "follow_up"
+    // "follow_up" retired as a creatable type; new_client_cp is auto-created from
+    // Aster — neither is offered in the create picker.
     case bookingCp = "booking_cp"
     case collectionCp = "collection_cp"
     case oldClient = "old_client"
     case giftDistribution = "gift_distribution"
+    case otherCp = "other_cp"
 
     var id: String { rawValue }
 
@@ -3067,22 +3071,22 @@ private enum CpVisitCreateType: String, CaseIterable, Identifiable {
     var title: String {
         switch self {
         case .svCumCp: return "SV cum CP"
-        case .followUp: return "Follow-up"
         case .bookingCp: return "Booking CP"
         case .collectionCp: return "Collection CP"
         case .oldClient: return "Old Client"
         case .giftDistribution: return "Gift Distribution"
+        case .otherCp: return "Other CP"
         }
     }
 
     var subtitle: String {
         switch self {
         case .svCumCp: return "Confirm a site visit"
-        case .followUp: return "Continue a postponed client"
         case .bookingCp: return "Paperwork for active booking"
         case .collectionCp: return "Collect payment at client place"
         case .oldClient: return "Re-engage previous client"
         case .giftDistribution: return "Drop loyalty gift"
+        case .otherCp: return "Miscellaneous client work"
         }
     }
 }
