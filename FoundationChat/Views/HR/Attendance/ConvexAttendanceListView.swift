@@ -957,24 +957,8 @@ private struct AttendanceHistoryCard: View {
                         .fixedSize(horizontal: true, vertical: false)
                 }
 
-                if requestSubmitted {
-                    Label("Remark submitted", systemImage: "checkmark.circle.fill")
-                        .font(.system(size: 10, weight: .semibold))
-                        .foregroundStyle(Color(hex: 0x067647))
-                        .padding(.horizontal, 7)
-                        .frame(height: 22)
-                        .background(Color(hex: 0xECFDF3), in: Capsule())
-                } else if canEdit {
-                    Button(action: onEdit) {
-                        Image(systemName: "pencil")
-                            .font(.system(size: 12, weight: .semibold))
-                            .foregroundStyle(Color(hex: 0x0B61CA))
-                            .frame(width: 24, height: 24)
-                            .background(Color(hex: 0xF5F8FF), in: RoundedRectangle(cornerRadius: 7, style: .continuous))
-                            .overlay(RoundedRectangle(cornerRadius: 7, style: .continuous).stroke(Color(hex: 0xD0D5DD), lineWidth: 1))
-                    }
-                    .buttonStyle(.plain)
-                }
+                // Attendance remark + time-correction feature removed: no pencil
+                // edit icon and no "remark submitted" badge on attendance rows.
             }
 
             HStack(alignment: .top, spacing: 14) {
