@@ -44,6 +44,7 @@ struct ConversationDetailView: View {
   @State private var forwardableChannels: [ChannelSummary] = []
   @State private var reactionTarget: Message?
   @State private var messageInfoTarget: Message?
+  @State private var emojiReactionPickerTarget: Message?
   @State private var selectedMessageIDs: Set<PersistentIdentifier> = []
   @State private var highlightedRemoteMessageID: String?
   @State private var voiceRecorder: AVAudioRecorder?
@@ -233,6 +234,14 @@ struct ConversationDetailView: View {
             Task {
               await toggleReaction(emoji, for: reactionTarget)
             }
+            selectedMessageIDs.removeAll()
+          },
+          onMoreEmojis: {
+            let target = reactionTarget
+            withAnimation(.easeOut(duration: 0.18)) {
+              self.reactionTarget = nil
+            }
+            emojiReactionPickerTarget = target
             selectedMessageIDs.removeAll()
           },
           onDelete: {
@@ -450,6 +459,13 @@ struct ConversationDetailView: View {
       )
       .presentationDetents([.height(390)])
       .presentationDragIndicator(.hidden)
+    }
+    .sheet(item: $emojiReactionPickerTarget) { message in
+      EmojiReactionPickerSheet { emoji in
+        Task {
+          await toggleReaction(emoji, for: message)
+        }
+      }
     }
     .sheet(isPresented: $isCameraPresented) {
       ChatCameraPicker(media: $capturedCameraMedia)
@@ -2017,6 +2033,7 @@ private struct MessageReactionOverlay: View {
   let onCopy: () -> Void
   let onInfo: () -> Void
   let onReact: (String) -> Void
+  let onMoreEmojis: () -> Void
   let onDelete: () -> Void
 
   var body: some View {
@@ -2061,6 +2078,7 @@ private struct MessageReactionOverlay: View {
             onReact(emoji)
             onDismiss()
           },
+          onMoreEmojis: onMoreEmojis,
           onDelete: {
             onDelete()
             onDismiss()
@@ -2100,6 +2118,7 @@ private struct ReactionActionMenu: View {
   let onCopy: () -> Void
   let onInfo: () -> Void
   let onReact: (String) -> Void
+  let onMoreEmojis: () -> Void
   let onDelete: () -> Void
   let onDismiss: () -> Void
 
@@ -2119,6 +2138,17 @@ private struct ReactionActionMenu: View {
           }
           .buttonStyle(.plain)
         }
+
+        Button {
+          onMoreEmojis()
+        } label: {
+          Image(systemName: "plus")
+            .font(.system(size: 18, weight: .semibold))
+            .foregroundStyle(.white)
+            .frame(width: 34, height: 34)
+            .background(Color.white.opacity(0.16), in: Circle())
+        }
+        .buttonStyle(.plain)
       }
       .padding(.bottom, 10)
 
