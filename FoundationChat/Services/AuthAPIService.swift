@@ -109,9 +109,20 @@ enum AuthAPIService {
   /// `POST /api/auth/login-with-employee-id`.
   static func loginWithEmployeeId(employeeId: String, password: String) async throws -> OtpSession {
     let url = URL(string: "\(baseURL)/api/auth/login-with-employee-id")!
-    let body: [String: String] = ["employeeId": employeeId, "password": password]
+    var body: [String: Any] = ["employeeId": employeeId, "password": password]
 
-    let (data, response) = try await post(url: url, body: body)
+    // Device-binding telemetry: the password login is locked to the same device
+    // as the OTP login. Omitted when a device id can't be read (grace path).
+    if let device = LoginDeviceInfo.capture() {
+      body["deviceId"] = device.deviceId
+      body["devicePlatform"] = device.platform
+      body["deviceModel"] = device.model
+      if let batteryPct = device.batteryPct {
+        body["batteryPct"] = batteryPct
+      }
+    }
+
+    let (data, response) = try await post(url: url, jsonBody: body)
     let decoded = try JSONDecoder().decode(EmployeePasswordLoginResponse.self, from: data)
 
     guard decoded.success, let token = decoded.token, let user = decoded.user else {
