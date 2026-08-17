@@ -302,6 +302,23 @@ struct CompleteCpVisitSheet: View {
         effectiveCpType.normalizedCpMarker == "new_client_cp"
     }
 
+    /// Selectable range for the postpone / next-visit date. VP follow-up window
+    /// caps: a collection follow-up lands within 5 days, a booking-CP postpone
+    /// within 7. Other cpTypes are effectively uncapped. Mirrors the setOutcome
+    /// server-side check so the picker can't offer an invalid date.
+    private var postponeDateRange: ClosedRange<Date> {
+        let cal = Calendar.current
+        let start = cal.startOfDay(for: Date())
+        let capDays: Int?
+        switch effectiveCpType.normalizedCpMarker {
+        case "collection_cp": capDays = 5
+        case "booking_cp": capDays = 7
+        default: capDays = nil
+        }
+        let end = cal.date(byAdding: .day, value: capDays ?? 365 * 5, to: start) ?? start
+        return start...end
+    }
+
     /// The outcome tabs to render. "Others" is gated to SV-style rows and the
     /// approved CP types (mirror Android CompleteCpVisitBottomSheet.kt:961-963).
     /// `.referral` is exclusive to new_client_cp and never appears elsewhere.
@@ -834,7 +851,7 @@ struct CompleteCpVisitSheet: View {
             DatePicker(
                 "Next visit date",
                 selection: $postponeFollowUpDate,
-                in: Calendar.current.startOfDay(for: Date())...,
+                in: postponeDateRange,
                 displayedComponents: .date
             )
                 .font(.system(size: 12, weight: .medium))
