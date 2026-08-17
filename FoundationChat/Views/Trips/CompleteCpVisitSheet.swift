@@ -24,6 +24,8 @@ struct CompleteCpVisitSheet: View {
     @State private var selectedNotInterestedReasons: Set<CpNotInterestedReason> = []
     @State private var notInterestedReasonDetails: [CpNotInterestedReason: String] = [:]
     @State private var otherRemarks = ""
+    @State private var referralName = ""
+    @State private var referralPhone = ""
     @State private var notInterestedBudgetConcern = ""
     @State private var notInterestedTimingNotes = ""
     @State private var notInterestedProjectDetails = ""
@@ -218,6 +220,7 @@ struct CompleteCpVisitSheet: View {
         case .postponed: postponeSection
         case .notInterested: notInterestedSection
         case .other: EmptyView()
+        case .referral: referralSection
         case nil:
             ContentUnavailableView("Choose an outcome", systemImage: "checklist")
         }
@@ -293,14 +296,36 @@ struct CompleteCpVisitSheet: View {
         cpType ?? cpVisitDetail?.cpType
     }
 
+    /// Physical "new client" CP: offers the five field outcomes (incl. Referral).
+    /// Mirrors Android `isNewClientCp = cpType == "new_client_cp"`.
+    private var isNewClientCp: Bool {
+        effectiveCpType.normalizedCpMarker == "new_client_cp"
+    }
+
     /// The outcome tabs to render. "Others" is gated to SV-style rows and the
     /// approved CP types (mirror Android CompleteCpVisitBottomSheet.kt:961-963).
+    /// `.referral` is exclusive to new_client_cp and never appears elsewhere.
     private var visibleOutcomes: [CpVisitOutcome] {
-        var list = CpVisitOutcome.allCases.filter { $0 != .other }
+        if isNewClientCp {
+            return [.booking, .siteVisit, .postponed, .notInterested, .referral]
+        }
+        var list = CpVisitOutcome.allCases.filter { $0 != .other && $0 != .referral }
         if svStyle || cpTypeSupportsOtherOutcome(effectiveCpType) {
             list.append(.other)
         }
         return list
+    }
+
+    /// Per-context outcome relabels. new_client_cp reuses existing outcomes under
+    /// field-friendly names; every other CP type keeps the canonical title.
+    private func displayTitle(for outcome: CpVisitOutcome) -> String {
+        guard isNewClientCp else { return outcome.title }
+        switch outcome {
+        case .booking: return "Online Booking"
+        case .siteVisit: return "SV Fixing"
+        case .postponed: return "Follow up"
+        default: return outcome.title
+        }
     }
 
     private var outcomeChips: some View {
@@ -322,14 +347,15 @@ struct CompleteCpVisitSheet: View {
                     } label: {
                         OutcomeTabView(
                             outcome: outcome,
-                            isSelected: selectedOutcome == outcome
+                            isSelected: selectedOutcome == outcome,
+                            titleOverride: displayTitle(for: outcome)
                         )
                         .frame(maxWidth: .infinity)
                         .opacity(isLockedSvMode && outcome != .siteVisit ? 0.35 : 1)
                     }
                     .buttonStyle(.plain)
                     .disabled(isLockedSvMode && outcome != .siteVisit)
-                    .accessibilityLabel(outcome.title)
+                    .accessibilityLabel(displayTitle(for: outcome))
                     .accessibilityAddTraits(selectedOutcome == outcome ? .isSelected : [])
 
                     if index < visibleOutcomes.count - 1 {
@@ -868,6 +894,22 @@ struct CompleteCpVisitSheet: View {
         .padding(.top, 4)
     }
 
+    private var referralSection: some View {
+        VStack(alignment: .leading, spacing: 10) {
+            Text("Capture the person this client referred. Their name and phone are recorded on this visit.")
+                .font(.caption)
+                .foregroundStyle(.secondary)
+            sectionLabel("Referral name")
+            TextField("Enter referral name", text: $referralName)
+                .cpFieldStyle(icon: "person")
+            sectionLabel("Referral phone")
+            TextField("Enter referral phone", text: $referralPhone)
+                .keyboardType(.phonePad)
+                .cpFieldStyle(icon: "phone")
+        }
+        .padding(.top, 4)
+    }
+
     private var projectPickerOptions: [String] {
         let loaded = projects.compactMap { $0.name?.trimmingCharacters(in: .whitespacesAndNewlines) }
             .filter { !$0.isEmpty }
@@ -889,7 +931,7 @@ struct CompleteCpVisitSheet: View {
         case .booking:
             if bookingStep == .findMobile { return "Next" }
             return bookingSub == .staff ? "Create \(booking.saveAs.title) Booking" : "Next"
-        case .siteVisit, .postponed, .notInterested, .other:
+        case .siteVisit, .postponed, .notInterested, .other, .referral:
             return "Save"
         case nil:
             return "Next"
@@ -1304,6 +1346,16 @@ struct CompleteCpVisitSheet: View {
             errorMessage = "Please add remarks to explain this outcome"
             return
         }
+        if selectedOutcome == .referral {
+            guard !referralName.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else {
+                errorMessage = "Enter the referral's name"
+                return
+            }
+            guard referralPhone.filter(\.isNumber).count >= 10 else {
+                errorMessage = "Enter a valid referral phone number"
+                return
+            }
+        }
         let confirmsExistingLockedSiteVisit = isLockedSvMode && cpVisitDetail?.convertedSiteVisitId?.nilIfBlank != nil
         if selectedOutcome == .siteVisit && selectedProject == nil && !confirmsExistingLockedSiteVisit {
             errorMessage = "Please select a project"
@@ -1501,6 +1553,10 @@ struct CompleteCpVisitSheet: View {
             return notInterestedNotesPayload
         case .other:
             return otherRemarks.nilIfBlank
+        case .referral:
+            let trimmedName = referralName.trimmingCharacters(in: .whitespacesAndNewlines)
+            let trimmedPhone = referralPhone.trimmingCharacters(in: .whitespacesAndNewlines)
+            return "Referral: \(trimmedName) · \(trimmedPhone)"
         case .siteVisit:
             return nil
         }
@@ -1642,6 +1698,7 @@ private enum CpVisitOutcome: String, CaseIterable, Identifiable {
     case postponed
     case notInterested = "not_interested"
     case other = "other"
+    case referral = "referral"
 
     var id: String { rawValue }
 
@@ -1652,6 +1709,7 @@ private enum CpVisitOutcome: String, CaseIterable, Identifiable {
         case .postponed: return "Postpone"
         case .notInterested: return "Not Interested"
         case .other: return "Others"
+        case .referral: return "Referral"
         }
     }
 
@@ -1662,6 +1720,7 @@ private enum CpVisitOutcome: String, CaseIterable, Identifiable {
         case .postponed: return "calendar.badge.clock"
         case .notInterested: return "xmark.circle.fill"
         case .other: return "ellipsis.circle.fill"
+        case .referral: return "person.crop.circle.badge.plus"
         }
     }
 }
@@ -2129,13 +2188,16 @@ private struct CpRejectReasonSheet: View {
     }
 
     private var lockedOutcomeTabs: some View {
-        HStack(spacing: 0) {
-            ForEach(Array(CpVisitOutcome.allCases.enumerated()), id: \.element.id) { index, outcome in
+        // Referral is exclusive to new_client_cp; locked-SV confirmation never
+        // shows it, so keep the canonical preview set here.
+        let lockedTabs = CpVisitOutcome.allCases.filter { $0 != .referral }
+        return HStack(spacing: 0) {
+            ForEach(Array(lockedTabs.enumerated()), id: \.element.id) { index, outcome in
                 OutcomeTabView(outcome: outcome, isSelected: outcome == .siteVisit)
                     .frame(maxWidth: .infinity)
                     .opacity(outcome == .siteVisit ? 1 : 0.55)
 
-                if index < CpVisitOutcome.allCases.count - 1 {
+                if index < lockedTabs.count - 1 {
                     Rectangle()
                         .fill(Color.appSeparator)
                         .frame(width: 1, height: 28)
@@ -2148,6 +2210,7 @@ private struct CpRejectReasonSheet: View {
 private struct OutcomeTabView: View {
     let outcome: CpVisitOutcome
     let isSelected: Bool
+    var titleOverride: String? = nil
 
     var body: some View {
         VStack(spacing: 4) {
@@ -2159,7 +2222,7 @@ private struct OutcomeTabView: View {
                     .font(.system(size: 16, weight: .semibold))
                     .foregroundStyle(isSelected ? .white : Color(hex: 0x6A6D78))
             }
-            Text(outcome.title)
+            Text(titleOverride ?? outcome.title)
                 .font(.system(size: 11, weight: isSelected ? .semibold : .medium))
                 .foregroundStyle(isSelected ? Color(hex: 0x0B61CA) : Color(hex: 0x6A6D78))
                 .lineLimit(1)
