@@ -27,8 +27,14 @@ struct AppLibraryView: View {
     var body: some View {
         NavigationStack {
             ZStack(alignment: .top) {
+                // Blue base fills the top safe area (status-bar strip) so there is
+                // no white gap above the header. The grey page background is kept
+                // OUT of the top safe area so it can't repaint the status bar white.
+                Color(hex: 0x0B61CA)
+                    .ignoresSafeArea(edges: .top)
+
                 Color(.systemGroupedBackground)
-                    .ignoresSafeArea()
+                    .ignoresSafeArea(edges: .bottom)
 
                 appHeaderTopFill
 
