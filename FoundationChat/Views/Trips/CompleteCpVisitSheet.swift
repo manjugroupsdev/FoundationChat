@@ -1443,6 +1443,16 @@ struct CompleteCpVisitSheet: View {
                 errorMessage = "Add at least one visitor (name) before fixing this Site Visit"
                 return
             }
+            // The SV inherits the CP's client identity — block it when there's no
+            // client name (renders as "—"). The backend enforces this too.
+            let svClientName = cpVisitDetail?.client?.clientName?.nilIfBlank
+                ?? cpVisitDetail?.lead?.contactName?.nilIfBlank
+                ?? cpVisitDetail?.clientPlace?.contactPerson?.nilIfBlank
+                ?? cpVisitDetail?.clientPlace?.name?.nilIfBlank
+            if svClientName == nil {
+                errorMessage = "This client has no name. Add the client's name before fixing a Site Visit."
+                return
+            }
         }
 
         isSaving = true
