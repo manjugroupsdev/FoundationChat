@@ -1567,6 +1567,8 @@ private struct AttendanceApprovalReviewSheet: View {
     @State private var isSubmitting = false
     @State private var showRejectReason = false
     @State private var rejectionReason = ""
+    @State private var showHoldReason = false
+    @State private var holdReason = ""
     @State private var errorMessage: String?
     @State private var routeData: GeoTrackSessionRouteData?
     @State private var isRouteLoading = false
@@ -1594,6 +1596,10 @@ private struct AttendanceApprovalReviewSheet: View {
 
                             if showRejectReason {
                                 rejectionEditor
+                            }
+
+                            if showHoldReason {
+                                holdEditor
                             }
 
                             if let errorMessage {
@@ -1862,6 +1868,20 @@ private struct AttendanceApprovalReviewSheet: View {
         }
     }
 
+    private var holdEditor: some View {
+        VStack(alignment: .leading, spacing: 8) {
+            Text("Reason for Holding")
+                .font(.system(size: 14, weight: .semibold))
+            TextEditor(text: $holdReason)
+                .font(.system(size: 14))
+                .frame(height: 88)
+                .padding(8)
+                .scrollContentBackground(.hidden)
+                .background(Color.appSurface, in: RoundedRectangle(cornerRadius: 10))
+                .overlay(RoundedRectangle(cornerRadius: 10).stroke(Color(hex: 0xE4E7EC), lineWidth: 1))
+        }
+    }
+
     private var decisionButtons: some View {
         VStack(spacing: 8) {
             HStack(spacing: 8) {
@@ -1870,7 +1890,7 @@ private struct AttendanceApprovalReviewSheet: View {
             }
             HStack(spacing: 8) {
                 decisionButton("Absent", status: "absent", style: .plain)
-                decisionButton("Hold", status: "hold", icon: "pause.circle", style: .outlined(Color(hex: 0xB86B14)))
+                holdDecisionButton
             }
             rejectDecisionButton
         }
@@ -1896,9 +1916,26 @@ private struct AttendanceApprovalReviewSheet: View {
                 reject()
             } else {
                 showRejectReason = true
+                showHoldReason = false
             }
         } label: {
             decisionButtonLabel("Reject", icon: "xmark.circle", style: .outlined(Color(hex: 0xF04438)))
+        }
+        .buttonStyle(.plain)
+        .disabled(isSubmitting)
+        .opacity(isSubmitting ? 0.68 : 1)
+    }
+
+    private var holdDecisionButton: some View {
+        Button {
+            if showHoldReason {
+                hold()
+            } else {
+                showHoldReason = true
+                showRejectReason = false
+            }
+        } label: {
+            decisionButtonLabel("Hold", icon: "pause.circle", style: .outlined(Color(hex: 0xB86B14)))
         }
         .buttonStyle(.plain)
         .disabled(isSubmitting)
@@ -2170,6 +2207,28 @@ private struct AttendanceApprovalReviewSheet: View {
         Task {
             do {
                 try await HRConvexAPIService.rejectAttendance(token: token, id: record.id, reason: reason)
+                await onCompleted()
+                await MainActor.run { dismiss() }
+            } catch {
+                await MainActor.run {
+                    errorMessage = error.localizedDescription
+                    isSubmitting = false
+                }
+            }
+        }
+    }
+
+    private func hold() {
+        guard let token = authStore.currentSession?.token else { return }
+        let reason = holdReason.trimmingCharacters(in: .whitespacesAndNewlines)
+        isSubmitting = true
+        Task {
+            do {
+                try await HRConvexAPIService.holdAttendance(
+                    token: token,
+                    id: record.id,
+                    reason: reason.isEmpty ? "On hold" : reason
+                )
                 await onCompleted()
                 await MainActor.run { dismiss() }
             } catch {

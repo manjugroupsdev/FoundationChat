@@ -633,6 +633,18 @@ enum HRConvexAPIService {
         guard wrapper.success else { throw HRConvexAPIError.server(wrapper.error ?? "Failed to reject") }
     }
 
+    static func holdAttendance(token: String, id: String, reason: String) async throws {
+        let data = try await post(
+            path: "/api/hr/attendance/hold",
+            token: token,
+            jsonBody: ["id": id, "reason": reason]
+        )
+        let wrapper = try await decode(GenericSuccessResponse.self, from: data)
+        guard wrapper.success else {
+            throw HRConvexAPIError.server(wrapper.error ?? "Failed to put attendance on hold")
+        }
+    }
+
     static func cancelMyAttendance(token: String, date: String) async throws {
         let body: [String: Any] = ["date": date]
         let data = try await post(path: "/api/hr/attendance/cancel", token: token, jsonBody: body)

@@ -69,35 +69,53 @@ struct ConvexLoanRepaymentData: Decodable, Identifiable, Equatable, Sendable {
     }
 }
 
-enum AppLoanType: String, Sendable {
+enum AppLoanType: String, Codable, Sendable {
     case home
     case education
     case other
 }
 
-enum AppLoanStatus: String, Sendable {
+enum AppLoanStatus: String, Codable, Sendable {
     case active
     case pending
     case repaid
 }
 
-enum AppRepaymentStatus: String, Sendable {
+enum AppRepaymentStatus: String, Codable, Sendable {
     case paid
     case upcoming
     case overdue
 }
 
-struct AppRepayment: Identifiable, Equatable, Sendable {
-    let id = UUID()
+struct AppRepayment: Codable, Identifiable, Equatable, Sendable {
+    let id: UUID
     let emiIndex: Int
     let dueDate: Date?
     let amount: Int
     let status: AppRepaymentStatus
     let paidVia: String?
     let onTime: Bool
+
+    init(
+        id: UUID = UUID(),
+        emiIndex: Int,
+        dueDate: Date?,
+        amount: Int,
+        status: AppRepaymentStatus,
+        paidVia: String?,
+        onTime: Bool
+    ) {
+        self.id = id
+        self.emiIndex = emiIndex
+        self.dueDate = dueDate
+        self.amount = amount
+        self.status = status
+        self.paidVia = paidVia
+        self.onTime = onTime
+    }
 }
 
-struct AppLoan: Identifiable, Equatable, Sendable {
+struct AppLoan: Codable, Identifiable, Equatable, Sendable {
     let id: String
     let title: String
     let loanId: String
@@ -169,10 +187,7 @@ enum AppLoanMapper {
             }
         }()
 
-        let paidEntries = (remote.repayments ?? [])
-            .sorted { (parseMonth($0.month) ?? .distantPast) < (parseMonth($1.month) ?? .distantPast) }
-            .enumerated()
-            .map { mapRepayment(index: $0.offset + 1, repayment: $0.element) }
+        let paidEntries = mapRepayments(remote.repayments ?? [])
 
         let repayments: [AppRepayment]
         switch mappedStatus {
@@ -219,6 +234,13 @@ enum AppLoanMapper {
             hrName: remote.hrApprovalName?.nilIfBlank ?? remote.resolvedHrName?.nilIfBlank,
             accountantName: remote.accountantName?.nilIfBlank ?? remote.resolvedAccountantName?.nilIfBlank
         )
+    }
+
+    static func mapRepayments(_ remoteList: [ConvexLoanRepaymentData]) -> [AppRepayment] {
+        remoteList
+            .sorted { (parseMonth($0.month) ?? .distantPast) < (parseMonth($1.month) ?? .distantPast) }
+            .enumerated()
+            .map { mapRepayment(index: $0.offset + 1, repayment: $0.element) }
     }
 
     private static func mapRepayment(index: Int, repayment: ConvexLoanRepaymentData) -> AppRepayment {

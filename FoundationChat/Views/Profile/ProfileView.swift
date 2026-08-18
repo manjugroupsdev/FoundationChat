@@ -7,7 +7,7 @@ struct ProfileView: View {
   @AppStorage("notification_sounds_enabled") private var notificationSoundsEnabled = true
   @AppStorage("mention_notifications_enabled") private var mentionNotificationsEnabled = true
   @AppStorage("app.language") private var languagePreference = ProfileLanguage.english.rawValue
-  @AppStorage("app.appearance") private var appearancePreference = ProfileAppearance.light.rawValue
+  @AppStorage("app.appearance") private var appearancePreference = ProfileAppearance.system.rawValue
 
   @State private var remotePhotoURL: URL?
   @State private var isPresentingEdit = false
@@ -19,7 +19,7 @@ struct ProfileView: View {
   }
 
   private var selectedAppearance: ProfileAppearance {
-    ProfileAppearance(rawValue: appearancePreference) ?? .light
+    ProfileAppearance(rawValue: appearancePreference) ?? .system
   }
 
   var body: some View {
@@ -109,7 +109,7 @@ struct ProfileView: View {
       .padding(.top, 16)
       .padding(.bottom, 40)
     }
-    .background(Color.white.ignoresSafeArea())
+    .background(Color.appScreenBackground.ignoresSafeArea())
     .navigationTitle("Profile Overview")
     .navigationBarTitleDisplayMode(.inline)
     .toolbar(.hidden, for: .tabBar)
@@ -138,7 +138,7 @@ struct ProfileView: View {
         })
       }
       .appLibraryNativeSheet([.height(690), .large])
-      .presentationBackground(Color.white)
+      .presentationBackground(Color.appSurface)
     }
     .sheet(isPresented: $isConfirmingLogout) {
       LogoutConfirmationSheet {
@@ -226,7 +226,7 @@ struct LogoutConfirmationSheet: View {
     .padding(.top, 18)
     .padding(.bottom, 20)
     .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .top)
-    .background(Color(hex: 0xF9FAFB).ignoresSafeArea())
+    .background(Color.appScreenBackground.ignoresSafeArea())
   }
 }
 
@@ -389,8 +389,6 @@ private struct AppearanceSettingsView: View {
           }
           .buttonStyle(.plain)
         }
-      } footer: {
-        Text("Choose how the app looks. Some older screens are still being polished for the dark theme.")
       }
     }
     .navigationTitle("Appearance")
@@ -419,8 +417,6 @@ private struct LanguageSettingsView: View {
           }
           .buttonStyle(.plain)
         }
-      } footer: {
-        Text("The selected language is saved for the app session and future localized screens.")
       }
     }
     .navigationTitle("Language")

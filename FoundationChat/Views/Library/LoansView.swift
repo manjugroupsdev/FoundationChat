@@ -1,5 +1,11 @@
 import SwiftUI
 
+private struct LoansCacheSnapshot: Codable {
+    let active: [AppLoan]
+    let previous: [AppLoan]
+    let pendingApprovals: [AppLoan]
+}
+
 struct LoansView: View {
     @Environment(AuthStore.self) private var authStore
     @State private var active: [AppLoan] = []
@@ -15,6 +21,7 @@ struct LoansView: View {
     @State private var isCancellingLoan = false
     @State private var actingLoanId: String?
     @State private var signatureApprovalLoan: AppLoan?
+    @State private var didHydrateCache = false
 
     private var headerHeight: CGFloat {
         selectedTab == .salary ? 174 : 190
@@ -46,7 +53,7 @@ struct LoansView: View {
         .toolbar(.hidden, for: .navigationBar)
         .toolbar(.hidden, for: .tabBar)
         .refreshable { await load() }
-        .task { if !hasLoaded { await load() } }
+        .task { await load() }
         .sheet(isPresented: $showingLoanRequest) {
             LoanRequestSheet {
                 await load()
@@ -538,6 +545,7 @@ struct LoansView: View {
 
     @MainActor
     private func load() async {
+        hydrateCacheIfNeeded()
         guard let token = authStore.currentSession?.token else {
             errorMessage = "Not signed in."
             hasLoaded = true
@@ -550,17 +558,44 @@ struct LoansView: View {
                 token: token,
                 staffId: authStore.currentSession?.user.staffId
             )
-            let approvals = (try? await MarketingConvexAPIService.getPendingLoanApprovals(token: token)) ?? []
+            let approvals = try? await MarketingConvexAPIService.getPendingLoanApprovals(token: token)
             withAnimation(.spring(response: 0.4, dampingFraction: 0.9)) {
                 active = page.active
                 previous = page.previous
-                pendingApprovals = approvals
+                if let approvals {
+                    pendingApprovals = approvals
+                }
+            }
+            if let cacheKey = loansCacheKey {
+                LocalCache.put(
+                    cacheKey,
+                    LoansCacheSnapshot(active: active, previous: previous, pendingApprovals: pendingApprovals)
+                )
             }
             errorMessage = nil
         } catch {
             if Self.isCancellation(error) { return }
-            errorMessage = error.localizedDescription
+            if active.isEmpty && previous.isEmpty && pendingApprovals.isEmpty {
+                errorMessage = error.localizedDescription
+            }
         }
+    }
+
+    private var loansCacheKey: String? {
+        guard let user = authStore.currentSession?.user else { return nil }
+        return "loans.overview.v1.\(user.staffId ?? user._id)"
+    }
+
+    @MainActor
+    private func hydrateCacheIfNeeded() {
+        guard !didHydrateCache else { return }
+        didHydrateCache = true
+        guard let cacheKey = loansCacheKey,
+              let cached = LocalCache.get(cacheKey, as: LoansCacheSnapshot.self) else { return }
+        active = cached.active
+        previous = cached.previous
+        pendingApprovals = cached.pendingApprovals
+        hasLoaded = true
     }
 
     @MainActor
@@ -2454,6 +2489,7 @@ struct RepaymentHistoryView: View {
     @State private var repayments: [AppRepayment] = []
     @State private var isLoading = false
     @State private var errorMessage: String?
+    @State private var didHydrateCache = false
 
     var body: some View {
         List {
@@ -2486,17 +2522,50 @@ struct RepaymentHistoryView: View {
     @MainActor
     private func load() async {
         guard let token = authStore.currentSession?.token else { return }
+        hydrateCacheIfNeeded()
         isLoading = true
         defer { isLoading = false }
         do {
-            let loan = try await MarketingConvexAPIService.getLoanDetail(token: token, id: loanId, mappedStatus: status)
-            repayments = loan.repayments.sorted {
+            async let detailRequest = MarketingConvexAPIService.getLoanDetail(
+                token: token,
+                id: loanId,
+                mappedStatus: status
+            )
+            async let freshRequest: [ConvexLoanRepaymentData]? = try? MarketingConvexAPIService.getLoanRepayments(
+                token: token,
+                loanId: loanId
+            )
+            let loan = try await detailRequest
+            let freshPaid = AppLoanMapper.mapRepayments(await freshRequest ?? [])
+            let merged = freshPaid.isEmpty
+                ? loan.repayments
+                : freshPaid + loan.repayments.filter { $0.status != .paid }
+            repayments = merged.sorted {
                 ($0.dueDate ?? .distantPast) > ($1.dueDate ?? .distantPast)
+            }
+            if let cacheKey = repaymentsCacheKey {
+                LocalCache.put(cacheKey, repayments)
             }
             errorMessage = nil
         } catch {
-            errorMessage = error.localizedDescription
+            if repayments.isEmpty {
+                errorMessage = error.localizedDescription
+            }
         }
+    }
+
+    private var repaymentsCacheKey: String? {
+        guard let user = authStore.currentSession?.user else { return nil }
+        return "loans.repayments.v1.\(user.staffId ?? user._id).\(loanId)"
+    }
+
+    @MainActor
+    private func hydrateCacheIfNeeded() {
+        guard !didHydrateCache else { return }
+        didHydrateCache = true
+        guard let cacheKey = repaymentsCacheKey,
+              let cached = LocalCache.get(cacheKey, as: [AppRepayment].self) else { return }
+        repayments = cached
     }
 }
 

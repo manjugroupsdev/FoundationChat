@@ -15,10 +15,10 @@ struct FoundationChatApp: App {
     @Environment(\.scenePhase) private var scenePhase
 
     @AppStorage("app.language") private var languagePreference = ProfileLanguage.english.rawValue
-    @AppStorage("app.appearance") private var appearancePreference = ProfileAppearance.light.rawValue
+    @AppStorage("app.appearance") private var appearancePreference = ProfileAppearance.system.rawValue
 
     private var preferredColorScheme: ColorScheme? {
-        (ProfileAppearance(rawValue: appearancePreference) ?? .light).colorScheme
+        (ProfileAppearance(rawValue: appearancePreference) ?? .system).colorScheme
     }
 
     @State private var authStore = AuthStore()
@@ -78,12 +78,12 @@ struct FoundationChatApp: App {
         let textColor = UIColor.label
         let tintColor = UIColor(red: 0.043, green: 0.380, blue: 0.792, alpha: 1)
 
-        UITextField.appearance().overrideUserInterfaceStyle = .light
+        UITextField.appearance().overrideUserInterfaceStyle = .unspecified
         UITextField.appearance().textColor = textColor
         UITextField.appearance().tintColor = tintColor
-        UITextField.appearance().keyboardAppearance = .light
+        UITextField.appearance().keyboardAppearance = .default
 
-        UITextView.appearance().overrideUserInterfaceStyle = .light
+        UITextView.appearance().overrideUserInterfaceStyle = .unspecified
         UITextView.appearance().textColor = textColor
         UITextView.appearance().tintColor = tintColor
     }

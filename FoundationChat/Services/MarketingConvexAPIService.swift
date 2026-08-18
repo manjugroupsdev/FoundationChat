@@ -28,6 +28,12 @@ enum MarketingConvexAPIService {
         let error: String?
     }
 
+    private struct LoanRepaymentsResponse: Decodable {
+        let success: Bool
+        let repayments: [ConvexLoanRepaymentData]?
+        let error: String?
+    }
+
     private struct MarketingProjectsResponse: Decodable {
         let success: Bool
         let projects: [MarketingProject]?
@@ -268,6 +274,19 @@ enum MarketingConvexAPIService {
         guard wrapper.success else { throw MarketingAPIError.server(wrapper.error ?? "Failed to load loan") }
         guard let loan = wrapper.loan else { throw MarketingAPIError.server("Loan not found") }
         return AppLoanMapper.fromRemote(loan, mappedStatus: mappedStatus)
+    }
+
+    static func getLoanRepayments(token: String, loanId: String) async throws -> [ConvexLoanRepaymentData] {
+        let data = try await get(
+            path: "/api/hr/loans/repayments",
+            token: token,
+            queryItems: [URLQueryItem(name: "loanId", value: loanId)]
+        )
+        let wrapper = try decode(LoanRepaymentsResponse.self, from: data)
+        guard wrapper.success else {
+            throw MarketingAPIError.server(wrapper.error ?? "Failed to load repayments")
+        }
+        return wrapper.repayments ?? []
     }
 
     static func getLoanWorkflow(token: String, loanId: String) async throws -> [LoanWorkflowStep] {
