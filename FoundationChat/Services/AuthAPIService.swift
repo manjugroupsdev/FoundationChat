@@ -21,6 +21,20 @@ enum AuthAPIService {
     let error: String?
   }
 
+  private struct TravelDeskAuthUser: Decodable {
+    let _id: String?
+    let name: String?
+    let phone: String?
+    let role: String?
+  }
+
+  private struct TravelDeskVerifyOTPResponse: Decodable {
+    let success: Bool
+    let token: String?
+    let user: TravelDeskAuthUser?
+    let error: String?
+  }
+
   private struct EmployeePasswordLoginResponse: Decodable {
     let success: Bool
     let token: String?
@@ -69,7 +83,21 @@ enum AuthAPIService {
 
     guard decoded.success else {
       throw AuthAPIError.server(
-        decoded.error ?? "Failed to send OTP",
+        decoded.error ?? decoded.message ?? "Failed to send OTP",
+        statusCode: (response as? HTTPURLResponse)?.statusCode ?? 0
+      )
+    }
+  }
+
+  /// Agency-created drivers are not present in staff auth. Android falls back
+  /// to this route only after the staff endpoint reports an unknown phone.
+  static func sendTravelDeskOTP(phone: String) async throws {
+    let url = URL(string: "\(baseURL)/api/travel-desk/auth/send-otp")!
+    let (data, response) = try await post(url: url, body: ["phone": phone])
+    let decoded = try JSONDecoder().decode(SendOTPResponse.self, from: data)
+    guard decoded.success else {
+      throw AuthAPIError.server(
+        decoded.error ?? decoded.message ?? "Phone number not registered. Contact admin.",
         statusCode: (response as? HTTPURLResponse)?.statusCode ?? 0
       )
     }
@@ -102,6 +130,38 @@ enum AuthAPIService {
       )
     }
 
+    return OtpSession(token: token, user: user)
+  }
+
+  static func verifyTravelDeskOTP(phone: String, otp: String) async throws -> OtpSession {
+    let url = URL(string: "\(baseURL)/api/travel-desk/auth/verify-otp")!
+    let (data, response) = try await post(url: url, body: ["phone": phone, "otp": otp])
+    let decoded = try JSONDecoder().decode(TravelDeskVerifyOTPResponse.self, from: data)
+    guard decoded.success, let token = decoded.token, let remoteUser = decoded.user else {
+      throw AuthAPIError.server(
+        decoded.error ?? "Verification failed",
+        statusCode: (response as? HTTPURLResponse)?.statusCode ?? 0
+      )
+    }
+
+    let role = remoteUser.role?.trimmingCharacters(in: .whitespacesAndNewlines).lowercased()
+    guard role == "driver" || role == "agency_staff" else {
+      throw AuthAPIError.server(
+        "External fleet agencies sign in on the travel-desk web, not the app.",
+        statusCode: (response as? HTTPURLResponse)?.statusCode ?? 0
+      )
+    }
+    let isAgencyStaff = role == "agency_staff"
+    let user = AuthUser(
+      _id: remoteUser._id ?? "travel-desk:\(phone)",
+      staffId: remoteUser._id,
+      name: remoteUser.name,
+      phone: remoteUser.phone ?? phone,
+      role: isAgencyStaff ? "agency_staff" : "external_fleet_driver",
+      designation: isAgencyStaff ? "External Fleet Staff" : "External Fleet Driver",
+      department: "Fleet",
+      status: "active"
+    )
     return OtpSession(token: token, user: user)
   }
 
@@ -214,6 +274,36 @@ enum AuthAPIService {
 
     let (_, _) = try await URLSession.shared.data(for: request)
     // Best-effort logout — ignore errors.
+  }
+
+  static func logoutTravelDesk(token: String) async throws {
+    let url = URL(string: "\(baseURL)/api/travel-desk/auth/logout")!
+    var request = URLRequest(url: url)
+    request.httpMethod = "POST"
+    request.setValue("Bearer \(token)", forHTTPHeaderField: "Authorization")
+    request.setValue("application/json", forHTTPHeaderField: "Content-Type")
+    request.httpBody = Data("{}".utf8)
+    _ = try await URLSession.shared.data(for: request)
+  }
+
+  static func registerTravelDeskPushToken(token: String, deviceToken: String) async throws {
+    let url = URL(string: "\(baseURL)/api/travel-desk/push/register")!
+    var request = URLRequest(url: url)
+    request.httpMethod = "POST"
+    request.setValue("Bearer \(token)", forHTTPHeaderField: "Authorization")
+    request.setValue("application/json", forHTTPHeaderField: "Content-Type")
+    request.httpBody = try JSONSerialization.data(withJSONObject: [
+      "pushToken": deviceToken,
+      "platform": "ios",
+    ])
+    let (data, response) = try await URLSession.shared.data(for: request)
+    let decoded = try JSONDecoder().decode(SimpleResponse.self, from: data)
+    guard decoded.success else {
+      throw AuthAPIError.server(
+        decoded.error ?? decoded.message ?? "Push registration failed",
+        statusCode: (response as? HTTPURLResponse)?.statusCode ?? 0
+      )
+    }
   }
 
   // MARK: - Helpers

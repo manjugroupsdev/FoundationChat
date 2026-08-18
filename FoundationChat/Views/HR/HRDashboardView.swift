@@ -19,6 +19,7 @@ struct HRDashboardView: View {
     @State private var path = NavigationPath()
     @State private var todayAttendance: ConvexTodayAttendance?
     @State private var todayDaySessions: ConvexDaySessionsResponse?
+    @State private var todayShift: HRConvexAPIService.TodayShiftResponse?
     @State private var historyRecords: [ConvexAttendanceRecord] = []
     @State private var isLoading = false
     @State private var nowTick = Date()
@@ -253,6 +254,9 @@ struct HRDashboardView: View {
             }
             .padding(.top, 8)
 
+            shiftScheduleRow
+                .padding(.top, 10)
+
             actionButtons
                 .padding(.top, 12)
         }
@@ -296,6 +300,41 @@ struct HRDashboardView: View {
             RoundedRectangle(cornerRadius: 8, style: .continuous)
                 .stroke(Color(red: 0.922, green: 0.925, blue: 0.933), lineWidth: 1)
         )
+    }
+
+    private var shiftScheduleRow: some View {
+        HStack(spacing: 10) {
+            Image(systemName: "clock.badge.checkmark")
+                .font(.system(size: 15, weight: .semibold))
+                .foregroundStyle(Color(hex: 0x0B61CA))
+                .frame(width: 34, height: 34)
+                .background(Color(hex: 0xEAF3FF), in: RoundedRectangle(cornerRadius: 8, style: .continuous))
+
+            VStack(alignment: .leading, spacing: 2) {
+                Text("Today's Shift")
+                    .font(.system(size: 11, weight: .medium))
+                    .foregroundStyle(Color(hex: 0x667085))
+                Text(todayShiftLabel)
+                    .font(.system(size: 13, weight: .semibold).monospacedDigit())
+                    .foregroundStyle(Color(hex: 0x101828))
+                    .lineLimit(1)
+                    .minimumScaleFactor(0.75)
+            }
+            Spacer(minLength: 8)
+            if let name = todayShift?.shift?.name?.trimmingCharacters(in: .whitespacesAndNewlines), !name.isEmpty {
+                Text(name)
+                    .font(.system(size: 11, weight: .semibold))
+                    .foregroundStyle(Color(hex: 0x0B61CA))
+                    .lineLimit(1)
+            }
+        }
+        .frame(minHeight: 42)
+        .padding(.horizontal, 10)
+        .background(Color(hex: 0xF8FAFC), in: RoundedRectangle(cornerRadius: 8, style: .continuous))
+        .overlay {
+            RoundedRectangle(cornerRadius: 8, style: .continuous)
+                .stroke(Color(hex: 0xE4E7EC), lineWidth: 1)
+        }
     }
 
     @ViewBuilder
@@ -550,6 +589,29 @@ struct HRDashboardView: View {
         let f = DateFormatter()
         f.dateFormat = "yyyy-MM-dd"
         return f.string(from: Date())
+    }
+
+    private var todayShiftLabel: String {
+        guard todayShift?.isWeekoff != true else { return "Week off" }
+        let weekday = Calendar.current.component(.weekday, from: Date())
+        guard let day = todayShift?.shift?.schedule?.day(for: weekday), day.isWorkDay != false else {
+            return "--:-- - --:--"
+        }
+        return "\(formatShiftTime(day.startTime)) - \(formatShiftTime(day.endTime))"
+    }
+
+    private func formatShiftTime(_ raw: String?) -> String {
+        guard let raw = raw?.trimmingCharacters(in: .whitespacesAndNewlines), !raw.isEmpty else { return "--:--" }
+        let pieces = raw.uppercased().split(whereSeparator: \Character.isWhitespace)
+        let clock = pieces.first?.split(separator: ":") ?? []
+        guard clock.count >= 2, var hour = Int(clock[0]), let minute = Int(clock[1]),
+              (0...59).contains(minute) else { return raw }
+        if pieces.count > 1 {
+            if pieces[1] == "PM", hour < 12 { hour += 12 }
+            if pieces[1] == "AM", hour == 12 { hour = 0 }
+        }
+        guard (0...23).contains(hour) else { return raw }
+        return String(format: "%02d:%02d", hour, minute)
     }
 
     private var todayHistoryRecord: ConvexAttendanceRecord? {
@@ -836,9 +898,21 @@ struct HRDashboardView: View {
         await authStore.refreshIAMPermissions()
         await withTaskGroup(of: Void.self) { group in
             group.addTask { await self.loadToday() }
+            group.addTask { await self.loadTodayShift() }
             group.addTask { await self.loadMonthHistory() }
             group.addTask { await self.loadHomeFence() }
         }
+    }
+
+    @MainActor
+    private func loadTodayShift() async {
+        guard let session = authStore.currentSession else { return }
+        let staffId = session.user.staffId ?? session.user._id
+        todayShift = try? await HRConvexAPIService.getTodayShift(
+            token: session.token,
+            staffId: staffId,
+            date: todayDateKey
+        )
     }
 
     @MainActor

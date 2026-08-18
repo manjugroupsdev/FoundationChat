@@ -207,6 +207,27 @@ enum MarketingConvexAPIService {
         let error: String?
     }
 
+    struct LoanWorkflowStep: Decodable, Sendable {
+        let stepOrder: Int?
+        let name: String?
+        let approverType: String?
+        let approverRole: String?
+        let approverDesignation: String?
+        let resolvedStaffName: String?
+        let status: String?
+        let actedByName: String?
+        let actedAt: String?
+    }
+
+    private struct LoanWorkflowDetails: Decodable {
+        let steps: [LoanWorkflowStep]?
+    }
+
+    private struct LoanWorkflowResponse: Decodable {
+        let success: Bool
+        let workflow: LoanWorkflowDetails?
+    }
+
     struct LoansPage: Sendable {
         let active: [AppLoan]
         let previous: [AppLoan]
@@ -247,6 +268,19 @@ enum MarketingConvexAPIService {
         guard wrapper.success else { throw MarketingAPIError.server(wrapper.error ?? "Failed to load loan") }
         guard let loan = wrapper.loan else { throw MarketingAPIError.server("Loan not found") }
         return AppLoanMapper.fromRemote(loan, mappedStatus: mappedStatus)
+    }
+
+    static func getLoanWorkflow(token: String, loanId: String) async throws -> [LoanWorkflowStep] {
+        let data = try await get(
+            path: "/api/hr/loans/workflow",
+            token: token,
+            queryItems: [URLQueryItem(name: "loanId", value: loanId)]
+        )
+        let wrapper = try decode(LoanWorkflowResponse.self, from: data)
+        guard wrapper.success else { return [] }
+        return (wrapper.workflow?.steps ?? [])
+            .filter { ($0.stepOrder ?? 0) > 0 }
+            .sorted { ($0.stepOrder ?? 0) < ($1.stepOrder ?? 0) }
     }
 
     @discardableResult

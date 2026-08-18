@@ -1868,9 +1868,26 @@ private struct AdvanceTrackerPills: View {
 }
 
 private struct LoanApprovalTracker: View {
+    @Environment(AuthStore.self) private var authStore
     let loan: AppLoan
+    @State private var workflowSteps: [MarketingConvexAPIService.LoanWorkflowStep] = []
 
     private var steps: [LoanApprovalStep] {
+        if !workflowSteps.isEmpty {
+            return workflowSteps.map { step in
+                let status = step.status?.trimmingCharacters(in: .whitespacesAndNewlines).lowercased()
+                let title = step.name
+                    ?? step.approverDesignation
+                    ?? step.approverRole
+                    ?? "Step \(step.stepOrder ?? 0)"
+                return LoanApprovalStep(
+                    title: title.uppercased(),
+                    icon: workflowIcon(for: step.approverType),
+                    isDone: status == "approved" || status == "skipped",
+                    name: step.actedByName ?? step.resolvedStaffName
+                )
+            }
+        }
         if loan.isSalaryAdvance {
             return [
                 .init(title: "HR", icon: "person.3.fill", isDone: stageRank >= 4, name: loan.hrName),
@@ -1890,43 +1907,54 @@ private struct LoanApprovalTracker: View {
 
     var body: some View {
         VStack(spacing: 8) {
-            ZStack {
-                Rectangle()
-                    .fill(Color(hex: 0xE4EAF2))
-                    .frame(height: 2)
-                    .padding(.horizontal, 24)
-                    .offset(y: -16)
+            ScrollView(.horizontal) {
+                ZStack {
+                    Rectangle()
+                        .fill(Color(hex: 0xE4EAF2))
+                        .frame(height: 2)
+                        .padding(.horizontal, 24)
+                        .offset(y: -16)
 
-                HStack(alignment: .top, spacing: 0) {
-                    ForEach(steps) { step in
-                        VStack(spacing: 7) {
-                            Image(systemName: step.isDone ? "checkmark" : step.icon)
-                                .font(.system(size: step.isDone ? 14 : 17, weight: .semibold))
-                                .foregroundStyle(step.isDone ? Color(hex: 0x0B61CA) : Color(hex: 0x98A2B3))
-                                .frame(width: 43, height: 43)
-                                .background(Color(hex: step.isDone ? 0xEAF3FF : 0xEEF4FF), in: RoundedRectangle(cornerRadius: 12, style: .continuous))
+                    LazyHStack(alignment: .top, spacing: 0) {
+                        ForEach(steps) { step in
+                            VStack(spacing: 7) {
+                                Image(systemName: step.isDone ? "checkmark" : step.icon)
+                                    .font(.system(size: step.isDone ? 14 : 17, weight: .semibold))
+                                    .foregroundStyle(step.isDone ? Color(hex: 0x0B61CA) : Color(hex: 0x98A2B3))
+                                    .frame(width: 43, height: 43)
+                                    .background(Color(hex: step.isDone ? 0xEAF3FF : 0xEEF4FF), in: RoundedRectangle(cornerRadius: 12, style: .continuous))
 
-                            Text(step.title)
-                                .font(.system(size: 8, weight: step.isDone ? .bold : .semibold))
-                                .foregroundStyle(step.isDone ? Color(hex: 0x0B61CA) : Color(hex: 0x98A2B3))
-                                .lineLimit(1)
-                                .minimumScaleFactor(0.55)
-
-                            if let name = step.name?.trimmingCharacters(in: .whitespacesAndNewlines), !name.isEmpty {
-                                Text(shortName(name))
-                                    .font(.system(size: 7, weight: .medium))
-                                    .foregroundStyle(Color(hex: 0x667085))
+                                Text(step.title)
+                                    .font(.system(size: 8, weight: step.isDone ? .bold : .semibold))
+                                    .foregroundStyle(step.isDone ? Color(hex: 0x0B61CA) : Color(hex: 0x98A2B3))
                                     .lineLimit(1)
-                                    .minimumScaleFactor(0.5)
+                                    .minimumScaleFactor(0.55)
+
+                                if let name = step.name?.trimmingCharacters(in: .whitespacesAndNewlines), !name.isEmpty {
+                                    Text(shortName(name))
+                                        .font(.system(size: 7, weight: .medium))
+                                        .foregroundStyle(Color(hex: 0x667085))
+                                        .lineLimit(1)
+                                        .minimumScaleFactor(0.5)
+                                }
                             }
+                            .frame(width: 72)
                         }
-                        .frame(maxWidth: .infinity)
                     }
                 }
             }
+            .scrollIndicators(.hidden)
         }
         .padding(.top, 2)
         .padding(.bottom, 4)
+        .task(id: loan.id) {
+            guard loan.status == .pending,
+                  let token = authStore.currentSession?.token else { return }
+            workflowSteps = (try? await MarketingConvexAPIService.getLoanWorkflow(
+                token: token,
+                loanId: loan.id
+            )) ?? []
+        }
     }
 
     private var stageRank: Int {
@@ -1945,6 +1973,15 @@ private struct LoanApprovalTracker: View {
 
     private func statusDone(_ value: String?) -> Bool {
         value?.lowercased().trimmingCharacters(in: .whitespacesAndNewlines) == "approved"
+    }
+
+    private func workflowIcon(for approverType: String?) -> String {
+        switch approverType?.trimmingCharacters(in: .whitespacesAndNewlines).lowercased() {
+        case "role": return "person.3"
+        case "designation": return "person.badge.shield.checkmark"
+        case "reporting_manager", "manager": return "person.crop.circle.badge.checkmark"
+        default: return "person.badge.clock"
+        }
     }
 
     private func shortName(_ name: String) -> String {

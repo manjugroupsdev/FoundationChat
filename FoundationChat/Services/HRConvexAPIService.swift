@@ -6,6 +6,51 @@ import UniformTypeIdentifiers
 enum HRConvexAPIService {
     private static let baseURL = AppConfig.baseURL
 
+    struct TodayShiftResponse: Decodable, Sendable {
+        let success: Bool?
+        let staffId: String?
+        let date: String?
+        let isWeekoff: Bool?
+        let shift: TodayShift?
+    }
+
+    struct TodayShift: Decodable, Sendable {
+        let name: String?
+        let code: String?
+        let schedule: TodayShiftSchedule?
+        let graceMinutes: Int?
+    }
+
+    struct TodayShiftSchedule: Decodable, Sendable {
+        let monday: TodayShiftDay?
+        let tuesday: TodayShiftDay?
+        let wednesday: TodayShiftDay?
+        let thursday: TodayShiftDay?
+        let friday: TodayShiftDay?
+        let saturday: TodayShiftDay?
+        let sunday: TodayShiftDay?
+
+        func day(for weekday: Int) -> TodayShiftDay? {
+            switch weekday {
+            case 1: return sunday
+            case 2: return monday
+            case 3: return tuesday
+            case 4: return wednesday
+            case 5: return thursday
+            case 6: return friday
+            case 7: return saturday
+            default: return nil
+            }
+        }
+    }
+
+    struct TodayShiftDay: Decodable, Sendable {
+        let isWorkDay: Bool?
+        let startTime: String?
+        let endTime: String?
+        let breakMinutes: Int?
+    }
+
     // MARK: - Leaves
 
     private struct LeavesListResponse: Decodable, Sendable {
@@ -350,6 +395,17 @@ enum HRConvexAPIService {
     }
 
     // MARK: - Attendance
+
+    static func getTodayShift(token: String, staffId: String, date: String) async throws -> TodayShiftResponse {
+        var components = URLComponents()
+        components.queryItems = [
+            URLQueryItem(name: "staffId", value: staffId),
+            URLQueryItem(name: "date", value: date),
+        ]
+        let suffix = components.percentEncodedQuery.map { "?\($0)" } ?? ""
+        let data = try await get(path: "/api/hr/shifts/today\(suffix)", token: token)
+        return try await decode(TodayShiftResponse.self, from: data)
+    }
 
     private struct AttendanceListResponse: Decodable, Sendable {
         let success: Bool

@@ -88,6 +88,7 @@ final class AuthStore {
   private let userDefaults: UserDefaults
   private var didAttemptRestore = false
   private var isRefreshingIAMPermissions = false
+  private var pendingOTPUsesTravelDesk = false
 
   private var token: String? { currentSession?.token }
 
@@ -164,6 +165,10 @@ final class AuthStore {
         applySession(stored)
         status = .signedIn
       }
+      if stored.user.isExternalFleetPrincipal {
+        status = .signedIn
+        return
+      }
       let freshUser = try await AuthAPIService.validateSession(token: stored.token)
       let refreshed = OtpSession(
         token: stored.token,
@@ -187,14 +192,27 @@ final class AuthStore {
 
     isRequestingOTP = true
     errorMessage = nil
+    pendingOTPUsesTravelDesk = false
     defer { isRequestingOTP = false }
 
     do {
       try await AuthAPIService.sendOTP(phone: phone)
+      pendingOTPUsesTravelDesk = false
       return phone
     } catch {
-      errorMessage = error.localizedDescription
-      throw error
+      guard Self.isNotRegistered(error) else {
+        errorMessage = error.localizedDescription
+        throw error
+      }
+      do {
+        try await AuthAPIService.sendTravelDeskOTP(phone: phone)
+        pendingOTPUsesTravelDesk = true
+        return phone
+      } catch {
+        let neutralError = AuthStoreError.phoneNotRegistered
+        errorMessage = neutralError.localizedDescription
+        throw neutralError
+      }
     }
   }
 
@@ -209,8 +227,13 @@ final class AuthStore {
     defer { isAuthenticating = false }
 
     do {
-      let session = try await AuthAPIService.verifyOTP(phone: phone, otp: trimmedCode)
+      let session = if pendingOTPUsesTravelDesk {
+        try await AuthAPIService.verifyTravelDeskOTP(phone: phone, otp: trimmedCode)
+      } else {
+        try await AuthAPIService.verifyOTP(phone: phone, otp: trimmedCode)
+      }
       await finalizeAuthenticatedSession(session)
+      pendingOTPUsesTravelDesk = false
     } catch {
       errorMessage = error.localizedDescription
     }
@@ -311,10 +334,17 @@ final class AuthStore {
   func logout() async {
     await GeoTrackBootstrapCoordinator.shared.stopForSessionEnd()
     // Unregister push token before logging out
-    if let t = token, let deviceToken = lastKnownAPNSToken {
+    if currentSession?.user.isExternalFleetPrincipal != true,
+       let t = token, let deviceToken = lastKnownAPNSToken {
       try? await ChatAPIService.unregisterPushToken(token: t, deviceToken: deviceToken)
     }
-    if let t = token { try? await AuthAPIService.logout(token: t) }
+    if let t = token {
+      if currentSession?.user.isExternalFleetPrincipal == true {
+        try? await AuthAPIService.logoutTravelDesk(token: t)
+      } else {
+        try? await AuthAPIService.logout(token: t)
+      }
+    }
     try? tokenStore.clear()
     // Wipe cache-first snapshots so the next user starts clean (Android parity).
     LocalCache.clearAll()
@@ -325,6 +355,7 @@ final class AuthStore {
     isRequestingOTP = false
     isEmployeeLoginInProgress = false
     isChangingPassword = false
+    pendingOTPUsesTravelDesk = false
     lastKnownAPNSToken = nil
     registeredAPNSToken = nil
     status = .signedOut
@@ -342,6 +373,7 @@ final class AuthStore {
     isRequestingOTP = false
     isEmployeeLoginInProgress = false
     isChangingPassword = false
+    pendingOTPUsesTravelDesk = false
     registeredAPNSToken = nil
     status = .signedOut
   }
@@ -355,7 +387,11 @@ final class AuthStore {
     // Register with backend if signed in
     guard let t = token, registeredAPNSToken != normalized else { return }
     do {
-      _ = try await ChatAPIService.registerPushToken(token: t, deviceToken: normalized)
+      if currentSession?.user.isExternalFleetPrincipal == true {
+        try await AuthAPIService.registerTravelDeskPushToken(token: t, deviceToken: normalized)
+      } else {
+        _ = try await ChatAPIService.registerPushToken(token: t, deviceToken: normalized)
+      }
       registeredAPNSToken = normalized
     } catch {
       print("[push] failed to register device token: \(error.localizedDescription)")
@@ -1274,6 +1310,11 @@ final class AuthStore {
       print("[auth] failed to save session: \(error.localizedDescription)")
     }
 
+    if session.user.isExternalFleetPrincipal {
+      status = .signedIn
+      return
+    }
+
     await refreshIAMPermissions()
 
     do {
@@ -1316,6 +1357,10 @@ final class AuthStore {
     return digits
   }
 
+  private static func isNotRegistered(_ error: Error) -> Bool {
+    error.localizedDescription.localizedCaseInsensitiveContains("not registered")
+  }
+
   #if DEBUG
   /// Deterministic stub session for QA simulator smoke. See file header (KOS-25).
   /// Returns `nil` unless launched with `-FCQAStubAuth 1`.
@@ -1347,6 +1392,7 @@ final class AuthStore {
 enum AuthStoreError: LocalizedError {
   case sessionNotAvailable
   case invalidPhoneNumber
+  case phoneNotRegistered
   case invalidOTP
   case invalidEmployeeId
   case invalidPassword
@@ -1359,6 +1405,7 @@ enum AuthStoreError: LocalizedError {
     switch self {
     case .sessionNotAvailable: return "Session is not available. Please sign in again."
     case .invalidPhoneNumber: return "Enter a valid 10-digit phone number."
+    case .phoneNotRegistered: return "Phone number not registered. Contact admin."
     case .invalidOTP: return "Enter the OTP you received."
     case .invalidEmployeeId: return "Enter your Employee ID."
     case .invalidPassword: return "Enter your password."

@@ -111,7 +111,8 @@ struct AuthRootView: View {
     }
 
     private func syncGeoTrack(reason: String, force: Bool = false) async {
-        guard authStore.currentSession?.user.isFleetPortalMode != true else { return }
+        guard authStore.currentSession?.user.isExternalFleetPrincipal != true,
+              authStore.currentSession?.user.isFleetPortalMode != true else { return }
         await geoTrackBootstrap.sync(reason: reason, force: force)
     }
 }
