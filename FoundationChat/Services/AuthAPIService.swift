@@ -235,7 +235,7 @@ enum AuthAPIService {
 
 /// Snapshot of the current device used to bind a staff account to a single
 /// phone on OTP login. Mirrors the Android + backend `verify-otp` device fields.
-private struct LoginDeviceInfo {
+struct LoginDeviceInfo {
   let deviceId: String
   let platform: String
   let model: String
@@ -266,7 +266,7 @@ private struct LoginDeviceInfo {
   /// and is not migrated to a new phone on a backup restore — it stays bound to
   /// this physical device. Still clears on factory reset (the intended "new
   /// device" boundary; admins reset the lock for legitimate device swaps).
-  private static func persistentDeviceId() -> String? {
+  static func persistentDeviceId() -> String? {
     if let existing = keychainReadDeviceId() { return existing }
     let seed = UIDevice.current.identifierForVendor?.uuidString ?? UUID().uuidString
     keychainWriteDeviceId(seed)

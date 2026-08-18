@@ -1,5 +1,6 @@
 import AVFAudio
 import AVFoundation
+import Combine
 import SwiftUI
 import UIKit
 import WebKit
@@ -304,7 +305,7 @@ final class ModernDialerBridge: NSObject, ObservableObject {
 
     private func activateAudioSession() {
         let session = AVAudioSession.sharedInstance()
-        try? session.setCategory(.playAndRecord, mode: .voiceChat, options: [.allowBluetooth, .allowBluetoothA2DP])
+        try? session.setCategory(.playAndRecord, mode: .voiceChat, options: [.allowBluetoothHFP, .allowBluetoothA2DP])
         try? session.setActive(true)
     }
 
@@ -315,7 +316,7 @@ final class ModernDialerBridge: NSObject, ObservableObject {
     // MARK: Host HTML + embed URL
 
     private func buildEmbedURL(token: String) -> String {
-        let deviceId = UIDevice.current.identifierForVendor?.uuidString ?? "mconnect-ios"
+        let deviceId = LoginDeviceInfo.persistentDeviceId() ?? "mconnect-ios"
         return "\(dialerOrigin)/embed/agent?token=\(urlEncode(token))&deviceId=\(urlEncode(deviceId))"
     }
 
@@ -393,7 +394,7 @@ extension ModernDialerBridge: WKUIDelegate {
         type: WKMediaCaptureType,
         decisionHandler: @escaping (WKPermissionDecision) -> Void
     ) {
-        decisionHandler(type == .camera ? .deny : .grant)
+        decisionHandler(type == .microphone ? .grant : .deny)
     }
 }
 

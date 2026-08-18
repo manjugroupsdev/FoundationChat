@@ -222,7 +222,12 @@ struct DialerView: View {
         isCalling = true
         statusMessage = "Checking dialer…"
         Task {
-            let config = dialerConfig ?? (await fetchDialerConfig())
+            let config: MobileDialerConfig?
+            if let dialerConfig {
+                config = dialerConfig
+            } else {
+                config = await fetchDialerConfig()
+            }
             if let config { dialerConfig = config }
             await routeCall(digits: digits, config: config)
         }
