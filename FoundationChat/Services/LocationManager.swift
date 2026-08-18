@@ -171,7 +171,12 @@ final class LocationTracker: NSObject {
     func markLocation(description: String) {
         guard isTracking, let location = lastLocation else { return }
         let point = buildPoint(from: location)
-        Task { try? await persistence.insert(point: point) }
+        let coordinator = GeoTrackBootstrapCoordinator.shared
+        let sessionId = coordinator.activeSessionId
+        let deviceId = coordinator.deviceId
+        Task {
+            try? await persistence.insert(point: point, sessionId: sessionId, deviceId: deviceId)
+        }
     }
 
     /// Uploads a photo via Convex storage and returns the storageId.
@@ -257,8 +262,11 @@ final class LocationTracker: NSObject {
         tamperMonitor.checkLocation(location)
 
         let point = buildPoint(from: location)
+        let coordinator = GeoTrackBootstrapCoordinator.shared
+        let sessionId = coordinator.activeSessionId
+        let deviceId = coordinator.deviceId
         Task {
-            try? await persistence.insert(point: point)
+            try? await persistence.insert(point: point, sessionId: sessionId, deviceId: deviceId)
             if let count = try? await persistence.getUnsentCount(), count >= Self.batchSize {
                 await flushWaypoints()
             }
@@ -314,11 +322,38 @@ final class LocationTracker: NSObject {
             // window. Stop early once a short (or empty) batch means the buffer
             // is drained.
             var batchesProcessed = 0
+            var failedSessionIds = Set<String>()
             while batchesProcessed < Self.maxBatchesPerSync {
                 let pending = try await persistence.fetchUnsent(limit: Self.batchSize)
                 if pending.isEmpty { break }
-                _ = try await geoAPI.pushBatch(points: pending.map(\.point))
-                try await persistence.markAsSent(ids: pending.map(\.id))
+
+                let activeSessionId = GeoTrackBootstrapCoordinator.shared.activeSessionId
+                let defaultDeviceId = GeoTrackBootstrapCoordinator.shared.deviceId
+                let attributable = pending.compactMap { item -> (String, PendingPoint)? in
+                    guard let sessionId = item.sessionId ?? activeSessionId,
+                          !failedSessionIds.contains(sessionId) else { return nil }
+                    return (sessionId, item)
+                }
+                let grouped = Dictionary(grouping: attributable, by: \.0)
+                if grouped.isEmpty { break }
+
+                var madeProgress = false
+                for (sessionId, rows) in grouped {
+                    let items = rows.map(\.1)
+                    do {
+                        _ = try await geoAPI.pushBatch(
+                            sessionId: sessionId,
+                            deviceId: items.first?.deviceId ?? defaultDeviceId,
+                            points: items.map(\.point)
+                        )
+                        try await persistence.markAsSent(ids: items.map(\.id))
+                        madeProgress = true
+                    } catch {
+                        failedSessionIds.insert(sessionId)
+                    }
+                }
+
+                guard madeProgress else { break }
                 batchesProcessed += 1
                 if pending.count < Self.batchSize { break }
             }

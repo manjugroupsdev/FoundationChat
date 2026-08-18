@@ -17,6 +17,14 @@ import UIKit
 @Observable
 final class GeoTrackHeartbeat {
 
+    private struct PendingHeartbeat: Codable, Sendable {
+        let sessionId: String?
+        let deviceId: String?
+        let batteryPct: Int
+        let appVersion: String
+        let recordedAt: Int64
+    }
+
     // MARK: - Constants
 
     /// Matches Android: `HEARTBEAT_INTERVAL_MS = 120_000`
@@ -35,6 +43,9 @@ final class GeoTrackHeartbeat {
     /// Performs the actual network call. Injected so tests run without a network.
     var sendHeartbeat: (Int, String) async throws -> Void
 
+    private var sendRecordedHeartbeat: (PendingHeartbeat) async throws -> Void
+    private var contextProvider: () -> (sessionId: String?, deviceId: String?)
+
     /// Called after each successful ping. Wired to `tamperMonitor.recordHeartbeat()`
     /// in production so device-reboot detection stays current.
     var onSuccess: () -> Void
@@ -51,6 +62,8 @@ final class GeoTrackHeartbeat {
     // MARK: - Private
 
     private var heartbeatTask: Task<Void, Never>?
+    private let pendingDefaultsKey = "geotrack.pendingHeartbeats"
+    private let maxPendingHeartbeats = 5_000
 
     // MARK: - Init (production)
 
@@ -77,6 +90,19 @@ final class GeoTrackHeartbeat {
         self.sendHeartbeat = { batteryPct, appVersion in
             try await capturedAPI.heartbeat(batteryPct: batteryPct, appVersion: appVersion)
         }
+        self.sendRecordedHeartbeat = { heartbeat in
+            try await capturedAPI.heartbeat(
+                batteryPct: heartbeat.batteryPct,
+                appVersion: heartbeat.appVersion,
+                recordedAt: heartbeat.recordedAt,
+                sessionId: heartbeat.sessionId,
+                deviceId: heartbeat.deviceId
+            )
+        }
+        self.contextProvider = {
+            let coordinator = GeoTrackBootstrapCoordinator.shared
+            return (coordinator.activeSessionId, coordinator.deviceId)
+        }
 
         let capturedMonitor = tamperMonitor
         self.onSuccess = {
@@ -97,6 +123,10 @@ final class GeoTrackHeartbeat {
         self.batteryProvider = batteryProvider
         self.appVersionProvider = appVersionProvider
         self.sendHeartbeat = sendHeartbeat
+        self.sendRecordedHeartbeat = { heartbeat in
+            try await sendHeartbeat(heartbeat.batteryPct, heartbeat.appVersion)
+        }
+        self.contextProvider = { (nil, nil) }
         self.onSuccess = onSuccess
         self.interval = interval
     }
@@ -137,6 +167,7 @@ final class GeoTrackHeartbeat {
     private func ping() async {
         let batteryPct  = batteryProvider()
         let appVersion  = appVersionProvider()
+        await replayPendingHeartbeats()
         do {
             try await sendHeartbeat(batteryPct, appVersion)
             lastHeartbeatDate = Date()
@@ -144,8 +175,58 @@ final class GeoTrackHeartbeat {
             onSuccess()
         } catch {
             consecutiveFailures += 1
-            // Swallow: the next timer tick will retry automatically.
-            // Missed pings are detected server-side via HEARTBEAT_MISSED tamper events.
+            let context = contextProvider()
+            enqueue(
+                PendingHeartbeat(
+                    sessionId: context.sessionId,
+                    deviceId: context.deviceId,
+                    batteryPct: batteryPct,
+                    appVersion: appVersion,
+                    recordedAt: Int64(Date().timeIntervalSince1970 * 1_000)
+                )
+            )
         }
+    }
+
+    private func replayPendingHeartbeats() async {
+        var pending = loadPending()
+        guard !pending.isEmpty else { return }
+
+        var sentCount = 0
+        for heartbeat in pending.prefix(100) {
+            do {
+                try await sendRecordedHeartbeat(heartbeat)
+                sentCount += 1
+            } catch {
+                break
+            }
+        }
+        if sentCount > 0 {
+            pending.removeFirst(sentCount)
+            savePending(pending)
+        }
+    }
+
+    private func enqueue(_ heartbeat: PendingHeartbeat) {
+        var pending = loadPending()
+        pending.append(heartbeat)
+        if pending.count > maxPendingHeartbeats {
+            pending.removeFirst(pending.count - maxPendingHeartbeats)
+        }
+        savePending(pending)
+    }
+
+    private func loadPending() -> [PendingHeartbeat] {
+        guard let data = UserDefaults.standard.data(forKey: pendingDefaultsKey) else { return [] }
+        return (try? JSONDecoder().decode([PendingHeartbeat].self, from: data)) ?? []
+    }
+
+    private func savePending(_ pending: [PendingHeartbeat]) {
+        guard !pending.isEmpty else {
+            UserDefaults.standard.removeObject(forKey: pendingDefaultsKey)
+            return
+        }
+        guard let data = try? JSONEncoder().encode(pending) else { return }
+        UserDefaults.standard.set(data, forKey: pendingDefaultsKey)
     }
 }

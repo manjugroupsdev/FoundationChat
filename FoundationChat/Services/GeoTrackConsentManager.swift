@@ -68,12 +68,17 @@ final class GeoTrackConsentManager {
         try? await geoAPI.recordConsent(consented: true, appVersion: appVersion)
     }
 
-    /// Records consent = false locally. No server call — mirrors Android behaviour.
-    func declineConsent() {
+    /// Records the decline locally and server-side with the same policy/device
+    /// context as Android. Network failure remains non-blocking.
+    func declineConsent() async {
         userDefaults.set(false, forKey: Self.consentGivenKey)
         userDefaults.set(true,  forKey: Self.consentDeclinedKey)
         hasConsented = false
         hasDeclined  = true
+
+        isRecording = true
+        defer { isRecording = false }
+        try? await geoAPI.recordConsent(consented: false, appVersion: appVersionString())
     }
 
     /// Clears stored consent so the user is prompted again.

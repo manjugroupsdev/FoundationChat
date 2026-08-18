@@ -109,9 +109,11 @@ struct GeoTrackConsentView: View {
                         .disabled(consentManager.isRecording)
 
                         Button {
-                            consentManager.declineConsent()
-                            onDecline()
-                            dismiss()
+                            Task {
+                                await consentManager.declineConsent()
+                                onDecline()
+                                dismiss()
+                            }
                         } label: {
                             Text("Decline")
                                 .font(.headline)

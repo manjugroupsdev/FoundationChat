@@ -46,6 +46,15 @@ enum MarketingConvexAPIService {
         let error: String?
     }
 
+    private struct CreateMarketingProjectRequest: Encodable {
+        let name: String
+        let description: String?
+        let status: String
+        let startDate: String
+        let endDate: String
+        let budget: Double?
+    }
+
     private struct InventoryUnitsResponse: Decodable {
         let success: Bool
         let units: [InventoryUnit]?
@@ -454,6 +463,34 @@ enum MarketingConvexAPIService {
         let wrapper = try decode(MarketingProjectResponse.self, from: data)
         guard wrapper.success, let project = wrapper.project else {
             throw MarketingAPIError.server(wrapper.error ?? "Failed to load project details")
+        }
+        return project
+    }
+
+    static func createMarketingProject(
+        token: String,
+        name: String,
+        description: String?,
+        status: String,
+        startDate: String,
+        endDate: String,
+        budget: Double?
+    ) async throws -> MarketingProject {
+        let data = try await post(
+            path: "/api/marketing/projects/create",
+            token: token,
+            body: CreateMarketingProjectRequest(
+                name: name,
+                description: description,
+                status: status,
+                startDate: startDate,
+                endDate: endDate,
+                budget: budget
+            )
+        )
+        let wrapper = try decode(MarketingProjectResponse.self, from: data)
+        guard wrapper.success, let project = wrapper.project else {
+            throw MarketingAPIError.server(wrapper.error ?? "Failed to create project")
         }
         return project
     }

@@ -25,6 +25,31 @@ enum TelecallerConvexAPIService {
         let error: String?
     }
 
+    private struct UpdateLeadRequest: Encodable {
+        let id: String
+        let contactName: String?
+        let emailId: String?
+        let alternateNumber: String?
+        let locationPreferred: String?
+        let manualProfile: ManualProfilePatch
+    }
+
+    private struct ManualProfilePatch: Encodable {
+        let clientName: String?
+        let pincode: String?
+        let address: String?
+        let state: String?
+        let district: String?
+        let alternateMobileNumber: String?
+        let doorNo: String?
+        let landmark: String?
+    }
+
+    private struct MutationResponse: Decodable {
+        let success: Bool
+        let error: String?
+    }
+
     struct DialResult: Sendable, Equatable {
         let ok: Bool
         let stage: String?
@@ -70,6 +95,46 @@ enum TelecallerConvexAPIService {
         let leads = wrapper.leads ?? []
         let hasMore = wrapper.hasMore ?? (wrapper.nextCursor != nil)
         return LeadsPage(leads: leads, nextCursor: wrapper.nextCursor, total: wrapper.total, hasMore: hasMore)
+    }
+
+    /// Mirrors Android's best-effort lead write-back after a booking form that
+    /// was prefilled from a telecaller lead is successfully saved.
+    static func updateLeadFromBooking(
+        token: String,
+        leadId: String,
+        contactName: String?,
+        emailId: String?,
+        alternateNumber: String?,
+        locationPreferred: String?,
+        pincode: String?,
+        address: String?,
+        state: String?,
+        district: String?,
+        doorNo: String?,
+        landmark: String?
+    ) async throws {
+        let request = UpdateLeadRequest(
+            id: leadId,
+            contactName: contactName,
+            emailId: emailId,
+            alternateNumber: alternateNumber,
+            locationPreferred: locationPreferred,
+            manualProfile: ManualProfilePatch(
+                clientName: contactName,
+                pincode: pincode,
+                address: address,
+                state: state,
+                district: district,
+                alternateMobileNumber: alternateNumber,
+                doorNo: doorNo,
+                landmark: landmark
+            )
+        )
+        let data = try await post(path: "/api/telecaller/leads/update", token: token, body: request)
+        let response = try JSONDecoder().decode(MutationResponse.self, from: data)
+        guard response.success else {
+            throw TelecallerAPIError.server(response.error ?? "Lead update failed")
+        }
     }
 
     /// Place a Doocti click-to-call. Returns once the bridge has accepted
@@ -123,6 +188,30 @@ enum TelecallerConvexAPIService {
         var request = URLRequest(url: url)
         request.httpMethod = "GET"
         request.setValue("Bearer \(token)", forHTTPHeaderField: "Authorization")
+        let (data, response) = try await URLSession.shared.data(for: request)
+        if let http = response as? HTTPURLResponse {
+            if http.statusCode == 401 {
+                SessionInvalidationBus.emit()
+                throw TelecallerAPIError.unauthorized
+            }
+            if http.statusCode >= 400 {
+                if let json = try? JSONSerialization.jsonObject(with: data) as? [String: Any],
+                   let error = json["error"] as? String {
+                    throw TelecallerAPIError.server(error)
+                }
+                throw TelecallerAPIError.server("Request failed (\(http.statusCode))")
+            }
+        }
+        return data
+    }
+
+    private static func post<T: Encodable>(path: String, token: String, body: T) async throws -> Data {
+        guard let url = URL(string: "\(baseURL)\(path)") else { throw TelecallerAPIError.badURL }
+        var request = URLRequest(url: url)
+        request.httpMethod = "POST"
+        request.setValue("Bearer \(token)", forHTTPHeaderField: "Authorization")
+        request.setValue("application/json", forHTTPHeaderField: "Content-Type")
+        request.httpBody = try JSONEncoder().encode(body)
         let (data, response) = try await URLSession.shared.data(for: request)
         if let http = response as? HTTPURLResponse {
             if http.statusCode == 401 {

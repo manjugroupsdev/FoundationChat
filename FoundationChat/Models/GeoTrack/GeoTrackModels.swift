@@ -184,6 +184,8 @@ struct GeoTrackLocationPoint: Encodable, Sendable {
 }
 
 struct GeoTrackPushBatchRequest: Encodable, Sendable {
+    let sessionId: String
+    let deviceId: String
     let points: [GeoTrackLocationPoint]
 }
 
@@ -211,8 +213,13 @@ struct GeoTrackStartRequest: Encodable, Sendable {
 // MARK: - Heartbeat
 
 struct GeoTrackHeartbeatRequest: Encodable, Sendable {
+    let sessionId: String?
+    let deviceId: String?
     let batteryPct: Int
     let appVersion: String
+    let recordedAt: Int64
+    let airplaneMode: Bool?
+    let locationEnabled: Bool?
 }
 
 // MARK: - Tamper
@@ -273,10 +280,16 @@ struct GeoTrackTamperFeedResponse: Decodable, Sendable {
 struct GeoTrackConsentRequest: Encodable, Sendable {
     let consented: Bool
     let appVersion: String
+    let policyKey: String
+    let status: String
+    let deviceId: String
 
-    init(consented: Bool = true, appVersion: String) {
+    init(consented: Bool = true, appVersion: String, deviceId: String) {
         self.consented = consented
         self.appVersion = appVersion
+        self.policyKey = "attendance_field"
+        self.status = consented ? "granted" : "declined"
+        self.deviceId = deviceId
     }
 }
 

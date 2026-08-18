@@ -7,6 +7,8 @@ import Foundation
 /// Optional `altitude` is bridged as NSNumber? so nil survives round-trips.
 final class PendingLocationPoint: NSManagedObject {
     @NSManaged var localId: UUID          // Primary key for deletion
+    @NSManaged var sessionId: String?
+    @NSManaged var deviceId: String?
     @NSManaged var lat: Double
     @NSManaged var lng: Double
     @NSManaged var accuracy: Double
@@ -54,6 +56,8 @@ final class PendingTamperEvent: NSManagedObject {
 
 struct PendingPoint: Sendable {
     let id: UUID
+    let sessionId: String?
+    let deviceId: String?
     let point: GeoTrackLocationPoint
 }
 
@@ -78,9 +82,10 @@ final class GeoTrackPersistence {
 
     /// Designated init. Pass `inMemory: true` for unit tests.
     init(inMemory: Bool = false) {
+        let model = Self.makeModel()
         container = NSPersistentContainer(
             name: "GeoTrack",
-            managedObjectModel: Self.makeModel()
+            managedObjectModel: model
         )
         if inMemory {
             let desc = NSPersistentStoreDescription()
@@ -90,6 +95,9 @@ final class GeoTrackPersistence {
         container.persistentStoreDescriptions.forEach { description in
             description.shouldMigrateStoreAutomatically = true
             description.shouldInferMappingModelAutomatically = true
+            if !inMemory, let storeURL = description.url {
+                Self.migrateLegacyStoreIfNeeded(at: storeURL, destinationModel: model)
+            }
         }
         // Never crash the whole app on a corrupt / migration-failed local buffer.
         // A GeoTrack DB failure must degrade gracefully: this is a best-effort
@@ -140,11 +148,13 @@ final class GeoTrackPersistence {
     // MARK: - Insert
 
     /// Saves one GPS point to the local buffer. Always isSent = false.
-    func insert(point: GeoTrackLocationPoint) async throws {
+    func insert(point: GeoTrackLocationPoint, sessionId: String?, deviceId: String?) async throws {
         let ctx = container.newBackgroundContext()
         try await ctx.perform {
             let entity = PendingLocationPoint(context: ctx)
             entity.localId = UUID()
+            entity.sessionId = sessionId
+            entity.deviceId = deviceId
             entity.lat = point.lat
             entity.lng = point.lng
             entity.accuracy = point.accuracy
@@ -189,7 +199,14 @@ final class GeoTrackPersistence {
             request.sortDescriptors = [NSSortDescriptor(key: "recordedAt", ascending: true)]
             request.fetchLimit = limit
             let results = try ctx.fetch(request)
-            return results.map { PendingPoint(id: $0.localId, point: $0.toGeoTrackPoint()) }
+            return results.map {
+                PendingPoint(
+                    id: $0.localId,
+                    sessionId: $0.sessionId,
+                    deviceId: $0.deviceId,
+                    point: $0.toGeoTrackPoint()
+                )
+            }
         }
     }
 
@@ -307,7 +324,7 @@ final class GeoTrackPersistence {
 
     // MARK: - Programmatic NSManagedObjectModel
 
-    private static func makeModel() -> NSManagedObjectModel {
+    private static func makeModel(includeTrackingContext: Bool = true) -> NSManagedObjectModel {
         let model = NSManagedObjectModel()
 
         let entity = NSEntityDescription()
@@ -328,7 +345,7 @@ final class GeoTrackPersistence {
             return a
         }
 
-        entity.properties = [
+        var pointProperties: [NSPropertyDescription] = [
             attr("localId",             type: .UUIDAttributeType),
             attr("lat",                 type: .doubleAttributeType,   default: 0.0),
             attr("lng",                 type: .doubleAttributeType,   default: 0.0),
@@ -347,6 +364,11 @@ final class GeoTrackPersistence {
             attr("recordedAt",          type: .integer64AttributeType, default: Int64(0)),
             attr("isSent",              type: .booleanAttributeType,  default: false),
         ]
+        if includeTrackingContext {
+            pointProperties.insert(attr("sessionId", type: .stringAttributeType, optional: true), at: 1)
+            pointProperties.insert(attr("deviceId", type: .stringAttributeType, optional: true), at: 2)
+        }
+        entity.properties = pointProperties
 
         let tamperEntity = NSEntityDescription()
         tamperEntity.name = "PendingTamperEvent"
@@ -360,5 +382,57 @@ final class GeoTrackPersistence {
 
         model.entities = [entity, tamperEntity]
         return model
+    }
+
+    private static func migrateLegacyStoreIfNeeded(
+        at storeURL: URL,
+        destinationModel: NSManagedObjectModel
+    ) {
+        guard FileManager.default.fileExists(atPath: storeURL.path),
+              let metadata = try? NSPersistentStoreCoordinator.metadataForPersistentStore(
+                ofType: NSSQLiteStoreType,
+                at: storeURL,
+                options: nil
+              ),
+              !destinationModel.isConfiguration(withName: nil, compatibleWithStoreMetadata: metadata)
+        else { return }
+
+        let legacyModel = makeModel(includeTrackingContext: false)
+        guard legacyModel.isConfiguration(withName: nil, compatibleWithStoreMetadata: metadata),
+              let mapping = try? NSMappingModel.inferredMappingModel(
+                forSourceModel: legacyModel,
+                destinationModel: destinationModel
+              )
+        else { return }
+
+        let temporaryURL = storeURL.deletingLastPathComponent()
+            .appendingPathComponent("GeoTrack-migrating-\(UUID().uuidString).sqlite")
+        do {
+            let manager = NSMigrationManager(
+                sourceModel: legacyModel,
+                destinationModel: destinationModel
+            )
+            try manager.migrateStore(
+                from: storeURL,
+                sourceType: NSSQLiteStoreType,
+                options: nil,
+                with: mapping,
+                toDestinationURL: temporaryURL,
+                destinationType: NSSQLiteStoreType,
+                destinationOptions: nil
+            )
+            let coordinator = NSPersistentStoreCoordinator(managedObjectModel: destinationModel)
+            try coordinator.replacePersistentStore(
+                at: storeURL,
+                destinationOptions: nil,
+                withPersistentStoreFrom: temporaryURL,
+                sourceOptions: nil,
+                ofType: NSSQLiteStoreType
+            )
+            try? FileManager.default.removeItem(at: temporaryURL)
+        } catch {
+            try? FileManager.default.removeItem(at: temporaryURL)
+            NSLog("GeoTrack legacy store migration failed: \(error)")
+        }
     }
 }

@@ -38,6 +38,12 @@ final class GeoTrackBootstrapCoordinator {
         return created
     }
 
+    var activeSessionId: String? {
+        guard let value = userDefaults.string(forKey: DefaultsKey.activeSessionId)?
+            .trimmingCharacters(in: .whitespacesAndNewlines), !value.isEmpty else { return nil }
+        return value
+    }
+
     private init() {
         self.geoAPI = .shared
         self.userDefaults = .standard

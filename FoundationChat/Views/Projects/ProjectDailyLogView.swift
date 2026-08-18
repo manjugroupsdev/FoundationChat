@@ -900,12 +900,20 @@ private struct CreateDailyLogSheet: View {
     @State private var materialCatalog: [DailyLogMaterialCatalogItem] = []
     @State private var isLoadingMaterials = false
     @State private var showProjectPicker = false
+    @State private var showQuickCreateProject = false
+    @State private var createdProjects: [ProjectSummary] = []
     @State private var showMaterialPicker = false
     @State private var isSaving = false
     @State private var errorMessage: String?
 
     private let weatherOptions = ["sunny", "cloudy", "rainy", "windy", "stormy"]
     private let conditionOptions = ["good", "fair", "poor"]
+
+    private var projectChoices: [ProjectSummary] {
+        projects + createdProjects.filter { created in
+            !projects.contains(where: { $0.id == created.id })
+        }
+    }
 
     var body: some View {
         VStack(spacing: 0) {
@@ -928,6 +936,15 @@ private struct CreateDailyLogSheet: View {
                     DailyLogPickerField(label: "Project *", value: selectedProject?.displayName ?? "Select project", isPlaceholder: selectedProject == nil) {
                         showProjectPicker = true
                     }
+
+                    Button {
+                        showQuickCreateProject = true
+                    } label: {
+                        Label("Create a new project", systemImage: "plus.circle")
+                            .font(.system(size: 13, weight: .semibold))
+                    }
+                    .buttonStyle(.plain)
+                    .foregroundStyle(Color(hex: 0x0B61CA))
 
                     VStack(alignment: .leading, spacing: 6) {
                         DailyLogFieldLabel("Date *")
@@ -1068,7 +1085,7 @@ private struct CreateDailyLogSheet: View {
             NativeSearchableSelectionSheet(
                 title: "Select project",
                 prompt: "Search projects",
-                items: projects,
+                items: projectChoices,
                 selectedId: selectedProject?.id,
                 searchText: { [$0.displayName, $0.status ?? ""].joined(separator: " ") },
                 rowContent: { project, isSelected in
@@ -1079,6 +1096,22 @@ private struct CreateDailyLogSheet: View {
                 }
             )
             .appLibraryNativeSheet([.medium, .large])
+            .presentationBackground(Color.white)
+        }
+        .sheet(isPresented: $showQuickCreateProject) {
+            QuickCreateProjectSheet { project in
+                let summary = ProjectSummary(
+                    id: project.id,
+                    name: project.name,
+                    status: project.status,
+                    location: project.location,
+                    specialPaymentEnabled: project.specialPaymentEnabled
+                )
+                createdProjects.append(summary)
+                selectedProject = summary
+            }
+            .appFormActivity()
+            .appLibraryNativeSheet([.height(650), .large])
             .presentationBackground(Color.white)
         }
         .sheet(isPresented: $showMaterialPicker) {
@@ -1214,6 +1247,113 @@ private struct CreateDailyLogSheet: View {
                 attachments: attachments
             )
             await onCreated()
+            dismiss()
+        } catch {
+            errorMessage = error.localizedDescription
+        }
+    }
+}
+
+private struct QuickCreateProjectSheet: View {
+    @Environment(AuthStore.self) private var authStore
+    @Environment(\.dismiss) private var dismiss
+
+    let onCreated: (MarketingProject) -> Void
+
+    @State private var name = ""
+    @State private var projectDescription = ""
+    @State private var startDate = Date()
+    @State private var durationDays = ""
+    @State private var status = "proposed"
+    @State private var budget = ""
+    @State private var isSaving = false
+    @State private var errorMessage: String?
+
+    private let statuses = ["proposed", "ongoing", "completed"]
+
+    var body: some View {
+        NavigationStack {
+            Form {
+                Section("Project") {
+                    TextField("Project name", text: $name)
+                    TextField("Description", text: $projectDescription, axis: .vertical)
+                        .lineLimit(2...5)
+                }
+
+                Section("Schedule") {
+                    DatePicker("Start date", selection: $startDate, displayedComponents: .date)
+                    TextField("Duration in days", text: $durationDays)
+                        .keyboardType(.numberPad)
+                    Picker("Status", selection: $status) {
+                        ForEach(statuses, id: \.self) { value in
+                            Text(value.capitalized).tag(value)
+                        }
+                    }
+                }
+
+                Section("Budget") {
+                    TextField("Optional budget", text: $budget)
+                        .keyboardType(.decimalPad)
+                }
+
+                if let errorMessage {
+                    Section {
+                        Text(errorMessage)
+                            .font(.footnote)
+                            .foregroundStyle(.red)
+                    }
+                }
+            }
+            .navigationTitle("Create Project")
+            .navigationBarTitleDisplayMode(.inline)
+            .toolbar {
+                ToolbarItem(placement: .cancellationAction) {
+                    Button("Cancel") { dismiss() }
+                        .disabled(isSaving)
+                }
+                ToolbarItem(placement: .confirmationAction) {
+                    Button {
+                        Task { await submit() }
+                    } label: {
+                        if isSaving { ProgressView() } else { Text("Create") }
+                    }
+                    .disabled(isSaving)
+                }
+            }
+        }
+    }
+
+    @MainActor
+    private func submit() async {
+        let trimmedName = name.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !trimmedName.isEmpty else {
+            errorMessage = "Enter a project name"
+            return
+        }
+        guard let days = Int(durationDays), days > 0 else {
+            errorMessage = "Enter a valid duration in days"
+            return
+        }
+        guard let token = authStore.currentSession?.token else {
+            errorMessage = "Session expired. Please login again."
+            return
+        }
+
+        isSaving = true
+        errorMessage = nil
+        defer { isSaving = false }
+        let endDate = Calendar.current.date(byAdding: .day, value: days, to: startDate) ?? startDate
+        do {
+            let project = try await MarketingConvexAPIService.createMarketingProject(
+                token: token,
+                name: trimmedName,
+                description: projectDescription.nonBlank,
+                status: status,
+                startDate: AppModuleFormatters.ymd.string(from: startDate),
+                endDate: AppModuleFormatters.ymd.string(from: endDate),
+                budget: Double(budget)
+            )
+            onCreated(project)
             dismiss()
         } catch {
             errorMessage = error.localizedDescription

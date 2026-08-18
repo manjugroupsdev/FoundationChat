@@ -150,10 +150,15 @@ final class GeoTrackAPIService {
 
     // MARK: - Location Tracking
 
-    /// POST /api/geotrack/push-batch
-    func pushBatch(points: [GeoTrackLocationPoint]) async throws -> GeoTrackPushBatchResponse {
-        let body = GeoTrackPushBatchRequest(points: points)
-        let request = try makeRequest(path: "/api/geotrack/push-batch", method: "POST", body: body)
+    /// POST /api/tracking/location/batch. The session is captured with each
+    /// point so an offline backlog is never attributed to a later shift.
+    func pushBatch(
+        sessionId: String,
+        deviceId: String,
+        points: [GeoTrackLocationPoint]
+    ) async throws -> GeoTrackPushBatchResponse {
+        let body = GeoTrackPushBatchRequest(sessionId: sessionId, deviceId: deviceId, points: points)
+        let request = try makeRequest(path: "/api/tracking/location/batch", method: "POST", body: body)
         let result: GeoTrackPushBatchResponse = try await perform(request)
         if let err = result.error { throw GeoTrackAPIError.serverError(err) }
         return result
@@ -176,10 +181,25 @@ final class GeoTrackAPIService {
 
     // MARK: - Heartbeat
 
-    /// POST /api/geotrack/heartbeat
-    func heartbeat(batteryPct: Int, appVersion: String) async throws {
-        let body = GeoTrackHeartbeatRequest(batteryPct: batteryPct, appVersion: appVersion)
-        let request = try makeRequest(path: "/api/geotrack/heartbeat", method: "POST", body: body)
+    /// POST /api/tracking/heartbeat
+    func heartbeat(
+        batteryPct: Int,
+        appVersion: String,
+        recordedAt: Int64? = nil,
+        sessionId: String? = nil,
+        deviceId: String? = nil
+    ) async throws {
+        let coordinator = GeoTrackBootstrapCoordinator.shared
+        let body = GeoTrackHeartbeatRequest(
+            sessionId: sessionId ?? coordinator.activeSessionId,
+            deviceId: deviceId ?? coordinator.deviceId,
+            batteryPct: batteryPct,
+            appVersion: appVersion,
+            recordedAt: recordedAt ?? Int64(Date().timeIntervalSince1970 * 1_000),
+            airplaneMode: nil,
+            locationEnabled: nil
+        )
+        let request = try makeRequest(path: "/api/tracking/heartbeat", method: "POST", body: body)
         let result: GeoTrackBaseResponse = try await perform(request)
         if let err = result.error { throw GeoTrackAPIError.serverError(err) }
     }
@@ -211,10 +231,14 @@ final class GeoTrackAPIService {
 
     // MARK: - Consent
 
-    /// POST /api/geotrack/consent
+    /// POST /api/tracking/consent
     func recordConsent(consented: Bool = true, appVersion: String) async throws {
-        let body = GeoTrackConsentRequest(consented: consented, appVersion: appVersion)
-        let request = try makeRequest(path: "/api/geotrack/consent", method: "POST", body: body)
+        let body = GeoTrackConsentRequest(
+            consented: consented,
+            appVersion: appVersion,
+            deviceId: GeoTrackBootstrapCoordinator.shared.deviceId
+        )
+        let request = try makeRequest(path: "/api/tracking/consent", method: "POST", body: body)
         let result: GeoTrackBaseResponse = try await perform(request)
         if let err = result.error { throw GeoTrackAPIError.serverError(err) }
     }

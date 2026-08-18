@@ -3223,6 +3223,7 @@ struct BookingCreateView: View {
                     sourceContext: sourceContext
                 )
             )
+            await syncLinkedLeadAfterBooking(token: token)
             clearDraft()
             createdBookingId = bookingId
             switch saveAs {
@@ -3236,6 +3237,25 @@ struct BookingCreateView: View {
         } catch {
             errorMessage = error.localizedDescription
         }
+    }
+
+    @MainActor
+    private func syncLinkedLeadAfterBooking(token: String) async {
+        guard let leadId = selectedLead?.id else { return }
+        try? await TelecallerConvexAPIService.updateLeadFromBooking(
+            token: token,
+            leadId: leadId,
+            contactName: booking.name.directBookingNilIfBlank,
+            emailId: booking.email.directBookingNilIfBlank,
+            alternateNumber: booking.alternateNumbers.directBookingNilIfBlank,
+            locationPreferred: booking.location.directBookingNilIfBlank,
+            pincode: booking.pincode.directBookingNilIfBlank,
+            address: booking.composedHomeAddress,
+            state: booking.state.directBookingNilIfBlank,
+            district: booking.district.directBookingNilIfBlank,
+            doorNo: booking.homeDoorNo.directBookingNilIfBlank,
+            landmark: booking.homeAddressLine2.directBookingNilIfBlank
+        )
     }
 
     private typealias BookingValidationIssue = (message: String, tab: DirectBookingTab)
