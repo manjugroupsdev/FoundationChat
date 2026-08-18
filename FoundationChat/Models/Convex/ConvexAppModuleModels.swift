@@ -1212,6 +1212,7 @@ struct AppBooking: Codable, Identifiable, Equatable, Sendable {
     let clientImageFileName: String?
     let title: String?
     let fatherSpouseName: String?
+    let fatherSpouseRelation: String?
     let dateOfBirth: String?
     let anniversaryDate: String?
     let alternateNumbers: String?
@@ -1334,8 +1335,12 @@ struct AppBooking: Codable, Identifiable, Equatable, Sendable {
     let cancellationRequest: AppBookingApprovalRequest?
     let cancellationApprovalStage: String?
     let cancellationRequestedAt: Double?
+    let selfCancelledByName: String?
+    let selfCancelledAt: Double?
+    let selfCancellationReason: String?
     let plot: AppBookingPlotDetail?
     let sourceTelecallerStaff: AppBookingStaffBrief?
+    let bookingTelecallerStaff: AppBookingStaffBrief?
     let sourceAvpStaff: AppBookingStaffBrief?
     let notes: String?
     let createdAt: Double?
@@ -1347,7 +1352,7 @@ struct AppBooking: Codable, Identifiable, Equatable, Sendable {
         case bookingRefNo, clientName, mobileNumber, projectId, projectName
         case plotId, plotNo, plotNumber, bookingDate, bookingType, bookingMode
         case clientImageStorageId, clientImageFileName
-        case title, fatherSpouseName, dateOfBirth, anniversaryDate, alternateNumbers, whatsappNumber
+        case title, fatherSpouseName, fatherSpouseRelation, dateOfBirth, anniversaryDate, alternateNumbers, whatsappNumber
         case email, nationality, homeAddress, pincode, state, district, location
         case profession, designation, department, incomePerAnnum, officeName, officeEmail, officeMobile, officePhone, officeAddress
         case officeArea, officePincode
@@ -1378,7 +1383,8 @@ struct AppBooking: Codable, Identifiable, Equatable, Sendable {
         case approvalStatus, approvalStage, sourceType, createdByStaffId
         case accountsTransactionId, accountsPaymentProofStorageId, accountsPaymentProofFileName
         case approvalRequest, approvalWorkflow, cancellationRequest, cancellationApprovalStage, cancellationRequestedAt
-        case plot, sourceTelecallerStaff, sourceAvpStaff
+        case selfCancelledByName, selfCancelledAt, selfCancellationReason
+        case plot, sourceTelecallerStaff, bookingTelecallerStaff, sourceAvpStaff
         case notes, createdAt, updatedAt
     }
 

@@ -272,6 +272,14 @@ private enum BookingDrawerTab: String, CaseIterable, Identifiable {
     }
 }
 
+private enum ApprovalStepState {
+    case done
+    case current
+    case rejected
+    case cancelled
+    case future
+}
+
 private struct BookingDrawerGrid<Content: View>: View {
     @ViewBuilder let content: Content
 
@@ -666,30 +674,39 @@ private struct BookingDetailView: View {
                 BookingDrawerGridItem(title: "Plot", value: booking.plotNo ?? booking.plotNumber)
                 BookingDrawerGridItem(title: "Status", value: booking.displayStatus.capitalized)
                 BookingDrawerGridItem(title: "Approval Stage", value: booking.approvalStage ?? booking.approvalStatus)
+                BookingDrawerGridItem(title: "Plot Status", value: booking.plot?.status?.nilIfBlank?.capitalized)
                 BookingDrawerGridItem(title: "Agreed Amount", value: (booking.agreedAmount ?? booking.bookingCost).map(AppModuleFormatters.rupees))
                 BookingDrawerGridItem(title: "Advance", value: booking.advanceAmount.map(AppModuleFormatters.rupees))
-                BookingDrawerGridItem(title: "Telecaller", value: booking.sourceTelecallerStaff?.name)
+                BookingDrawerGridItem(title: "Telecaller", value: booking.bookingTelecallerStaff?.name ?? booking.sourceTelecallerStaff?.name)
                 BookingDrawerGridItem(title: "Source AVP", value: booking.sourceAvpStaff?.name)
             }
 
-            VStack(alignment: .leading, spacing: 10) {
-                Label("Approval Timeline", systemImage: "checkmark.seal")
-                    .font(.system(size: 14, weight: .bold))
-                    .foregroundStyle(Color(hex: 0x101828))
-                Text(
-                    booking.displayStatus.lowercased().contains("draft")
-                    ? "Approval starts when the draft is submitted for confirmation."
-                    : "Approval status will update as managers review this booking."
-                )
-                .font(.system(size: 13))
-                .foregroundStyle(Color(hex: 0x667085))
-                .fixedSize(horizontal: false, vertical: true)
+            if let cancelledAt = booking.selfCancelledAt {
+                selfCancellationCard(booking, cancelledAt: cancelledAt)
             }
-            .padding(16)
-            .background(Color.white, in: RoundedRectangle(cornerRadius: 14, style: .continuous))
-            .overlay {
-                RoundedRectangle(cornerRadius: 14, style: .continuous)
-                    .stroke(Color(hex: 0xEAECF0), lineWidth: 1)
+
+            if booking.approvalRequest != nil {
+                approvalTimelineCard(booking)
+            } else {
+                VStack(alignment: .leading, spacing: 10) {
+                    Label("Approval Timeline", systemImage: "checkmark.seal")
+                        .font(.system(size: 14, weight: .bold))
+                        .foregroundStyle(Color(hex: 0x101828))
+                    Text(
+                        booking.displayStatus.lowercased().contains("draft")
+                        ? "Approval starts when the draft is submitted for confirmation."
+                        : "Approval status will update as managers review this booking."
+                    )
+                    .font(.system(size: 13))
+                    .foregroundStyle(Color(hex: 0x667085))
+                    .fixedSize(horizontal: false, vertical: true)
+                }
+                .padding(16)
+                .background(Color.white, in: RoundedRectangle(cornerRadius: 14, style: .continuous))
+                .overlay {
+                    RoundedRectangle(cornerRadius: 14, style: .continuous)
+                        .stroke(Color(hex: 0xEAECF0), lineWidth: 1)
+                }
             }
 
             if !booking.displayStatus.lowercased().contains("draft") {
@@ -706,6 +723,269 @@ private struct BookingDetailView: View {
         }
     }
 
+    private func selfCancellationCard(_ booking: AppBooking, cancelledAt: Double) -> some View {
+        VStack(alignment: .leading, spacing: 4) {
+            Label("Cancelled by \(booking.selfCancelledByName?.nilIfBlank ?? "the submitter")", systemImage: "xmark.octagon.fill")
+                .font(.system(size: 13, weight: .bold))
+                .foregroundStyle(Color(hex: 0xB42318))
+            if let stamp = formattedDrawerEpoch(cancelledAt) {
+                Text(stamp)
+                    .font(.system(size: 11))
+                    .foregroundStyle(Color(hex: 0x667085))
+            }
+            if let reason = booking.selfCancellationReason?.nilIfBlank {
+                Text(reason)
+                    .font(.system(size: 13))
+                    .foregroundStyle(Color(hex: 0x475467))
+                    .fixedSize(horizontal: false, vertical: true)
+            }
+        }
+        .padding(16)
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .background(Color(hex: 0xFEF3F2), in: RoundedRectangle(cornerRadius: 14, style: .continuous))
+        .overlay {
+            RoundedRectangle(cornerRadius: 14, style: .continuous)
+                .stroke(Color(hex: 0xFDA29B), lineWidth: 1)
+        }
+    }
+
+    private func approvalTimelineCard(_ booking: AppBooking) -> some View {
+        let request = booking.approvalRequest
+        let stage = (booking.approvalStage ?? booking.approvalStatus ?? request?.status ?? "").lowercased()
+        let history = request?.approvalHistory ?? []
+        let currentStep = request?.currentStep ?? 1
+        let steps = (booking.approvalWorkflow?.steps ?? [])
+            .sorted { ($0.stepOrder ?? 0) < ($1.stepOrder ?? 0) }
+        let totalSteps = request?.totalSteps ?? (steps.isEmpty ? nil : steps.count)
+
+        return VStack(alignment: .leading, spacing: 12) {
+            HStack {
+                Label("Approval Timeline", systemImage: "checkmark.seal")
+                    .font(.system(size: 14, weight: .bold))
+                    .foregroundStyle(Color(hex: 0x101828))
+                Spacer()
+                if let totalSteps, totalSteps > 0 {
+                    Text("Step \(min(currentStep, totalSteps)) / \(totalSteps)")
+                        .font(.system(size: 12, weight: .semibold))
+                        .foregroundStyle(Color(hex: 0x0B61CA))
+                        .padding(.horizontal, 10)
+                        .frame(height: 26)
+                        .background(Color(hex: 0xEFF6FF), in: Capsule())
+                }
+            }
+
+            VStack(alignment: .leading, spacing: 0) {
+                timelineNode(
+                    dotColor: Color(hex: 0x0B61CA),
+                    systemImage: "paperplane.fill",
+                    isLast: steps.isEmpty,
+                    title: Text("Submitted by \(request?.requestedBy?.nilIfBlank ?? "system")")
+                        .font(.system(size: 13, weight: .semibold))
+                        .foregroundColor(Color(hex: 0x101828)),
+                    subtitle: formattedDrawerTimestamp(request?.requestedOn) ?? formattedDrawerEpoch(booking.createdAt),
+                    pending: nil,
+                    comment: nil
+                )
+
+                ForEach(Array(steps.enumerated()), id: \.offset) { index, step in
+                    let order = index + 1
+                    let state = approvalStepState(stepOrder: order, stage: stage, currentStep: currentStep, history: history)
+                    let event = history.first { $0.stepOrder == order }
+                    let visuals = timelineStepVisuals(state)
+                    timelineNode(
+                        dotColor: visuals.color,
+                        systemImage: visuals.systemImage,
+                        isLast: index == steps.count - 1,
+                        title: stepTitleText(order: order, role: step.approverRole?.nilIfBlank ?? "Approver", state: state, event: event),
+                        subtitle: formattedDrawerTimestamp(event?.timestamp),
+                        pending: state == .current ? request?.currentApproverName?.nilIfBlank : nil,
+                        comment: event?.comment?.nilIfBlank
+                    )
+                }
+            }
+        }
+        .padding(16)
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .background(Color.white, in: RoundedRectangle(cornerRadius: 14, style: .continuous))
+        .overlay {
+            RoundedRectangle(cornerRadius: 14, style: .continuous)
+                .stroke(Color(hex: 0xEAECF0), lineWidth: 1)
+        }
+    }
+
+    private func approvalStepState(
+        stepOrder: Int,
+        stage: String,
+        currentStep: Int,
+        history: [AppBookingApprovalHistory]
+    ) -> ApprovalStepState {
+        let isApproved = stage == "approved"
+        let isRejected = stage == "rejected"
+        if isRejected {
+            let cancellationEvent = history.first { $0.action == "cancelled" }
+            let rejectedAt = cancellationEvent?.stepOrder
+                ?? history.first { $0.action == "rejected" }?.stepOrder
+                ?? currentStep
+            if stepOrder < rejectedAt { return .done }
+            if stepOrder == rejectedAt { return cancellationEvent != nil ? .cancelled : .rejected }
+            return .future
+        }
+        if isApproved { return .done }
+        if stepOrder < currentStep { return .done }
+        if stepOrder == currentStep { return .current }
+        return .future
+    }
+
+    private func timelineStepVisuals(_ state: ApprovalStepState) -> (color: Color, systemImage: String) {
+        switch state {
+        case .done: return (Color(hex: 0x12B76A), "checkmark.circle.fill")
+        case .current: return (Color(hex: 0xF79009), "clock.fill")
+        case .rejected: return (Color(hex: 0xD92D20), "xmark.circle.fill")
+        case .cancelled: return (Color(hex: 0xD92D20), "nosign")
+        case .future: return (Color(hex: 0x98A2B3), "circle")
+        }
+    }
+
+    private func stepTitleText(
+        order: Int,
+        role: String,
+        state: ApprovalStepState,
+        event: AppBookingApprovalHistory?
+    ) -> Text {
+        let base = Text("Step \(order) — \(role)")
+            .font(.system(size: 13, weight: .semibold))
+            .foregroundColor(Color(hex: 0x101828))
+        switch state {
+        case .current:
+            return base + Text("  Awaiting")
+                .font(.system(size: 12, weight: .semibold))
+                .foregroundColor(Color(hex: 0xF79009))
+        case .done:
+            if let name = event?.approverName?.nilIfBlank {
+                return base + Text("  by \(name)")
+                    .font(.system(size: 12, weight: .medium))
+                    .foregroundColor(Color(hex: 0x12B76A))
+            }
+        case .rejected:
+            if let name = event?.approverName?.nilIfBlank {
+                return base + Text("  rejected by \(name)")
+                    .font(.system(size: 12, weight: .medium))
+                    .foregroundColor(Color(hex: 0xD92D20))
+            }
+        case .cancelled:
+            if let name = event?.approverName?.nilIfBlank {
+                return base + Text("  cancelled by \(name)")
+                    .font(.system(size: 12, weight: .medium))
+                    .foregroundColor(Color(hex: 0xD92D20))
+            }
+        case .future:
+            break
+        }
+        return base
+    }
+
+    @ViewBuilder
+    private func timelineNode(
+        dotColor: Color,
+        systemImage: String,
+        isLast: Bool,
+        title: Text,
+        subtitle: String?,
+        pending: String?,
+        comment: String?
+    ) -> some View {
+        HStack(alignment: .top, spacing: 12) {
+            VStack(spacing: 0) {
+                ZStack {
+                    Circle()
+                        .fill(dotColor.opacity(0.12))
+                        .frame(width: 22, height: 22)
+                    Image(systemName: systemImage)
+                        .font(.system(size: 11, weight: .bold))
+                        .foregroundStyle(dotColor)
+                }
+                if !isLast {
+                    Rectangle()
+                        .fill(Color(hex: 0xEAECF0))
+                        .frame(width: 1)
+                        .frame(maxHeight: .infinity)
+                }
+            }
+            .frame(width: 22)
+
+            VStack(alignment: .leading, spacing: 3) {
+                title
+                    .fixedSize(horizontal: false, vertical: true)
+                if let subtitle = subtitle?.nilIfBlank {
+                    Text(subtitle)
+                        .font(.system(size: 11))
+                        .foregroundStyle(Color(hex: 0x667085))
+                }
+                if let pending = pending?.nilIfBlank {
+                    Text("Pending: \(pending)")
+                        .font(.system(size: 11))
+                        .foregroundStyle(Color(hex: 0x667085))
+                }
+                if let comment = comment?.nilIfBlank {
+                    Text(comment)
+                        .font(.system(size: 12))
+                        .foregroundStyle(Color(hex: 0x475467))
+                        .fixedSize(horizontal: false, vertical: true)
+                        .padding(.horizontal, 8)
+                        .padding(.vertical, 6)
+                        .frame(maxWidth: .infinity, alignment: .leading)
+                        .background(Color(hex: 0xF2F4F7), in: RoundedRectangle(cornerRadius: 8, style: .continuous))
+                }
+            }
+            .frame(maxWidth: .infinity, alignment: .leading)
+            .padding(.bottom, isLast ? 0 : 14)
+        }
+    }
+
+    private static let drawerDateTimeFormatter: DateFormatter = {
+        let f = DateFormatter()
+        f.dateFormat = "dd MMM yyyy, h:mm a"
+        f.locale = Locale(identifier: "en_US_POSIX")
+        return f
+    }()
+
+    private func formattedDrawerTimestamp(_ rawValue: String?) -> String? {
+        guard let rawValue = rawValue?.nilIfBlank else { return nil }
+        let iso = ISO8601DateFormatter()
+        iso.formatOptions = [.withInternetDateTime, .withFractionalSeconds]
+        if let date = iso.date(from: rawValue) {
+            return Self.drawerDateTimeFormatter.string(from: date)
+        }
+        iso.formatOptions = [.withInternetDateTime]
+        if let date = iso.date(from: rawValue) {
+            return Self.drawerDateTimeFormatter.string(from: date)
+        }
+        if let date = AppModuleFormatters.ymd.date(from: rawValue) {
+            return AppModuleFormatters.day.string(from: date)
+        }
+        return rawValue
+    }
+
+    private func formattedDrawerEpoch(_ milliseconds: Double?) -> String? {
+        guard let milliseconds, milliseconds > 0 else { return nil }
+        let date = Date(timeIntervalSince1970: milliseconds / 1000)
+        return Self.drawerDateTimeFormatter.string(from: date)
+    }
+
+    @ViewBuilder
+    private func drawerInfoRow(_ title: String, _ value: String?) -> some View {
+        if let value = value?.nilIfBlank {
+            drawerField(title, text: .constant(value), value: value, editableOverride: false)
+        }
+    }
+
+    @ViewBuilder
+    private func drawerBoolRow(_ title: String, _ value: Bool?) -> some View {
+        if let value {
+            drawerInfoRow(title, value ? "Yes" : "No")
+        }
+    }
+
     private func clientTab(_ booking: AppBooking) -> some View {
         VStack(alignment: .leading, spacing: 10) {
             drawerSectionHeader("Personal Information", systemImage: "person.text.rectangle")
@@ -713,6 +993,7 @@ private struct BookingDetailView: View {
             drawerField("Title", text: $editDraft.title, value: booking.title)
             drawerField("Client Name", text: $editDraft.clientName, value: booking.clientName)
             drawerField("Father / Spouse Name", text: $editDraft.fatherSpouseName, value: booking.fatherSpouseName)
+            drawerInfoRow("Father / Spouse Relation", booking.fatherSpouseRelation)
             drawerField("Date of Birth", text: $editDraft.dateOfBirth, value: formattedDrawerDate(booking.dateOfBirth))
             drawerField("Anniversary Date", text: $editDraft.anniversaryDate, value: formattedDrawerDate(booking.anniversaryDate))
             drawerField("Nationality", text: $editDraft.nationality, value: booking.nationality)
@@ -728,7 +1009,25 @@ private struct BookingDetailView: View {
             drawerField("State", text: $editDraft.state, value: booking.state)
             drawerField("District", text: $editDraft.district, value: booking.district)
             drawerField("Location", text: $editDraft.location, value: booking.location)
+
+            if hasAny(booking.department, booking.officeArea, booking.officePincode) {
+                drawerSectionHeader("Employment", systemImage: "building.columns")
+                drawerInfoRow("Department", booking.department)
+                drawerInfoRow("Office Area", booking.officeArea)
+                drawerInfoRow("Office Pincode", booking.officePincode)
+            }
+
+            if hasAny(booking.clientSource, booking.clientSourceName, booking.clientSourceMobile) {
+                drawerSectionHeader("Client Source", systemImage: "person.crop.circle.badge.questionmark")
+                drawerInfoRow("Client Source", booking.clientSource)
+                drawerInfoRow("Source Name", booking.clientSourceName)
+                drawerInfoRow("Source Mobile", booking.clientSourceMobile)
+            }
         }
+    }
+
+    private func hasAny(_ values: String?...) -> Bool {
+        values.contains { $0?.nilIfBlank != nil }
     }
 
     private func bookingFinanceTab(_ booking: AppBooking) -> some View {
@@ -740,11 +1039,75 @@ private struct BookingDetailView: View {
             drawerField("Plot", text: .constant(booking.plotNo ?? booking.plotNumber ?? ""), value: booking.plotNo ?? booking.plotNumber, editableOverride: false)
             drawerField("Booking Type", text: $editDraft.bookingType, value: booking.bookingType)
             drawerField("Booking Mode", text: $editDraft.bookingMode, value: booking.bookingMode)
+            drawerInfoRow("CEF No", booking.cefNo)
+            drawerInfoRow("Property Type", booking.propertyType)
+            drawerBoolRow("Is Against Site Visit?", booking.isAgainstSV)
+            drawerInfoRow("SV Name", booking.svName)
+            drawerInfoRow("SV Mobile", booking.svMobileNo)
+            drawerBoolRow("Duplicate Booking", booking.isDuplicateBooking)
 
             drawerSectionHeader("Financial Summary", systemImage: "indianrupeesign.circle")
             drawerField("Booking Cost", text: $editDraft.bookingCost, value: booking.bookingCost.map(AppModuleFormatters.rupees), keyboard: .decimalPad)
             drawerField("Guideline Value", text: $editDraft.guidelineValue, value: booking.guidelineValue.map(AppModuleFormatters.rupees), keyboard: .decimalPad)
             drawerField("Advance Amount", text: $editDraft.advanceAmount, value: booking.advanceAmount.map(AppModuleFormatters.rupees), keyboard: .decimalPad)
+            drawerInfoRow("Balance Amount", booking.balanceAmount.map(AppModuleFormatters.rupees))
+
+            if hasAny(booking.specialConsideration.map(AppModuleFormatters.rupees), booking.specialConsiderationReason, booking.discountApprovedBy) {
+                drawerSectionHeader("Special Consideration", systemImage: "percent")
+                drawerInfoRow("Special Consideration", booking.specialConsideration.map(AppModuleFormatters.rupees))
+                drawerInfoRow("Reason", booking.specialConsiderationReason)
+                drawerInfoRow("Validity", booking.specialConsiderationValidity.map { "\(Int($0)) days" })
+                drawerInfoRow("Discount Approved By", booking.discountApprovedBy)
+            }
+
+            if hasAny(booking.promotionalOffers, booking.promotionalOffersTnC, booking.promotionalOfferValue.map(AppModuleFormatters.rupees)) {
+                drawerSectionHeader("Promotional Offer", systemImage: "gift")
+                drawerInfoRow("Promotional Offer", booking.promotionalOffers)
+                drawerInfoRow("Offer Value", booking.promotionalOfferValue.map(AppModuleFormatters.rupees))
+                drawerInfoRow("Terms & Conditions", booking.promotionalOffersTnC)
+                drawerInfoRow("Offer Validity", booking.offerValidityPeriod.map { "\(Int($0)) days" })
+            }
+
+            if hasAny(booking.customerPaymentCategory, booking.loanAmountRequested.map(AppModuleFormatters.rupees), booking.paymentPlan) {
+                drawerSectionHeader("Payment Category", systemImage: "creditcard.and.123")
+                drawerInfoRow("Customer Payment Category", booking.customerPaymentCategory)
+                drawerInfoRow("Loan Amount Requested", booking.loanAmountRequested.map(AppModuleFormatters.rupees))
+                drawerInfoRow("Payment Plan", booking.paymentPlan)
+            }
+
+            if hasAny(
+                booking.allotmentDueAmount.map(AppModuleFormatters.rupees),
+                booking.secondPaymentAmount.map(AppModuleFormatters.rupees),
+                booking.thirdPaymentAmount.map(AppModuleFormatters.rupees),
+                booking.fourthPaymentAmount.map(AppModuleFormatters.rupees),
+                booking.preferredRegistrationDate
+            ) {
+                drawerSectionHeader("Payment Schedule", systemImage: "calendar")
+                drawerInfoRow("Allotment Due", booking.allotmentDueAmount.map(AppModuleFormatters.rupees))
+                drawerInfoRow("Allotment Due Date", formattedDrawerDate(booking.allotmentDueDate))
+                drawerInfoRow("2nd Payment", booking.secondPaymentAmount.map(AppModuleFormatters.rupees))
+                drawerInfoRow("2nd Payment Date", formattedDrawerDate(booking.secondPaymentDate))
+                drawerInfoRow("3rd Payment", booking.thirdPaymentAmount.map(AppModuleFormatters.rupees))
+                drawerInfoRow("3rd Payment Date", formattedDrawerDate(booking.thirdPaymentDate))
+                drawerInfoRow("4th Payment", booking.fourthPaymentAmount.map(AppModuleFormatters.rupees))
+                drawerInfoRow("4th Payment Date", formattedDrawerDate(booking.fourthPaymentDate))
+                drawerInfoRow("Preferred Registration Date", formattedDrawerDate(booking.preferredRegistrationDate))
+            }
+
+            if hasAny(
+                booking.advanceTransactionId,
+                booking.advanceBankName,
+                booking.advanceBankBranch,
+                booking.advanceInstrumentNo,
+                booking.advanceInstrumentDate
+            ) {
+                drawerSectionHeader("Advance Instrument", systemImage: "banknote")
+                drawerInfoRow("Transaction ID", booking.advanceTransactionId)
+                drawerInfoRow("Bank Name", booking.advanceBankName)
+                drawerInfoRow("Bank Branch", booking.advanceBankBranch)
+                drawerInfoRow("Instrument No", booking.advanceInstrumentNo)
+                drawerInfoRow("Instrument Date", formattedDrawerDate(booking.advanceInstrumentDate))
+            }
         }
     }
 
@@ -752,11 +1115,37 @@ private struct BookingDetailView: View {
         VStack(alignment: .leading, spacing: 10) {
             drawerSectionHeader("Charges & Payment", systemImage: "creditcard")
             drawerField("Registration Charges", text: $editDraft.registrationCharges, value: booking.registrationCharges.map(AppModuleFormatters.rupees), keyboard: .decimalPad)
+            drawerBoolRow("GST Applicable", booking.gstApplicable)
             drawerField("GST Amount", text: $editDraft.gstAmount, value: booking.gstAmount.map(AppModuleFormatters.rupees), keyboard: .decimalPad)
             drawerField("Document Charges", text: $editDraft.documentCharges, value: booking.documentCharges.map(AppModuleFormatters.rupees), keyboard: .decimalPad)
             drawerField("Patta Charges", text: $editDraft.pattaCharges, value: booking.pattaCharges.map(AppModuleFormatters.rupees), keyboard: .decimalPad)
+            drawerBoolRow("Other Charges Applicable", booking.otherChargesApplicable)
             drawerField("Other Charges", text: $editDraft.otherCharges, value: booking.otherCharges.map(AppModuleFormatters.rupees), keyboard: .decimalPad)
             drawerField("Payment Mode", text: $editDraft.paymentMode, value: booking.paymentMode ?? booking.bookingMode)
+
+            if hasAny(booking.aadhaar, booking.pan, booking.aadhaarDocumentFileName, booking.aadhaarBackDocumentFileName, booking.panDocumentFileName) {
+                drawerSectionHeader("KYC & Documents", systemImage: "person.text.rectangle")
+                drawerInfoRow("Aadhaar", booking.aadhaar)
+                drawerInfoRow("Aadhaar Document", booking.aadhaarDocumentFileName)
+                drawerInfoRow("Aadhaar (Back)", booking.aadhaarBackDocumentFileName)
+                drawerInfoRow("PAN", booking.pan)
+                drawerInfoRow("PAN Document", booking.panDocumentFileName)
+            }
+
+            if hasAny(booking.referenceName1, booking.referenceMobile1, booking.referenceProfession1, booking.referenceName2, booking.referenceMobile2, booking.referenceProfession2) {
+                drawerSectionHeader("References", systemImage: "person.2")
+                drawerInfoRow("Reference 1 Name", booking.referenceName1)
+                drawerInfoRow("Reference 1 Mobile", booking.referenceMobile1)
+                drawerInfoRow("Reference 1 Profession", booking.referenceProfession1)
+                drawerInfoRow("Reference 2 Name", booking.referenceName2)
+                drawerInfoRow("Reference 2 Mobile", booking.referenceMobile2)
+                drawerInfoRow("Reference 2 Profession", booking.referenceProfession2)
+            }
+
+            if let docPreparedIn = booking.docPreparedIn?.nilIfBlank {
+                drawerSectionHeader("Registration", systemImage: "doc.badge.gearshape")
+                drawerInfoRow("Document to be Prepared In", docPreparedIn)
+            }
 
             drawerSectionHeader("Professional Details", systemImage: "briefcase")
             drawerField("Profession", text: $editDraft.profession, value: booking.profession)
