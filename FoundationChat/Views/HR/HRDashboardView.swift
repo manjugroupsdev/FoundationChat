@@ -930,6 +930,15 @@ struct HRDashboardView: View {
     @MainActor
     private func loadToday() async {
         guard let token = authStore.currentSession?.token else { return }
+        let cacheKey = todayCacheKey()
+        // Cache-first: on an OFFLINE cold start, paint the last-known today
+        // status immediately instead of the empty default (which reads as
+        // not-clocked-in). The key is date-namespaced so yesterday's status
+        // can never leak into a fresh day.
+        if todayAttendance == nil, let key = cacheKey,
+           let cached: ConvexTodayAttendance = LocalCache.get(key) {
+            todayAttendance = cached
+        }
         do {
             async let attendanceRequest = HRConvexAPIService.getTodayAttendance(token: token)
             async let sessionsRequest = try? HRConvexAPIService.getDaySessions(
@@ -938,9 +947,14 @@ struct HRDashboardView: View {
             )
 
             todayDaySessions = await sessionsRequest
-            todayAttendance = try await attendanceRequest
+            let fetched = try await attendanceRequest
+            todayAttendance = fetched
+            // Persist the authoritative snapshot for the next offline launch.
+            if let key = cacheKey { LocalCache.put(key, fetched) }
         } catch {
             guard !Self.isCancellation(error) else { return }
+            // Offline / failed: keep the cached status painted above rather than
+            // clearing it. Only surface the error banner.
             errorMessage = error.localizedDescription
         }
     }
@@ -958,6 +972,16 @@ struct HRDashboardView: View {
         let formatter = DateFormatter()
         formatter.dateFormat = "yyyy-MM-dd"
 
+        let cacheKey = monthHistoryCacheKey()
+        // Cache-first: paint the last-known month immediately so an OFFLINE open
+        // doesn't flash a wall of synthesized "Absent" days (the reported bug —
+        // an empty list makes fillMonthGaps mark every past day Absent).
+        if historyRecords.isEmpty, let key = cacheKey,
+           let cached: [ConvexAttendanceRecord] = LocalCache.get(key), !cached.isEmpty {
+            historyRecords = fillMonthGaps(cached, from: firstOfMonth, to: now)
+                .sorted { ($0.date ?? "") > ($1.date ?? "") }
+        }
+
         do {
             let records = try await HRConvexAPIService.getMyAttendance(
                 token: token,
@@ -966,10 +990,34 @@ struct HRDashboardView: View {
             )
             historyRecords = fillMonthGaps(records, from: firstOfMonth, to: now)
                 .sorted { ($0.date ?? "") > ($1.date ?? "") }
+            // Persist a non-empty authoritative month for offline paints.
+            if !records.isEmpty, let key = cacheKey { LocalCache.put(key, records) }
         } catch {
             guard !Self.isCancellation(error) else { return }
+            // Offline / failed: keep the cached month painted above rather than
+            // collapsing to all-Absent.
             errorMessage = error.localizedDescription
         }
+    }
+
+    /// Staff id backing the attendance cache keys (mirrors the punch path).
+    private func attnCacheStaffId() -> String? {
+        guard let session = authStore.currentSession else { return nil }
+        return session.user.staffId ?? session.user._id
+    }
+
+    /// Cache key for today's status snapshot, namespaced by staff + date.
+    private func todayCacheKey() -> String? {
+        guard let sid = attnCacheStaffId() else { return nil }
+        return "attn_today_ios:\(sid):\(todayDateKey)"
+    }
+
+    /// Cache key for the current month's records, namespaced by staff + month.
+    private func monthHistoryCacheKey() -> String? {
+        guard let sid = attnCacheStaffId() else { return nil }
+        let f = DateFormatter()
+        f.dateFormat = "yyyy-MM"
+        return "attn_month_ios:\(sid):\(f.string(from: Date()))"
     }
 
     private func fillMonthGaps(_ records: [ConvexAttendanceRecord], from start: Date, to end: Date) -> [ConvexAttendanceRecord] {
