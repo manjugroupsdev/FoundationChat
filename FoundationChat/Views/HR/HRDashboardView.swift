@@ -79,8 +79,14 @@ struct HRDashboardView: View {
     var body: some View {
         NavigationStack(path: $path) {
             ZStack(alignment: .top) {
+                // Blue base fills the top safe area (status-bar strip) so there is no
+                // white gap above the header; grey page background is kept OUT of the
+                // top safe area so it can't repaint the status bar. Matches the header.
+                Color(hex: 0x0B61CA)
+                    .ignoresSafeArea(edges: .top)
+
                 Color(red: 0.945, green: 0.953, blue: 0.973)
-                    .ignoresSafeArea()
+                    .ignoresSafeArea(edges: .bottom)
 
                 fixedAttendanceHeader
                     .zIndex(0)

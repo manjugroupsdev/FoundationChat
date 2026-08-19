@@ -27,7 +27,14 @@ struct LeavesListView: View {
 
     var body: some View {
         ZStack(alignment: .top) {
-            Color(hex: 0xF1F3F8).ignoresSafeArea()
+            // Blue base fills the top safe area (status-bar strip) so there is no
+            // white gap above the header; the grey page background is kept OUT of
+            // the top safe area so it can't repaint the status bar. Matches header.
+            Color(hex: 0x0B61CA)
+                .ignoresSafeArea(edges: .top)
+
+            Color(hex: 0xF1F3F8)
+                .ignoresSafeArea(edges: .bottom)
             leaveHeader
                 .ignoresSafeArea(edges: .top)
 

@@ -44,8 +44,14 @@ struct ProjectDailyLogView: View {
 
     var body: some View {
         ZStack(alignment: .top) {
+            // Blue base fills the top safe area (status-bar strip) so there is no
+            // white gap above the header; the grey page background is kept OUT of
+            // the top safe area so it can't repaint the status bar. Matches header.
+            Color(hex: 0x0B61CA)
+                .ignoresSafeArea(edges: .top)
+
             Color(hex: 0xF5F7FB)
-                .ignoresSafeArea()
+                .ignoresSafeArea(edges: .bottom)
 
             hero
                 .frame(maxHeight: .infinity, alignment: .top)
