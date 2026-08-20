@@ -1696,7 +1696,13 @@ struct HomeView: View {
             )
             guard requestedDate == dashboardDateQuery else { return }
             managementDashboard = dashboard
-            managementDashboardError = nil
+            // The backend returns success:true with ZERO marketing numbers when
+            // the session lacks marketing.insights.view (it can't leak data it
+            // isn't allowed to aggregate). Without this note the tiles read as
+            // a genuinely dead day — surface the real reason instead.
+            managementDashboardError = dashboard.marketingDataAvailable == false
+                ? "Marketing numbers are unavailable for your account — ask your admin to grant the Marketing Insights permission."
+                : nil
             // Cache-first: getMobileDashboard already throws unless success==true,
             // so a returned dashboard is always worth caching (Android parity).
             LocalCache.put(dashboardCacheKey(date: requestedDate), dashboard)

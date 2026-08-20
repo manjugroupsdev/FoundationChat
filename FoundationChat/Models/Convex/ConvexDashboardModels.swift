@@ -24,6 +24,12 @@ struct ConvexMobileDashboard: Codable, Equatable, Sendable {
     let prevCold: Int?
     let error: String?
 
+    /// False when the backend could not load the marketing block for this
+    /// session (usually a missing `marketing.insights.view` permission) and the
+    /// marketing numbers are placeholder zeros — NOT a genuinely quiet day.
+    /// nil on older backends that predate the field (treat as available).
+    let marketingDataAvailable: Bool?
+
     // Optional extended fields returned by `/api/dashboard/overview` and newer dashboard builds.
     let notPunchedIn: Int?
     let cpVisitsCompleted: Int?
@@ -55,6 +61,7 @@ struct ConvexMobileDashboard: Codable, Equatable, Sendable {
         case leadsHot, leadsWarm, leadsCold
         case prevTotalCalls, prevIncomingCalls, prevOutboundCalls
         case prevHot, prevWarm, prevCold
+        case marketingDataAvailable
     }
 
     init(from decoder: Decoder) throws {
@@ -94,6 +101,7 @@ struct ConvexMobileDashboard: Codable, Equatable, Sendable {
         leadsHot = container.decodeLossyOptionalInt(forKey: .leadsHot)
         leadsWarm = container.decodeLossyOptionalInt(forKey: .leadsWarm)
         leadsCold = container.decodeLossyOptionalInt(forKey: .leadsCold)
+        marketingDataAvailable = try? container.decodeIfPresent(Bool.self, forKey: .marketingDataAvailable)
     }
 
     /// Same thin fallback Android uses when the aggregate dashboard route is
@@ -122,6 +130,7 @@ struct ConvexMobileDashboard: Codable, Equatable, Sendable {
             prevWarm: nil,
             prevCold: nil,
             error: nil,
+            marketingDataAvailable: nil,
             notPunchedIn: nil,
             cpVisitsCompleted: nil,
             svVisitsCompleted: nil,
@@ -161,6 +170,7 @@ struct ConvexMobileDashboard: Codable, Equatable, Sendable {
         prevWarm: Int?,
         prevCold: Int?,
         error: String?,
+        marketingDataAvailable: Bool?,
         notPunchedIn: Int?,
         cpVisitsCompleted: Int?,
         svVisitsCompleted: Int?,
@@ -197,6 +207,7 @@ struct ConvexMobileDashboard: Codable, Equatable, Sendable {
         self.prevWarm = prevWarm
         self.prevCold = prevCold
         self.error = error
+        self.marketingDataAvailable = marketingDataAvailable
         self.notPunchedIn = notPunchedIn
         self.cpVisitsCompleted = cpVisitsCompleted
         self.svVisitsCompleted = svVisitsCompleted
