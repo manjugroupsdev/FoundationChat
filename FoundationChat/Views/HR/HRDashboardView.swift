@@ -19,6 +19,10 @@ struct HRDashboardView: View {
     @State private var path = NavigationPath()
     @State private var todayAttendance: ConvexTodayAttendance?
     @State private var todayDaySessions: ConvexDaySessionsResponse?
+    /// Offline punches queued for TODAY that the server hasn't seen yet. Without
+    /// overlaying these, an offline clock-in reads as not-clocked-in until the
+    /// sync worker flushes (Android parity: AttendanceFlowViewModel.mergePendingPunch).
+    @State private var queuedPunchesToday: [PendingPunchValue] = []
     @State private var todayShift: HRConvexAPIService.TodayShiftResponse?
     @State private var historyRecords: [ConvexAttendanceRecord] = []
     @State private var isLoading = false
@@ -49,16 +53,43 @@ struct HRDashboardView: View {
         self.onOpenRouteHandled = onOpenRouteHandled
     }
 
+    /// Latest queued offline punch for today, by real tap time. Only ever
+    /// STRENGTHENS the server state: it wins only when it is newer than
+    /// anything the server already knows about today.
+    private var latestQueuedPunchToday: PendingPunchValue? {
+        queuedPunchesToday.max { $0.clientPunchTime < $1.clientPunchTime }
+    }
+
+    private var queuedPunchInExistsToday: Bool {
+        queuedPunchesToday.contains { $0.isPunchIn }
+    }
+
+    private var queuedPunchOverridesServer: Bool {
+        guard let latest = latestQueuedPunchToday,
+              let queuedAt = parseAttendanceDate(latest.clientPunchTime) else { return false }
+        let serverLast = max(
+            firstPunchInDate ?? .distantPast,
+            lastPunchOutDate ?? .distantPast
+        )
+        return queuedAt >= serverLast
+    }
+
     private var hasPunchedIn: Bool {
         AttendanceTrackingGate.isClockedInForToday(
             firstPunchIn: todayFirstPunchIn,
             hasOpenSession: todayAttendance?.hasOpenSession == true
                 || todayDaySessions?.hasOpenSession == true
-        )
+        ) || queuedPunchInExistsToday
     }
 
     private var isOpen: Bool {
-        hasPunchedIn && !AttendanceTrackingGate.isClockedOutOnMobile(
+        // A queued punch newer than the server's last known event decides the
+        // live state — so an offline clock-in shows clocked-in immediately and
+        // an offline clock-out doesn't bounce back to "clocked in".
+        if queuedPunchOverridesServer, let latest = latestQueuedPunchToday {
+            return latest.isPunchIn
+        }
+        return hasPunchedIn && !AttendanceTrackingGate.isClockedOutOnMobile(
             daySessions: todayDaySessions?.sessions,
             attendanceSessions: todayAttendance?.sessions
         )
@@ -634,7 +665,13 @@ struct HRDashboardView: View {
     }
 
     private var firstPunchInDate: Date? {
-        parseAttendanceDate(todayFirstPunchIn)
+        if let server = parseAttendanceDate(todayFirstPunchIn) { return server }
+        // Fresh offline day: the server has no punch yet, but a queued offline
+        // clock-in carries the real tap time — drive the live ticker from it.
+        return queuedPunchesToday
+            .filter { $0.isPunchIn }
+            .compactMap { parseAttendanceDate($0.clientPunchTime) }
+            .min()
     }
 
     private var lastPunchOutDate: Date? {
@@ -936,6 +973,11 @@ struct HRDashboardView: View {
     @MainActor
     private func loadToday() async {
         guard let token = authStore.currentSession?.token else { return }
+        // Refresh the offline-punch overlay first — cheap, local, and it must
+        // reflect a punch queued moments ago even when the network calls below
+        // fail (that failure is exactly when the queue matters).
+        let queued = await PendingPunchStore.shared.listAll()
+        queuedPunchesToday = queued.filter { $0.clientPunchTime.hasPrefix(todayDateKey) }
         let cacheKey = todayCacheKey()
         // Cache-first: on an OFFLINE cold start, paint the last-known today
         // status immediately instead of the empty default (which reads as

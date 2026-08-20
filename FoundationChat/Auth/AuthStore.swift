@@ -289,7 +289,20 @@ final class AuthStore {
       try tokenStore.save(refreshed)
       requestNotificationPermissions()
     } catch {
-      errorMessage = error.localizedDescription
+      let message = error.localizedDescription
+      // A dead token is a NORMAL state here: an admin device reset or password
+      // reset deactivates mobile sessions while the app still holds
+      // mustChangePassword and routes into the force-change screen — which has
+      // no other exit, so surfacing the raw error left the user trapped. Clear
+      // the session so AuthRootView returns to login; after re-login the
+      // backend still reports mustChangePassword, so the user lands back here
+      // with a token that works. (Android parity: ForcePasswordChangeActivity.)
+      if message.localizedCaseInsensitiveContains("not authenticated")
+        || message.localizedCaseInsensitiveContains("session expired") {
+        expireSession()
+        return
+      }
+      errorMessage = message
     }
   }
 
