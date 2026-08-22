@@ -81,6 +81,10 @@ struct TripNavigationView: View {
     @State private var showCpTripCompletedSheet = false
     @State private var cpNoPathPhotoCapture = false
     @State private var repairVerifiedArrivalProof = false
+    /// Set when COMPLETION (not arrival) was rejected for a missing photo
+    /// proof: after the repair capture uploads, finish the visit with the
+    /// proof attached instead of replaying the arrival/outcome steps.
+    @State private var resumeCompletionAfterProofRepair = false
     @State private var completeWithClientNotSeenSheet = false
     @State private var otpPhoneMasked: String?
     @State private var otpExpiresIn: Int = 600
@@ -1275,8 +1279,20 @@ struct TripNavigationView: View {
             }
             let storageId = try await HRConvexAPIService.uploadPhoto(token: token, imageData: jpeg)
             pendingStorageId = storageId
+            if resumeCompletionAfterProofRepair, let id = resolvedVisitId {
+                // Completion-time repair: the outcome is already recorded, so
+                // complete directly with the proof attached (the complete
+                // endpoint persists arrivalPhotoStorageId) — no replay of the
+                // arrival / outcome steps.
+                resumeCompletionAfterProofRepair = false
+                repairVerifiedArrivalProof = false
+                capturedImage = nil
+                await completeFieldVisit(visitId: id)
+                return
+            }
             await attachLegacyArrivalProofAndResume(storageId: storageId)
         } catch {
+            resumeCompletionAfterProofRepair = false
             repairVerifiedArrivalProof = false
             arrivalInProgress = false
             arrivalStatusText = nil
@@ -1392,10 +1408,39 @@ struct TripNavigationView: View {
             }
         } catch {
             arrivalStatusText = nil
+            let message = Self.cleanServerMessage(error.localizedDescription)
+            // The server requires an arrival photo proof and this session has
+            // none to attach: `pendingStorageId` is in-memory only, so it is
+            // nil whenever the OTP was verified in an earlier session / on
+            // another device, or the trip screen was reopened to complete —
+            // and some CP kinds skip the arrival selfie entirely. Don't
+            // dead-end on the raw error (the reported "CP not able to close"):
+            // capture the proof now and complete with it attached, the same
+            // repair the arrival step already performs.
+            if message.lowercased().contains("photo proof") {
+                resumeCompletionAfterProofRepair = true
+                repairVerifiedArrivalProof = true
+                capturedImage = nil
+                arrivalStatusText = "Photo proof required — opening camera…"
+                showCamera = true
+                return
+            }
             arrivalInProgress = false
-            errorMessage = "Failed to complete: \(error.localizedDescription)"
+            errorMessage = "Failed to complete: \(message)"
             resetArrivalSwipe()
         }
+    }
+
+    /// The backend wraps thrown errors as "Uncaught Error: <message> at …";
+    /// show the sentence, not the wrapper and stack tail.
+    private static func cleanServerMessage(_ raw: String) -> String {
+        var text = raw
+        for prefix in ["Uncaught ConvexError: ", "Uncaught Error: "] where text.hasPrefix(prefix) {
+            text = String(text.dropFirst(prefix.count))
+        }
+        let newline: Character = "\u{0A}"
+        return text.split(separator: newline, maxSplits: 1).first.map(String.init)?
+            .trimmingCharacters(in: .whitespacesAndNewlines) ?? raw
     }
 
     private func completeGeoTrackVisit(visitId id: String, endProof: DriverOdometerProof) async {
