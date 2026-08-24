@@ -2002,6 +2002,12 @@ private struct CreateCpVisitSheet: View {
             .appLibraryNativeSheet([.large])
         }
         .task { await loadBootstrapData() }
+        // The lead lookup can resolve before the staff list finishes loading,
+        // which would leave the LMO unfilled even though the lead has an
+        // owner. Retry the prefill once the list arrives.
+        .onChange(of: staff) { _, _ in
+            if let selectedLead { prefillLmoFromLead(selectedLead) }
+        }
         .onDisappear {
             leadLookupTask?.cancel()
             addressParseTask?.cancel()
@@ -2397,9 +2403,23 @@ private struct CreateCpVisitSheet: View {
     }
 
     @MainActor
+    /// Fill the LMO field from the lead's assigned staff, matching the web
+    /// form. Never overwrites a choice the user already made, and only accepts
+    /// staff who pass the same eligibility rule as the picker — an ineligible
+    /// or missing owner leaves the field empty so the required check still
+    /// asks the user to pick one.
+    private func prefillLmoFromLead(_ lead: TelecallerLeadSearchData) {
+        guard selectedLmo == nil,
+              let ownerId = lead.assignedToStaffId?.blankToNil,
+              let owner = eligibleLmoStaff.first(where: { $0.id == ownerId })
+        else { return }
+        selectedLmo = owner
+    }
+
     private func applyLead(_ lead: TelecallerLeadSearchData) {
         selectedLead = lead
         fillIfBlank($clientName, lead.displayName)
+        prefillLmoFromLead(lead)
         phone = AppModuleFormatters.normalizePhone(lead.mobileNumber ?? phone)
 
         let analysis = lead.latestAnalysisProfile
