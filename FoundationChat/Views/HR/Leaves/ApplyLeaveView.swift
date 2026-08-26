@@ -5,19 +5,14 @@ private struct LeaveCategoryOption: Identifiable, Equatable, Sendable {
     let label: String
     let backendCode: String
     let balanceTracked: Bool
-    let requiresReasonPrefix: Bool
 
-    // Non-half-day categories submit their own backend code. Half-day is a
-    // pseudo-category with no balance of its own; the real base leave type it
-    // books against is resolved from the available list (see
-    // ApplyLeaveView.halfDayBaseType), so this fallback is only used if that
-    // resolution ever fails. Mirrors Android's halfDayBaseType() fallback of
-    // "unpaid" — NOT "casual", which would silently drain the casual balance.
-    var submitCode: String {
-        backendCode == "half_day" ? "unpaid" : backendCode
-    }
+    // Every category now submits its own backend code. Half-day used to be a
+    // pseudo-category here, which forced the app to GUESS which balance to
+    // book it against — the staff could not choose. It is now a toggle ON the
+    // selected type (see ApplyLeaveView.isHalfDay), matching the web.
+    var submitCode: String { backendCode }
 
-    static let defaultOptions = options(from: ["unpaid", "compensatory", "half_day"])
+    static let defaultOptions = options(from: ["unpaid", "compensatory"])
 
     static func options(from backendTypes: [String]) -> [LeaveCategoryOption] {
         let normalizedTypes = backendTypes
@@ -31,8 +26,7 @@ private struct LeaveCategoryOption: Identifiable, Equatable, Sendable {
                 id: type,
                 label: prettyLabel(for: type),
                 backendCode: type,
-                balanceTracked: balanceTracked(for: type),
-                requiresReasonPrefix: type == "half_day"
+                balanceTracked: balanceTracked(for: type)
             )
             if seenIds.insert(type).inserted {
                 result.append(option)
@@ -58,7 +52,6 @@ private struct LeaveCategoryOption: Identifiable, Equatable, Sendable {
         case "earned": return "Earned Leave"
         case "unpaid": return "Unpaid Leave"
         case "compensatory": return "Compensatory Leave"
-        case "half_day": return "Half Day Leave"
         default:
             let base = value
                 .replacingOccurrences(of: "_", with: " ")
@@ -81,6 +74,9 @@ struct ApplyLeaveView: View {
     @State private var fromDate: Date?
     @State private var toDate: Date?
     @State private var reason = ""
+    /// Web parity: a half day is an option ON the chosen leave type, so the
+    /// staff decide which balance the 0.5 day comes out of.
+    @State private var isHalfDay = false
     @State private var selectedHalfDaySession = "Morning"
     @State private var compOffCredits: [ConvexCompOffCredit] = []
     @State private var selectedCompOffCredit: ConvexCompOffCredit?
@@ -117,15 +113,6 @@ struct ApplyLeaveView: View {
 
     private var isCompOff: Bool {
         selectedLeaveCategory.backendCode == "compensatory"
-    }
-
-    /// The real leave type a Half Day is booked against: the first available
-    /// base type excluding the half_day / compensatory pseudo-categories,
-    /// falling back to "unpaid". Mirrors Android `halfDayBaseType()`.
-    private var halfDayBaseType: String {
-        leaveTypes.first {
-            $0.backendCode != "half_day" && $0.backendCode != "compensatory"
-        }?.backendCode ?? "unpaid"
     }
 
     private var compOffCreditLabel: String {
@@ -175,11 +162,14 @@ struct ApplyLeaveView: View {
                         }
                     }
 
-                    fieldLabel(isCompOff ? "Comp Off Date" : "Leave Duration")
+                    halfDayToggle
+                        .padding(.top, 16)
+
+                    fieldLabel(isCompOff ? "Comp Off Date" : (isHalfDay ? "Leave Date" : "Leave Duration"))
                         .padding(.top, 16)
                     applyField(icon: "calendar", value: durationLabel, action: { showDurationPicker() })
 
-                    if selectedLeaveCategory.backendCode == "half_day" {
+                    if isHalfDay {
                         halfDaySessionPicker
                             .padding(.top, 14)
                     }
@@ -263,13 +253,13 @@ struct ApplyLeaveView: View {
                 subtitle: isCompOff ? "Select the day to take" : "Select Leave Duration",
                 initialFromDate: fromDate,
                 initialToDate: toDate,
-                singleSelection: selectedLeaveCategory.backendCode == "half_day" || isCompOff,
+                singleSelection: isHalfDay || isCompOff,
                 lockedMonthDate: isCompOff ? selectedCompOffCredit?.earnedDate.flatMap { Self.apiDateFormatter.date(from: $0) } : nil,
                 disabledDate: isCompOff ? selectedCompOffCredit?.earnedDate.flatMap { Self.apiDateFormatter.date(from: $0) } : nil,
                 onClose: { showDurationSheet = false },
                 onSubmit: { pickedFrom, pickedTo in
                     fromDate = min(pickedFrom, pickedTo)
-                    toDate = (selectedLeaveCategory.backendCode == "half_day" || isCompOff) ? min(pickedFrom, pickedTo) : max(pickedFrom, pickedTo)
+                    toDate = (isHalfDay || isCompOff) ? min(pickedFrom, pickedTo) : max(pickedFrom, pickedTo)
                     showDurationSheet = false
                 }
             )
@@ -312,6 +302,35 @@ struct ApplyLeaveView: View {
         }
         .buttonStyle(.plain)
         .disabled(!canSubmit)
+    }
+
+    /// Half-day toggle, mirroring the web's "Half-day leave (0.5 day)" row.
+    /// The whole row is the tap target, like the other fields on this screen.
+    private var halfDayToggle: some View {
+        Button {
+            isHalfDay.toggle()
+            // A half day covers a single day: collapse any range already
+            // picked rather than silently submitting only its first day.
+            if isHalfDay, let fromDate { toDate = fromDate }
+        } label: {
+            HStack(spacing: 10) {
+                Image(systemName: isHalfDay ? "checkmark.square.fill" : "square")
+                    .font(.system(size: 18))
+                    .foregroundStyle(isHalfDay ? Color(hex: 0x1D4ED8) : Color(hex: 0x98A2B3))
+                Text("Half-day leave (0.5 day)")
+                    .font(.system(size: 14))
+                    .foregroundStyle(Color(hex: 0x101828))
+                Spacer(minLength: 0)
+            }
+            .padding(.horizontal, 14)
+            .frame(minHeight: 48)
+            .background(Color(hex: 0xF8FAFC), in: RoundedRectangle(cornerRadius: 10, style: .continuous))
+            .overlay {
+                RoundedRectangle(cornerRadius: 10, style: .continuous)
+                    .stroke(Color(hex: 0xE4E7EC), lineWidth: 1)
+            }
+        }
+        .buttonStyle(.plain)
     }
 
     private var halfDaySessionPicker: some View {
@@ -431,18 +450,20 @@ struct ApplyLeaveView: View {
                     _ = try await HRConvexAPIService.applyCompOff(
                         token: token,
                         creditId: selectedCompOffCredit.id,
-                        date: Self.apiDateFormatter.string(from: fromDate)
+                        date: Self.apiDateFormatter.string(from: fromDate),
+                        isHalfDay: isHalfDay ? true : nil,
+                        halfDaySession: isHalfDay ? selectedHalfDaySession.lowercased() : nil
                     )
                 } else {
                     _ = try await HRConvexAPIService.applyLeave(
                         token: token,
-                        leaveType: selectedLeaveCategory.backendCode == "half_day" ? halfDayBaseType : selectedLeaveCategory.submitCode,
+                        leaveType: selectedLeaveCategory.submitCode,
                         fromDate: Self.apiDateFormatter.string(from: min(fromDate, toDate)),
                         toDate: Self.apiDateFormatter.string(from: max(fromDate, toDate)),
                         reason: submitReason,
-                        isHalfDay: selectedLeaveCategory.backendCode == "half_day" ? true : nil,
-                        halfDaySession: selectedLeaveCategory.backendCode == "half_day" ? selectedHalfDaySession.lowercased() : nil,
-                        halfDayType: selectedLeaveCategory.backendCode == "half_day" ? selectedHalfDaySession.lowercased() : nil
+                        isHalfDay: isHalfDay ? true : nil,
+                        halfDaySession: isHalfDay ? selectedHalfDaySession.lowercased() : nil,
+                        halfDayType: isHalfDay ? selectedHalfDaySession.lowercased() : nil
                     )
                 }
                 onApplied?()
@@ -469,10 +490,6 @@ struct ApplyLeaveView: View {
         let previousCode = selectedLeaveCategory.backendCode
         selectedLeaveCategory = category
         errorMessage = nil
-
-        if category.backendCode == "half_day", let fromDate {
-            toDate = fromDate
-        }
 
         if category.backendCode == "compensatory" {
             if previousCode != "compensatory" {
@@ -545,7 +562,7 @@ struct ApplyLeaveView: View {
 
     private var submitReason: String {
         let trimmed = reason.trimmingCharacters(in: .whitespacesAndNewlines)
-        guard selectedLeaveCategory.backendCode == "half_day" else { return trimmed }
+        guard isHalfDay else { return trimmed }
         return "[\(selectedHalfDaySession)] \(trimmed)".trimmingCharacters(in: .whitespacesAndNewlines)
     }
 

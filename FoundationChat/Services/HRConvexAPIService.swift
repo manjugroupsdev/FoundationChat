@@ -202,14 +202,25 @@ enum HRConvexAPIService {
         return wrapper.credits ?? []
     }
 
-    static func applyCompOff(token: String, creditId: String, date: String) async throws -> String {
+    static func applyCompOff(
+        token: String,
+        creditId: String,
+        date: String,
+        isHalfDay: Bool? = nil,
+        halfDaySession: String? = nil
+    ) async throws -> String {
+        // Half-day comp off: the web has always let a credit be taken as 0.5
+        // day; the apps used to spend the whole credit either way.
+        var jsonBody: [String: Any] = [
+            "creditId": creditId,
+            "date": date
+        ]
+        if let isHalfDay { jsonBody["isHalfDay"] = isHalfDay }
+        if let halfDaySession { jsonBody["halfDaySession"] = halfDaySession }
         let data = try await post(
             path: "/api/hr/compoff/apply",
             token: token,
-            jsonBody: [
-                "creditId": creditId,
-                "date": date
-            ]
+            jsonBody: jsonBody
         )
         let wrapper = try await decode(LeaveActionResponse.self, from: data)
         guard wrapper.success else { throw HRConvexAPIError.server(wrapper.error ?? "Failed to apply comp off") }
