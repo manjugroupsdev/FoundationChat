@@ -2957,26 +2957,19 @@ private struct SpecialCpCompletionSheet: View {
             }
             cases = try await PostSalesConvexAPIService.getCasesByMobile(token: token, mobile: phone)
             LocalCache.put(collectionCasesCacheKey(phone: phone), cases)
-            if let first = cases.first {
-                if !cases.contains(where: { $0.id == selectedCaseId }) {
-                    selectedCaseId = first.id
-                }
-            } else {
-                // Previously this CLOSED the CP as "rejected - client has no
-                // confirmed booking", automatically and irreversibly.
-                //
-                // An empty list is not proof that the client has no booking.
-                // It also happens when the lookup is scoped away from this
-                // staff, when the number is stored in a shape the lookup
-                // missed, or when the backend fails a read-heavy query. Field
-                // staff reported exactly that: a real booking, and a CP closed
-                // out from under them.
-                //
-                // So: surface it and let the staff decide. Marking the visit
-                // Not Collected is still one tap away, and it is now their
-                // call rather than a guess made from an ambiguous signal.
-                // `cases` stays empty, which drives the recoverable notice in
-                // collectionFields.
+            // An empty `cases` used to CLOSE the CP as "rejected - client has
+            // no confirmed booking", automatically and irreversibly. An empty
+            // list is not proof of that: it also happens when the lookup is
+            // scoped away from this staff, when the number is stored in a
+            // shape the search missed, or when a read-heavy query fails. Field
+            // staff reported exactly that - a real booking, and a CP closed out
+            // from under them.
+            //
+            // Now it simply stays empty, which drives the recoverable notice in
+            // collectionFields, and the staff decides.
+            if let first = cases.first,
+               !cases.contains(where: { $0.id == selectedCaseId }) {
+                selectedCaseId = first.id
             }
         } catch {
             if cpVisit == nil || (kind == .collection && cases.isEmpty) {

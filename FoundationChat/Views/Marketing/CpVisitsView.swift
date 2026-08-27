@@ -636,6 +636,10 @@ private struct CpListVisit: Identifiable {
         case "gift_distribution": return "Gift Distribution"
         case "new_client_cp": return "New Client CP"
         case "other_cp": return "Other CP"
+        // Joint CP is created on web/Android; iOS renders it correctly but is
+        // not offered it in the create picker yet, because that needs a second
+        // staff and the server requires exactly two.
+        case "joint_cp": return "Joint CP"
         case let value? where value.isEmpty == false:
             return value.replacingOccurrences(of: "_", with: " ").capitalized
         default:
