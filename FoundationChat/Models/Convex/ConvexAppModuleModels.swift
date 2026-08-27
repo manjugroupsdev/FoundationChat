@@ -1588,6 +1588,10 @@ struct CreateCpVisitRequest: Encodable, Sendable {
     let visitLng: Double?
     let googleMapsLink: String?
     let notes: String?
+    // Explicit 6-digit pincode. visitAddress already carries it, but sending
+    // it separately means the server stores it as a real column instead of
+    // re-parsing free text. Defaulted so existing call sites keep compiling.
+    var pincode: String? = nil
 }
 
 struct CreateCpVisitResponse: Decodable, Sendable {

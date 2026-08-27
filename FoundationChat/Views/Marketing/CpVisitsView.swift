@@ -2491,9 +2491,26 @@ private struct CreateCpVisitSheet: View {
     @MainActor
     private func submit() async {
         let normalizedPhone = AppModuleFormatters.normalizePhone(phone)
-        guard normalizedPhone.count == 10 else { errorMessage = "Enter 10 digit phone"; return }
+        // Must be a real mobile: the arrival OTP is sent here, so a landline
+        // would make the CP impossible to complete. Matches the server rule so
+        // the rejection surfaces in the form rather than on submit.
+        guard normalizedPhone.count == 10,
+              let firstDigit = normalizedPhone.first,
+              ("6"..."9").contains(String(firstDigit))
+        else {
+            errorMessage = "Enter a valid 10-digit mobile number"
+            return
+        }
         let trimmedClientName = clientName.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !trimmedClientName.isEmpty else { errorMessage = "Client name is required"; return }
+        // A "name" that is really the number is how nameless clients reach the
+        // Clients tab.
+        guard AppModuleFormatters.normalizePhone(trimmedClientName) != normalizedPhone,
+              trimmedClientName.contains(where: { $0.isLetter })
+        else {
+            errorMessage = "Enter the client's name, not their number"
+            return
+        }
         let staffId = selectedStaff?.id ?? authStore.currentSession?.user.staffId ?? authStore.currentSession?.user._id
         guard let staffId, !staffId.isEmpty else { errorMessage = "Staff session missing"; return }
         guard selectedProject != nil else { errorMessage = "Project is required"; return }
@@ -2512,8 +2529,10 @@ private struct CreateCpVisitSheet: View {
             return
         }
         let normalizedPincode = pincode.filter(\.isNumber)
-        guard normalizedPincode.count == 6 else {
-            errorMessage = "Pincode must be 6 digits"
+        // No Indian pincode starts with 0, and the server rejects one that
+        // does.
+        guard normalizedPincode.count == 6, normalizedPincode.first != "0" else {
+            errorMessage = "Enter a valid 6-digit pincode"
             return
         }
         guard !trimmedAddress.isEmpty else { errorMessage = "Address is required"; return }
@@ -2563,7 +2582,8 @@ private struct CreateCpVisitSheet: View {
             visitLat: resolvedLatitude,
             visitLng: resolvedLongitude,
             googleMapsLink: mapsLink.trimmingCharacters(in: .whitespacesAndNewlines).nilIfEmpty,
-            notes: serializedNotes
+            notes: serializedNotes,
+            pincode: normalizedPincode
         )
 
         isSubmitting = true
