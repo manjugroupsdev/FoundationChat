@@ -1710,6 +1710,10 @@ private struct CreateCpVisitSheet: View {
     @State private var selectedProject: MarketingProject?
     @State private var staff: [ConvexStaffListItem] = []
     @State private var selectedStaff: ConvexStaffListItem?
+    // Joint CP only: the second staff. Cleared whenever the type moves away, so
+    // a stale partner can never ride along on another CP type.
+    @State private var selectedJointPartner: ConvexStaffListItem?
+    @State private var showJointPartnerPicker = false
     @State private var selectedLmo: ConvexStaffListItem?
     @State private var leadMatches: [TelecallerLeadSearchData] = []
     @State private var selectedLead: TelecallerLeadSearchData?
@@ -1817,6 +1821,9 @@ private struct CreateCpVisitSheet: View {
                     lmoPicker
                     projectPicker
                     cpTypePicker
+                    if selectedCpType == .jointCp {
+                        jointPartnerPicker
+                    }
                     cpDatePicker
 
                     cpTextField("Door / Plot No", placeholder: "Enter Door / Plot No", text: $doorNo, systemImage: "house")
@@ -1942,6 +1949,25 @@ private struct CreateCpVisitSheet: View {
                 onSelect: { item in
                     selectedStaff = item
                     showStaffPicker = false
+                }
+            )
+            .appLibraryNativeSheet([.medium, .large])
+        }
+        .sheet(isPresented: $showJointPartnerPicker) {
+            NativeSearchableSelectionSheet(
+                title: "Select the second staff",
+                prompt: "Search staff",
+                items: staff.filter { $0.id != selectedStaff?.id },
+                selectedId: selectedJointPartner?.id,
+                searchText: { item in
+                    [item.displayName, item.designation, item.phone].compactMap(\.self).joined(separator: " ")
+                },
+                rowContent: { item, isSelected in
+                    staffSelectionRow(item, isSelected: isSelected)
+                },
+                onSelect: { item in
+                    selectedJointPartner = item
+                    showJointPartnerPicker = false
                 }
             )
             .appLibraryNativeSheet([.medium, .large])
@@ -2078,6 +2104,21 @@ private struct CreateCpVisitSheet: View {
                 showStaffPicker = true
             } label: {
                 pickerLabel(selectedStaff?.displayName ?? "Select Staff")
+            }
+            .buttonStyle(.plain)
+            .disabled(isLoadingStaff || staff.isEmpty)
+        }
+    }
+
+    /// Second participant, shown only for a Joint CP. Excludes whoever is
+    /// already the field staff — the same person twice is not a joint visit and
+    /// the server requires two different active staff.
+    private var jointPartnerPicker: some View {
+        pickerShell(title: "Joint CP Partner *", icon: "person.2") {
+            Button {
+                showJointPartnerPicker = true
+            } label: {
+                pickerLabel(selectedJointPartner?.displayName ?? "Select the second staff")
             }
             .buttonStyle(.plain)
             .disabled(isLoadingStaff || staff.isEmpty)
@@ -2468,6 +2509,11 @@ private struct CreateCpVisitSheet: View {
 
     @MainActor
     private func selectCpType(_ type: CpVisitCreateType) async {
+        // Drop a partner chosen for a Joint CP the moment the type changes.
+        // Must run BEFORE the early return below, otherwise switching Joint CP
+        // -> Booking CP would keep the partner and still submit a second
+        // participant.
+        if type != .jointCp { selectedJointPartner = nil }
         if !type.requiresConfirmedBooking {
             selectedCpType = type
             return
@@ -2523,6 +2569,18 @@ private struct CreateCpVisitSheet: View {
         // CP Type drives the whole post-arrival branch in the trip flow, and an
         // untyped CP shows as a bare dash in every list.
         guard selectedCpType != nil else { errorMessage = "Select the CP type"; return }
+        // A Joint CP is meaningless with one person on it, and the server
+        // requires exactly two different active staff.
+        if selectedCpType == .jointCp {
+            guard let partnerId = selectedJointPartner?.id, !partnerId.isEmpty else {
+                errorMessage = "Select the second staff for this Joint CP"
+                return
+            }
+            guard partnerId != (selectedStaff?.id ?? "") else {
+                errorMessage = "Pick two different staff for a Joint CP"
+                return
+            }
+        }
         guard selectedStaff != nil || !(staffId.isEmpty) else { errorMessage = "Field staff is required"; return }
         guard let lmoStaffId = selectedLmo?.id.nilIfEmpty else {
             errorMessage = "Select the LMO, Channel Partner, or BDO"
@@ -2592,7 +2650,12 @@ private struct CreateCpVisitSheet: View {
             visitLng: resolvedLongitude,
             googleMapsLink: mapsLink.trimmingCharacters(in: .whitespacesAndNewlines).nilIfEmpty,
             notes: serializedNotes,
-            pincode: normalizedPincode
+            pincode: normalizedPincode,
+            // Only for a Joint CP; the server ignores it for every other type
+            // and promotes the SENIOR of the two onto the visit.
+            jointStaffIds: selectedCpType == .jointCp
+                ? [selectedJointPartner?.id].compactMap(\.self)
+                : nil
         )
 
         isSubmitting = true
@@ -3112,6 +3175,7 @@ private enum CpVisitCreateType: String, CaseIterable, Identifiable {
     case oldClient = "old_client"
     case giftDistribution = "gift_distribution"
     case otherCp = "other_cp"
+    case jointCp = "joint_cp"
 
     var id: String { rawValue }
 
@@ -3127,6 +3191,7 @@ private enum CpVisitCreateType: String, CaseIterable, Identifiable {
         case .oldClient: return "Old Client"
         case .giftDistribution: return "Gift Distribution"
         case .otherCp: return "Other CP"
+        case .jointCp: return "Joint CP"
         }
     }
 
@@ -3138,6 +3203,7 @@ private enum CpVisitCreateType: String, CaseIterable, Identifiable {
         case .oldClient: return "Re-engage previous client"
         case .giftDistribution: return "Drop loyalty gift"
         case .otherCp: return "Miscellaneous client work"
+        case .jointCp: return "Two staff, senior records outcome"
         }
     }
 }

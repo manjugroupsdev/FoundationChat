@@ -1592,6 +1592,9 @@ struct CreateCpVisitRequest: Encodable, Sendable {
     // it separately means the server stores it as a real column instead of
     // re-parsing free text. Defaulted so existing call sites keep compiling.
     var pincode: String? = nil
+    // Joint CP only: the SECOND participant. Ignored server-side for every
+    // other cpType. Defaulted so existing call sites keep compiling.
+    var jointStaffIds: [String]? = nil
 }
 
 struct CreateCpVisitResponse: Decodable, Sendable {
