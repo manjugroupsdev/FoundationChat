@@ -2552,12 +2552,62 @@ private struct SpecialCpCompletionSheet: View {
     private var collectionFields: some View {
         VStack(alignment: .leading, spacing: 14) {
             if cases.isEmpty {
-                Text("No confirmed booking found for this client's mobile.")
-                    .font(.system(size: 13, weight: .semibold))
-                    .foregroundStyle(Color(hex: 0xB42318))
-                    .padding(14)
-                    .frame(maxWidth: .infinity, alignment: .leading)
-                    .background(Color(hex: 0xB42318).opacity(0.12), in: RoundedRectangle(cornerRadius: 14, style: .continuous))
+                // Amber, not red: an empty lookup is usually recoverable. It
+                // can mean the number is stored in a shape the search missed,
+                // that the booking sits outside this staff's scope, or that a
+                // read-heavy query failed. Saying "no booking exists" as a
+                // hard error is what made staff distrust this screen.
+                VStack(alignment: .leading, spacing: 10) {
+                    Text("No booking found for this client's mobile")
+                        .font(.system(size: 14, weight: .semibold))
+                        .foregroundStyle(Color(hex: 0xB54708))
+                    Text("If the client does have a booking, retry — the lookup can miss a number saved with a country code. Otherwise record this visit as Not Collected.")
+                        .font(.system(size: 12))
+                        .foregroundStyle(Color(hex: 0x92400E))
+                        .fixedSize(horizontal: false, vertical: true)
+
+                    HStack(spacing: 10) {
+                        Button {
+                            Task { await load() }
+                        } label: {
+                            Label("Retry", systemImage: "arrow.clockwise")
+                                .font(.system(size: 13, weight: .semibold))
+                                .frame(maxWidth: .infinity)
+                                .padding(.vertical, 10)
+                        }
+                        .buttonStyle(.borderedProminent)
+                        .tint(Color(hex: 0xB54708))
+                        .disabled(isLoading)
+
+                        Button {
+                            collectionNotCollected = true
+                        } label: {
+                            Text("Not Collected")
+                                .font(.system(size: 13, weight: .semibold))
+                                .frame(maxWidth: .infinity)
+                                .padding(.vertical, 10)
+                        }
+                        .buttonStyle(.bordered)
+                        .tint(Color(hex: 0xB54708))
+                    }
+                }
+                .padding(14)
+                .frame(maxWidth: .infinity, alignment: .leading)
+                .background(
+                    Color(hex: 0xB54708).opacity(0.12),
+                    in: RoundedRectangle(cornerRadius: 14, style: .continuous)
+                )
+
+                // The staff chose Not Collected from the notice above, so the
+                // remarks field has to be reachable even with no booking.
+                if collectionNotCollected {
+                    sheetTextField(
+                        "Remarks",
+                        text: $remarks,
+                        placeholder: "Why was no amount collected?",
+                        axis: .vertical
+                    )
+                }
             } else {
                 Picker("Collection result", selection: $collectionNotCollected) {
                     Text("Collected").tag(false)
@@ -2912,7 +2962,21 @@ private struct SpecialCpCompletionSheet: View {
                     selectedCaseId = first.id
                 }
             } else {
-                await closeCollectionAsIneligible(token: token)
+                // Previously this CLOSED the CP as "rejected - client has no
+                // confirmed booking", automatically and irreversibly.
+                //
+                // An empty list is not proof that the client has no booking.
+                // It also happens when the lookup is scoped away from this
+                // staff, when the number is stored in a shape the lookup
+                // missed, or when the backend fails a read-heavy query. Field
+                // staff reported exactly that: a real booking, and a CP closed
+                // out from under them.
+                //
+                // So: surface it and let the staff decide. Marking the visit
+                // Not Collected is still one tap away, and it is now their
+                // call rather than a guess made from an ambiguous signal.
+                // `cases` stays empty, which drives the recoverable notice in
+                // collectionFields.
             }
         } catch {
             if cpVisit == nil || (kind == .collection && cases.isEmpty) {
@@ -3061,32 +3125,6 @@ private struct SpecialCpCompletionSheet: View {
                 )
             )
             onCompleted(replacementProofId)
-            dismiss()
-        } catch {
-            errorMessage = error.localizedDescription
-        }
-    }
-
-    @MainActor
-    private func closeCollectionAsIneligible(token: String) async {
-        guard kind == .collection, !isSaving else { return }
-        isSaving = true
-        defer { isSaving = false }
-        do {
-            try await MarketingConvexAPIService.markClientMet(
-                token: token,
-                request: MarkClientMetRequest(id: cpVisitId, clientMet: true)
-            )
-            try await MarketingConvexAPIService.setCpVisitOutcome(
-                token: token,
-                request: SetCpVisitOutcomeRequest(
-                    id: cpVisitId,
-                    outcome: "rejected",
-                    postponeReasons: nil,
-                    notes: "Collection CP not eligible — client has no confirmed booking"
-                )
-            )
-            onCompleted(nil)
             dismiss()
         } catch {
             errorMessage = error.localizedDescription
