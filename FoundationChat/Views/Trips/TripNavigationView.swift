@@ -34,6 +34,11 @@ struct TripNavigationView: View {
     let cpVisitCategory: String?
     let cpType: String?
     let lmoName: String?
+    /// Who the visit is ASSIGNED to. A manager opening someone else's trip
+    /// had no way to tell whose it was — the card showed the client and the
+    /// LMO but never the field staff. Optional so existing call sites that
+    /// don't have it keep compiling; the row simply hides.
+    let fieldStaffName: String?
     let deadline: String?
     let fleetOnSiteAt: Int64?
     let usesAgencyFleetDriverAPI: Bool
@@ -114,6 +119,7 @@ struct TripNavigationView: View {
         cpVisitCategory: String? = nil,
         cpType: String? = nil,
         lmoName: String? = nil,
+        fieldStaffName: String? = nil,
         deadline: String? = nil,
         fleetOnSiteAt: Int64? = nil,
         usesAgencyFleetDriverAPI: Bool = false,
@@ -136,6 +142,7 @@ struct TripNavigationView: View {
         self.cpVisitCategory = cpVisitCategory
         self.cpType = cpType
         self.lmoName = lmoName
+        self.fieldStaffName = fieldStaffName
         self.deadline = deadline
         self.fleetOnSiteAt = fleetOnSiteAt
         self.usesAgencyFleetDriverAPI = usesAgencyFleetDriverAPI
@@ -516,6 +523,13 @@ struct TripNavigationView: View {
                 VStack(spacing: 14) {
                     tripMetric(icon: "building.2.fill", label: "Type", value: cpTypeDisplayLabel)
                     tripMetric(icon: "road.lanes", label: "Distance", value: distanceText)
+                    if let fieldStaffName = fieldStaffName?.nilIfBlank {
+                        tripMetric(
+                            icon: "person.fill",
+                            label: "Field Staff",
+                            value: fieldStaffName
+                        )
+                    }
                     if let lmoName = lmoName?.nilIfBlank {
                         tripMetric(icon: "person.badge.key.fill", label: "LMO", value: lmoName)
                     }
@@ -524,7 +538,18 @@ struct TripNavigationView: View {
 
                 Rectangle()
                     .fill(Color(hex: 0xE5E7EB))
-                    .frame(width: 1, height: (lmoName?.nilIfBlank != nil || deadline?.nilIfBlank != nil) ? 140 : 86)
+                    .frame(
+                        width: 1,
+                        // Grows with the taller column so the divider doesn't
+                        // stop short once Field Staff is present.
+                        height: {
+                            let left = 2
+                                + (fieldStaffName?.nilIfBlank != nil ? 1 : 0)
+                                + (lmoName?.nilIfBlank != nil ? 1 : 0)
+                            let right = 2 + (deadline?.nilIfBlank != nil ? 1 : 0)
+                            return CGFloat(max(left, right) - 2) * 54 + 86
+                        }()
+                    )
 
                 VStack(spacing: 14) {
                     tripMetric(icon: "location.fill", label: "Location", value: destinationSummary)

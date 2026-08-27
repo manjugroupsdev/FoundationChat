@@ -83,6 +83,7 @@ struct CpVisitsView: View {
                                     cpVisitCategory: visit.visitCategory,
                                     cpType: visit.cpType,
                                     lmoName: visit.lmoName,
+                                    fieldStaffName: visit.bdoName,
                                     deadline: visit.deadlineText,
                                     onTripChanged: {
                                         Task { await load() }
@@ -221,6 +222,7 @@ struct CpVisitsView: View {
                     cpVisitCategory: visit.visitCategory,
                     cpType: visit.cpType,
                     lmoName: visit.lmoName,
+                    fieldStaffName: visit.bdoName,
                     deadline: visit.deadlineText,
                     onTripChanged: {
                         Task { await load() }
