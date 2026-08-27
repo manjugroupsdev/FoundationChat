@@ -461,6 +461,21 @@ private struct AppLibrarySection: Identifiable {
             canAny(["marketing.cpVisits.view"])
                 ? .init(title: "CP Visits", icon: "AppLibraryIconAppsDealer", destination: .cpVisits)
                 : nil,
+            // CP Approvals — out-of-geofence completions waiting on this user.
+            // Also reachable from the checkmark.seal toolbar button inside CP
+            // Visits, which stays shown for everyone; this row is the direct
+            // entry for holders of the approve right. Amber matches Android's
+            // row and the approvals banner.
+            canAny(["marketing.cpVisits.approve"])
+                ? .init(
+                    title: "CP Approvals",
+                    icon: "AppLibraryIconAppsDealer",
+                    destination: .cpApprovals,
+                    systemIcon: "checkmark.seal",
+                    iconTint: Color(hex: 0xB54708),
+                    iconBackground: Color(hex: 0xFEF0C7)
+                )
+                : nil,
             canAny(["marketing.siteVisits.view"])
                 ? .init(title: "Site Visits", icon: "AppLibraryIconAppsFieldVisits", destination: .siteVisits)
                 : nil,
@@ -742,6 +757,7 @@ private enum AppLibraryDestination: String {
     case loans
     case siteVisits
     case cpVisits
+    case cpApprovals
     case leads
     case dialer
     case inventory
@@ -778,6 +794,8 @@ private enum AppLibraryDestination: String {
                 SiteVisitsView()
             case .cpVisits:
                 CpVisitsView()
+            case .cpApprovals:
+                CpApprovalQueueView()
             case .leads:
                 MyLeadsView()
             case .dialer:
