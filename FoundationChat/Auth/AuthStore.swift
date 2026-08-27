@@ -344,6 +344,19 @@ final class AuthStore {
     }
   }
 
+  /// Clear anything this app has put on the phone's notification surfaces.
+  ///
+  /// Stopping tracking and unregistering the push token stops NEW arrivals,
+  /// but notifications already delivered sit in Notification Center — so a
+  /// signed-out phone still showed tracking and task alerts for a user who
+  /// had left. Also drops the badge, which otherwise keeps its old count.
+  private func clearDeliveredNotifications() {
+    let center = UNUserNotificationCenter.current()
+    center.removeAllDeliveredNotifications()
+    center.removeAllPendingNotificationRequests()
+    UIApplication.shared.applicationIconBadgeNumber = 0
+  }
+
   func logout() async {
     await GeoTrackBootstrapCoordinator.shared.stopForSessionEnd()
     // Unregister push token before logging out
@@ -361,6 +374,7 @@ final class AuthStore {
     try? tokenStore.clear()
     // Wipe cache-first snapshots so the next user starts clean (Android parity).
     LocalCache.clearAll()
+    clearDeliveredNotifications()
     currentSession = nil
     viewer = nil
     errorMessage = nil
@@ -379,6 +393,9 @@ final class AuthStore {
     try? tokenStore.clear()
     // Wipe cache-first snapshots so the next user starts clean (Android parity).
     LocalCache.clearAll()
+    // An expired session must leave the phone as clean as a deliberate
+    // sign-out does.
+    clearDeliveredNotifications()
     currentSession = nil
     viewer = nil
     errorMessage = message
