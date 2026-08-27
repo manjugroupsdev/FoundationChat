@@ -1,3 +1,4 @@
+import CoreLocation
 import Foundation
 
 // MARK: - HTTP session protocol (enables lightweight mocking without URLProtocol)
@@ -182,6 +183,18 @@ final class GeoTrackAPIService {
     // MARK: - Heartbeat
 
     /// POST /api/tracking/heartbeat
+    /// Whether the app can currently get a location at all. Uses the
+    /// authorization status rather than `locationServicesEnabled()`, which
+    /// blocks the calling thread and is deprecated on the main actor.
+    private static func locationServicesUsable() -> Bool {
+        switch CLLocationManager().authorizationStatus {
+        case .authorizedAlways, .authorizedWhenInUse:
+            return true
+        default:
+            return false
+        }
+    }
+
     func heartbeat(
         batteryPct: Int,
         appVersion: String,
@@ -196,8 +209,16 @@ final class GeoTrackAPIService {
             batteryPct: batteryPct,
             appVersion: appVersion,
             recordedAt: recordedAt ?? Int64(Date().timeIntervalSince1970 * 1_000),
+            // iOS exposes NO public API for flight mode, so this stays nil
+            // rather than guessing: inferring it from "no interfaces" would
+            // mislabel a phone that is merely out of signal. Flight mode is
+            // still reported on iOS — GeoTrackTamperMonitor infers it from
+            // NWPathMonitor and raises AIRPLANE_MODE_ON, which the backend
+            // prefers over these fallback flags anyway.
             airplaneMode: nil,
-            locationEnabled: nil
+            // This one IS knowable, and was being sent as nil — so every gap on
+            // an iPhone reached the backend with no device state to explain it.
+            locationEnabled: Self.locationServicesUsable()
         )
         let request = try makeRequest(path: "/api/tracking/heartbeat", method: "POST", body: body)
         let result: GeoTrackBaseResponse = try await perform(request)
