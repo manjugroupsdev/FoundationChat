@@ -2161,7 +2161,7 @@ private struct CreateCpVisitSheet: View {
     }
 
     private var cpTypePicker: some View {
-        pickerShell(title: "CP Type", icon: "tag") {
+        pickerShell(title: "CP Type *", icon: "tag") {
             Menu {
                 ForEach(CpVisitCreateType.allCases) { type in
                     Button {
@@ -2177,7 +2177,9 @@ private struct CreateCpVisitSheet: View {
                             .font(.system(size: 14, weight: .medium))
                             .foregroundStyle(selectedCpType == nil ? Color(hex: 0x9CA3AF) : Color(hex: 0x101828))
                             .lineLimit(1)
-                        Text(selectedCpType?.subtitle ?? "Optional")
+                        // Was "Optional" - it is not, and the server now
+                        // rejects an untyped CP.
+                        Text(selectedCpType?.subtitle ?? "Required")
                             .font(.system(size: 10, weight: .medium))
                             .foregroundStyle(.secondary)
                             .lineLimit(1)
@@ -2514,6 +2516,9 @@ private struct CreateCpVisitSheet: View {
         let staffId = selectedStaff?.id ?? authStore.currentSession?.user.staffId ?? authStore.currentSession?.user._id
         guard let staffId, !staffId.isEmpty else { errorMessage = "Staff session missing"; return }
         guard selectedProject != nil else { errorMessage = "Project is required"; return }
+        // CP Type drives the whole post-arrival branch in the trip flow, and an
+        // untyped CP shows as a bare dash in every list.
+        guard selectedCpType != nil else { errorMessage = "Select the CP type"; return }
         guard selectedStaff != nil || !(staffId.isEmpty) else { errorMessage = "Field staff is required"; return }
         guard let lmoStaffId = selectedLmo?.id.nilIfEmpty else {
             errorMessage = "Select the LMO, Channel Partner, or BDO"
