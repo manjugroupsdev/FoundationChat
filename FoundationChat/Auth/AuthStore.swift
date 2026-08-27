@@ -873,6 +873,30 @@ final class AuthStore {
     )
   }
 
+  func updateGroupConversation(conversationID: String, name: String, description: String) async throws {
+    let t = try requireToken()
+    try await ChatAPIService.updateGroupConversation(
+      token: t,
+      conversationId: conversationID,
+      name: name,
+      description: description
+    )
+  }
+
+  func setConversationMemberRole(
+    conversationID: String,
+    memberStackUserID: String,
+    role: String
+  ) async throws {
+    let t = try requireToken()
+    try await ChatAPIService.setConversationRole(
+      token: t,
+      conversationId: conversationID,
+      memberStackUserId: memberStackUserID,
+      role: role
+    )
+  }
+
   func hideConversation(conversationID: String) async throws {
     let t = try requireToken()
     try await ChatAPIService.hideConversation(token: t, conversationId: conversationID)

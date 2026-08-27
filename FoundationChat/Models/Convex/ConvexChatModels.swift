@@ -66,6 +66,7 @@ struct ConvexConversationParticipant: Decodable, Equatable, Sendable {
   let _id: String
   let name: String?
   let profilePhoto: String?
+  let role: String?
 
   var stackUserId: String { _id }
   var email: String? { nil }
@@ -91,12 +92,14 @@ struct ConvexConversationParticipant: Decodable, Equatable, Sendable {
     case imageUrl
     case profileImage
     case profileImageUrl
+    case role
   }
 
-  init(_id: String, name: String? = nil, profilePhoto: String? = nil) {
+  init(_id: String, name: String? = nil, profilePhoto: String? = nil, role: String? = nil) {
     self._id = _id
     self.name = name
     self.profilePhoto = profilePhoto
+    self.role = role
   }
 
   init(from decoder: Decoder) throws {
@@ -111,6 +114,7 @@ struct ConvexConversationParticipant: Decodable, Equatable, Sendable {
     profilePhoto = try container.decodeFirstPresentString(forKeys: [
       .profilePhoto, .profilePhotoUrl, .photo, .photoUrl, .avatarUrl, .imageUrl, .profileImage, .profileImageUrl
     ])
+    role = try container.decodeIfPresent(String.self, forKey: .role)
   }
 }
 
@@ -147,6 +151,8 @@ struct ConvexConversationSummary: Decodable, Identifiable, Equatable, Sendable {
   let lastMessage: ConvexConversationLastMessage?
   let unreadCount: Int?
   let muted: Bool?
+  let createdBy: String?
+  let description: String?
   let otherParticipantRaw: ConvexConversationParticipant?
   let participantStackUserIdsRaw: [String]?
   let otherParticipantLastReadAt: Double?
@@ -193,6 +199,8 @@ struct ConvexConversationSummary: Decodable, Identifiable, Equatable, Sendable {
     case lastMessage
     case unreadCount
     case muted
+    case createdBy
+    case description
   }
 
   init(from decoder: Decoder) throws {
@@ -217,6 +225,8 @@ struct ConvexConversationSummary: Decodable, Identifiable, Equatable, Sendable {
     lastMessage = try container.decodeIfPresent(ConvexConversationLastMessage.self, forKey: .lastMessage)
     unreadCount = try container.decodeIfPresent(Int.self, forKey: .unreadCount)
     muted = try container.decodeIfPresent(Bool.self, forKey: .muted)
+    createdBy = try container.decodeIfPresent(String.self, forKey: .createdBy)
+    description = try container.decodeIfPresent(String.self, forKey: .description)
   }
 }
 

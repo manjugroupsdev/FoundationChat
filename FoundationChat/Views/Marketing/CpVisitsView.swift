@@ -32,6 +32,80 @@ struct CpVisitsView: View {
     }
 
     var body: some View {
+        visitsContent
+            .refreshable { await load() }
+            .background(Color.appScreenBackground.ignoresSafeArea())
+            .navigationTitle("CP Visits")
+            .navigationBarTitleDisplayMode(.inline)
+            .searchable(
+                text: $searchText,
+                placement: .navigationBarDrawer(displayMode: .always),
+                prompt: "Search Client Places"
+            )
+            .textInputAutocapitalization(.never)
+            .autocorrectionDisabled()
+            .toolbarBackground(Color.appElevatedSurface, for: .navigationBar)
+            .toolbarBackground(.visible, for: .navigationBar)
+            .toolbar { navigationToolbar }
+            .task { if !hasLoaded { await load() } }
+            .onChange(of: searchText) { _, value in
+                scheduleServerSearch(value)
+            }
+            .onDisappear {
+                searchTask?.cancel()
+            }
+            .sheet(isPresented: $showCreateSheet) {
+                CreateCpVisitSheet {
+                    showCreateSheet = false
+                    Task { await load() }
+                }
+                .appFormActivity()
+                .appLibraryNativeSheet([.height(720), .large])
+                .presentationBackground(Color.appElevatedSurface)
+            }
+            .sheet(item: $selectedOutcomeVisit) { visit in
+                CompleteCpVisitSheet(
+                    cpVisitId: visit.clientPlaceVisitId,
+                    initialOutcome: visit.outcome,
+                    cpType: visit.cpType,
+                    onCompleted: {
+                        selectedOutcomeVisit = nil
+                        Task { await load() }
+                    }
+                )
+                .environment(authStore)
+            }
+            .sheet(isPresented: $showDateFilter) {
+                CpDateRangeFilterSheet(
+                    initialFrom: filterFromDate,
+                    initialTo: filterToDate
+                ) { from, to in
+                    filterFromDate = from
+                    filterToDate = to
+                    showDateFilter = false
+                    Task { await load() }
+                }
+                .appLibraryNativeSheet([.medium])
+            }
+            .sheet(isPresented: $showPunchIn) {
+                PunchFlowView(mode: .punchIn) {
+                    showPunchIn = false
+                    Task { await load() }
+                }
+            }
+            .navigationDestination(isPresented: $showSpecialOutcome) {
+                if let visit = selectedSpecialOutcomeVisit {
+                    tripDestination(for: visit)
+                }
+            }
+            .alert("You are at Home!", isPresented: $showHomeFenceWarning) {
+                Button("OK", role: .cancel) {}
+            } message: {
+                Text("Clock in is blocked inside the configured home area.")
+            }
+    }
+
+    private var visitsContent: some View {
         ScrollView {
             filterPills
             dateFilterChip
@@ -45,64 +119,7 @@ struct CpVisitsView: View {
             } else {
                 LazyVStack(spacing: 12) {
                     ForEach(filteredVisits) { visit in
-                        if visit.isPendingOutcomeCpVisit && visit.hasSpecialCompletion {
-                            Button {
-                                selectedSpecialOutcomeVisit = visit
-                                showSpecialOutcome = true
-                            } label: {
-                                CpVisitCard(visit: visit, isClockedIn: isClockedIn)
-                            }
-                            .buttonStyle(.plain)
-                        } else if visit.isPendingOutcomeCpVisit {
-                            Button {
-                                selectedOutcomeVisit = visit
-                            } label: {
-                                CpVisitCard(visit: visit, isClockedIn: isClockedIn)
-                            }
-                            .buttonStyle(.plain)
-                        } else if visit.requiresClockIn(isClockedIn: isClockedIn) {
-                            Button {
-                                Task { await openClockInRespectingHomeFence() }
-                            } label: {
-                                CpVisitCard(visit: visit, isClockedIn: isClockedIn)
-                            }
-                            .buttonStyle(.plain)
-                            .disabled(isCheckingHomeFence)
-                        } else if visit.isOpenableCpVisit {
-                            NavigationLink {
-                                TripNavigationView(
-                                    visitId: visit.id,
-                                    placeName: visit.placeName ?? visit.leadName ?? "CP Visit",
-                                    placeAddress: visit.placeAddress,
-                                    destination: coordinate(for: visit),
-                                    initialStatus: visit.status,
-                                    tripType: visit.tripType,
-                                    clientPlaceVisitId: visit.clientPlaceVisitId,
-                                    cpClientMet: visit.clientMet,
-                                    cpOutcome: visit.outcome,
-                                    cpVisitCategory: visit.visitCategory,
-                                    cpType: visit.cpType,
-                                    lmoName: visit.lmoName,
-                                    fieldStaffName: visit.bdoName,
-                                    deadline: visit.deadlineText,
-                                    onTripChanged: {
-                                        Task { await load() }
-                                    }
-                                )
-                            } label: {
-                                CpVisitCard(visit: visit, isClockedIn: isClockedIn)
-                            }
-                            .buttonStyle(.plain)
-                        } else if visit.isCompletedCpVisit {
-                            NavigationLink {
-                                CompletedCpVisitDetailView(summary: visit)
-                            } label: {
-                                CpVisitCard(visit: visit, isClockedIn: isClockedIn)
-                            }
-                            .buttonStyle(.plain)
-                        } else {
-                            CpVisitCard(visit: visit, isClockedIn: isClockedIn)
-                        }
+                        visitRow(visit)
                     }
                 }
                 .padding(.horizontal, 16)
@@ -110,131 +127,107 @@ struct CpVisitsView: View {
                 .padding(.bottom, 32)
             }
         }
-        .refreshable { await load() }
-        .background(Color.appScreenBackground.ignoresSafeArea())
-        .navigationTitle("CP Visits")
-        .navigationBarTitleDisplayMode(.inline)
-        .searchable(
-            text: $searchText,
-            placement: .navigationBarDrawer(displayMode: .always),
-            prompt: "Search Client Places"
+    }
+
+    @ToolbarContentBuilder
+    private var navigationToolbar: some ToolbarContent {
+        ToolbarItem(placement: .principal) {
+            Text("CP Visits")
+                .font(.system(size: 20, weight: .bold))
+                .foregroundStyle(.primary)
+        }
+
+        ToolbarItem(placement: .topBarTrailing) {
+            NavigationLink {
+                CpApprovalQueueView()
+            } label: {
+                Image(systemName: "checkmark.seal")
+                    .font(.system(size: 19, weight: .semibold))
+            }
+            .accessibilityLabel("CP approvals")
+        }
+
+        ToolbarItem(placement: .topBarTrailing) {
+            HStack(spacing: 16) {
+                Button { showDateFilter = true } label: {
+                    Image(systemName: "calendar")
+                        .font(.system(size: 18, weight: .semibold))
+                }
+                .accessibilityLabel("Filter CP visits by date")
+
+                Button { showCreateSheet = true } label: {
+                    Image(systemName: "plus")
+                        .font(.system(size: 20, weight: .semibold))
+                }
+                .accessibilityLabel("Create CP visit")
+            }
+        }
+    }
+
+    @ViewBuilder
+    private func visitRow(_ visit: CpListVisit) -> some View {
+        if visit.isPendingOutcomeCpVisit && visit.hasSpecialCompletion {
+            Button {
+                selectedSpecialOutcomeVisit = visit
+                showSpecialOutcome = true
+            } label: {
+                CpVisitCard(visit: visit, isClockedIn: isClockedIn)
+            }
+            .buttonStyle(.plain)
+        } else if visit.isPendingOutcomeCpVisit {
+            Button {
+                selectedOutcomeVisit = visit
+            } label: {
+                CpVisitCard(visit: visit, isClockedIn: isClockedIn)
+            }
+            .buttonStyle(.plain)
+        } else if visit.requiresClockIn(isClockedIn: isClockedIn) {
+            Button {
+                Task { await openClockInRespectingHomeFence() }
+            } label: {
+                CpVisitCard(visit: visit, isClockedIn: isClockedIn)
+            }
+            .buttonStyle(.plain)
+            .disabled(isCheckingHomeFence)
+        } else if visit.isOpenableCpVisit {
+            NavigationLink {
+                tripDestination(for: visit)
+            } label: {
+                CpVisitCard(visit: visit, isClockedIn: isClockedIn)
+            }
+            .buttonStyle(.plain)
+        } else if visit.isCompletedCpVisit {
+            NavigationLink {
+                CompletedCpVisitDetailView(summary: visit)
+            } label: {
+                CpVisitCard(visit: visit, isClockedIn: isClockedIn)
+            }
+            .buttonStyle(.plain)
+        } else {
+            CpVisitCard(visit: visit, isClockedIn: isClockedIn)
+        }
+    }
+
+    private func tripDestination(for visit: CpListVisit) -> some View {
+        TripNavigationView(
+            visitId: visit.id,
+            placeName: visit.placeName ?? visit.leadName ?? "CP Visit",
+            placeAddress: visit.placeAddress,
+            destination: coordinate(for: visit),
+            initialStatus: visit.status,
+            tripType: visit.tripType,
+            clientPlaceVisitId: visit.clientPlaceVisitId,
+            cpClientMet: visit.clientMet,
+            cpOutcome: visit.outcome,
+            cpVisitCategory: visit.visitCategory,
+            cpType: visit.cpType,
+            lmoName: visit.lmoName,
+            fieldStaffName: visit.fieldStaffName,
+            deadline: visit.deadlineText,
+            onTripChanged: {
+                Task { await load() }
+            }
         )
-        .textInputAutocapitalization(.never)
-        .autocorrectionDisabled()
-        .toolbarBackground(Color.appElevatedSurface, for: .navigationBar)
-        .toolbarBackground(.visible, for: .navigationBar)
-        .toolbar {
-            ToolbarItem(placement: .principal) {
-                Text("CP Visits")
-                    .font(.system(size: 20, weight: .bold))
-                    .foregroundStyle(.primary)
-            }
-
-            // GM out-of-geofence CP completion approval queue. Android launches
-            // this only from the "CP completion needs approval" push and the
-            // backend scopes the feed to the resolved approver; there is no
-            // client-side permission constant, so the entry is shown for all
-            // (non-approvers just see an empty queue). See VERIFY notes.
-            ToolbarItem(placement: .topBarTrailing) {
-                NavigationLink {
-                    CpApprovalQueueView()
-                } label: {
-                    Image(systemName: "checkmark.seal")
-                        .font(.system(size: 19, weight: .semibold))
-                }
-                .accessibilityLabel("CP approvals")
-            }
-
-            ToolbarItem(placement: .topBarTrailing) {
-                HStack(spacing: 16) {
-                    Button { showDateFilter = true } label: {
-                        Image(systemName: "calendar")
-                            .font(.system(size: 18, weight: .semibold))
-                    }
-                    .accessibilityLabel("Filter CP visits by date")
-
-                    Button { showCreateSheet = true } label: {
-                        Image(systemName: "plus")
-                            .font(.system(size: 20, weight: .semibold))
-                    }
-                    .accessibilityLabel("Create CP visit")
-                }
-            }
-        }
-        .task { if !hasLoaded { await load() } }
-        .onChange(of: searchText) { _, value in
-            scheduleServerSearch(value)
-        }
-        .onDisappear {
-            searchTask?.cancel()
-        }
-        .sheet(isPresented: $showCreateSheet) {
-            CreateCpVisitSheet {
-                showCreateSheet = false
-                Task { await load() }
-            }
-            .appFormActivity()
-            .appLibraryNativeSheet([.height(720), .large])
-            .presentationBackground(Color.appElevatedSurface)
-        }
-        .sheet(item: $selectedOutcomeVisit) { visit in
-            CompleteCpVisitSheet(
-                cpVisitId: visit.clientPlaceVisitId,
-                initialOutcome: visit.outcome,
-                cpType: visit.cpType,
-                onCompleted: {
-                    selectedOutcomeVisit = nil
-                    Task { await load() }
-                }
-            )
-            .environment(authStore)
-        }
-        .sheet(isPresented: $showDateFilter) {
-            CpDateRangeFilterSheet(
-                initialFrom: filterFromDate,
-                initialTo: filterToDate
-            ) { from, to in
-                filterFromDate = from
-                filterToDate = to
-                showDateFilter = false
-                Task { await load() }
-            }
-            .appLibraryNativeSheet([.medium])
-        }
-        .sheet(isPresented: $showPunchIn) {
-            PunchFlowView(mode: .punchIn) {
-                showPunchIn = false
-                Task { await load() }
-            }
-        }
-        .navigationDestination(isPresented: $showSpecialOutcome) {
-            if let visit = selectedSpecialOutcomeVisit {
-                TripNavigationView(
-                    visitId: visit.id,
-                    placeName: visit.placeName ?? visit.leadName ?? "CP Visit",
-                    placeAddress: visit.placeAddress,
-                    destination: coordinate(for: visit),
-                    initialStatus: visit.status,
-                    tripType: visit.tripType,
-                    clientPlaceVisitId: visit.clientPlaceVisitId,
-                    cpClientMet: visit.clientMet,
-                    cpOutcome: visit.outcome,
-                    cpVisitCategory: visit.visitCategory,
-                    cpType: visit.cpType,
-                    lmoName: visit.lmoName,
-                    fieldStaffName: visit.bdoName,
-                    deadline: visit.deadlineText,
-                    onTripChanged: {
-                        Task { await load() }
-                    }
-                )
-            }
-        }
-        .alert("You are at Home!", isPresented: $showHomeFenceWarning) {
-            Button("OK", role: .cancel) {}
-        } message: {
-            Text("Clock in is blocked inside the configured home area.")
-        }
     }
 
     private var filterPills: some View {
@@ -489,6 +482,8 @@ private struct CpListVisit: Identifiable {
     let leadName: String?
     let leadPhone: String?
     let lmoName: String?
+    let fieldStaffName: String?
+    let jointStaffLabel: String?
     let clientMet: Bool?
     let clientMetAt: Int64?
     let clientNoShowReason: String?
@@ -546,6 +541,12 @@ private struct CpListVisit: Identifiable {
             ?? detail.clientPlace?.contactPhone?.blankToNil
         self.lmoName = detail.telecaller?.name?.blankToNil
             ?? detail.telecaller?.staffName?.blankToNil
+        let jointNames = ([detail.joint?.leadStaffName] + (detail.joint?.companionNames ?? []))
+            .compactMap { $0?.blankToNil }
+        self.jointStaffLabel = jointNames.isEmpty ? nil : jointNames.joined(separator: " & ")
+        self.fieldStaffName = self.jointStaffLabel
+            ?? detail.assignedStaff?.name?.blankToNil
+            ?? detail.assignedStaff?.staffName?.blankToNil
         self.clientMet = detail.clientMet
         self.clientMetAt = detail.clientMetAt
         self.clientNoShowReason = detail.clientNoShowReason
@@ -670,8 +671,9 @@ private struct CpListVisit: Identifiable {
             status,
             outcome,
             typeLabel,
-            cpType
-            , lmoName
+            cpType,
+            lmoName,
+            fieldStaffName
         ]
         .compactMap { $0?.lowercased() }
         .contains { $0.localizedStandardContains(needle) }
@@ -702,6 +704,17 @@ private struct CpVisitCard: View {
     var body: some View {
         VStack(spacing: 0) {
             header
+            if let fieldStaff = visit.fieldStaffName?.blankToNil {
+                HStack(spacing: 6) {
+                    Image(systemName: visit.jointStaffLabel == nil ? "person" : "person.2")
+                    Text("\(visit.jointStaffLabel == nil ? "Field Staff" : "Joint Staff"): \(fieldStaff)")
+                        .lineLimit(2)
+                }
+                .font(.system(size: 11, weight: .medium))
+                .foregroundStyle(.secondary)
+                .frame(maxWidth: .infinity, alignment: .leading)
+                .padding(.top, 10)
+            }
             if let lmo = visit.lmoName?.blankToNil {
                 HStack(spacing: 6) {
                     Image(systemName: "person.badge.key")

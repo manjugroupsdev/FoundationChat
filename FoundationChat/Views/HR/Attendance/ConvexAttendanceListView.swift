@@ -1577,6 +1577,15 @@ private struct AttendanceApprovalReviewSheet: View {
     @State private var replayIndex = 0
     @State private var replaySpeed = 1.0
     @State private var replayTask: Task<Void, Never>?
+    @State private var showPunchCorrection = false
+
+    private var canCorrectPunchTimes: Bool {
+        guard authStore.hasPermission("attendance.correctPunchTimes") else { return false }
+        let user = authStore.currentSession?.user
+        let currentIds = [user?.staffId, user?._id].compactMap { $0 }
+        guard let targetId = record.staffId?.nilIfBlank else { return false }
+        return !currentIds.contains(targetId)
+    }
 
     var body: some View {
         NavigationStack {
@@ -1636,6 +1645,14 @@ private struct AttendanceApprovalReviewSheet: View {
                     Button("Cancel") { dismiss() }
                         .disabled(isSubmitting)
                 }
+                if canCorrectPunchTimes {
+                    ToolbarItem(placement: .confirmationAction) {
+                        Button("Correct", systemImage: "clock.badge.checkmark") {
+                            showPunchCorrection = true
+                        }
+                        .disabled(isSubmitting)
+                    }
+                }
             }
         }
         .interactiveDismissDisabled(isSubmitting)
@@ -1644,6 +1661,14 @@ private struct AttendanceApprovalReviewSheet: View {
         }
         .onDisappear {
             replayTask?.cancel()
+        }
+        .sheet(isPresented: $showPunchCorrection) {
+            AttendancePunchCorrectionSheet(record: record) {
+                await onCompleted()
+                dismiss()
+            }
+            .environment(authStore)
+            .appLibraryNativeSheet([.medium, .large])
         }
     }
 
@@ -2239,6 +2264,156 @@ private struct AttendanceApprovalReviewSheet: View {
             }
         }
     }
+}
+
+private struct AttendancePunchCorrectionSheet: View {
+    @Environment(AuthStore.self) private var authStore
+    @Environment(\.dismiss) private var dismiss
+
+    let record: ConvexAttendanceRecord
+    let onCorrected: () async -> Void
+
+    @State private var correctPunchIn = true
+    @State private var correctPunchOut = true
+    @State private var punchIn = Date()
+    @State private var punchOut = Date()
+    @State private var reason = ""
+    @State private var isSubmitting = false
+    @State private var errorMessage: String?
+    @State private var didSeedValues = false
+
+    var body: some View {
+        NavigationStack {
+            Form {
+                Section("Attendance") {
+                    LabeledContent("Staff", value: record.staffName?.nilIfBlank ?? "Staff")
+                    LabeledContent("Date", value: record.date?.nilIfBlank ?? "-")
+                }
+
+                Section("Correct Times") {
+                    Toggle("Correct punch in", isOn: $correctPunchIn)
+                    if correctPunchIn {
+                        DatePicker("Punch In", selection: $punchIn, displayedComponents: .hourAndMinute)
+                    }
+
+                    Toggle("Correct punch out", isOn: $correctPunchOut)
+                    if correctPunchOut {
+                        DatePicker("Punch Out", selection: $punchOut, displayedComponents: .hourAndMinute)
+                    }
+                }
+
+                Section("Reason") {
+                    TextField("Reason (optional)", text: $reason, axis: .vertical)
+                        .lineLimit(2...4)
+                }
+
+                if let errorMessage {
+                    Section {
+                        Label(errorMessage, systemImage: "exclamationmark.triangle.fill")
+                            .foregroundStyle(.red)
+                    }
+                }
+            }
+            .navigationTitle("Correct Punch Times")
+            .navigationBarTitleDisplayMode(.inline)
+            .toolbar {
+                ToolbarItem(placement: .cancellationAction) {
+                    Button("Cancel") { dismiss() }
+                        .disabled(isSubmitting)
+                }
+                ToolbarItem(placement: .confirmationAction) {
+                    Button(isSubmitting ? "Saving..." : "Save") {
+                        Task { await submit() }
+                    }
+                    .disabled(isSubmitting || (!correctPunchIn && !correctPunchOut))
+                }
+            }
+            .onAppear { seedValuesIfNeeded() }
+            .interactiveDismissDisabled(isSubmitting)
+        }
+    }
+
+    private func seedValuesIfNeeded() {
+        guard !didSeedValues else { return }
+        didSeedValues = true
+        if let value = parseTimestamp(record.firstPunchIn ?? record.sessions?.first?.punchInTime) {
+            punchIn = value
+        }
+        if let value = parseTimestamp(record.resolvedPunchOut) {
+            punchOut = value
+        } else {
+            correctPunchOut = false
+        }
+    }
+
+    @MainActor
+    private func submit() async {
+        guard let token = authStore.currentSession?.token else { return }
+        guard correctPunchIn || correctPunchOut else {
+            errorMessage = "Choose at least one punch time to correct."
+            return
+        }
+        if correctPunchIn, correctPunchOut, punchOut <= punchIn {
+            errorMessage = "Punch out must be later than punch in."
+            return
+        }
+
+        isSubmitting = true
+        errorMessage = nil
+        defer { isSubmitting = false }
+        do {
+            let trimmedReason = reason.trimmingCharacters(in: .whitespacesAndNewlines)
+            try await HRConvexAPIService.correctAttendancePunchTimes(
+                token: token,
+                id: record.id,
+                correctedPunchIn: correctPunchIn ? timestamp(onRecordDate: punchIn) : nil,
+                correctedPunchOut: correctPunchOut ? timestamp(onRecordDate: punchOut) : nil,
+                reason: trimmedReason.isEmpty ? nil : trimmedReason
+            )
+            await onCorrected()
+            dismiss()
+        } catch {
+            errorMessage = error.localizedDescription
+        }
+    }
+
+    private func timestamp(onRecordDate time: Date) -> String {
+        let calendar = Calendar.current
+        let day = record.date.flatMap { Self.dayFormatter.date(from: $0) } ?? time
+        let components = calendar.dateComponents([.hour, .minute, .second], from: time)
+        let combined = calendar.date(
+            bySettingHour: components.hour ?? 0,
+            minute: components.minute ?? 0,
+            second: components.second ?? 0,
+            of: day
+        ) ?? time
+        return Self.isoFormatter.string(from: combined)
+    }
+
+    private func parseTimestamp(_ raw: String?) -> Date? {
+        guard let raw = raw?.nilIfBlank else { return nil }
+        return Self.fractionalIsoFormatter.date(from: raw)
+            ?? Self.isoFormatter.date(from: raw)
+    }
+
+    private static let dayFormatter: DateFormatter = {
+        let formatter = DateFormatter()
+        formatter.locale = Locale(identifier: "en_US_POSIX")
+        formatter.dateFormat = "yyyy-MM-dd"
+        return formatter
+    }()
+
+    private static let fractionalIsoFormatter: ISO8601DateFormatter = {
+        let formatter = ISO8601DateFormatter()
+        formatter.formatOptions = [.withInternetDateTime, .withFractionalSeconds]
+        return formatter
+    }()
+
+    private static let isoFormatter: ISO8601DateFormatter = {
+        let formatter = ISO8601DateFormatter()
+        formatter.formatOptions = [.withInternetDateTime]
+        return formatter
+    }()
 }
 
 private struct AttendanceRequestReviewSheet: View {

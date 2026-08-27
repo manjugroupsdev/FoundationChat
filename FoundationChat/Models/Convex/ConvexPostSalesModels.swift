@@ -194,6 +194,18 @@ struct SubmitLoanDeskRequest: Encodable, Sendable {
     let documents: [SubmitLoanDocument]
 }
 
+struct UploadLoanDocumentRequest: Encodable, Sendable {
+    let loanCaseId: String
+    let index: Int
+    let storageId: String
+    let fileName: String?
+}
+
+struct UploadLoanDocumentResponse: Decodable, Sendable {
+    let success: Bool
+    let error: String?
+}
+
 struct AssignLoanRequest: Encodable, Sendable {
     let loanCaseId: String
     let legalStaffId: String

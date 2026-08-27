@@ -56,6 +56,11 @@ struct ConversationInfoView: View {
       return channel.type?.lowercased() == "public" ? "#\(channel.name)" : channel.name
     }
     if case .conversation = source, let conversation {
+      if isGroupConversation {
+        return conversation.displayName
+          ?? initialDisplayName
+          ?? "Group"
+      }
       return conversationParticipantsToShow.first?.displayName
         ?? conversation.otherParticipant?.displayName
         ?? conversation.displayName
@@ -74,9 +79,9 @@ struct ConversationInfoView: View {
       }
       return channel?.description
     case .conversation:
-      let count = conversationParticipantsToShow.count
-      if count > 1 {
-        return "\(count) participants"
+      if isGroupConversation {
+        let count = conversation?.participants?.count ?? 0
+        return "Group · \(count) member\(count == 1 ? "" : "s")"
       }
       return nil
     }
@@ -91,6 +96,38 @@ struct ConversationInfoView: View {
   private var channelID: String? {
     guard case .channel(let id, _) = source else { return nil }
     return id
+  }
+
+  private var conversationID: String? {
+    guard case .conversation(let id) = source else { return nil }
+    return id
+  }
+
+  private var isGroupConversation: Bool {
+    guard case .conversation = source else { return false }
+    let type = conversation?.type?.lowercased() ?? ""
+    return type.contains("group") || (conversation?.participants?.count ?? 0) > 2
+  }
+
+  private var conversationMembers: [ChannelMember] {
+    let creatorID = conversation?.createdBy
+    return (conversation?.participants ?? []).map { participant in
+      ChannelMember(
+        _id: participant.stackUserId,
+        channelId: nil,
+        staffId: participant.stackUserId,
+        role: participant.stackUserId == creatorID ? "admin" : participant.role,
+        muted: nil,
+        staffName: participant.name,
+        staffRole: nil,
+        staffDesignation: nil,
+        profilePhoto: participant.profilePhoto
+      )
+    }
+  }
+
+  private var displayedMembers: [ChannelMember] {
+    isGroupConversation ? conversationMembers : members
   }
 
   private var currentUserIDs: Set<String> {
@@ -122,6 +159,15 @@ struct ConversationInfoView: View {
     return false
   }
 
+  private var canManageConversation: Bool {
+    guard isGroupConversation else { return false }
+    if let createdBy = conversation?.createdBy, currentUserIDs.contains(createdBy) { return true }
+    let role = conversationMembers.first(where: isCurrentChannelMember)?.role
+    return normalizedRole(role) == "admin"
+  }
+
+  private var canManageGroup: Bool { canManageChannel || canManageConversation }
+
   private var isCurrentUserChannelCreator: Bool {
     guard let createdBy = channel?.createdBy else { return false }
     return currentUserIDs.contains(createdBy)
@@ -133,13 +179,13 @@ struct ConversationInfoView: View {
   }
 
   private var existingMemberIDs: Set<String> {
-    Set(members.flatMap { member in
+    Set(displayedMembers.flatMap { member in
       [member.id, member.staffId].compactMap { $0 }
     })
   }
 
   private var sortedChannelMembers: [ChannelMember] {
-    members.sorted { lhs, rhs in
+    displayedMembers.sorted { lhs, rhs in
       let lhsRank = memberSortRank(lhs)
       let rhsRank = memberSortRank(rhs)
       if lhsRank != rhsRank { return lhsRank < rhsRank }
@@ -169,12 +215,13 @@ struct ConversationInfoView: View {
   }
 
   private func isChannelCreator(_ member: ChannelMember) -> Bool {
-    guard let createdBy = channel?.createdBy else { return false }
+    let createdBy = channel?.createdBy ?? conversation?.createdBy
+    guard let createdBy else { return false }
     return member.staffId == createdBy || member.id == createdBy
   }
 
   private func canManageMember(_ member: ChannelMember) -> Bool {
-    canManageChannel && !isCurrentChannelMember(member) && !isChannelCreator(member)
+    canManageGroup && !isCurrentChannelMember(member) && !isChannelCreator(member)
   }
 
   @ViewBuilder
@@ -203,9 +250,15 @@ struct ConversationInfoView: View {
             .listRowInsets(EdgeInsets())
             .listRowBackground(Color.clear)
         }
+      } else if isGroupConversation {
+        Section {
+          headerCard
+            .listRowInsets(EdgeInsets())
+            .listRowBackground(Color.clear)
+        }
       }
 
-      if case .conversation = source {
+      if case .conversation = source, !isGroupConversation {
         conversationUserDetailsTopSection
       }
 
@@ -222,7 +275,7 @@ struct ConversationInfoView: View {
           InfoActionRow(systemImage: "photo.on.rectangle", tint: .purple, title: "Media, Files & Links")
         }
 
-        if case .channel = source, canManageChannel {
+        if canManageGroup {
           Button {
             showEditGroupSheet = true
           } label: {
@@ -239,6 +292,8 @@ struct ConversationInfoView: View {
 
       if case .channel = source {
         channelDescriptionSection
+      } else if isGroupConversation {
+        channelDescriptionSection
       }
 
       Section("Notifications") {
@@ -249,6 +304,8 @@ struct ConversationInfoView: View {
       }
 
       if case .channel = source {
+        membersSection
+      } else if isGroupConversation {
         membersSection
       }
 
@@ -270,6 +327,15 @@ struct ConversationInfoView: View {
             }
           }
         }
+      } else if isGroupConversation {
+        Section {
+          Button(role: .destructive) {
+            showLeaveConfirm = true
+          } label: {
+            Label("Exit Group", systemImage: "rectangle.portrait.and.arrow.right")
+              .foregroundStyle(.red)
+          }
+        }
       }
     }
     .listStyle(.insetGrouped)
@@ -277,10 +343,10 @@ struct ConversationInfoView: View {
     .navigationBarTitleDisplayMode(.inline)
     .task { await load() }
     .refreshable { await load() }
-    .alert("Leave Channel?", isPresented: $showLeaveConfirm) {
+    .alert("Exit Group?", isPresented: $showLeaveConfirm) {
       Button("Cancel", role: .cancel) {}
       Button("Exit Group", role: .destructive) {
-        Task { await leaveChannel() }
+        Task { await leaveGroup() }
       }
     } message: {
       Text("You'll stop receiving messages from \"\(displayName)\".")
@@ -330,7 +396,7 @@ struct ConversationInfoView: View {
       NavigationStack {
         EditGroupSheet(
           name: displayName.replacingOccurrences(of: "#", with: ""),
-          description: channel?.description ?? "",
+          description: channel?.description ?? conversation?.description ?? "",
           onSave: { name, description in
             await updateGroup(name: name, description: description)
           }
@@ -341,6 +407,14 @@ struct ConversationInfoView: View {
     .sheet(isPresented: $showAddMemberSheet) {
       if let channelID {
         InviteMemberSheet(channelID: channelID, excludedMemberIds: existingMemberIDs) {
+          await load()
+        }
+        .appFormActivity()
+      } else if let conversationID {
+        ConversationInviteMemberSheet(
+          conversationID: conversationID,
+          excludedMemberIDs: existingMemberIDs
+        ) {
           await load()
         }
         .appFormActivity()
@@ -411,10 +485,11 @@ struct ConversationInfoView: View {
 
   @ViewBuilder
   private var channelDescriptionSection: some View {
-    let description = channel?.description?.trimmingCharacters(in: .whitespacesAndNewlines)
+    let description = (channel?.description ?? conversation?.description)?
+      .trimmingCharacters(in: .whitespacesAndNewlines)
 
     Section("Description") {
-      Text(description?.isEmpty == false ? description! : (canManageChannel ? "Add group description" : "No description"))
+      Text(description?.isEmpty == false ? description! : (canManageGroup ? "Add group description" : "No description"))
         .font(.subheadline)
         .foregroundStyle(description?.isEmpty == false ? .primary : .secondary)
         .frame(maxWidth: .infinity, alignment: .leading)
@@ -495,8 +570,8 @@ struct ConversationInfoView: View {
 
   @ViewBuilder
   private var membersSection: some View {
-    Section("Members (\(members.count))") {
-      if members.isEmpty {
+    Section("Members (\(displayedMembers.count))") {
+      if displayedMembers.isEmpty {
         Text("No members loaded")
           .font(.subheadline)
           .foregroundStyle(.secondary)
@@ -615,14 +690,24 @@ struct ConversationInfoView: View {
   }
 
   @MainActor
-  private func leaveChannel() async {
-    guard case .channel(let id, _) = source else { return }
+  private func leaveGroup() async {
     isMutating = true
     errorMessage = nil
     defer { isMutating = false }
 
     do {
-      try await authStore.leaveChannel(channelID: id)
+      switch source {
+      case .channel(let id, _):
+        try await authStore.leaveChannel(channelID: id)
+      case .conversation(let id):
+        guard let currentMember = conversationMembers.first(where: isCurrentChannelMember) else {
+          throw ChatAPIError.unexpected("Current group member could not be resolved")
+        }
+        try await authStore.removeConversationMember(
+          conversationID: id,
+          memberStackUserID: currentMember.stackUserId
+        )
+      }
       dismiss()
       onChannelExited?()
     } catch {
@@ -648,17 +733,21 @@ struct ConversationInfoView: View {
 
   @MainActor
   private func updateGroup(name: String, description: String) async {
-    guard let channelID else { return }
     isMutating = true
     errorMessage = nil
     defer { isMutating = false }
 
     do {
-      try await authStore.updateChannel(
-        channelID: channelID,
-        name: name,
-        description: description
-      )
+      switch source {
+      case .channel(let id, _):
+        try await authStore.updateChannel(channelID: id, name: name, description: description)
+      case .conversation(let id):
+        try await authStore.updateGroupConversation(
+          conversationID: id,
+          name: name,
+          description: description
+        )
+      }
       showEditGroupSheet = false
       await load()
     } catch {
@@ -668,17 +757,25 @@ struct ConversationInfoView: View {
 
   @MainActor
   private func setRole(_ role: String, for member: ChannelMember) async {
-    guard let channelID else { return }
     memberActionID = member.id
     errorMessage = nil
     defer { memberActionID = nil }
 
     do {
-      try await authStore.setChannelMemberRole(
-        channelID: channelID,
-        memberStackUserID: member.stackUserId,
-        role: role
-      )
+      switch source {
+      case .channel(let id, _):
+        try await authStore.setChannelMemberRole(
+          channelID: id,
+          memberStackUserID: member.stackUserId,
+          role: role
+        )
+      case .conversation(let id):
+        try await authStore.setConversationMemberRole(
+          conversationID: id,
+          memberStackUserID: member.stackUserId,
+          role: role
+        )
+      }
       await load()
     } catch {
       errorMessage = error.localizedDescription
@@ -687,7 +784,6 @@ struct ConversationInfoView: View {
 
   @MainActor
   private func removeMember(_ member: ChannelMember) async {
-    guard let channelID else { return }
     memberActionID = member.id
     errorMessage = nil
     defer {
@@ -696,7 +792,15 @@ struct ConversationInfoView: View {
     }
 
     do {
-      try await authStore.removeMember(channelID: channelID, memberStackUserID: member.stackUserId)
+      switch source {
+      case .channel(let id, _):
+        try await authStore.removeMember(channelID: id, memberStackUserID: member.stackUserId)
+      case .conversation(let id):
+        try await authStore.removeConversationMember(
+          conversationID: id,
+          memberStackUserID: member.stackUserId
+        )
+      }
       await load()
     } catch {
       errorMessage = error.localizedDescription
@@ -1272,6 +1376,99 @@ private struct ParticipantDetailsSkeleton: View {
       .background(Color(.secondarySystemGroupedBackground), in: RoundedRectangle(cornerRadius: 14, style: .continuous))
     }
     .allowsHitTesting(false)
+  }
+}
+
+private struct ConversationInviteMemberSheet: View {
+  @Environment(AuthStore.self) private var authStore
+  @Environment(\.dismiss) private var dismiss
+
+  let conversationID: String
+  let excludedMemberIDs: Set<String>
+  let onInvited: () async -> Void
+
+  @State private var searchText = ""
+  @State private var users: [DirectoryUser] = []
+  @State private var isLoading = false
+  @State private var invitingUserID: String?
+  @State private var errorMessage: String?
+
+  var body: some View {
+    NavigationStack {
+      Group {
+        if isLoading, users.isEmpty {
+          ProgressView("Loading users...")
+        } else if let errorMessage, users.isEmpty {
+          ContentUnavailableView(
+            "Could Not Load Users",
+            systemImage: "exclamationmark.triangle",
+            description: Text(errorMessage)
+          )
+        } else if users.isEmpty {
+          ContentUnavailableView("No users found", systemImage: "person.2")
+        } else {
+          List(users) { user in
+            Button {
+              Task { await invite(user) }
+            } label: {
+              HStack {
+                Text(user.displayName)
+                  .foregroundStyle(.primary)
+                Spacer()
+                if invitingUserID == user.id { ProgressView() }
+              }
+            }
+            .disabled(invitingUserID != nil)
+          }
+          .listStyle(.plain)
+        }
+      }
+      .frame(maxWidth: .infinity, maxHeight: .infinity)
+      .navigationTitle("Add Member")
+      .navigationBarTitleDisplayMode(.inline)
+      .searchable(text: $searchText, prompt: "Search users")
+      .toolbar {
+        ToolbarItem(placement: .cancellationAction) {
+          Button("Close") { dismiss() }
+        }
+      }
+      .task(id: searchText) { await loadUsers() }
+    }
+  }
+
+  @MainActor
+  private func loadUsers() async {
+    isLoading = true
+    errorMessage = nil
+    defer { isLoading = false }
+
+    do {
+      users = try await authStore.fetchDirectoryUsers(search: searchText)
+        .filter {
+          !excludedMemberIDs.contains($0.id) && !excludedMemberIDs.contains($0.stackUserId)
+        }
+    } catch {
+      users = []
+      errorMessage = error.localizedDescription
+    }
+  }
+
+  @MainActor
+  private func invite(_ user: DirectoryUser) async {
+    invitingUserID = user.id
+    errorMessage = nil
+    defer { invitingUserID = nil }
+
+    do {
+      try await authStore.addConversationMember(
+        conversationID: conversationID,
+        memberStackUserID: user.stackUserId
+      )
+      await onInvited()
+      dismiss()
+    } catch {
+      errorMessage = error.localizedDescription
+    }
   }
 }
 

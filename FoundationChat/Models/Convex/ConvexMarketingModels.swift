@@ -273,6 +273,7 @@ struct CpVisitDetail: Codable, Identifiable, Sendable {
     let arrivalProof: CpVisitArrivalProof?
     let project: CpVisitProject?
     let inchargeStaff: CpVisitStaff?
+    let joint: JointCpSummary?
     // Client-not-met auto-reschedule: how many times this visit has bounced on
     // "client not met", the last not-met date, and — once the client has been
     // not-met 3+ times in a row — a warning flag for the card.
@@ -295,10 +296,32 @@ struct CpVisitDetail: Codable, Identifiable, Sendable {
         case expectedAttendeeCount, foodPreferences, vehiclePreference, driverName, driverPhone
         case cpType, projectId, isBookingCompleted
         case createdAt, updatedAt, lead, client, telecaller, assignedStaff, clientPlace
-        case proposedSiteVisit, attendees, fieldVisit, arrivalProof, project, inchargeStaff
+        case proposedSiteVisit, attendees, fieldVisit, arrivalProof, project, inchargeStaff, joint
         case rescheduleCount, lastNotMetDate, clientUnavailableWarning
         case approvalGmName, rejectRemark, reassignedFromRejection
     }
+}
+
+struct JointCpParticipant: Codable, Sendable {
+    let staffId: String?
+    let staffName: String?
+    let isPrimary: Bool?
+    let status: String?
+    let outcome: String?
+    let notes: String?
+    let clientMet: Bool?
+    let startedAt: Int64?
+    let completedAt: Int64?
+    let distanceMeters: Double?
+    let outOfGeofence: Bool?
+}
+
+struct JointCpSummary: Codable, Sendable {
+    let participants: [JointCpParticipant]?
+    let leadStaffName: String?
+    let leadStaffId: String?
+    let companionNames: [String]?
+    let totalCount: Int?
 }
 
 struct CpVisitProject: Codable, Sendable {

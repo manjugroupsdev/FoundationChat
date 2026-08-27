@@ -2469,12 +2469,20 @@ private struct LoanCaseDocumentsSheet: View {
                 isUploading = false
                 importingSlotId = nil
             }
+            guard let slotIndex = slots.firstIndex(where: { $0.id == slotId }) else { return }
             let uploaded = try await PostSalesStorageService.uploadFile(token: token, fileURL: url)
-            if let index = slots.firstIndex(where: { $0.id == slotId }) {
-                slots[index].storageId = uploaded.storageId
-                slots[index].fileName = uploaded.fileName
-                slots[index].isFresh = true
-            }
+            try await PostSalesConvexAPIService.uploadLoanDocument(
+                token: token,
+                request: UploadLoanDocumentRequest(
+                    loanCaseId: loanCase.id,
+                    index: slotIndex,
+                    storageId: uploaded.storageId,
+                    fileName: uploaded.fileName
+                )
+            )
+            slots[slotIndex].storageId = uploaded.storageId
+            slots[slotIndex].fileName = uploaded.fileName
+            slots[slotIndex].isFresh = true
         } catch {
             errorMessage = error.localizedDescription
         }

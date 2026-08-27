@@ -300,6 +300,14 @@ enum PostSalesConvexAPIService {
         return wrapper.loanCase
     }
 
+    static func uploadLoanDocument(token: String, request: UploadLoanDocumentRequest) async throws {
+        let data = try await post(path: "/api/postsales/loans/upload-document", token: token, body: request)
+        let wrapper = try decode(UploadLoanDocumentResponse.self, from: data)
+        guard wrapper.success else {
+            throw MarketingAPIError.server(wrapper.error ?? "Failed to attach document to loan case")
+        }
+    }
+
     @discardableResult
     static func assignLoan(token: String, request: AssignLoanRequest) async throws -> LoanCaseRow? {
         let data = try await post(path: "/api/postsales/loans/assign", token: token, body: request)

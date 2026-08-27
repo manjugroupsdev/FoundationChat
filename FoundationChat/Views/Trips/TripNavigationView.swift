@@ -263,6 +263,7 @@ struct TripNavigationView: View {
                     initialResendCooldown: otpResendCooldown,
                     lat: otpLat,
                     lng: otpLng,
+                    clientPlaceVisitId: clientPlaceVisitId,
                     // Arrival photo was uploaded in uploadPhotoThenShowOtp before this
                     // sheet opened; forward its storage id so the OTP verify links the
                     // photo immediately (Android parity). Still re-sent at completeVisit

@@ -17,6 +17,7 @@ struct ArrivalOtpSheet: View {
     let initialResendCooldown: Int
     let lat: Double
     let lng: Double
+    let clientPlaceVisitId: String?
     /// Storage id of the arrival photo captured & uploaded before this sheet was
     /// shown. Forwarded with the OTP verify so the backend links the photo to the
     /// fieldVisit row at arrival time (parity with Android ArrivalOtpBottomSheet).
@@ -30,6 +31,10 @@ struct ArrivalOtpSheet: View {
     @State private var phoneMaskedState: String?
     @State private var isVerifying = false
     @State private var isResending = false
+    @State private var isRequestingAssistance = false
+    @State private var showAssistancePrompt = false
+    @State private var assistanceRemark = ""
+    @State private var assistanceConfirmation: String?
     @FocusState private var fieldFocused: Bool
 
     private let geoAPI = GeoTrackAPIService.shared
@@ -42,6 +47,7 @@ struct ArrivalOtpSheet: View {
         initialResendCooldown: Int,
         lat: Double,
         lng: Double,
+        clientPlaceVisitId: String? = nil,
         arrivalPhotoStorageId: String? = nil,
         onVerified: @escaping (String) -> Void
     ) {
@@ -51,6 +57,7 @@ struct ArrivalOtpSheet: View {
         self.initialResendCooldown = initialResendCooldown
         self.lat = lat
         self.lng = lng
+        self.clientPlaceVisitId = clientPlaceVisitId
         self.arrivalPhotoStorageId = arrivalPhotoStorageId
         self.onVerified = onVerified
         _expirySecondsRemaining = State(initialValue: initialExpiresIn)
@@ -151,6 +158,25 @@ struct ArrivalOtpSheet: View {
             .buttonStyle(.plain)
             .disabled(resendSecondsRemaining > 0 || isResending)
 
+            if clientPlaceVisitId != nil {
+                Button {
+                    fieldFocused = false
+                    showAssistancePrompt = true
+                } label: {
+                    HStack(spacing: 7) {
+                        if isRequestingAssistance {
+                            ProgressView().controlSize(.small)
+                        } else {
+                            Image(systemName: "person.crop.circle.badge.questionmark")
+                        }
+                        Text("Request GM for OTP")
+                    }
+                    .font(.subheadline.weight(.semibold))
+                }
+                .buttonStyle(.bordered)
+                .disabled(isRequestingAssistance)
+            }
+
             Spacer(minLength: 8)
         }
         .padding(.horizontal, 24)
@@ -160,6 +186,20 @@ struct ArrivalOtpSheet: View {
         .onAppear { fieldFocused = true }
         .onReceive(timer) { _ in tick() }
         .onTapGesture { fieldFocused = true }
+        .alert("Request GM for OTP", isPresented: $showAssistancePrompt) {
+            TextField("Remark (optional)", text: $assistanceRemark, axis: .vertical)
+            Button("Cancel", role: .cancel) {}
+            Button("Send Request") {
+                Task { await requestGmAssistance() }
+            }
+        } message: {
+            Text("Your GM will receive the client, location, distance, and OTP context.")
+        }
+        .alert("Request Sent", isPresented: assistanceConfirmationBinding) {
+            Button("OK", role: .cancel) {}
+        } message: {
+            Text(assistanceConfirmation ?? "Your manager has been notified.")
+        }
     }
 
     // MARK: - Subviews
@@ -268,6 +308,38 @@ struct ArrivalOtpSheet: View {
             }
         } catch {
             errorText = "Network error: \(error.localizedDescription)"
+        }
+    }
+
+    private var assistanceConfirmationBinding: Binding<Bool> {
+        Binding(
+            get: { assistanceConfirmation != nil },
+            set: { if !$0 { assistanceConfirmation = nil } }
+        )
+    }
+
+    private func requestGmAssistance() async {
+        guard let clientPlaceVisitId, !clientPlaceVisitId.isEmpty else { return }
+        isRequestingAssistance = true
+        errorText = nil
+        defer { isRequestingAssistance = false }
+        do {
+            let token = try requireToken()
+            geoAPI.tokenProvider = { token }
+            let trimmedRemark = assistanceRemark.trimmingCharacters(in: .whitespacesAndNewlines)
+            let response = try await geoAPI.requestCpOtpAssist(
+                clientPlaceVisitId: clientPlaceVisitId,
+                lat: lat,
+                lng: lng,
+                remark: trimmedRemark.isEmpty ? nil : trimmedRemark
+            )
+            assistanceRemark = ""
+            let managerName = response.gmName?
+                .trimmingCharacters(in: .whitespacesAndNewlines)
+            let recipient = managerName.flatMap { $0.isEmpty ? nil : $0 } ?? "your manager"
+            assistanceConfirmation = "Sent to \(recipient). They can read the OTP back to you."
+        } catch {
+            errorText = error.localizedDescription
         }
     }
 

@@ -6,6 +6,48 @@ import UniformTypeIdentifiers
 enum HRConvexAPIService {
     private static let baseURL = AppConfig.baseURL
 
+    struct StaffBoundDevice: Decodable, Sendable {
+        let bound: Bool?
+        let deviceId: String?
+        let platform: String?
+        let deviceModel: String?
+        let batteryPct: Double?
+        let ip: String?
+        let boundAt: Double?
+        let lastSeenAt: Double?
+    }
+
+    struct StaffPasswordStatus: Decodable, Sendable {
+        let hasPassword: Bool?
+        let mustChangePassword: Bool?
+        let passwordExpiryExempt: Bool?
+        let passwordUpdatedAt: Double?
+    }
+
+    struct StaffSecurityActionResult: Sendable {
+        let cleared: Int?
+        let signedOut: Int?
+    }
+
+    private struct StaffSecurityResponse: Decodable, Sendable {
+        let success: Bool
+        let binding: StaffBoundDevice?
+        let error: String?
+    }
+
+    private struct StaffPasswordStatusResponse: Decodable, Sendable {
+        let success: Bool
+        let status: StaffPasswordStatus?
+        let error: String?
+    }
+
+    private struct StaffSecurityActionResponse: Decodable, Sendable {
+        let success: Bool
+        let cleared: Int?
+        let signedOut: Int?
+        let error: String?
+    }
+
     struct TodayShiftResponse: Decodable, Sendable {
         let success: Bool?
         let staffId: String?
@@ -49,6 +91,82 @@ enum HRConvexAPIService {
         let startTime: String?
         let endTime: String?
         let breakMinutes: Int?
+    }
+
+    // MARK: - Staff Security
+
+    static func getStaffSecurity(token: String, staffId: String) async throws -> StaffBoundDevice? {
+        let encodedId = staffId.addingPercentEncoding(withAllowedCharacters: .urlQueryAllowed) ?? staffId
+        let data = try await get(path: "/api/hr/staff/security?staffId=\(encodedId)", token: token)
+        let wrapper = try await decode(StaffSecurityResponse.self, from: data)
+        guard wrapper.success else {
+            throw HRConvexAPIError.server(wrapper.error ?? "Failed to load device security")
+        }
+        return wrapper.binding
+    }
+
+    static func getStaffPasswordStatus(token: String, staffId: String) async throws -> StaffPasswordStatus? {
+        let encodedId = staffId.addingPercentEncoding(withAllowedCharacters: .urlQueryAllowed) ?? staffId
+        let data = try await get(path: "/api/hr/staff/password-status?staffId=\(encodedId)", token: token)
+        let wrapper = try await decode(StaffPasswordStatusResponse.self, from: data)
+        guard wrapper.success else {
+            throw HRConvexAPIError.server(wrapper.error ?? "Failed to load password status")
+        }
+        return wrapper.status
+    }
+
+    static func resetStaffDevice(token: String, staffId: String) async throws -> StaffSecurityActionResult {
+        try await performStaffSecurityAction(
+            path: "/api/hr/staff/device-reset",
+            token: token,
+            body: ["staffId": staffId]
+        )
+    }
+
+    static func forceStaffMobileLogout(token: String, staffId: String) async throws -> StaffSecurityActionResult {
+        try await performStaffSecurityAction(
+            path: "/api/hr/staff/force-logout",
+            token: token,
+            body: ["staffId": staffId]
+        )
+    }
+
+    static func setStaffPassword(
+        token: String,
+        staffId: String,
+        newPassword: String,
+        mustChangePassword: Bool = true
+    ) async throws {
+        _ = try await performStaffSecurityAction(
+            path: "/api/hr/staff/set-password",
+            token: token,
+            body: [
+                "staffId": staffId,
+                "newPassword": newPassword,
+                "mustChangePassword": mustChangePassword
+            ]
+        )
+    }
+
+    static func setStaffPasswordExpiryExempt(token: String, staffId: String, exempt: Bool) async throws {
+        _ = try await performStaffSecurityAction(
+            path: "/api/hr/staff/password-expiry-exempt",
+            token: token,
+            body: ["staffId": staffId, "exempt": exempt]
+        )
+    }
+
+    private static func performStaffSecurityAction(
+        path: String,
+        token: String,
+        body: [String: Any]
+    ) async throws -> StaffSecurityActionResult {
+        let data = try await post(path: path, token: token, jsonBody: body)
+        let wrapper = try await decode(StaffSecurityActionResponse.self, from: data)
+        guard wrapper.success else {
+            throw HRConvexAPIError.server(wrapper.error ?? "Security action failed")
+        }
+        return StaffSecurityActionResult(cleared: wrapper.cleared, signedOut: wrapper.signedOut)
     }
 
     // MARK: - Leaves
@@ -653,6 +771,28 @@ enum HRConvexAPIService {
         let wrapper = try await decode(GenericSuccessResponse.self, from: data)
         guard wrapper.success else {
             throw HRConvexAPIError.server(wrapper.error ?? "Failed to put attendance on hold")
+        }
+    }
+
+    static func correctAttendancePunchTimes(
+        token: String,
+        id: String,
+        correctedPunchIn: String?,
+        correctedPunchOut: String?,
+        reason: String?
+    ) async throws {
+        var body: [String: Any] = ["id": id]
+        if let correctedPunchIn { body["correctedPunchIn"] = correctedPunchIn }
+        if let correctedPunchOut { body["correctedPunchOut"] = correctedPunchOut }
+        if let reason { body["reason"] = reason }
+        let data = try await post(
+            path: "/api/hr/attendance/correct-punch-times",
+            token: token,
+            jsonBody: body
+        )
+        let wrapper = try await decode(GenericSuccessResponse.self, from: data)
+        guard wrapper.success else {
+            throw HRConvexAPIError.server(wrapper.error ?? "Failed to correct punch times")
         }
     }
 

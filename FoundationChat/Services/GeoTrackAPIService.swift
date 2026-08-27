@@ -585,4 +585,25 @@ final class GeoTrackAPIService {
         let result: GeoTrackBaseResponse = try await perform(request)
         if let err = result.error { throw GeoTrackAPIError.serverError(err) }
     }
+
+    /// Ask the assigned GM to help the field staff obtain the CP arrival OTP.
+    func requestCpOtpAssist(
+        clientPlaceVisitId: String,
+        lat: Double? = nil,
+        lng: Double? = nil,
+        remark: String? = nil
+    ) async throws -> CpOtpAssistResponse {
+        let body = CpOtpAssistRequest(
+            clientPlaceVisitId: clientPlaceVisitId,
+            lat: lat,
+            lng: lng,
+            remark: remark
+        )
+        let request = try makeRequest(path: "/api/marketing/cp-visits/otp-assist", method: "POST", body: body)
+        let result: CpOtpAssistResponse = try await perform(request)
+        if !result.success, let error = result.error {
+            throw GeoTrackAPIError.serverError(error)
+        }
+        return result
+    }
 }

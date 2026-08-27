@@ -272,6 +272,34 @@ enum ChatAPIService {
     _ = try await post(path: "/api/chat/conversations/remove-member", token: token, jsonBody: body)
   }
 
+  static func updateGroupConversation(
+    token: String,
+    conversationId: String,
+    name: String,
+    description: String
+  ) async throws {
+    let body: [String: Any] = [
+      "conversationId": conversationId,
+      "name": name,
+      "description": description,
+    ]
+    _ = try await post(path: "/api/chat/conversations/update", token: token, jsonBody: body)
+  }
+
+  static func setConversationRole(
+    token: String,
+    conversationId: String,
+    memberStackUserId: String,
+    role: String
+  ) async throws {
+    let body: [String: Any] = [
+      "conversationId": conversationId,
+      "targetStaffId": memberStackUserId,
+      "role": role,
+    ]
+    _ = try await post(path: "/api/chat/conversations/set-role", token: token, jsonBody: body)
+  }
+
   static func hideConversation(token: String, conversationId: String) async throws {
     let body: [String: Any] = ["conversationId": conversationId]
     _ = try await post(path: "/api/chat/conversations/hide", token: token, jsonBody: body)

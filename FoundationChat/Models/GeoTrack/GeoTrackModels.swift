@@ -852,3 +852,16 @@ struct GeoTrackArrivalOtpVerifyResponse: Decodable, Sendable {
 struct GeoTrackArrivalOtpCancelBody: Encodable, Sendable {
     let visitId: String
 }
+
+struct CpOtpAssistRequest: Encodable, Sendable {
+    let clientPlaceVisitId: String
+    let lat: Double?
+    let lng: Double?
+    let remark: String?
+}
+
+struct CpOtpAssistResponse: Decodable, Sendable {
+    let success: Bool
+    let gmName: String?
+    let error: String?
+}
