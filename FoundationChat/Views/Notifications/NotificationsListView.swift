@@ -130,8 +130,29 @@ struct NotificationsListView: View {
                     .frame(width: 8, height: 8)
             }
         }
-        .padding(.vertical, 4)
+        .padding(.vertical, 8)
+        .padding(.horizontal, 10)
+        // Approvals and tasks are work someone is WAITING on, so they get a
+        // peach row instead of the plain surface. Unread is the stronger tint
+        // so read/unread still reads clearly inside the peach family, and
+        // everything else keeps the default styling — if every row shouted,
+        // none would. Matches the Android list.
+        .background(
+            RoundedRectangle(cornerRadius: 10, style: .continuous)
+                .fill(Self.rowTint(for: notification))
+        )
         .opacity(notification.isUnread ? 1 : 0.7)
+    }
+
+    /// Peach for actionable rows (approvals + tasks), clear for the rest.
+    private static func rowTint(for notification: AppNotification) -> Color {
+        guard NotificationPriority.isHighPriority(
+            type: notification.type,
+            title: notification.title
+        ) else { return .clear }
+        return notification.isUnread
+            ? Color(red: 1.0, green: 0.93, blue: 0.83)   // #FFEDD5
+            : Color(red: 1.0, green: 0.97, blue: 0.93)   // #FFF7ED
     }
 
     private func colorFromString(_ name: String) -> Color {
