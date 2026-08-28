@@ -1583,6 +1583,9 @@ struct CreateCpVisitRequest: Encodable, Sendable {
     let scheduledDate: String
     let scheduledTime: String?
     let cpType: String?
+    // Required by the backend when cpType is joint_cp. This records the
+    // actual purpose while cpType continues to drive the two-staff workflow.
+    var jointCpCategory: String? = nil
     let visitAddress: String
     let visitLat: Double?
     let visitLng: Double?

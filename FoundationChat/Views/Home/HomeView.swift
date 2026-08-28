@@ -3315,15 +3315,18 @@ private extension GeoTrackCPVisitDetail {
               let scheduled = scheduledDate?.nilIfBlank
         else { return nil }
 
-        let effectiveStatus = fieldVisit?.status?.nilIfBlank
-            ?? status?.nilIfBlank
-            ?? "scheduled"
+        let effectiveStatus = CpVisitStatusPolicy.resolve(
+            cpStatus: status,
+            fieldVisitStatus: fieldVisit?.status
+        )
         let category = isSVCumCP ? "sv_cum_cp" : "direct_cp"
-        let canonicalClient = client?.clientName?.nilIfBlank
         let typedContact = lead?.contactName?.nilIfBlank
+        let profileClient = lead?.manualProfile?.clientName?.nilIfBlank
+        let canonicalClient = client?.clientName?.nilIfBlank
         let placeLabel = clientPlace?.name?.nilIfBlank
-        let displayName = canonicalClient
-            ?? typedContact
+        let displayName = typedContact
+            ?? profileClient
+            ?? canonicalClient
             ?? placeLabel
             ?? "CP visit"
 

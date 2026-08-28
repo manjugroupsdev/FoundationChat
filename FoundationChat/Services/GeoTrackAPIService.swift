@@ -558,6 +558,33 @@ final class GeoTrackAPIService {
         return result
     }
 
+    /// POST /api/marketing/cp-visits/otp-assist
+    /// Asks the assigned GM for help when a client will not share the arrival
+    /// OTP. The backend sends the visit context and code to that GM over chat.
+    func requestCpOtpAssist(
+        clientPlaceVisitId: String,
+        lat: Double? = nil,
+        lng: Double? = nil,
+        remark: String? = nil
+    ) async throws -> CpOtpAssistResponse {
+        let body = CpOtpAssistRequest(
+            clientPlaceVisitId: clientPlaceVisitId,
+            lat: lat,
+            lng: lng,
+            remark: remark
+        )
+        let request = try makeRequest(
+            path: "/api/marketing/cp-visits/otp-assist",
+            method: "POST",
+            body: body
+        )
+        let result: CpOtpAssistResponse = try await perform(request)
+        if !result.success, let error = result.error {
+            throw GeoTrackAPIError.serverError(error)
+        }
+        return result
+    }
+
     /// POST /api/geotrack/visit/arrival-otp/verify
     func verifyArrivalOtp(
         visitId: String,

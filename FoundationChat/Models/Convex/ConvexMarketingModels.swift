@@ -258,6 +258,7 @@ struct CpVisitDetail: Codable, Identifiable, Sendable {
     let driverName: String?
     let driverPhone: String?
     let cpType: String?
+    let jointCpCategory: String?
     let projectId: String?
     let isBookingCompleted: Bool?
     let createdAt: Int64?

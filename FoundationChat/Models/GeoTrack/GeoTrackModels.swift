@@ -626,6 +626,11 @@ struct GeoTrackCPVisitLead: Decodable, Sendable {
     let contactName: String?
     let mobileNumber: String?
     let followUpStatus: String?
+    let manualProfile: GeoTrackCPVisitLeadManualProfile?
+}
+
+struct GeoTrackCPVisitLeadManualProfile: Decodable, Sendable {
+    let clientName: String?
 }
 
 struct GeoTrackCPVisitClient: Decodable, Sendable {
@@ -806,12 +811,21 @@ struct GeoTrackArrivalOtpRequestResponse: Decodable, Sendable {
     let success: Bool
     let error: String?
     let contactPhoneMasked: String?
-    let otpExpiresInSeconds: Int?
-    let resendCooldownSeconds: Int?
-    let maxResends: Int?
-    let attemptsRemaining: Int?
     let distance: Int?
     let radius: Int?
+}
+
+struct CpOtpAssistRequest: Encodable, Sendable {
+    let clientPlaceVisitId: String
+    let lat: Double?
+    let lng: Double?
+    let remark: String?
+}
+
+struct CpOtpAssistResponse: Decodable, Sendable {
+    let success: Bool
+    let gmName: String?
+    let error: String?
 }
 
 struct GeoTrackArrivalOtpVerifyBody: Encodable, Sendable {

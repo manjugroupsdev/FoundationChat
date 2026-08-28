@@ -1,4 +1,5 @@
 import SwiftUI
+import MapKit
 
 /// GM review queue for OUT-OF-GEOFENCE CP completions held for approval.
 ///
@@ -18,6 +19,7 @@ struct CpApprovalQueueView: View {
 
     @State private var rejectTarget: CpApprovalItem?
     @State private var rejectRemark = ""
+    @State private var routeTarget: CpApprovalItem?
 
     private var cacheKey: String {
         let staffId = authStore.viewer?.subject ?? authStore.currentSession?.user._id ?? "anonymous"
@@ -38,6 +40,7 @@ struct CpApprovalQueueView: View {
                         CpApprovalCard(
                             item: item,
                             isBusy: busyItemId == item.id,
+                            onViewRoute: { routeTarget = item },
                             onApprove: { Task { await approve(item) } },
                             onReject: {
                                 rejectRemark = ""
@@ -65,6 +68,9 @@ struct CpApprovalQueueView: View {
             }
         }
         .task { if !hasLoaded { await load() } }
+        .sheet(item: $routeTarget) { item in
+            CpApprovalTripDetailSheet(item: item)
+        }
         .alert("Reject & reassign", isPresented: Binding(
             get: { rejectTarget != nil },
             set: { if !$0 { rejectTarget = nil } }
@@ -172,6 +178,7 @@ struct CpApprovalQueueView: View {
 private struct CpApprovalCard: View {
     let item: CpApprovalItem
     let isBusy: Bool
+    let onViewRoute: () -> Void
     let onApprove: () -> Void
     let onReject: () -> Void
 
@@ -184,6 +191,14 @@ private struct CpApprovalCard: View {
             Text("by \(item.staffName?.blankToNil ?? "Field staff")")
                 .font(.system(size: 12))
                 .foregroundStyle(Color(hex: 0x475467))
+
+            VStack(alignment: .leading, spacing: 5) {
+                approvalFact("Date & time", ApprovalFormatting.scheduled(item))
+                approvalFact("Start time", ApprovalFormatting.epoch(item.startedAt))
+                approvalFact("End time", ApprovalFormatting.epoch(item.completedAt ?? item.requestedAt))
+                approvalFact("CP type", ApprovalFormatting.cpType(item.cpType))
+            }
+            .padding(.top, 6)
 
             if let place = placeLine, !place.isEmpty {
                 Text(place)
@@ -227,6 +242,17 @@ private struct CpApprovalCard: View {
                 .padding(.top, 10)
             }
 
+            Button(action: onViewRoute) {
+                Label("View trip & travelled route", systemImage: "map")
+                    .font(.system(size: 13, weight: .semibold))
+                    .foregroundStyle(Color(hex: 0x0B61CA))
+                    .frame(maxWidth: .infinity)
+                    .frame(height: 44)
+                    .background(Color(hex: 0xEFF6FF), in: RoundedRectangle(cornerRadius: 10))
+            }
+            .buttonStyle(.plain)
+            .padding(.top, 8)
+
             HStack(spacing: 8) {
                 Button(action: onReject) {
                     Text("Reject")
@@ -267,6 +293,12 @@ private struct CpApprovalCard: View {
         )
     }
 
+    private func approvalFact(_ label: String, _ value: String) -> some View {
+        Text("\(label): \(value)")
+            .font(.system(size: 12))
+            .foregroundStyle(Color(hex: 0x344054))
+    }
+
     private var placeLine: String? {
         let distance = item.distanceMeters.map { meters -> String in
             let label: String
@@ -280,6 +312,228 @@ private struct CpApprovalCard: View {
         return [item.placeName?.blankToNil, distance]
             .compactMap { $0 }
             .joined(separator: " · ")
+    }
+}
+
+private struct CpApprovalTripDetailSheet: View {
+    @Environment(AuthStore.self) private var authStore
+    @Environment(\.dismiss) private var dismiss
+
+    let item: CpApprovalItem
+
+    @State private var route: CpApprovalRouteData?
+    @State private var isLoading = true
+    @State private var errorMessage: String?
+    @State private var mapPosition: MapCameraPosition = .automatic
+
+    var body: some View {
+        NavigationStack {
+            ScrollView {
+                VStack(alignment: .leading, spacing: 16) {
+                    VStack(alignment: .leading, spacing: 4) {
+                        Text(item.clientName?.blankToNil ?? "CP trip details")
+                            .font(.system(size: 22, weight: .bold))
+                            .foregroundStyle(Color(hex: 0x101828))
+                        Text(item.placeName?.blankToNil ?? item.placeAddress?.blankToNil ?? "Client place")
+                            .font(.system(size: 13))
+                            .foregroundStyle(Color(hex: 0x667085))
+                    }
+
+                    VStack(alignment: .leading, spacing: 12) {
+                        detail("Visit date", item.scheduledDate ?? "Not recorded")
+                        detail("Scheduled time", ApprovalFormatting.clock(item.scheduledTime))
+                        detail("Start time", ApprovalFormatting.epoch(item.startedAt))
+                        detail("End time", ApprovalFormatting.epoch(item.completedAt ?? item.requestedAt))
+                        detail("CP type", ApprovalFormatting.cpType(item.cpType))
+                    }
+                    .padding(14)
+                    .frame(maxWidth: .infinity, alignment: .leading)
+                    .background(Color(hex: 0xF8FAFC), in: RoundedRectangle(cornerRadius: 12))
+
+                    Text("Travelled route")
+                        .font(.system(size: 16, weight: .semibold))
+                        .foregroundStyle(Color(hex: 0x101828))
+
+                    Map(position: $mapPosition) {
+                        if let startCoordinate {
+                            Annotation("Trip start", coordinate: startCoordinate) {
+                                Image(systemName: "play.circle.fill")
+                                    .font(.title2)
+                                    .foregroundStyle(.green)
+                                    .background(.white, in: Circle())
+                            }
+                        }
+                        if let endCoordinate {
+                            Annotation("Trip end", coordinate: endCoordinate) {
+                                Image(systemName: "flag.circle.fill")
+                                    .font(.title2)
+                                    .foregroundStyle(.red)
+                                    .background(.white, in: Circle())
+                            }
+                        }
+                        if displayCoordinates.count >= 2 {
+                            MapPolyline(coordinates: displayCoordinates)
+                                .stroke(
+                                    Color(hex: 0x0B61CA),
+                                    style: StrokeStyle(lineWidth: 6, lineCap: .round, lineJoin: .round)
+                                )
+                        }
+                    }
+                    .frame(height: 280)
+                    .clipShape(RoundedRectangle(cornerRadius: 14))
+                    .overlay {
+                        if isLoading {
+                            RoundedRectangle(cornerRadius: 14)
+                                .fill(.ultraThinMaterial)
+                                .overlay { ProgressView("Loading GPS trail…") }
+                        } else if displayCoordinates.isEmpty {
+                            RoundedRectangle(cornerRadius: 14)
+                                .fill(Color(hex: 0xF2F4F7))
+                                .overlay {
+                                    Text(errorMessage ?? "No GPS coordinates were recorded for this trip.")
+                                        .font(.system(size: 13))
+                                        .foregroundStyle(Color(hex: 0x667085))
+                                        .multilineTextAlignment(.center)
+                                        .padding(24)
+                                }
+                        }
+                    }
+
+                    Text(routeCaption)
+                        .font(.system(size: 12))
+                        .foregroundStyle(Color(hex: 0x667085))
+                }
+                .padding(16)
+            }
+            .background(Color.white)
+            .navigationTitle("Trip details")
+            .navigationBarTitleDisplayMode(.inline)
+            .toolbar {
+                ToolbarItem(placement: .topBarTrailing) {
+                    Button("Close") { dismiss() }
+                }
+            }
+        }
+        .task { await loadRoute() }
+    }
+
+    private var recordedCoordinates: [CLLocationCoordinate2D] {
+        route?.routePoints.compactMap { validCoordinate(lat: $0.lat, lng: $0.lng) } ?? []
+    }
+
+    private var startCoordinate: CLLocationCoordinate2D? {
+        recordedCoordinates.first
+            ?? validCoordinate(lat: route?.startLat, lng: route?.startLng)
+            ?? validCoordinate(lat: item.startLat, lng: item.startLng)
+    }
+
+    private var endCoordinate: CLLocationCoordinate2D? {
+        recordedCoordinates.last
+            ?? validCoordinate(lat: route?.endLat, lng: route?.endLng)
+            ?? validCoordinate(lat: item.endLat, lng: item.endLng)
+            ?? validCoordinate(lat: item.completionLat, lng: item.completionLng)
+            ?? validCoordinate(lat: item.arrivalLat, lng: item.arrivalLng)
+            ?? validCoordinate(lat: item.placeLat, lng: item.placeLng)
+    }
+
+    private var displayCoordinates: [CLLocationCoordinate2D] {
+        if recordedCoordinates.count >= 2 { return recordedCoordinates }
+        return [startCoordinate, endCoordinate].compactMap { $0 }.uniquedCoordinates()
+    }
+
+    private var routeCaption: String {
+        if recordedCoordinates.count >= 2 {
+            return "Recorded GPS trail · \(recordedCoordinates.count) points"
+        }
+        if displayCoordinates.count >= 2 {
+            return "Only start and end coordinates were recorded; the line is an endpoint connection."
+        }
+        if displayCoordinates.count == 1 { return "Only one trip coordinate was recorded." }
+        if errorMessage != nil, !displayCoordinates.isEmpty {
+            return "The full GPS trail is unavailable; showing the recorded trip coordinates."
+        }
+        return errorMessage ?? "No recorded GPS trail is available."
+    }
+
+    @ViewBuilder
+    private func detail(_ label: String, _ value: String) -> some View {
+        VStack(alignment: .leading, spacing: 2) {
+            Text(label).font(.system(size: 11)).foregroundStyle(Color(hex: 0x667085))
+            Text(value).font(.system(size: 14, weight: .medium)).foregroundStyle(Color(hex: 0x101828))
+        }
+    }
+
+    @MainActor
+    private func loadRoute() async {
+        guard let token = authStore.currentSession?.token else {
+            errorMessage = "Not signed in."
+            isLoading = false
+            return
+        }
+        do {
+            route = try await MarketingConvexAPIService.getCpApprovalRoute(token: token, id: item.id)
+            mapPosition = .automatic
+        } catch {
+            errorMessage = error.localizedDescription
+        }
+        isLoading = false
+    }
+
+    private func validCoordinate(lat: Double?, lng: Double?) -> CLLocationCoordinate2D? {
+        guard let lat, let lng, lat.isFinite, lng.isFinite,
+              (-90...90).contains(lat), (-180...180).contains(lng),
+              !(lat == 0 && lng == 0) else { return nil }
+        return CLLocationCoordinate2D(latitude: lat, longitude: lng)
+    }
+}
+
+private enum ApprovalFormatting {
+    static func scheduled(_ item: CpApprovalItem) -> String {
+        [item.scheduledDate?.blankToNil, clock(item.scheduledTime)]
+            .compactMap { $0 }
+            .filter { $0 != "Not recorded" }
+            .joined(separator: " · ")
+            .blankToNil ?? "Not recorded"
+    }
+
+    static func cpType(_ value: String?) -> String {
+        guard let value = value?.blankToNil else { return "Not recorded" }
+        return value.replacingOccurrences(of: "_", with: " ").capitalized
+    }
+
+    static func clock(_ value: String?) -> String {
+        guard let value = value?.blankToNil else { return "Not recorded" }
+        for format in ["HH:mm", "HH:mm:ss"] {
+            let parser = DateFormatter()
+            parser.locale = Locale(identifier: "en_US_POSIX")
+            parser.dateFormat = format
+            if let date = parser.date(from: value) {
+                let display = DateFormatter()
+                display.locale = Locale(identifier: "en_US_POSIX")
+                display.dateFormat = "h:mm a"
+                return display.string(from: date)
+            }
+        }
+        return value
+    }
+
+    static func epoch(_ value: Double?) -> String {
+        guard let value, value > 0 else { return "Not recorded" }
+        let display = DateFormatter()
+        display.dateFormat = "dd MMM yyyy, h:mm a"
+        return display.string(from: Date(timeIntervalSince1970: value / 1000))
+    }
+}
+
+private extension Array where Element == CLLocationCoordinate2D {
+    func uniquedCoordinates() -> [CLLocationCoordinate2D] {
+        reduce(into: []) { result, coordinate in
+            guard !result.contains(where: {
+                abs($0.latitude - coordinate.latitude) < 0.0000001 &&
+                    abs($0.longitude - coordinate.longitude) < 0.0000001
+            }) else { return }
+            result.append(coordinate)
+        }
     }
 }
 

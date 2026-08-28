@@ -1240,8 +1240,9 @@ struct CompleteCpVisitSheet: View {
                 visitors[index].isVeg = attendee.isVeg ?? true
             }
         } else if let first = visitors.indices.first {
-            let fallbackName = visit.client?.clientName?.nilIfBlank
-                ?? visit.lead?.contactName?.nilIfBlank
+            let fallbackName = visit.lead?.contactName?.nilIfBlank
+                ?? visit.lead?.manualProfile?.clientName?.nilIfBlank
+                ?? visit.client?.clientName?.nilIfBlank
                 ?? visit.clientPlace?.contactPerson?.nilIfBlank
                 ?? visit.clientPlace?.name?.nilIfBlank
                 ?? ""
@@ -1445,8 +1446,9 @@ struct CompleteCpVisitSheet: View {
             }
             // The SV inherits the CP's client identity — block it when there's no
             // client name (renders as "—"). The backend enforces this too.
-            let svClientName = cpVisitDetail?.client?.clientName?.nilIfBlank
-                ?? cpVisitDetail?.lead?.contactName?.nilIfBlank
+            let svClientName = cpVisitDetail?.lead?.contactName?.nilIfBlank
+                ?? cpVisitDetail?.lead?.manualProfile?.clientName?.nilIfBlank
+                ?? cpVisitDetail?.client?.clientName?.nilIfBlank
                 ?? cpVisitDetail?.clientPlace?.contactPerson?.nilIfBlank
                 ?? cpVisitDetail?.clientPlace?.name?.nilIfBlank
             if svClientName == nil {

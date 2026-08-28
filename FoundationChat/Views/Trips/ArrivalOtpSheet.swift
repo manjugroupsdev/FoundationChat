@@ -1,11 +1,10 @@
-import Combine
 import SwiftUI
 
 /// 4-digit arrival OTP entry sheet.
 ///
 /// Caller is responsible for invoking `requestArrivalOtp` once before
-/// presenting the sheet (so the SMS goes out and we know the masked phone +
-/// expiry). The sheet handles `verifyArrivalOtp` and resend internally; on
+/// presenting the sheet (so the SMS goes out and we know the masked phone).
+/// The sheet handles `verifyArrivalOtp`; on
 /// successful verify it calls `onVerified` with the entered OTP and dismisses.
 struct ArrivalOtpSheet: View {
     @Environment(AuthStore.self) private var authStore
@@ -13,8 +12,6 @@ struct ArrivalOtpSheet: View {
 
     let visitId: String
     let phoneMasked: String?
-    let initialExpiresIn: Int
-    let initialResendCooldown: Int
     let lat: Double
     let lng: Double
     let clientPlaceVisitId: String?
@@ -26,11 +23,8 @@ struct ArrivalOtpSheet: View {
 
     @State private var otp: String = ""
     @State private var errorText: String?
-    @State private var expirySecondsRemaining: Int
-    @State private var resendSecondsRemaining: Int
     @State private var phoneMaskedState: String?
     @State private var isVerifying = false
-    @State private var isResending = false
     @State private var isRequestingAssistance = false
     @State private var showAssistancePrompt = false
     @State private var assistanceRemark = ""
@@ -38,13 +32,9 @@ struct ArrivalOtpSheet: View {
     @FocusState private var fieldFocused: Bool
 
     private let geoAPI = GeoTrackAPIService.shared
-    private let timer = Timer.publish(every: 1, on: .main, in: .common).autoconnect()
-
     init(
         visitId: String,
         phoneMasked: String?,
-        initialExpiresIn: Int,
-        initialResendCooldown: Int,
         lat: Double,
         lng: Double,
         clientPlaceVisitId: String? = nil,
@@ -53,15 +43,11 @@ struct ArrivalOtpSheet: View {
     ) {
         self.visitId = visitId
         self.phoneMasked = phoneMasked
-        self.initialExpiresIn = initialExpiresIn
-        self.initialResendCooldown = initialResendCooldown
         self.lat = lat
         self.lng = lng
         self.clientPlaceVisitId = clientPlaceVisitId
         self.arrivalPhotoStorageId = arrivalPhotoStorageId
         self.onVerified = onVerified
-        _expirySecondsRemaining = State(initialValue: initialExpiresIn)
-        _resendSecondsRemaining = State(initialValue: initialResendCooldown)
         _phoneMaskedState = State(initialValue: phoneMasked)
     }
 
@@ -137,27 +123,6 @@ struct ArrivalOtpSheet: View {
                 .disabled(otp.count != 4 || isVerifying)
             }
 
-            Button {
-                Task { await performResend() }
-            } label: {
-                if isResending {
-                    HStack(spacing: 6) {
-                        ProgressView().controlSize(.small)
-                        Text("Resending…")
-                    }
-                    .font(.subheadline)
-                } else if resendSecondsRemaining > 0 {
-                    Text("Haven't received the verification code? Resend in \(resendSecondsRemaining)s.")
-                        .font(.subheadline)
-                        .foregroundStyle(.secondary)
-                } else {
-                    Text("Haven't received the verification code? Resend it.")
-                        .font(.subheadline.weight(.semibold))
-                }
-            }
-            .buttonStyle(.plain)
-            .disabled(resendSecondsRemaining > 0 || isResending)
-
             if clientPlaceVisitId != nil {
                 Button {
                     fieldFocused = false
@@ -176,7 +141,6 @@ struct ArrivalOtpSheet: View {
                 .buttonStyle(.bordered)
                 .disabled(isRequestingAssistance)
             }
-
             Spacer(minLength: 8)
         }
         .padding(.horizontal, 24)
@@ -184,7 +148,6 @@ struct ArrivalOtpSheet: View {
         .frame(maxWidth: .infinity)
         .appLibraryNativeSheet([.medium, .large])
         .onAppear { fieldFocused = true }
-        .onReceive(timer) { _ in tick() }
         .onTapGesture { fieldFocused = true }
         .alert("Request GM for OTP", isPresented: $showAssistancePrompt) {
             TextField("Remark (optional)", text: $assistanceRemark, axis: .vertical)
@@ -232,21 +195,7 @@ struct ArrivalOtpSheet: View {
         if let phoneMaskedState, !phoneMaskedState.isEmpty {
             msg += " OTP sent to \(phoneMaskedState)."
         }
-        if expirySecondsRemaining > 0 {
-            let mm = expirySecondsRemaining / 60
-            let ss = expirySecondsRemaining % 60
-            msg += String(format: " Expires in %d:%02d.", mm, ss)
-        } else {
-            msg += " OTP expired — tap Resend."
-        }
         return msg
-    }
-
-    // MARK: - Timer
-
-    private func tick() {
-        if expirySecondsRemaining > 0 { expirySecondsRemaining -= 1 }
-        if resendSecondsRemaining > 0 { resendSecondsRemaining -= 1 }
     }
 
     // MARK: - Actions
@@ -274,37 +223,7 @@ struct ArrivalOtpSheet: View {
             } else {
                 otp = ""
                 fieldFocused = true
-                if let attempts = resp.attemptsRemaining, attempts >= 0 {
-                    errorText = (resp.error ?? "Invalid OTP") + " (\(attempts) attempts left)"
-                } else {
-                    errorText = resp.error ?? "Invalid OTP"
-                }
-            }
-        } catch {
-            errorText = "Network error: \(error.localizedDescription)"
-        }
-    }
-
-    private func performResend() async {
-        isResending = true
-        errorText = nil
-        defer { isResending = false }
-        do {
-            let token = try requireToken()
-            geoAPI.tokenProvider = { token }
-            let resp = try await geoAPI.requestArrivalOtp(
-                visitId: visitId,
-                lat: lat,
-                lng: lng
-            )
-            if resp.success {
-                otp = ""
-                fieldFocused = true
-                phoneMaskedState = resp.contactPhoneMasked ?? phoneMaskedState
-                expirySecondsRemaining = resp.otpExpiresInSeconds ?? 600
-                resendSecondsRemaining = resp.resendCooldownSeconds ?? 60
-            } else {
-                errorText = resp.error ?? "Failed to resend OTP"
+                errorText = resp.error ?? "Invalid OTP"
             }
         } catch {
             errorText = "Network error: \(error.localizedDescription)"

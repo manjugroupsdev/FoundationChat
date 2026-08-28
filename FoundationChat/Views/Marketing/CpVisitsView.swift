@@ -505,17 +505,19 @@ private struct CpListVisit: Identifiable {
         self.scheduledDate = detail.scheduledDate
         self.scheduledStartTime = detail.scheduledTime
         self.scheduledEndTime = nil
-        let fieldStatus = detail.fieldVisit?.status?.blankToNil
-        self.status = fieldStatus ?? detail.status
+        self.status = CpVisitStatusPolicy.resolve(
+            cpStatus: detail.status,
+            fieldVisitStatus: detail.fieldVisit?.status
+        )
         let manualClientName = detail.lead?.manualProfile?.clientName?.cpClientName
         let masterClientName = detail.client?.clientName?.cpClientName
         let leadContactName = detail.lead?.contactName?.cpClientName
         let clientPlaceName = detail.clientPlace?.name?.blankToNil
         let fallbackPhone = detail.lead?.mobileNumber?.blankToNil
             ?? detail.client?.mobileNumber?.blankToNil
-        self.placeName = manualClientName
+        self.placeName = leadContactName
+            ?? manualClientName
             ?? masterClientName
-            ?? leadContactName
             ?? clientPlaceName
             ?? fallbackPhone
             ?? "CP Visit"
@@ -533,9 +535,9 @@ private struct CpListVisit: Identifiable {
         self.placeType = detail.clientPlace?.contactPerson?.blankToNil
         self.placeLat = detail.clientPlace?.lat
         self.placeLng = detail.clientPlace?.lng
-        self.leadName = detail.lead?.manualProfile?.clientName?.cpClientName
+        self.leadName = detail.lead?.contactName?.cpClientName
+            ?? detail.lead?.manualProfile?.clientName?.cpClientName
             ?? detail.client?.clientName?.cpClientName
-            ?? detail.lead?.contactName?.cpClientName
         self.leadPhone = detail.lead?.mobileNumber?.blankToNil
             ?? detail.client?.mobileNumber?.blankToNil
             ?? detail.clientPlace?.contactPhone?.blankToNil
@@ -1476,8 +1478,9 @@ private struct CompletedCpVisitDetailView: View {
     }
 
     private var displayName: String {
-        detail?.client?.clientName?.blankToNil
-            ?? detail?.lead?.contactName?.blankToNil
+        detail?.lead?.contactName?.blankToNil
+            ?? detail?.lead?.manualProfile?.clientName?.blankToNil
+            ?? detail?.client?.clientName?.blankToNil
             ?? detail?.clientPlace?.name?.blankToNil
             ?? summary.leadName?.blankToNil
             ?? summary.placeName?.blankToNil
@@ -1716,6 +1719,7 @@ private struct CreateCpVisitSheet: View {
     @State private var longitude = ""
     @State private var notes = ""
     @State private var selectedCpType: CpVisitCreateType?
+    @State private var selectedJointCpCategory: CpVisitCreateType?
     @State private var bookingGatePhone: String?
     @State private var bookingGateCount = 0
     @State private var isCheckingBookingGate = false
@@ -1835,6 +1839,7 @@ private struct CreateCpVisitSheet: View {
                     projectPicker
                     cpTypePicker
                     if selectedCpType == .jointCp {
+                        jointCpCategoryPicker
                         jointPartnerPicker
                     }
                     cpDatePicker
@@ -2258,6 +2263,48 @@ private struct CreateCpVisitSheet: View {
         }
     }
 
+    /// Joint CP describes who travels; this required category records why
+    /// they are visiting. Joint CP is intentionally not offered recursively.
+    private var jointCpCategoryPicker: some View {
+        pickerShell(title: "Joint CP Category *", icon: "list.bullet.rectangle") {
+            Menu {
+                ForEach(CpVisitCreateType.allCases.filter { $0 != .jointCp }) { type in
+                    Button {
+                        Task { await selectJointCpCategory(type) }
+                    } label: {
+                        Label(
+                            type.title,
+                            systemImage: selectedJointCpCategory == type ? "checkmark" : "circle"
+                        )
+                    }
+                }
+            } label: {
+                HStack {
+                    VStack(alignment: .leading, spacing: 2) {
+                        Text(selectedJointCpCategory?.title ?? "Select Joint CP category")
+                            .font(.system(size: 14, weight: .medium))
+                            .foregroundStyle(selectedJointCpCategory == nil ? Color(hex: 0x9CA3AF) : Color(hex: 0x101828))
+                            .lineLimit(1)
+                        Text(selectedJointCpCategory?.subtitle ?? "Required")
+                            .font(.system(size: 10, weight: .medium))
+                            .foregroundStyle(.secondary)
+                            .lineLimit(1)
+                    }
+                    Spacer()
+                    if isCheckingBookingGate {
+                        ProgressView().controlSize(.small)
+                    } else {
+                        Image(systemName: "chevron.down")
+                            .font(.system(size: 12, weight: .semibold))
+                            .foregroundStyle(.secondary)
+                    }
+                }
+                .frame(maxWidth: .infinity)
+                .contentShape(Rectangle())
+            }
+        }
+    }
+
     private func pickerShell<Content: View>(title: String, icon: String, @ViewBuilder content: () -> Content) -> some View {
         VStack(alignment: .leading, spacing: 6) {
             Text(title)
@@ -2526,7 +2573,10 @@ private struct CreateCpVisitSheet: View {
         // Must run BEFORE the early return below, otherwise switching Joint CP
         // -> Booking CP would keep the partner and still submit a second
         // participant.
-        if type != .jointCp { selectedJointPartner = nil }
+        if type != .jointCp {
+            selectedJointPartner = nil
+            selectedJointCpCategory = nil
+        }
         if !type.requiresConfirmedBooking {
             selectedCpType = type
             return
@@ -2548,6 +2598,38 @@ private struct CreateCpVisitSheet: View {
                 return
             }
             selectedCpType = type
+        } catch {
+            errorMessage = error.localizedDescription
+        }
+    }
+
+    @MainActor
+    private func selectJointCpCategory(_ type: CpVisitCreateType) async {
+        guard type != .jointCp else { return }
+        if !type.requiresConfirmedBooking {
+            selectedJointCpCategory = type
+            return
+        }
+        let normalizedPhone = AppModuleFormatters.normalizePhone(phone)
+        guard normalizedPhone.count == 10 else {
+            errorMessage = "Enter the client's 10-digit mobile first, then pick \(type.title)."
+            return
+        }
+        guard let token = authStore.currentSession?.token else { return }
+        isCheckingBookingGate = true
+        defer { isCheckingBookingGate = false }
+        do {
+            let cases = try await PostSalesConvexAPIService.getCasesByMobile(
+                token: token,
+                mobile: normalizedPhone
+            )
+            bookingGatePhone = normalizedPhone
+            bookingGateCount = cases.count
+            guard !cases.isEmpty else {
+                errorMessage = "\(type.title) blocked. This client has no confirmed booking."
+                return
+            }
+            selectedJointCpCategory = type
         } catch {
             errorMessage = error.localizedDescription
         }
@@ -2585,6 +2667,10 @@ private struct CreateCpVisitSheet: View {
         // A Joint CP is meaningless with one person on it, and the server
         // requires exactly two different active staff.
         if selectedCpType == .jointCp {
+            guard selectedJointCpCategory != nil else {
+                errorMessage = "Select the Joint CP category"
+                return
+            }
             guard let partnerId = selectedJointPartner?.id, !partnerId.isEmpty else {
                 errorMessage = "Select the second staff for this Joint CP"
                 return
@@ -2625,10 +2711,40 @@ private struct CreateCpVisitSheet: View {
             return
         }
         guard let token = authStore.currentSession?.token else { return }
-        if selectedCpType?.requiresConfirmedBooking == true {
+        let effectiveCpPurpose = selectedCpType == .jointCp
+            ? selectedJointCpCategory
+            : selectedCpType
+        if effectiveCpPurpose?.requiresConfirmedBooking == true {
             let cachedPhone = bookingGatePhone ?? ""
             if cachedPhone != normalizedPhone || bookingGateCount == 0 {
-                errorMessage = "\(selectedCpType?.title ?? "This CP type") needs a confirmed booking for this mobile. Re-pick the CP type to verify."
+                errorMessage = "\(effectiveCpPurpose?.title ?? "This CP type") needs a confirmed booking for this mobile. Re-pick the CP type to verify."
+                return
+            }
+        }
+
+        let scheduledDate = AppModuleFormatters.ymd.string(from: date)
+        // Immediate native feedback for the selected day. This lookup may be
+        // assignment-scoped for field staff, so the create mutation repeats
+        // the rule authoritatively across every staff member and concurrent
+        // request.
+        if let existingVisits = try? await MarketingConvexAPIService.getMyMarketingCpVisits(
+            token: token,
+            fromDate: scheduledDate,
+            toDate: scheduledDate,
+            scope: "all",
+            limit: 50,
+            search: normalizedPhone
+        ) {
+            let duplicate = existingVisits.contains { visit in
+                let visitPhone = AppModuleFormatters.normalizePhone(
+                    visit.lead?.mobileNumber ?? visit.client?.mobileNumber ?? ""
+                )
+                return visit.scheduledDate == scheduledDate
+                    && visitPhone == normalizedPhone
+                    && visit.status?.lowercased() != "cancelled"
+            }
+            if duplicate {
+                errorMessage = "This client already has a CP visit on \(scheduledDate). Only one CP visit per client is allowed per day. Open the existing visit or choose another date."
                 return
             }
         }
@@ -2655,9 +2771,12 @@ private struct CreateCpVisitSheet: View {
             mobileNumber: normalizedPhone,
             assignedStaffId: staffId,
             lmoStaffId: lmoStaffId,
-            scheduledDate: AppModuleFormatters.ymd.string(from: date),
+            scheduledDate: scheduledDate,
             scheduledTime: Self.timeFormatter.string(from: date),
             cpType: selectedCpType?.rawValue,
+            jointCpCategory: selectedCpType == .jointCp
+                ? selectedJointCpCategory?.rawValue
+                : nil,
             visitAddress: trimmedAddress,
             visitLat: resolvedLatitude,
             visitLng: resolvedLongitude,

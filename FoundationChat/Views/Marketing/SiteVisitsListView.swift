@@ -1476,15 +1476,16 @@ private struct SiteVisitOverviewSheet: View {
     }
 
     private var clientName: String {
-        detail?.client?.clientName?.nilIfBlank
-            ?? detail?.lead?.contactName?.nilIfBlank
+        detail?.lead?.contactName?.nilIfBlank
+            ?? detail?.lead?.manualProfile?.clientName?.nilIfBlank
+            ?? detail?.client?.clientName?.nilIfBlank
             ?? visit.leadName?.nilIfBlank
             ?? "—"
     }
 
     private var clientPhone: String {
-        detail?.client?.mobileNumber?.nilIfBlank
-            ?? detail?.lead?.mobileNumber?.nilIfBlank
+        detail?.lead?.mobileNumber?.nilIfBlank
+            ?? detail?.client?.mobileNumber?.nilIfBlank
             ?? visit.leadPhone?.nilIfBlank
             ?? "—"
     }

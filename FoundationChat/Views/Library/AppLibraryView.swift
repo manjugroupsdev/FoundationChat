@@ -413,6 +413,18 @@ private struct AppLibrarySection: Identifiable {
             permissions.isEmpty || permissions.contains { authStore.hasPermission($0) }
         }
 
+        // Security actions must use explicit IAM grants. `hasPermission` also
+        // accepts the broad isAdmin flag, which is true for some non-admin
+        // operational roles and must never unlock device/password controls.
+        let isSuperAdmin = authStore.currentSession?.user.role?
+            .trimmingCharacters(in: .whitespacesAndNewlines)
+            .lowercased() == "super-admin"
+        let canOpenSecurity = isSuperAdmin || [
+            "staff.resetDeviceBinding",
+            "staff.password",
+            "settings.staffLogin.view"
+        ].contains { authStore.iamPermissions.contains($0) }
+
         let normalizedDesignation = authStore.currentSession?.user.designation?
             .trimmingCharacters(in: .whitespacesAndNewlines)
             .lowercased() ?? ""
@@ -441,6 +453,16 @@ private struct AppLibrarySection: Identifiable {
                 : nil,
             canAny(["loans.view", "loans.manage", "loans.approve"])
                 ? .init(title: "Loans", icon: "AppLibraryIconAppsLoans", destination: .loans)
+                : nil,
+            canOpenSecurity
+                ? .init(
+                    title: "Security",
+                    icon: "sf:lock.shield",
+                    destination: .security,
+                    systemIcon: "lock.shield",
+                    iconTint: Color(hex: 0x6941C6),
+                    iconBackground: Color(hex: 0xF4F3FF)
+                )
                 : nil
         ].compactMap(\.self)
 
@@ -755,6 +777,7 @@ private enum AppLibraryDestination: String {
     case leave
     case permissions
     case loans
+    case security
     case siteVisits
     case cpVisits
     case cpApprovals
@@ -790,6 +813,8 @@ private enum AppLibraryDestination: String {
                 ConvexPermissionListView()
             case .loans:
                 LoansView()
+            case .security:
+                StaffSecurityView()
             case .siteVisits:
                 SiteVisitsView()
             case .cpVisits:

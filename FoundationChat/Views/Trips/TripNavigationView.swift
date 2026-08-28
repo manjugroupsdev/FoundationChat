@@ -79,6 +79,8 @@ struct TripNavigationView: View {
     @State private var showSiteVisitOutcomeSheet = false
     @State private var showCpCompletionSheet = false
     @State private var activeSpecialCpCompletion: CpSpecialCompletionKind?
+    @State private var showCollectionDecision = false
+    @State private var collectionNotCollectedChoice = false
     @State private var showCpClientSeenSheet = false
     @State private var showGeofenceReasonAlert = false
     @State private var geofenceReason = ""
@@ -92,8 +94,6 @@ struct TripNavigationView: View {
     @State private var resumeCompletionAfterProofRepair = false
     @State private var completeWithClientNotSeenSheet = false
     @State private var otpPhoneMasked: String?
-    @State private var otpExpiresIn: Int = 600
-    @State private var otpResendCooldown: Int = 60
     @State private var otpLat: Double = 0
     @State private var otpLng: Double = 0
 
@@ -259,8 +259,6 @@ struct TripNavigationView: View {
                 ArrivalOtpSheet(
                     visitId: id,
                     phoneMasked: otpPhoneMasked,
-                    initialExpiresIn: otpExpiresIn,
-                    initialResendCooldown: otpResendCooldown,
                     lat: otpLat,
                     lng: otpLng,
                     clientPlaceVisitId: clientPlaceVisitId,
@@ -296,6 +294,7 @@ struct TripNavigationView: View {
             }
         }
         .sheet(item: $activeSpecialCpCompletion, onDismiss: {
+            collectionNotCollectedChoice = false
             if !visitCompletedSuccessfully {
                 arrivalInProgress = false
                 arrivalStatusText = nil
@@ -307,6 +306,7 @@ struct TripNavigationView: View {
                     kind: kind,
                     cpVisitId: cpVisitId,
                     arrivalProofStorageId: pendingStorageId,
+                    initialCollectionNotCollected: collectionNotCollectedChoice,
                     onCompleted: { replacementProofId in
                         if let replacementProofId {
                             pendingStorageId = replacementProofId
@@ -316,6 +316,27 @@ struct TripNavigationView: View {
                 )
                 .environment(authStore)
             }
+        }
+        .confirmationDialog(
+            "Collection done?",
+            isPresented: $showCollectionDecision,
+            titleVisibility: .visible
+        ) {
+            Button("Yes, open Payment Entry") {
+                collectionNotCollectedChoice = false
+                activeSpecialCpCompletion = .collection
+            }
+            Button("No, nothing collected") {
+                collectionNotCollectedChoice = true
+                activeSpecialCpCompletion = .collection
+            }
+            Button("Cancel", role: .cancel) {
+                arrivalInProgress = false
+                arrivalStatusText = nil
+                resetArrivalSwipe()
+            }
+        } message: {
+            Text("Choose Yes only when an amount was collected from the client.")
         }
         .sheet(isPresented: $showSiteVisitOutcomeSheet, onDismiss: {
             if !visitCompletedSuccessfully {
@@ -1174,8 +1195,6 @@ struct TripNavigationView: View {
                 lng: loc.coordinate.longitude
             )
             otpPhoneMasked = resp.contactPhoneMasked
-            otpExpiresIn = resp.otpExpiresInSeconds ?? 600
-            otpResendCooldown = resp.resendCooldownSeconds ?? 60
             otpLat = loc.coordinate.latitude
             otpLng = loc.coordinate.longitude
             if specialCpCompletionKind == .giftDistribution {
@@ -1358,7 +1377,11 @@ struct TripNavigationView: View {
         if shouldCollectCpOutcome {
             arrivalStatusText = nil
             if let specialCpCompletionKind {
-                activeSpecialCpCompletion = specialCpCompletionKind
+                if specialCpCompletionKind == .collection {
+                    showCollectionDecision = true
+                } else {
+                    activeSpecialCpCompletion = specialCpCompletionKind
+                }
                 return
             }
             showCpCompletionSheet = true
@@ -2442,6 +2465,7 @@ private struct SpecialCpCompletionSheet: View {
     let kind: CpSpecialCompletionKind
     let cpVisitId: String
     let arrivalProofStorageId: String?
+    let initialCollectionNotCollected: Bool
     let onCompleted: (String?) -> Void
 
     @State private var cpVisit: CpVisitDetail?
@@ -2454,9 +2478,10 @@ private struct SpecialCpCompletionSheet: View {
     @State private var branchName = ""
     @State private var paymentInstrumentDate = Date()
     @State private var remarks = ""
+    @State private var oldClientOutcome = "old_client_visited"
     @State private var proofImage: UIImage?
     @State private var collectionProofFile: PostSalesUploadedFile?
-    @State private var collectionNotCollected = false
+    @State private var collectionNotCollected: Bool
     @State private var showProofCamera = false
     @State private var showCollectionProofImporter = false
     @State private var isUploadingCollectionProof = false
@@ -2467,6 +2492,21 @@ private struct SpecialCpCompletionSheet: View {
     // (nothing collected, or a partial). Defaults to tomorrow.
     @State private var followUpDate =
         Calendar.current.date(byAdding: .day, value: 1, to: Date()) ?? Date()
+
+    init(
+        kind: CpSpecialCompletionKind,
+        cpVisitId: String,
+        arrivalProofStorageId: String?,
+        initialCollectionNotCollected: Bool = false,
+        onCompleted: @escaping (String?) -> Void
+    ) {
+        self.kind = kind
+        self.cpVisitId = cpVisitId
+        self.arrivalProofStorageId = arrivalProofStorageId
+        self.initialCollectionNotCollected = initialCollectionNotCollected
+        self.onCompleted = onCompleted
+        _collectionNotCollected = State(initialValue: initialCollectionNotCollected)
+    }
 
     private var selectedCasePending: Double { selectedCase?.balanceAmount ?? 0 }
 
@@ -2527,10 +2567,14 @@ private struct SpecialCpCompletionSheet: View {
     private var header: some View {
         HStack(alignment: .top, spacing: 12) {
             VStack(alignment: .leading, spacing: 5) {
-                Text(kind.title)
+                Text(collectionNotCollected ? "Collection not done" : kind.title)
                     .font(.system(size: 22, weight: .bold))
                     .foregroundStyle(.primary)
-                Text(kind.subtitle)
+                Text(
+                    collectionNotCollected
+                        ? "Choose a follow-up date and close this visit at ₹0."
+                        : kind.subtitle
+                )
                     .font(.system(size: 13, weight: .medium))
                     .foregroundStyle(.secondary)
             }
@@ -2552,7 +2596,30 @@ private struct SpecialCpCompletionSheet: View {
 
     private var collectionFields: some View {
         VStack(alignment: .leading, spacing: 14) {
-            if cases.isEmpty {
+            if collectionNotCollected {
+                VStack(alignment: .leading, spacing: 8) {
+                    Text("Nothing collected")
+                        .font(.system(size: 15, weight: .bold))
+                        .foregroundStyle(Color(hex: 0xB54708))
+                    Text("This visit will close as Not Collected with amount ₹0. Choose when the collection should be followed up.")
+                        .font(.system(size: 12, weight: .medium))
+                        .foregroundStyle(.secondary)
+                        .fixedSize(horizontal: false, vertical: true)
+                }
+                .padding(14)
+                .frame(maxWidth: .infinity, alignment: .leading)
+                .background(
+                    Color(hex: 0xB54708).opacity(0.10),
+                    in: RoundedRectangle(cornerRadius: 14, style: .continuous)
+                )
+
+                sheetTextField(
+                    "Reason (optional)",
+                    text: $remarks,
+                    placeholder: "Why was no amount collected?",
+                    axis: .vertical
+                )
+            } else if cases.isEmpty {
                 // Amber, not red: an empty lookup is usually recoverable. It
                 // can mean the number is stored in a shape the search missed,
                 // that the booking sits outside this staff's scope, or that a
@@ -2562,35 +2629,22 @@ private struct SpecialCpCompletionSheet: View {
                     Text("No booking found for this client's mobile")
                         .font(.system(size: 14, weight: .semibold))
                         .foregroundStyle(Color(hex: 0xB54708))
-                    Text("If the client does have a booking, retry — the lookup can miss a number saved with a country code. Otherwise record this visit as Not Collected.")
+                    Text("If the client does have a booking, retry — the lookup can miss a number saved with a country code.")
                         .font(.system(size: 12))
                         .foregroundStyle(Color(hex: 0x92400E))
                         .fixedSize(horizontal: false, vertical: true)
 
-                    HStack(spacing: 10) {
-                        Button {
-                            Task { await load() }
-                        } label: {
-                            Label("Retry", systemImage: "arrow.clockwise")
-                                .font(.system(size: 13, weight: .semibold))
-                                .frame(maxWidth: .infinity)
-                                .padding(.vertical, 10)
-                        }
-                        .buttonStyle(.borderedProminent)
-                        .tint(Color(hex: 0xB54708))
-                        .disabled(isLoading)
-
-                        Button {
-                            collectionNotCollected = true
-                        } label: {
-                            Text("Not Collected")
-                                .font(.system(size: 13, weight: .semibold))
-                                .frame(maxWidth: .infinity)
-                                .padding(.vertical, 10)
-                        }
-                        .buttonStyle(.bordered)
-                        .tint(Color(hex: 0xB54708))
+                    Button {
+                        Task { await load() }
+                    } label: {
+                        Label("Retry", systemImage: "arrow.clockwise")
+                            .font(.system(size: 13, weight: .semibold))
+                            .frame(maxWidth: .infinity)
+                            .padding(.vertical, 10)
                     }
+                    .buttonStyle(.borderedProminent)
+                    .tint(Color(hex: 0xB54708))
+                    .disabled(isLoading)
                 }
                 .padding(14)
                 .frame(maxWidth: .infinity, alignment: .leading)
@@ -2598,24 +2652,7 @@ private struct SpecialCpCompletionSheet: View {
                     Color(hex: 0xB54708).opacity(0.12),
                     in: RoundedRectangle(cornerRadius: 14, style: .continuous)
                 )
-
-                // The staff chose Not Collected from the notice above, so the
-                // remarks field has to be reachable even with no booking.
-                if collectionNotCollected {
-                    sheetTextField(
-                        "Remarks",
-                        text: $remarks,
-                        placeholder: "Why was no amount collected?",
-                        axis: .vertical
-                    )
-                }
             } else {
-                Picker("Collection result", selection: $collectionNotCollected) {
-                    Text("Collected").tag(false)
-                    Text("Not Collected").tag(true)
-                }
-                .pickerStyle(.segmented)
-
                 VStack(alignment: .leading, spacing: 6) {
                     Text("Booking")
                         .font(.system(size: 13, weight: .semibold))
@@ -2632,9 +2669,7 @@ private struct SpecialCpCompletionSheet: View {
                 }
             }
 
-            if collectionNotCollected {
-                sheetTextField("Remarks", text: $remarks, placeholder: "Why was no amount collected?", axis: .vertical)
-            } else {
+            if !collectionNotCollected {
                 sheetTextField("Amount *", text: $amount, placeholder: "Enter amount", keyboard: .decimalPad)
 
                 VStack(alignment: .leading, spacing: 6) {
@@ -2702,7 +2737,7 @@ private struct SpecialCpCompletionSheet: View {
                 DatePicker(
                     "Follow-up",
                     selection: $followUpDate,
-                    in: Date()...,
+                    in: Date()...(Calendar.current.date(byAdding: .day, value: 5, to: Date()) ?? Date()),
                     displayedComponents: [.date, .hourAndMinute]
                 )
                 .labelsHidden()
@@ -2714,6 +2749,26 @@ private struct SpecialCpCompletionSheet: View {
 
     private var remarksFields: some View {
         VStack(alignment: .leading, spacing: 14) {
+            if kind == .oldClient {
+                VStack(alignment: .leading, spacing: 6) {
+                    Text("Outcome")
+                        .font(.system(size: 13, weight: .semibold))
+                        .foregroundStyle(.primary)
+                    Picker("Outcome", selection: $oldClientOutcome) {
+                        Text("Visited").tag("old_client_visited")
+                        Text("Others").tag("other")
+                    }
+                    .pickerStyle(.segmented)
+                    Text(
+                        oldClientOutcome == "other"
+                            ? "Add remarks to explain why this Old Client CP is being closed."
+                            : "Confirm the Old Client visit and save the staff remarks."
+                    )
+                    .font(.system(size: 12, weight: .medium))
+                    .foregroundStyle(.secondary)
+                    .fixedSize(horizontal: false, vertical: true)
+                }
+            }
             Text(kind == .giftDistribution ? "Gift handover will be marked completed for this CP visit." : "Remarks are saved against this CP visit.")
                 .font(.system(size: 13, weight: .medium))
                 .foregroundStyle(.secondary)
@@ -2805,7 +2860,7 @@ private struct SpecialCpCompletionSheet: View {
                     ProgressView()
                         .tint(.white)
                 } else {
-                    Text(kind == .collection && collectionNotCollected ? "Mark Not Collected" : kind.primaryTitle)
+                    Text(submitTitle)
                 }
             }
             .font(.system(size: 16, weight: .bold))
@@ -2822,6 +2877,16 @@ private struct SpecialCpCompletionSheet: View {
         }
         .padding(.vertical, 14)
         .background(Color.white)
+    }
+
+    private var submitTitle: String {
+        if kind == .collection && collectionNotCollected {
+            return "Mark Not Collected"
+        }
+        if kind == .oldClient && oldClientOutcome == "other" {
+            return "Complete with Remarks"
+        }
+        return kind.primaryTitle
     }
 
     private var selectedCase: PostSaleCaseSummary? {
@@ -2935,6 +3000,9 @@ private struct SpecialCpCompletionSheet: View {
 
     @MainActor
     private func load() async {
+        // The No path does not need client booking data. Keep it instant and
+        // show only follow-up date + optional reason.
+        if kind == .collection && collectionNotCollected { return }
         guard !isLoading else { return }
         guard let token = authStore.currentSession?.token else { return }
 
@@ -2950,7 +3018,7 @@ private struct SpecialCpCompletionSheet: View {
             let detail = try await MarketingConvexAPIService.getCpVisitDetail(token: token, id: cpVisitId)
             cpVisit = detail
             LocalCache.put(cpVisitDetailCacheKey, detail)
-            guard kind == .collection else { return }
+            guard kind == .collection, !collectionNotCollected else { return }
             let phone = collectionPhone(from: detail)
             guard let phone else {
                 errorMessage = "Client mobile is missing for payment collection."
@@ -3032,7 +3100,7 @@ private struct SpecialCpCompletionSheet: View {
         do {
             var notes = remarks.trimmingCharacters(in: .whitespacesAndNewlines)
             var replacementProofId: String?
-            var outcome = kind.terminalOutcome
+            var outcome = kind == .oldClient ? oldClientOutcome : kind.terminalOutcome
             var sendFollowUp = false
 
             if kind == .collection {

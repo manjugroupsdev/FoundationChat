@@ -5,7 +5,8 @@ import Foundation
 private let cpTypesWithOtherOutcome: Set<String> = [
     "booking_cp",
     "gift_distribution",
-    "follow_up",
+    "old_client",
+    "other_cp",
 ]
 
 func cpTypeSupportsOtherOutcome(_ cpType: String?) -> Bool {

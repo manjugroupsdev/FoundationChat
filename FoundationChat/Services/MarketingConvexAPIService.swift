@@ -816,6 +816,19 @@ enum MarketingConvexAPIService {
         return wrapper.items ?? []
     }
 
+    static func getCpApprovalRoute(token: String, id: String) async throws -> CpApprovalRouteData {
+        let data = try await get(
+            path: "/api/marketing/cp-visits/approval-route",
+            token: token,
+            queryItems: [URLQueryItem(name: "id", value: id)]
+        )
+        let wrapper = try decode(CpApprovalRouteResponse.self, from: data)
+        guard wrapper.success, let route = wrapper.data else {
+            throw MarketingAPIError.server(wrapper.error ?? "Failed to load the travelled route")
+        }
+        return route
+    }
+
     static func approveCpCompletion(token: String, id: String) async throws {
         let data = try await post(path: "/api/marketing/cp-visits/approve", token: token, body: IdRequest(id: id))
         let wrapper = try decode(BaseMutationResponse.self, from: data)
@@ -1067,6 +1080,57 @@ struct CpApprovalItem: Codable, Identifiable, Sendable {
     let photoUrl: String?
     let requestedAt: Double?
     let scheduledDate: String?
+    let scheduledTime: String?
+    let startedAt: Double?
+    let completedAt: Double?
+    let arrivalVerifiedAt: Double?
+    let startLat: Double?
+    let startLng: Double?
+    let endLat: Double?
+    let endLng: Double?
+    let arrivalLat: Double?
+    let arrivalLng: Double?
+    let placeLat: Double?
+    let placeLng: Double?
+}
+
+private struct CpApprovalRouteResponse: Decodable {
+    let success: Bool
+    let error: String?
+    let data: CpApprovalRouteData?
+}
+
+struct CpApprovalRouteData: Decodable, Sendable {
+    let id: String
+    let startedAt: Double?
+    let endedAt: Double?
+    let startLat: Double?
+    let startLng: Double?
+    let endLat: Double?
+    let endLng: Double?
+    let routePoints: [CpApprovalRoutePoint]
+
+    private enum CodingKeys: String, CodingKey {
+        case id, startedAt, endedAt, startLat, startLng, endLat, endLng, routePoints
+    }
+
+    init(from decoder: Decoder) throws {
+        let container = try decoder.container(keyedBy: CodingKeys.self)
+        id = try container.decode(String.self, forKey: .id)
+        startedAt = try container.decodeIfPresent(Double.self, forKey: .startedAt)
+        endedAt = try container.decodeIfPresent(Double.self, forKey: .endedAt)
+        startLat = try container.decodeIfPresent(Double.self, forKey: .startLat)
+        startLng = try container.decodeIfPresent(Double.self, forKey: .startLng)
+        endLat = try container.decodeIfPresent(Double.self, forKey: .endLat)
+        endLng = try container.decodeIfPresent(Double.self, forKey: .endLng)
+        routePoints = try container.decodeIfPresent([CpApprovalRoutePoint].self, forKey: .routePoints) ?? []
+    }
+}
+
+struct CpApprovalRoutePoint: Decodable, Sendable {
+    let lat: Double
+    let lng: Double
+    let recordedAt: Double
 }
 
 enum MarketingAPIError: LocalizedError {
