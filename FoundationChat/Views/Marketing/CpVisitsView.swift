@@ -14,6 +14,8 @@ struct CpVisitsView: View {
     @State private var selectedFilter: CpVisitFilter = .all
     @State private var isClockedIn = false
     @State private var selectedOutcomeVisit: CpListVisit?
+    @State private var pendingCpRevisit: CpRevisitInfo?
+    @State private var showCpRevisitConfirmation = false
     @State private var selectedSpecialOutcomeVisit: CpListVisit?
     @State private var showSpecialOutcome = false
     @State private var showDateFilter = false
@@ -68,12 +70,22 @@ struct CpVisitsView: View {
                     cpVisitId: visit.clientPlaceVisitId,
                     initialOutcome: visit.outcome,
                     cpType: visit.cpType,
-                    onCompleted: {
+                    onCompleted: { revisit in
                         selectedOutcomeVisit = nil
+                        pendingCpRevisit = revisit
+                        showCpRevisitConfirmation = revisit != nil
                         Task { await load() }
                     }
                 )
                 .environment(authStore)
+            }
+            .alert(
+                pendingCpRevisit?.dialogTitle ?? "Revisit scheduled",
+                isPresented: $showCpRevisitConfirmation
+            ) {
+                Button("Done") { pendingCpRevisit = nil }
+            } message: {
+                Text(pendingCpRevisit?.dialogMessage ?? "")
             }
             .sheet(isPresented: $showDateFilter) {
                 CpDateRangeFilterSheet(
@@ -502,13 +514,19 @@ private struct CpListVisit: Identifiable {
         self.fieldVisitId = detail.fieldVisitId
         self.clientPlaceVisitId = detail.id
         self.clientPlaceId = detail.clientPlaceId
-        self.scheduledDate = detail.scheduledDate
         self.scheduledStartTime = detail.scheduledTime
         self.scheduledEndTime = nil
-        self.status = CpVisitStatusPolicy.resolve(
+        let resolvedStatus = CpVisitStatusPolicy.resolve(
             cpStatus: detail.status,
             fieldVisitStatus: detail.fieldVisit?.status
         )
+        self.status = resolvedStatus
+        let isCompleted = ["completed", "complete", "done", "closed"].contains(
+            resolvedStatus.trimmingCharacters(in: .whitespacesAndNewlines).lowercased()
+        )
+        self.scheduledDate = isCompleted
+            ? detail.activityDate?.blankToNil ?? detail.scheduledDate
+            : detail.scheduledDate
         let manualClientName = detail.lead?.manualProfile?.clientName?.cpClientName
         let masterClientName = detail.client?.clientName?.cpClientName
         let leadContactName = detail.lead?.contactName?.cpClientName

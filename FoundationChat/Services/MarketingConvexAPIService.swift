@@ -140,6 +140,7 @@ enum MarketingConvexAPIService {
     private struct BaseMutationResponse: Decodable {
         let success: Bool
         let error: String?
+        let revisit: CpRevisitInfo?
     }
 
     private struct InventoryUnitIdRequest: Encodable {
@@ -778,10 +779,14 @@ enum MarketingConvexAPIService {
         guard wrapper.success else { throw MarketingAPIError.server(wrapper.error ?? "Failed to record client met") }
     }
 
-    static func setCpVisitOutcome(token: String, request: SetCpVisitOutcomeRequest) async throws {
+    static func setCpVisitOutcome(
+        token: String,
+        request: SetCpVisitOutcomeRequest
+    ) async throws -> CpRevisitInfo? {
         let data = try await post(path: "/api/marketing/clientPlaceVisits/setOutcome", token: token, body: request)
         let wrapper = try decode(BaseMutationResponse.self, from: data)
         guard wrapper.success else { throw MarketingAPIError.server(wrapper.error ?? "Failed to set outcome") }
+        return wrapper.revisit
     }
 
     /// Cancels a CP visit outright (separate endpoint from setOutcome). Used by
@@ -1044,12 +1049,24 @@ enum MarketingConvexAPIService {
             if http.statusCode >= 400 {
                 if let json = try? JSONSerialization.jsonObject(with: data) as? [String: Any],
                    let error = json["error"] as? String {
-                    throw MarketingAPIError.server(error)
+                    throw MarketingAPIError.server(friendlyServerMessage(error))
                 }
                 throw MarketingAPIError.server("Request failed (\(http.statusCode))")
             }
         }
         return data
+    }
+
+    private static func friendlyServerMessage(_ raw: String) -> String {
+        let markers = ["Uncaught Error:", "Uncaught ConvexError:"]
+        let actionable = markers.compactMap { marker -> String? in
+            guard let range = raw.range(of: marker, options: .caseInsensitive) else { return nil }
+            return String(raw[range.upperBound...])
+        }.first ?? raw
+        return actionable.components(separatedBy: .newlines)
+            .first?
+            .trimmingCharacters(in: .whitespacesAndNewlines)
+            .nilIfEmpty ?? "Request failed"
     }
 
     private static func decode<T: Decodable>(_ type: T.Type, from data: Data) throws -> T {
@@ -1109,9 +1126,10 @@ struct CpApprovalRouteData: Decodable, Sendable {
     let endLat: Double?
     let endLng: Double?
     let routePoints: [CpApprovalRoutePoint]
+    let routeSource: String?
 
     private enum CodingKeys: String, CodingKey {
-        case id, startedAt, endedAt, startLat, startLng, endLat, endLng, routePoints
+        case id, startedAt, endedAt, startLat, startLng, endLat, endLng, routePoints, routeSource
     }
 
     init(from decoder: Decoder) throws {
@@ -1124,6 +1142,7 @@ struct CpApprovalRouteData: Decodable, Sendable {
         endLat = try container.decodeIfPresent(Double.self, forKey: .endLat)
         endLng = try container.decodeIfPresent(Double.self, forKey: .endLng)
         routePoints = try container.decodeIfPresent([CpApprovalRoutePoint].self, forKey: .routePoints) ?? []
+        routeSource = try container.decodeIfPresent(String.self, forKey: .routeSource)
     }
 }
 

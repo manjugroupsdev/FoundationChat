@@ -1,3 +1,4 @@
+import Foundation
 import SwiftUI
 
 struct StaffSecurityView: View {
@@ -8,6 +9,12 @@ struct StaffSecurityView: View {
     @State private var logins: [ActiveStaffLogin] = []
     @State private var searchText = ""
     @State private var isLoading = false
+    @State private var isLoadingMore = false
+    @State private var loadMoreFailed = false
+    @State private var loadMoreRetryTask: Task<Void, Never>?
+    @State private var loadMoreRetryRound = 0
+    @State private var staffCursor: String?
+    @State private var staffPaginationDone = false
     @State private var errorMessage: String?
     @State private var selectedStaff: ConvexStaffListItem?
     @State private var selectedLogin: ActiveStaffLogin?
@@ -92,16 +99,35 @@ struct StaffSecurityView: View {
         }
         .navigationTitle("Security")
         .searchable(text: $searchText, prompt: "Search staff")
-        .refreshable { await reload() }
+        .refreshable {
+            let query = searchText.trimmingCharacters(in: .whitespacesAndNewlines)
+            if mode != .staffLogin, !query.isEmpty {
+                await searchStaff(query)
+            } else {
+                await reload()
+            }
+        }
         .task {
             guard let first = availableModes.first else { return }
             if !availableModes.contains(mode) { mode = first }
             await reload()
         }
+        .task(id: searchText) {
+            guard mode != .staffLogin else { return }
+            let query = searchText.trimmingCharacters(in: .whitespacesAndNewlines)
+            if query.isEmpty {
+                await reload()
+                return
+            }
+            try? await Task.sleep(for: .milliseconds(300))
+            guard !Task.isCancelled else { return }
+            await searchStaff(query)
+        }
         .onChange(of: mode) { _, _ in
             searchText = ""
             Task { await reload() }
         }
+        .onDisappear { loadMoreRetryTask?.cancel() }
         .sheet(item: $selectedStaff) { row in
             StaffSecurityDetailSheet(
                 staff: row,
@@ -169,7 +195,34 @@ struct StaffSecurityView: View {
                         }
                     }
                     .buttonStyle(.plain)
+                    .onAppear {
+                        if row.id == visibleStaff.last?.id {
+                            Task { await loadNextStaffPage() }
+                        }
+                    }
                 }
+
+            }
+        }
+
+        if !staffPaginationDone {
+            Section {
+                HStack {
+                    Spacer()
+                    if loadMoreFailed {
+                        Button("Reconnecting automatically. Retry now") {
+                            loadMoreRetryTask?.cancel()
+                            loadMoreRetryRound = 0
+                            Task { await loadNextStaffPage() }
+                        }
+                    } else {
+                        ProgressView()
+                    }
+                    Spacer()
+                }
+                .listRowSeparator(.hidden)
+                .id(staffCursor)
+                .onAppear { Task { await loadNextStaffPage() } }
             }
         }
     }
@@ -228,34 +281,118 @@ struct StaffSecurityView: View {
     private func reload() async {
         guard let token = authStore.currentSession?.token, !isLoading else { return }
         isLoading = true
+        loadMoreFailed = false
         defer { isLoading = false }
         do {
             if mode == .staffLogin {
+                staffCursor = nil
+                staffPaginationDone = true
                 logins = try await StaffSecurityAPIService.activeLogins(token: token)
                     .filter { $0.staffId?.securityNonBlank != nil }
                     .sorted { ($0.name ?? "").localizedCaseInsensitiveCompare($1.name ?? "") == .orderedAscending }
             } else {
-                var rows: [ConvexStaffListItem] = []
-                var cursor: String?
-                var isDone = false
-                repeat {
-                    let page = try await HRConvexAPIService.getStaffPaginated(
-                        token: token,
-                        numItems: 100,
-                        cursor: cursor,
-                        status: "active"
-                    )
-                    rows.append(contentsOf: page.page)
-                    cursor = page.continueCursor
-                    isDone = page.isDone || cursor == nil
-                } while !isDone
-                staff = Dictionary(grouping: rows, by: \._id)
-                    .compactMap { $0.value.first }
-                    .sorted { $0.displayName.localizedCaseInsensitiveCompare($1.displayName) == .orderedAscending }
+                let page = try await getStaffPageWithRetry(token: token, cursor: nil)
+                staff = sortedUniqueStaff(page.page)
+                staffCursor = page.continueCursor?.securityNonBlank
+                staffPaginationDone = page.isDone || staffCursor == nil
             }
         } catch {
             errorMessage = error.localizedDescription
         }
+    }
+
+    @MainActor
+    private func loadNextStaffPage() async {
+        guard mode != .staffLogin,
+              searchText.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty,
+              let token = authStore.currentSession?.token,
+              !isLoading,
+              !isLoadingMore,
+              !staffPaginationDone,
+              let cursor = staffCursor else { return }
+        isLoadingMore = true
+        loadMoreFailed = false
+        defer { isLoadingMore = false }
+        do {
+            let page = try await getStaffPageWithRetry(token: token, cursor: cursor)
+            staff = sortedUniqueStaff(staff + page.page)
+            let nextCursor = page.continueCursor?.securityNonBlank
+            staffCursor = nextCursor
+            staffPaginationDone = page.isDone || nextCursor == nil || nextCursor == cursor
+            loadMoreRetryTask?.cancel()
+            loadMoreRetryRound = 0
+        } catch {
+            loadMoreFailed = true
+            errorMessage = error.localizedDescription
+            scheduleLoadMoreRetry()
+        }
+    }
+
+    @MainActor
+    private func scheduleLoadMoreRetry() {
+        loadMoreRetryTask?.cancel()
+        let delays = [4, 10, 20, 30]
+        let seconds = delays[min(loadMoreRetryRound, delays.count - 1)]
+        loadMoreRetryRound += 1
+        loadMoreRetryTask = Task {
+            try? await Task.sleep(for: .seconds(seconds))
+            guard !Task.isCancelled else { return }
+            await loadNextStaffPage()
+        }
+    }
+
+    /// Preserve the opaque cursor while retrying a brief URL/DNS outage. The
+    /// request is a safe GET, and the manual footer remains the final fallback.
+    private func getStaffPageWithRetry(
+        token: String,
+        cursor: String?
+    ) async throws -> ConvexStaffPaginatedPage {
+        var attempt = 0
+        while true {
+            do {
+                return try await HRConvexAPIService.getStaffPaginated(
+                    token: token,
+                    numItems: 25,
+                    cursor: cursor,
+                    lite: true
+                )
+            } catch is CancellationError {
+                throw CancellationError()
+            } catch {
+                attempt += 1
+                guard error is URLError, attempt < 3 else { throw error }
+                try await Task.sleep(for: .milliseconds(attempt == 1 ? 300 : 900))
+            }
+        }
+    }
+
+    @MainActor
+    private func searchStaff(_ query: String) async {
+        guard let token = authStore.currentSession?.token, !isLoading else { return }
+        isLoading = true
+        loadMoreFailed = false
+        defer { isLoading = false }
+        do {
+            let rows = try await HRConvexAPIService.searchStaff(
+                token: token,
+                query: query,
+                lite: true
+            )
+            guard query == searchText.trimmingCharacters(in: .whitespacesAndNewlines) else { return }
+            staff = sortedUniqueStaff(rows)
+            staffCursor = nil
+            staffPaginationDone = true
+        } catch is CancellationError {
+            return
+        } catch {
+            errorMessage = error.localizedDescription
+        }
+    }
+
+    private func sortedUniqueStaff(_ rows: [ConvexStaffListItem]) -> [ConvexStaffListItem] {
+        Dictionary(grouping: rows, by: \._id)
+            .compactMap { $0.value.first }
+            .sorted { $0.displayName.localizedCaseInsensitiveCompare($1.displayName) == .orderedAscending }
     }
 
     @MainActor

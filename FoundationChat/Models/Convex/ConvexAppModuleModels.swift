@@ -1654,6 +1654,47 @@ struct SetCpVisitOutcomeRequest: Encodable, Sendable {
     }
 }
 
+struct CpRevisitInfo: Decodable, Sendable, Equatable {
+    let creationStatus: String
+    let reason: String
+    let scheduledDate: String
+    let scheduledTime: String?
+    let visitId: String?
+    let error: String?
+
+    var dialogTitle: String {
+        creationStatus == "failed" ? "Revisit not created" : "Revisit scheduled"
+    }
+
+    var dialogMessage: String {
+        let input = DateFormatter()
+        input.locale = Locale(identifier: "en_US_POSIX")
+        input.dateFormat = "yyyy-MM-dd"
+        let output = DateFormatter()
+        output.locale = Locale.current
+        output.dateFormat = "dd MMM yyyy"
+        let date = input.date(from: scheduledDate).map(output.string(from:)) ?? scheduledDate
+        let trimmedTime = scheduledTime?.trimmingCharacters(in: .whitespacesAndNewlines)
+        let time = trimmedTime.flatMap { $0.isEmpty ? nil : " at \($0)" } ?? ""
+
+        if creationStatus == "failed" {
+            let reason = error?
+                .components(separatedBy: .newlines)
+                .first?
+                .trimmingCharacters(in: .whitespacesAndNewlines)
+            return "This CP is closed, but the revisit could not be created for \(date)\(time)." +
+                (reason.flatMap { $0.isEmpty ? nil : "\n\nReason: \($0)" } ?? "")
+        }
+        if creationStatus == "queued" {
+            return "This CP is closed as Not Met. A revisit is scheduled for \(date)\(time) and will be created automatically after 2 days."
+        }
+        if reason == "collection_follow_up" {
+            return "This collection CP is closed. A follow-up collection CP has been created for \(date)\(time)."
+        }
+        return "This CP is closed. A follow-up CP has been created for \(date)\(time)."
+    }
+}
+
 struct SiteVisitAttendeeRequest: Encodable, Hashable, Sendable {
     let name: String?
     let relation: String?

@@ -198,9 +198,16 @@ enum AuthAPIService {
 
   /// Change the signed-in user's password. Used by the forced password-change
   /// flow after Employee ID login.
-  static func changeOwnPassword(token: String, newPassword: String) async throws {
+  static func changeOwnPassword(
+    token: String,
+    currentPassword: String?,
+    newPassword: String
+  ) async throws {
     let url = URL(string: "\(baseURL)/api/auth/change-own-password")!
-    let body: [String: Any] = ["currentPassword": NSNull(), "newPassword": newPassword]
+    var body: [String: Any] = ["newPassword": newPassword]
+    if let currentPassword, !currentPassword.isEmpty {
+      body["currentPassword"] = currentPassword
+    }
     var request = URLRequest(url: url)
     request.httpMethod = "POST"
     request.setValue("Bearer \(token)", forHTTPHeaderField: "Authorization")

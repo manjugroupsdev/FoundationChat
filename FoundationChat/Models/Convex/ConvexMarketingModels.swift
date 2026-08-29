@@ -238,6 +238,7 @@ struct CpVisitDetail: Codable, Identifiable, Sendable {
     let assignedStaffId: String?
     let assignedAt: Int64?
     let scheduledDate: String?
+    let activityDate: String?
     let scheduledTime: String?
     let status: String?
     let clientMet: Bool?
@@ -291,7 +292,7 @@ struct CpVisitDetail: Codable, Identifiable, Sendable {
     enum CodingKeys: String, CodingKey {
         case id = "_id"
         case leadId, clientId, clientPlaceId, origin, telecallerStaffId, assignedStaffId
-        case assignedAt, scheduledDate, scheduledTime, status, clientMet, clientMetAt
+        case assignedAt, scheduledDate, activityDate, scheduledTime, status, clientMet, clientMetAt
         case clientNoShowReason, outcome, postponeReasons, convertedSiteVisitId
         case convertedBookingId, fieldVisitId, notes, completedAt, completedOffline, cancelledAt
         case expectedAttendeeCount, foodPreferences, vehiclePreference, driverName, driverPhone

@@ -991,7 +991,8 @@ enum HRConvexAPIService {
         token: String,
         numItems: Int = 25,
         cursor: String? = nil,
-        status: String? = nil
+        status: String? = nil,
+        lite: Bool = false
     ) async throws -> ConvexStaffPaginatedPage {
         var params: [String] = ["numItems=\(numItems)"]
         if let cursor, !cursor.isEmpty {
@@ -1001,6 +1002,9 @@ enum HRConvexAPIService {
         }
         if let status, !status.isEmpty {
             params.append("status=\(status)")
+        }
+        if lite {
+            params.append("lite=1")
         }
         let path = "/api/hr/staff/paginated?" + params.joined(separator: "&")
         let data = try await get(path: path, token: token)
@@ -1016,11 +1020,19 @@ enum HRConvexAPIService {
     }
 
     /// `GET /api/hr/staff/search?query=…` — server-side search.
-    static func searchStaff(token: String, query: String) async throws -> [ConvexStaffListItem] {
+    static func searchStaff(
+        token: String,
+        query: String,
+        lite: Bool = false
+    ) async throws -> [ConvexStaffListItem] {
         guard let encoded = query.addingPercentEncoding(withAllowedCharacters: .urlQueryAllowed) else {
             throw HRConvexAPIError.badURL
         }
-        let data = try await get(path: "/api/hr/staff/search?query=\(encoded)", token: token)
+        let liteParam = lite ? "&lite=1" : ""
+        let data = try await get(
+            path: "/api/hr/staff/search?query=\(encoded)\(liteParam)",
+            token: token
+        )
         let wrapper = try await decode(StaffListResponse.self, from: data)
         if !wrapper.success, let err = wrapper.error {
             throw HRConvexAPIError.server(err)

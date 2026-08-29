@@ -183,47 +183,54 @@ private struct CpApprovalCard: View {
     let onReject: () -> Void
 
     var body: some View {
-        VStack(alignment: .leading, spacing: 6) {
-            Text(item.clientName?.blankToNil ?? "Client")
-                .font(.system(size: 15, weight: .semibold))
-                .foregroundStyle(Color(hex: 0x101828))
-
-            Text("by \(item.staffName?.blankToNil ?? "Field staff")")
-                .font(.system(size: 12))
-                .foregroundStyle(Color(hex: 0x475467))
-
-            VStack(alignment: .leading, spacing: 5) {
-                approvalFact("Date & time", ApprovalFormatting.scheduled(item))
-                approvalFact("Start time", ApprovalFormatting.epoch(item.startedAt))
-                approvalFact("End time", ApprovalFormatting.epoch(item.completedAt ?? item.requestedAt))
-                approvalFact("CP type", ApprovalFormatting.cpType(item.cpType))
-            }
-            .padding(.top, 6)
-
-            if let place = placeLine, !place.isEmpty {
-                Text(place)
-                    .font(.system(size: 12, weight: .medium))
+        VStack(alignment: .leading, spacing: 10) {
+            HStack(alignment: .top, spacing: 10) {
+                VStack(alignment: .leading, spacing: 3) {
+                    Text(item.clientName?.blankToNil ?? "Client")
+                        .font(.system(size: 16, weight: .semibold))
+                        .foregroundStyle(Color(hex: 0x101828))
+                    Text(item.staffName?.blankToNil ?? "Field staff")
+                        .font(.system(size: 12))
+                        .foregroundStyle(Color(hex: 0x667085))
+                }
+                Spacer(minLength: 4)
+                Text("Pending review")
+                    .font(.system(size: 11, weight: .semibold))
                     .foregroundStyle(Color(hex: 0xB54708))
-                    .padding(.top, 4)
+                    .padding(.horizontal, 10)
+                    .padding(.vertical, 6)
+                    .background(Color(hex: 0xFFFAEB), in: RoundedRectangle(cornerRadius: 14))
+                    .overlay(RoundedRectangle(cornerRadius: 14).stroke(Color(hex: 0xFEDF89)))
             }
 
-            if let outcome = item.outcome?.blankToNil {
-                Text("Outcome: \(outcome.replacingOccurrences(of: "_", with: " "))")
-                    .font(.system(size: 12))
-                    .foregroundStyle(Color(hex: 0x475467))
+            Grid(horizontalSpacing: 8, verticalSpacing: 8) {
+                GridRow {
+                    approvalFact("Date & time", ApprovalFormatting.scheduled(item))
+                    approvalFact("CP type", ApprovalFormatting.cpType(item.cpType))
+                }
+                GridRow {
+                    approvalFact("Start time", ApprovalFormatting.epoch(item.startedAt))
+                    approvalFact("End time", ApprovalFormatting.epoch(item.completedAt ?? item.requestedAt))
+                }
             }
 
-            if let remark = item.staffRemark?.blankToNil {
-                Text("Staff reason: \(remark)")
-                    .font(.system(size: 12))
-                    .foregroundStyle(Color(hex: 0x101828))
-                    .padding(.top, 2)
-            }
-
-            if let scheduled = item.scheduledDate?.blankToNil {
-                Text("Scheduled: \(scheduled)")
-                    .font(.system(size: 11))
-                    .foregroundStyle(Color(hex: 0x667085))
+            if !evidenceRows.isEmpty {
+                VStack(alignment: .leading, spacing: 8) {
+                    ForEach(Array(evidenceRows.enumerated()), id: \.offset) { _, row in
+                        VStack(alignment: .leading, spacing: 2) {
+                            Text(row.label)
+                                .font(.system(size: 11, weight: .medium))
+                                .foregroundStyle(Color(hex: 0x667085))
+                            Text(row.value)
+                                .font(.system(size: 12))
+                                .foregroundStyle(row.label == "Location" ? Color(hex: 0xB54708) : Color(hex: 0x101828))
+                        }
+                    }
+                }
+                .padding(12)
+                .frame(maxWidth: .infinity, alignment: .leading)
+                .background(Color(hex: 0xF8FAFC), in: RoundedRectangle(cornerRadius: 10))
+                .overlay(RoundedRectangle(cornerRadius: 10).stroke(Color(hex: 0xEAECF0)))
             }
 
             if let photoUrl = item.photoUrl?.blankToNil, let url = URL(string: photoUrl) {
@@ -243,7 +250,7 @@ private struct CpApprovalCard: View {
             }
 
             Button(action: onViewRoute) {
-                Label("View trip & travelled route", systemImage: "map")
+                Label("View travelled path", systemImage: "map")
                     .font(.system(size: 13, weight: .semibold))
                     .foregroundStyle(Color(hex: 0x0B61CA))
                     .frame(maxWidth: .infinity)
@@ -260,7 +267,7 @@ private struct CpApprovalCard: View {
                         .foregroundStyle(Color(hex: 0xB42318))
                         .frame(maxWidth: .infinity)
                         .frame(height: 46)
-                        .background(Color(hex: 0xFEE4E2), in: Capsule())
+                        .background(Color(hex: 0xFEE4E2), in: RoundedRectangle(cornerRadius: 10))
                 }
                 .buttonStyle(.plain)
                 .disabled(isBusy)
@@ -277,7 +284,7 @@ private struct CpApprovalCard: View {
                     .foregroundStyle(.white)
                     .frame(maxWidth: .infinity)
                     .frame(height: 46)
-                    .background(Color(hex: 0x169B2F), in: Capsule())
+                    .background(Color(hex: 0x169B2F), in: RoundedRectangle(cornerRadius: 10))
                 }
                 .buttonStyle(.plain)
                 .disabled(isBusy)
@@ -294,9 +301,29 @@ private struct CpApprovalCard: View {
     }
 
     private func approvalFact(_ label: String, _ value: String) -> some View {
-        Text("\(label): \(value)")
-            .font(.system(size: 12))
-            .foregroundStyle(Color(hex: 0x344054))
+        VStack(alignment: .leading, spacing: 3) {
+            Text(label)
+                .font(.system(size: 10, weight: .medium))
+                .foregroundStyle(Color(hex: 0x667085))
+            Text(value)
+                .font(.system(size: 12, weight: .semibold))
+                .foregroundStyle(Color(hex: 0x101828))
+                .lineLimit(2)
+        }
+        .padding(10)
+        .frame(maxWidth: .infinity, minHeight: 58, alignment: .topLeading)
+        .background(Color(hex: 0xF8FAFC), in: RoundedRectangle(cornerRadius: 10))
+        .overlay(RoundedRectangle(cornerRadius: 10).stroke(Color(hex: 0xEAECF0)))
+    }
+
+    private var evidenceRows: [(label: String, value: String)] {
+        var rows: [(String, String)] = []
+        if let place = placeLine, !place.isEmpty { rows.append(("Location", place)) }
+        if let outcome = item.outcome?.blankToNil {
+            rows.append(("Outcome", ApprovalFormatting.cpType(outcome)))
+        }
+        if let remark = item.staffRemark?.blankToNil { rows.append(("Staff reason", remark)) }
+        return rows
     }
 
     private var placeLine: String? {
@@ -350,7 +377,7 @@ private struct CpApprovalTripDetailSheet: View {
                     .frame(maxWidth: .infinity, alignment: .leading)
                     .background(Color(hex: 0xF8FAFC), in: RoundedRectangle(cornerRadius: 12))
 
-                    Text("Travelled route")
+                    Text("Travelled path")
                         .font(.system(size: 16, weight: .semibold))
                         .foregroundStyle(Color(hex: 0x101828))
 
@@ -371,11 +398,22 @@ private struct CpApprovalTripDetailSheet: View {
                                     .background(.white, in: Circle())
                             }
                         }
-                        if displayCoordinates.count >= 2 {
-                            MapPolyline(coordinates: displayCoordinates)
+                        if recordedCoordinates.count >= 2 {
+                            MapPolyline(coordinates: recordedCoordinates)
                                 .stroke(
                                     Color(hex: 0x0B61CA),
                                     style: StrokeStyle(lineWidth: 6, lineCap: .round, lineJoin: .round)
+                                )
+                        } else if displayCoordinates.count >= 2 {
+                            MapPolyline(coordinates: displayCoordinates)
+                                .stroke(
+                                    Color(hex: 0x5B7FA3),
+                                    style: StrokeStyle(
+                                        lineWidth: 5,
+                                        lineCap: .round,
+                                        lineJoin: .round,
+                                        dash: [10, 7]
+                                    )
                                 )
                         }
                     }
@@ -422,18 +460,20 @@ private struct CpApprovalTripDetailSheet: View {
     }
 
     private var startCoordinate: CLLocationCoordinate2D? {
-        recordedCoordinates.first
-            ?? validCoordinate(lat: route?.startLat, lng: route?.startLng)
+        if recordedCoordinates.count >= 2 { return recordedCoordinates.first }
+        return validCoordinate(lat: route?.startLat, lng: route?.startLng)
             ?? validCoordinate(lat: item.startLat, lng: item.startLng)
+            ?? recordedCoordinates.first
     }
 
     private var endCoordinate: CLLocationCoordinate2D? {
-        recordedCoordinates.last
-            ?? validCoordinate(lat: route?.endLat, lng: route?.endLng)
+        if recordedCoordinates.count >= 2 { return recordedCoordinates.last }
+        return validCoordinate(lat: route?.endLat, lng: route?.endLng)
             ?? validCoordinate(lat: item.endLat, lng: item.endLng)
             ?? validCoordinate(lat: item.completionLat, lng: item.completionLng)
             ?? validCoordinate(lat: item.arrivalLat, lng: item.arrivalLng)
             ?? validCoordinate(lat: item.placeLat, lng: item.placeLng)
+            ?? recordedCoordinates.last
     }
 
     private var displayCoordinates: [CLLocationCoordinate2D] {
@@ -443,15 +483,12 @@ private struct CpApprovalTripDetailSheet: View {
 
     private var routeCaption: String {
         if recordedCoordinates.count >= 2 {
-            return "Recorded GPS trail · \(recordedCoordinates.count) points"
+            return "Actual travelled path · \(recordedCoordinates.count) GPS points"
         }
         if displayCoordinates.count >= 2 {
-            return "Only start and end coordinates were recorded; the line is an endpoint connection."
+            return "Recorded GPS trail unavailable. Dashed line connects the trip start and end."
         }
         if displayCoordinates.count == 1 { return "Only one trip coordinate was recorded." }
-        if errorMessage != nil, !displayCoordinates.isEmpty {
-            return "The full GPS trail is unavailable; showing the recorded trip coordinates."
-        }
         return errorMessage ?? "No recorded GPS trail is available."
     }
 

@@ -8,7 +8,7 @@ struct CompleteCpVisitSheet: View {
     let cpVisitId: String
     let initialOutcome: String?
     let cpType: String?
-    let onCompleted: () -> Void
+    let onCompleted: (CpRevisitInfo?) -> Void
 
     @Environment(AuthStore.self) private var authStore
     @Environment(\.dismiss) private var dismiss
@@ -1467,7 +1467,7 @@ struct CompleteCpVisitSheet: View {
                     id: cpVisitId,
                     reason: cancelReason.trimmingCharacters(in: .whitespacesAndNewlines).nilIfBlank
                 )
-                onCompleted()
+                onCompleted(nil)
                 dismiss()
                 return
             }
@@ -1477,6 +1477,7 @@ struct CompleteCpVisitSheet: View {
                 request: MarkClientMetRequest(id: cpVisitId, clientMet: true)
             )
 
+            var revisit: CpRevisitInfo?
             if selectedOutcome == .booking {
                 _ = try await MarketingConvexAPIService.createBooking(
                     token: token,
@@ -1495,7 +1496,7 @@ struct CompleteCpVisitSheet: View {
                 clearBookingDraft()
             } else if selectedOutcome == .siteVisit {
                 if isLockedSvMode, cpVisitDetail?.convertedSiteVisitId?.nilIfBlank != nil {
-                    try await MarketingConvexAPIService.setCpVisitOutcome(
+                    _ = try await MarketingConvexAPIService.setCpVisitOutcome(
                         token: token,
                         request: SetCpVisitOutcomeRequest(
                             id: cpVisitId,
@@ -1539,7 +1540,7 @@ struct CompleteCpVisitSheet: View {
                 let followUpTimeFmt = DateFormatter()
                 followUpTimeFmt.dateFormat = "HH:mm"
                 followUpTimeFmt.locale = Locale(identifier: "en_IN")
-                try await MarketingConvexAPIService.setCpVisitOutcome(
+                revisit = try await MarketingConvexAPIService.setCpVisitOutcome(
                     token: token,
                     request: SetCpVisitOutcomeRequest(
                         id: cpVisitId,
@@ -1557,7 +1558,7 @@ struct CompleteCpVisitSheet: View {
                 )
             }
 
-            onCompleted()
+            onCompleted(revisit)
             dismiss()
         } catch {
             errorMessage = userFacingCompletionError(error)
@@ -1595,7 +1596,7 @@ struct CompleteCpVisitSheet: View {
                 token: token,
                 request: MarkClientMetRequest(id: cpVisitId, clientMet: true)
             )
-            try await MarketingConvexAPIService.setCpVisitOutcome(
+            _ = try await MarketingConvexAPIService.setCpVisitOutcome(
                 token: token,
                 request: SetCpVisitOutcomeRequest(
                     id: cpVisitId,
@@ -1605,7 +1606,7 @@ struct CompleteCpVisitSheet: View {
                 )
             )
             showRejectReasonSheet = false
-            onCompleted()
+            onCompleted(nil)
             dismiss()
         } catch {
             errorMessage = userFacingCompletionError(error)

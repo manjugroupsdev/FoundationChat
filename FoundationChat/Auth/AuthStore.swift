@@ -88,6 +88,9 @@ final class AuthStore {
   private let userDefaults: UserDefaults
   private var didAttemptRestore = false
   private var isRefreshingIAMPermissions = false
+  // One-time credential from a successful Employee ID login. Kept in memory
+  // only so the mandatory change can survive a stale server force-change flag.
+  private var pendingPasswordChangeCredential: String?
   private var pendingOTPUsesTravelDesk = false
 
   private var token: String? { currentSession?.token }
@@ -259,6 +262,7 @@ final class AuthStore {
         employeeId: trimmedEmployeeId,
         password: password
       )
+      pendingPasswordChangeCredential = session.mustChangePassword ? password : nil
       await finalizeAuthenticatedSession(session)
     } catch {
       errorMessage = error.localizedDescription
@@ -266,12 +270,12 @@ final class AuthStore {
   }
 
   func changeRequiredPassword(newPassword: String, confirmPassword: String) async {
-    let password = newPassword.trimmingCharacters(in: .whitespacesAndNewlines)
-    guard password.count >= 8 else {
-      errorMessage = AuthStoreError.weakPassword.localizedDescription
+    let password = newPassword
+    if let validationError = Self.passwordValidationError(password) {
+      errorMessage = validationError
       return
     }
-    guard password == confirmPassword.trimmingCharacters(in: .whitespacesAndNewlines) else {
+    guard password == confirmPassword else {
       errorMessage = AuthStoreError.passwordMismatch.localizedDescription
       return
     }
@@ -282,8 +286,13 @@ final class AuthStore {
 
     do {
       let t = try requireToken()
-      try await AuthAPIService.changeOwnPassword(token: t, newPassword: password)
+      try await AuthAPIService.changeOwnPassword(
+        token: t,
+        currentPassword: pendingPasswordChangeCredential,
+        newPassword: password
+      )
       guard let existing = currentSession else { throw AuthStoreError.sessionNotAvailable }
+      pendingPasswordChangeCredential = nil
       let refreshed = OtpSession(token: existing.token, user: existing.user, mustChangePassword: false)
       applySession(refreshed)
       try tokenStore.save(refreshed)
@@ -302,8 +311,32 @@ final class AuthStore {
         expireSession()
         return
       }
+      if message.localizedCaseInsensitiveContains("current password is required")
+        || message.localizedCaseInsensitiveContains("current password is incorrect") {
+        expireSession(message: "Please sign in with your current password, then set the new password again.")
+        return
+      }
       errorMessage = message
     }
+  }
+
+  private static func passwordValidationError(_ password: String) -> String? {
+    if password.count < 8 { return "Password must be at least 8 characters" }
+    if password.count > 128 { return "Password is too long" }
+    if password.contains(where: { $0.isWhitespace }) { return "Password cannot contain spaces" }
+    if !password.contains(where: { $0.isASCII && $0.isUppercase }) {
+      return "Password must include at least one uppercase letter"
+    }
+    if !password.contains(where: { $0.isASCII && $0.isLowercase }) {
+      return "Password must include at least one lowercase letter"
+    }
+    if !password.contains(where: { $0.isASCII && $0.isNumber }) {
+      return "Password must include at least one number"
+    }
+    if !password.contains(where: { !$0.isASCII || (!$0.isLetter && !$0.isNumber) }) {
+      return "Password must include at least one special character"
+    }
+    return nil
   }
 
   func refreshIAMPermissions() async {
@@ -382,6 +415,7 @@ final class AuthStore {
     isRequestingOTP = false
     isEmployeeLoginInProgress = false
     isChangingPassword = false
+    pendingPasswordChangeCredential = nil
     pendingOTPUsesTravelDesk = false
     lastKnownAPNSToken = nil
     registeredAPNSToken = nil
@@ -403,6 +437,7 @@ final class AuthStore {
     isRequestingOTP = false
     isEmployeeLoginInProgress = false
     isChangingPassword = false
+    pendingPasswordChangeCredential = nil
     pendingOTPUsesTravelDesk = false
     registeredAPNSToken = nil
     status = .signedOut

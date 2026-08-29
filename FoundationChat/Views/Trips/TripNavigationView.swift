@@ -86,6 +86,8 @@ struct TripNavigationView: View {
     @State private var geofenceReason = ""
     @State private var geofenceDistanceText = ""
     @State private var showCpTripCompletedSheet = false
+    @State private var pendingCpRevisit: CpRevisitInfo?
+    @State private var showCpRevisitConfirmation = false
     @State private var cpNoPathPhotoCapture = false
     @State private var repairVerifiedArrivalProof = false
     /// Set when COMPLETION (not arrival) was rejected for a missing photo
@@ -286,7 +288,8 @@ struct TripNavigationView: View {
                     cpVisitId: cpVisitId,
                     initialOutcome: cpOutcome,
                     cpType: cpType,
-                    onCompleted: {
+                    onCompleted: { revisit in
+                        pendingCpRevisit = revisit
                         Task { await completeVisitAfterCpOutcome() }
                     }
                 )
@@ -307,10 +310,11 @@ struct TripNavigationView: View {
                     cpVisitId: cpVisitId,
                     arrivalProofStorageId: pendingStorageId,
                     initialCollectionNotCollected: collectionNotCollectedChoice,
-                    onCompleted: { replacementProofId in
+                    onCompleted: { replacementProofId, revisit in
                         if let replacementProofId {
                             pendingStorageId = replacementProofId
                         }
+                        pendingCpRevisit = revisit
                         Task { await completeVisitAfterCpOutcome() }
                     }
                 )
@@ -361,6 +365,14 @@ struct TripNavigationView: View {
                 dismiss()
             }
             .appLibraryNativeSheet([.height(260)])
+        }
+        .alert(cpRevisitDialogTitle, isPresented: $showCpRevisitConfirmation) {
+            Button("Done") {
+                pendingCpRevisit = nil
+                dismiss()
+            }
+        } message: {
+            Text(cpRevisitDialogMessage)
         }
         .sheet(isPresented: $showDriverStartTripSheet) {
             DriverOdometerSheet(
@@ -1280,7 +1292,7 @@ struct TripNavigationView: View {
                     clientNoShowReason: "Client not seen"
                 )
             )
-            try await MarketingConvexAPIService.setCpVisitOutcome(
+            pendingCpRevisit = try await MarketingConvexAPIService.setCpVisitOutcome(
                 token: token,
                 request: SetCpVisitOutcomeRequest(
                     id: cpVisitId,
@@ -1406,6 +1418,14 @@ struct TripNavigationView: View {
         await completeVisitUsingCorrectFlow(visitId: id)
     }
 
+    private var cpRevisitDialogTitle: String {
+        pendingCpRevisit?.dialogTitle ?? "Revisit scheduled"
+    }
+
+    private var cpRevisitDialogMessage: String {
+        pendingCpRevisit?.dialogMessage ?? ""
+    }
+
     /// Android only asks for end-KM/odometer proof in `session.isDriverMode`.
     /// CP and normal field-staff visits finish directly after their outcome.
     private func completeVisitUsingCorrectFlow(visitId id: String) async {
@@ -1449,7 +1469,10 @@ struct TripNavigationView: View {
                 await GeoTrackBootstrapCoordinator.shared.sync(reason: "field-visit-completed", force: true)
             }
 
-            if completeWithClientNotSeenSheet {
+            if pendingCpRevisit != nil {
+                completeWithClientNotSeenSheet = false
+                showCpRevisitConfirmation = true
+            } else if completeWithClientNotSeenSheet {
                 completeWithClientNotSeenSheet = false
                 showCpTripCompletedSheet = true
             } else {
@@ -1534,7 +1557,10 @@ struct TripNavigationView: View {
             isDriverEndSubmitting = false
             showDriverEndTripSheet = false
             onTripChanged?()
-            if completeWithClientNotSeenSheet {
+            if pendingCpRevisit != nil {
+                completeWithClientNotSeenSheet = false
+                showCpRevisitConfirmation = true
+            } else if completeWithClientNotSeenSheet {
                 completeWithClientNotSeenSheet = false
                 showCpTripCompletedSheet = true
             } else {
@@ -2466,7 +2492,7 @@ private struct SpecialCpCompletionSheet: View {
     let cpVisitId: String
     let arrivalProofStorageId: String?
     let initialCollectionNotCollected: Bool
-    let onCompleted: (String?) -> Void
+    let onCompleted: (String?, CpRevisitInfo?) -> Void
 
     @State private var cpVisit: CpVisitDetail?
     @State private var cases: [PostSaleCaseSummary] = []
@@ -2498,7 +2524,7 @@ private struct SpecialCpCompletionSheet: View {
         cpVisitId: String,
         arrivalProofStorageId: String?,
         initialCollectionNotCollected: Bool = false,
-        onCompleted: @escaping (String?) -> Void
+        onCompleted: @escaping (String?, CpRevisitInfo?) -> Void
     ) {
         self.kind = kind
         self.cpVisitId = cpVisitId
@@ -3174,7 +3200,7 @@ private struct SpecialCpCompletionSheet: View {
                 token: token,
                 request: MarkClientMetRequest(id: cpVisitId, clientMet: true)
             )
-            try await MarketingConvexAPIService.setCpVisitOutcome(
+            let revisit = try await MarketingConvexAPIService.setCpVisitOutcome(
                 token: token,
                 request: SetCpVisitOutcomeRequest(
                     id: cpVisitId,
@@ -3186,7 +3212,7 @@ private struct SpecialCpCompletionSheet: View {
                     followUpTime: sendFollowUp ? followUpTimeValue : nil
                 )
             )
-            onCompleted(replacementProofId)
+            onCompleted(replacementProofId, revisit)
             dismiss()
         } catch {
             errorMessage = error.localizedDescription
