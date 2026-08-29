@@ -296,7 +296,7 @@ struct CpVisitDetail: Codable, Identifiable, Sendable {
         case clientNoShowReason, outcome, postponeReasons, convertedSiteVisitId
         case convertedBookingId, fieldVisitId, notes, completedAt, completedOffline, cancelledAt
         case expectedAttendeeCount, foodPreferences, vehiclePreference, driverName, driverPhone
-        case cpType, projectId, isBookingCompleted
+        case cpType, jointCpCategory, projectId, isBookingCompleted
         case createdAt, updatedAt, lead, client, telecaller, assignedStaff, clientPlace
         case proposedSiteVisit, attendees, fieldVisit, arrivalProof, project, inchargeStaff, joint
         case rescheduleCount, lastNotMetDate, clientUnavailableWarning

@@ -1063,10 +1063,10 @@ enum MarketingConvexAPIService {
             guard let range = raw.range(of: marker, options: .caseInsensitive) else { return nil }
             return String(raw[range.upperBound...])
         }.first ?? raw
-        return actionable.components(separatedBy: .newlines)
+        let message = actionable.components(separatedBy: .newlines)
             .first?
-            .trimmingCharacters(in: .whitespacesAndNewlines)
-            .nilIfEmpty ?? "Request failed"
+            .trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
+        return message.isEmpty ? "Request failed" : message
     }
 
     private static func decode<T: Decodable>(_ type: T.Type, from data: Data) throws -> T {

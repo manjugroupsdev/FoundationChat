@@ -8,6 +8,7 @@ struct StaffSecurityView: View {
     @State private var staff: [ConvexStaffListItem] = []
     @State private var logins: [ActiveStaffLogin] = []
     @State private var searchText = ""
+    @State private var hasActiveStaffSearch = false
     @State private var isLoading = false
     @State private var isLoadingMore = false
     @State private var loadMoreFailed = false
@@ -19,6 +20,7 @@ struct StaffSecurityView: View {
     @State private var selectedStaff: ConvexStaffListItem?
     @State private var selectedLogin: ActiveStaffLogin?
     @State private var pendingLogout: ActiveStaffLogin?
+    @State private var reloadID = UUID()
 
     private var isSuperAdmin: Bool {
         authStore.currentSession?.user.role?
@@ -28,6 +30,20 @@ struct StaffSecurityView: View {
 
     private func holds(_ permission: String) -> Bool {
         isSuperAdmin || authStore.iamPermissions.contains(permission)
+    }
+
+    private var currentStaffIDs: Set<String> {
+        Set([
+            authStore.viewer?.subject,
+            authStore.currentSession?.user._id,
+            authStore.currentSession?.user.staffId,
+            authStore.currentSession?.user.employeeId,
+        ].compactMap { $0?.securityNonBlank })
+    }
+
+    private func isCurrentStaff(_ row: ConvexStaffListItem) -> Bool {
+        currentStaffIDs.contains(row._id)
+            || row.employeeId.map(currentStaffIDs.contains) == true
     }
 
     private var availableModes: [SecurityMode] {
@@ -45,8 +61,8 @@ struct StaffSecurityView: View {
         guard !query.isEmpty else { return staff }
         return staff.filter { row in
             [row.name, row.employeeId, row.phone, row.designation, row.department]
-                .compactMap { $0?.lowercased() }
-                .contains { $0.contains(query) }
+                .compactMap { $0 }
+                .contains { $0.localizedStandardContains(query) }
         }
     }
 
@@ -55,8 +71,8 @@ struct StaffSecurityView: View {
         guard !query.isEmpty else { return logins }
         return logins.filter { row in
             [row.name, row.employeeId, row.phone, row.designation, row.department]
-                .compactMap { $0?.lowercased() }
-                .contains { $0.contains(query) }
+                .compactMap { $0 }
+                .contains { $0.localizedStandardContains(query) }
         }
     }
 
@@ -104,28 +120,32 @@ struct StaffSecurityView: View {
             if mode != .staffLogin, !query.isEmpty {
                 await searchStaff(query)
             } else {
-                await reload()
+                await reload(force: true)
             }
         }
-        .task {
+        .task(id: mode) {
             guard let first = availableModes.first else { return }
-            if !availableModes.contains(mode) { mode = first }
-            await reload()
+            if !availableModes.contains(mode) {
+                mode = first
+                return
+            }
+            hasActiveStaffSearch = false
+            searchText = ""
+            await reload(force: false)
         }
         .task(id: searchText) {
             guard mode != .staffLogin else { return }
             let query = searchText.trimmingCharacters(in: .whitespacesAndNewlines)
             if query.isEmpty {
-                await reload()
+                guard hasActiveStaffSearch else { return }
+                hasActiveStaffSearch = false
+                await reload(force: true)
                 return
             }
             try? await Task.sleep(for: .milliseconds(300))
             guard !Task.isCancelled else { return }
+            hasActiveStaffSearch = true
             await searchStaff(query)
-        }
-        .onChange(of: mode) { _, _ in
-            searchText = ""
-            Task { await reload() }
         }
         .onDisappear { loadMoreRetryTask?.cancel() }
         .sheet(item: $selectedStaff) { row in
@@ -139,7 +159,7 @@ struct StaffSecurityView: View {
             StaffLoginDevicesSheet(
                 login: row,
                 canLogout: holds("settings.staffLogin.create"),
-                onChanged: { Task { await reload() } }
+                onChanged: { Task { await reload(force: true) } }
             )
         }
         .confirmationDialog(
@@ -176,7 +196,11 @@ struct StaffSecurityView: View {
         } else {
             Section("Staff") {
                 ForEach(visibleStaff) { row in
-                    Button { selectedStaff = row } label: {
+                    let isSelf = isCurrentStaff(row)
+                    Button {
+                        guard !isSelf else { return }
+                        selectedStaff = row
+                    } label: {
                         HStack(spacing: 12) {
                             StaffSecurityAvatar(name: row.displayName, photo: row.photo)
                             VStack(alignment: .leading, spacing: 3) {
@@ -189,12 +213,20 @@ struct StaffSecurityView: View {
                                     .lineLimit(2)
                             }
                             Spacer()
-                            Image(systemName: "chevron.right")
-                                .font(.caption.weight(.semibold))
-                                .foregroundStyle(.tertiary)
+                            if isSelf {
+                                Text("You")
+                                    .font(.caption.weight(.semibold))
+                                    .foregroundStyle(.secondary)
+                            } else {
+                                Image(systemName: "chevron.right")
+                                    .font(.caption.weight(.semibold))
+                                    .foregroundStyle(.tertiary)
+                            }
                         }
                     }
                     .buttonStyle(.plain)
+                    .disabled(isSelf)
+                    .opacity(isSelf ? 0.55 : 1)
                     .onAppear {
                         if row.id == visibleStaff.last?.id {
                             Task { await loadNextStaffPage() }
@@ -278,25 +310,39 @@ struct StaffSecurityView: View {
     }
 
     @MainActor
-    private func reload() async {
-        guard let token = authStore.currentSession?.token, !isLoading else { return }
+    private func reload(force: Bool) async {
+        guard let token = authStore.currentSession?.token else { return }
+        let requestedMode = mode
+        if !force {
+            if requestedMode == .staffLogin, !logins.isEmpty { return }
+            if requestedMode != .staffLogin, !staff.isEmpty { return }
+        }
+
+        let requestID = UUID()
+        reloadID = requestID
         isLoading = true
         loadMoreFailed = false
-        defer { isLoading = false }
+        defer {
+            if reloadID == requestID { isLoading = false }
+        }
         do {
-            if mode == .staffLogin {
+            if requestedMode == .staffLogin {
                 staffCursor = nil
                 staffPaginationDone = true
-                logins = try await StaffSecurityAPIService.activeLogins(token: token)
+                let rows = try await StaffSecurityAPIService.activeLogins(token: token)
                     .filter { $0.staffId?.securityNonBlank != nil }
                     .sorted { ($0.name ?? "").localizedCaseInsensitiveCompare($1.name ?? "") == .orderedAscending }
+                guard reloadID == requestID, mode == requestedMode else { return }
+                logins = rows
             } else {
                 let page = try await getStaffPageWithRetry(token: token, cursor: nil)
+                guard reloadID == requestID, mode == requestedMode else { return }
                 staff = sortedUniqueStaff(page.page)
                 staffCursor = page.continueCursor?.securityNonBlank
                 staffPaginationDone = page.isDone || staffCursor == nil
             }
         } catch {
+            guard reloadID == requestID, mode == requestedMode else { return }
             errorMessage = error.localizedDescription
         }
     }
@@ -368,23 +414,30 @@ struct StaffSecurityView: View {
 
     @MainActor
     private func searchStaff(_ query: String) async {
-        guard let token = authStore.currentSession?.token, !isLoading else { return }
+        guard let token = authStore.currentSession?.token else { return }
+        let requestID = UUID()
+        reloadID = requestID
         isLoading = true
         loadMoreFailed = false
-        defer { isLoading = false }
+        defer {
+            if reloadID == requestID { isLoading = false }
+        }
         do {
             let rows = try await HRConvexAPIService.searchStaff(
                 token: token,
                 query: query,
                 lite: true
             )
-            guard query == searchText.trimmingCharacters(in: .whitespacesAndNewlines) else { return }
+            guard reloadID == requestID,
+                  mode != .staffLogin,
+                  query == searchText.trimmingCharacters(in: .whitespacesAndNewlines) else { return }
             staff = sortedUniqueStaff(rows)
             staffCursor = nil
             staffPaginationDone = true
         } catch is CancellationError {
             return
         } catch {
+            guard reloadID == requestID else { return }
             errorMessage = error.localizedDescription
         }
     }
@@ -400,7 +453,7 @@ struct StaffSecurityView: View {
         guard let token = authStore.currentSession?.token else { return }
         do {
             try await StaffSecurityAPIService.logoutEverywhere(token: token, staffId: staffId)
-            await reload()
+            await reload(force: true)
         } catch {
             errorMessage = error.localizedDescription
         }
@@ -598,7 +651,7 @@ private struct SecuritySessionLine: View {
             Text(title).frame(width: 52, alignment: .leading)
             Text(session?.createdAt == nil ? "Not logged in" : "Logged in")
                 .font(.caption.weight(.semibold))
-                .foregroundStyle(session?.createdAt == nil ? .secondary : .green)
+                .foregroundStyle(session?.createdAt == nil ? Color.secondary : Color.green)
             if let createdAt = session?.createdAt {
                 Text("since \(SecurityDateFormatter.string(fromEpoch: createdAt))")
                     .font(.caption)

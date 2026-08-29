@@ -35,7 +35,10 @@ struct ActiveStaffLogin: Decodable, Identifiable, Sendable {
     let mobileSession: StaffLoginSession?
     let deviceCount: Int
 
-    var id: String { staffId ?? employeeId ?? phone ?? UUID().uuidString }
+    var id: String {
+        staffId ?? employeeId ?? phone
+            ?? [name, designation, department].compactMap { $0 }.joined(separator: "|")
+    }
 }
 
 struct ActiveStaffSession: Decodable, Identifiable, Sendable {
