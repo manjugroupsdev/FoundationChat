@@ -28,6 +28,7 @@ struct ActiveStaffLogin: Decodable, Identifiable, Sendable {
     let employeeId: String?
     let name: String?
     let phone: String?
+    let photo: String?
     let designation: String?
     let department: String?
     let webSession: StaffLoginSession?

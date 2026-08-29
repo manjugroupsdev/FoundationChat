@@ -480,6 +480,7 @@ struct ConvexStaffListItem: Decodable, Identifiable, Equatable, Sendable, Hashab
     let _id: String
     let name: String?
     let phone: String?
+    let photo: String?
     let role: String?
     let designation: String?
     let status: String?
@@ -494,6 +495,7 @@ struct ConvexStaffListItem: Decodable, Identifiable, Equatable, Sendable, Hashab
         case id
         case name
         case phone
+        case photo
         case role
         case designation
         case status
@@ -509,6 +511,7 @@ struct ConvexStaffListItem: Decodable, Identifiable, Equatable, Sendable, Hashab
             ?? UUID().uuidString
         name = try container.decodeIfPresent(String.self, forKey: .name)
         phone = try container.decodeIfPresent(String.self, forKey: .phone)
+        photo = try container.decodeIfPresent(String.self, forKey: .photo)
         role = try container.decodeIfPresent(String.self, forKey: .role)
         designation = try container.decodeIfPresent(String.self, forKey: .designation)
         status = try container.decodeIfPresent(String.self, forKey: .status)

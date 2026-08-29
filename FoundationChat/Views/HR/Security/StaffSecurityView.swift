@@ -178,7 +178,7 @@ struct StaffSecurityView: View {
                 ForEach(visibleStaff) { row in
                     Button { selectedStaff = row } label: {
                         HStack(spacing: 12) {
-                            StaffSecurityAvatar(name: row.displayName)
+                            StaffSecurityAvatar(name: row.displayName, photo: row.photo)
                             VStack(alignment: .leading, spacing: 3) {
                                 Text(row.displayName).font(.headline).foregroundStyle(.primary)
                                 Text([row.employeeId, row.designation, row.department]
@@ -241,7 +241,7 @@ struct StaffSecurityView: View {
                     Button { selectedLogin = row } label: {
                       VStack(alignment: .leading, spacing: 10) {
                         HStack(spacing: 12) {
-                            StaffSecurityAvatar(name: row.name ?? "Staff")
+                            StaffSecurityAvatar(name: row.name ?? "Staff", photo: row.photo)
                             VStack(alignment: .leading, spacing: 2) {
                                 Text(row.name?.securityNonBlank ?? "Unnamed staff").font(.headline)
                                 Text([row.employeeId, row.designation, row.department]
@@ -562,16 +562,30 @@ private enum SecurityMode: String, CaseIterable, Identifiable {
 }
 
 private struct StaffSecurityAvatar: View {
+    @Environment(AuthStore.self) private var authStore
     let name: String
+    let photo: String?
+    @State private var resolvedURL: URL?
+
     var body: some View {
-        Circle()
-            .fill(Color.blue.opacity(0.13))
-            .overlay {
-                Text(name.split(separator: " ").prefix(2).compactMap(\.first).map(String.init).joined().uppercased())
-                    .font(.caption.weight(.bold))
-                    .foregroundStyle(.blue)
+        ZStack {
+            Circle().fill(Color.blue.opacity(0.13))
+            Text(name.split(separator: " ").prefix(2).compactMap(\.first).map(String.init).joined().uppercased())
+                .font(.caption.weight(.bold))
+                .foregroundStyle(.blue)
+            if let resolvedURL {
+                AsyncImage(url: resolvedURL) { phase in
+                    if case .success(let image) = phase {
+                        image.resizable().scaledToFill()
+                    }
+                }
             }
-            .frame(width: 42, height: 42)
+        }
+        .frame(width: 42, height: 42)
+        .clipShape(Circle())
+        .task(id: photo) {
+            resolvedURL = await authStore.resolveProfilePhotoURL(photo)
+        }
     }
 }
 

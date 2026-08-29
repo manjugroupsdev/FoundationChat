@@ -1091,6 +1091,7 @@ struct CpApprovalItem: Codable, Identifiable, Sendable {
     let placeName: String?
     let placeAddress: String?
     let distanceMeters: Double?
+    let travelledDistanceMeters: Double?
     let completionLat: Double?
     let completionLng: Double?
     let staffRemark: String?

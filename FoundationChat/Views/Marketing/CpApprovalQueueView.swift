@@ -214,6 +214,11 @@ private struct CpApprovalCard: View {
                 }
             }
 
+            approvalFact(
+                "Distance travelled",
+                ApprovalFormatting.distance(item.travelledDistanceMeters)
+            )
+
             if !evidenceRows.isEmpty {
                 VStack(alignment: .leading, spacing: 8) {
                     ForEach(Array(evidenceRows.enumerated()), id: \.offset) { _, row in
@@ -372,6 +377,10 @@ private struct CpApprovalTripDetailSheet: View {
                         detail("Start time", ApprovalFormatting.epoch(item.startedAt))
                         detail("End time", ApprovalFormatting.epoch(item.completedAt ?? item.requestedAt))
                         detail("CP type", ApprovalFormatting.cpType(item.cpType))
+                        detail(
+                            "Distance travelled",
+                            ApprovalFormatting.distance(item.travelledDistanceMeters)
+                        )
                     }
                     .padding(14)
                     .frame(maxWidth: .infinity, alignment: .leading)
@@ -559,6 +568,13 @@ private enum ApprovalFormatting {
         let display = DateFormatter()
         display.dateFormat = "dd MMM yyyy, h:mm a"
         return display.string(from: Date(timeIntervalSince1970: value / 1000))
+    }
+
+    static func distance(_ meters: Double?) -> String {
+        guard let meters, meters.isFinite, meters >= 0 else { return "Not recorded" }
+        return meters >= 1000
+            ? String(format: "%.1f km", meters / 1000)
+            : "\(Int(meters.rounded())) m"
     }
 }
 

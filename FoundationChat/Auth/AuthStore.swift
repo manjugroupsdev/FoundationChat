@@ -238,7 +238,7 @@ final class AuthStore {
       await finalizeAuthenticatedSession(session)
       pendingOTPUsesTravelDesk = false
     } catch {
-      errorMessage = error.localizedDescription
+      errorMessage = Self.authErrorMessage(error)
     }
   }
 
@@ -265,7 +265,7 @@ final class AuthStore {
       pendingPasswordChangeCredential = session.mustChangePassword ? password : nil
       await finalizeAuthenticatedSession(session)
     } catch {
-      errorMessage = error.localizedDescription
+      errorMessage = Self.authErrorMessage(error)
     }
   }
 
@@ -1448,6 +1448,29 @@ final class AuthStore {
 
   private static func isNotRegistered(_ error: Error) -> Bool {
     error.localizedDescription.localizedCaseInsensitiveContains("not registered")
+  }
+
+  private static func authErrorMessage(_ error: Error) -> String {
+    let nsError = error as NSError
+    guard nsError.domain == NSURLErrorDomain else {
+      return error.localizedDescription
+    }
+    let code = URLError.Code(rawValue: nsError.code)
+
+    switch code {
+    case .notConnectedToInternet,
+         .cannotFindHost,
+         .cannotConnectToHost,
+         .dnsLookupFailed,
+         .networkConnectionLost,
+         .internationalRoamingOff,
+         .dataNotAllowed:
+      return "No network connection. Check your internet and try again."
+    case .timedOut:
+      return "Network connection timed out. Check your internet and try again."
+    default:
+      return error.localizedDescription
+    }
   }
 
   #if DEBUG
