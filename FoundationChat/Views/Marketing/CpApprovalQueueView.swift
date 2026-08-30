@@ -354,6 +354,7 @@ private struct CpApprovalTripDetailSheet: View {
     let item: CpApprovalItem
 
     @State private var route: CpApprovalRouteData?
+    @State private var roadMatchedTrail: GeoTrackDirectionsClient.RoadMatchedTrail?
     @State private var isLoading = true
     @State private var errorMessage: String?
     @State private var mapPosition: MapCameraPosition = .automatic
@@ -407,21 +408,36 @@ private struct CpApprovalTripDetailSheet: View {
                                     .background(.white, in: Circle())
                             }
                         }
-                        if recordedCoordinates.count >= 2 {
+                        if recordedCoordinates.count >= 2, let roadMatchedTrail {
+                            ForEach(Array(roadMatchedTrail.legs.enumerated()), id: \.offset) { _, leg in
+                                MapPolyline(coordinates: leg.points)
+                                    .stroke(
+                                        Color(hex: 0x0B61CA),
+                                        style: StrokeStyle(
+                                            lineWidth: leg.isRoadMatched ? 6 : 5,
+                                            lineCap: .round,
+                                            lineJoin: .round
+                                        )
+                                    )
+                            }
+                        } else if recordedCoordinates.count >= 2 {
                             MapPolyline(coordinates: recordedCoordinates)
                                 .stroke(
                                     Color(hex: 0x0B61CA),
-                                    style: StrokeStyle(lineWidth: 6, lineCap: .round, lineJoin: .round)
+                                    style: StrokeStyle(
+                                        lineWidth: 5,
+                                        lineCap: .round,
+                                        lineJoin: .round
+                                    )
                                 )
                         } else if displayCoordinates.count >= 2 {
                             MapPolyline(coordinates: displayCoordinates)
                                 .stroke(
-                                    Color(hex: 0x5B7FA3),
+                                    Color(hex: 0x0B61CA),
                                     style: StrokeStyle(
                                         lineWidth: 5,
                                         lineCap: .round,
-                                        lineJoin: .round,
-                                        dash: [10, 7]
+                                        lineJoin: .round
                                     )
                                 )
                         }
@@ -491,11 +507,19 @@ private struct CpApprovalTripDetailSheet: View {
     }
 
     private var routeCaption: String {
+        if recordedCoordinates.count >= 2, roadMatchedTrail?.isFullyMatched == true {
+            return "Road-matched route based on \(recordedCoordinates.count) recorded GPS points."
+        }
+        if recordedCoordinates.count >= 2,
+           let roadMatchedTrail,
+           roadMatchedTrail.matchedLegCount > 0 {
+            return "Road-matched route based on \(recordedCoordinates.count) GPS points. Unmatched sections use recorded GPS geometry."
+        }
         if recordedCoordinates.count >= 2 {
-            return "Actual travelled path · \(recordedCoordinates.count) GPS points"
+            return "Recorded GPS trail shown because road matching is unavailable."
         }
         if displayCoordinates.count >= 2 {
-            return "Recorded GPS trail unavailable. Dashed line connects the trip start and end."
+            return "Recorded GPS trail unavailable. Line connects the recorded trip start and end."
         }
         if displayCoordinates.count == 1 { return "Only one trip coordinate was recorded." }
         return errorMessage ?? "No recorded GPS trail is available."
@@ -517,7 +541,16 @@ private struct CpApprovalTripDetailSheet: View {
             return
         }
         do {
-            route = try await MarketingConvexAPIService.getCpApprovalRoute(token: token, id: item.id)
+            let loadedRoute = try await MarketingConvexAPIService.getCpApprovalRoute(token: token, id: item.id)
+            route = loadedRoute
+            let loadedCoordinates = loadedRoute.routePoints.compactMap {
+                validCoordinate(lat: $0.lat, lng: $0.lng)
+            }
+            if loadedCoordinates.count >= 2 {
+                roadMatchedTrail = await GeoTrackDirectionsClient().fetchRoadMatchedTrail(
+                    recordedPoints: loadedCoordinates
+                )
+            }
             mapPosition = .automatic
         } catch {
             errorMessage = error.localizedDescription

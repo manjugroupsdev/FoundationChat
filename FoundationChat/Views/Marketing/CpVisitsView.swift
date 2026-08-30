@@ -1784,6 +1784,11 @@ private struct CreateCpVisitSheet: View {
                         .foregroundStyle(.secondary)
                         .padding(.bottom, 2)
 
+                    cpTypePicker
+                    if selectedCpType == .jointCp {
+                        jointCpCategoryPicker
+                    }
+
                     cpTextField("Client Phone Number *", placeholder: "Enter Client Number", text: $phone, systemImage: "phone", keyboard: .phonePad)
                         .onChange(of: phone) { _, newValue in
                             selectedLead = nil
@@ -1855,9 +1860,7 @@ private struct CreateCpVisitSheet: View {
                     staffPicker
                     lmoPicker
                     projectPicker
-                    cpTypePicker
                     if selectedCpType == .jointCp {
-                        jointCpCategoryPicker
                         jointPartnerPicker
                     }
                     cpDatePicker
@@ -3318,8 +3321,9 @@ struct CpMapSearchResult: Identifiable {
 
 private enum CpVisitCreateType: String, CaseIterable, Identifiable {
     case svCumCp = "sv_cum_cp"
-    // "follow_up" retired as a creatable type; new_client_cp is auto-created from
-    // Aster — neither is offered in the create picker.
+    // "follow_up" remains retired. New Client CP can also be created manually
+    // from this native form with the entered client identity and address.
+    case newClientCp = "new_client_cp"
     case bookingCp = "booking_cp"
     case collectionCp = "collection_cp"
     case oldClient = "old_client"
@@ -3336,6 +3340,7 @@ private enum CpVisitCreateType: String, CaseIterable, Identifiable {
     var title: String {
         switch self {
         case .svCumCp: return "SV cum CP"
+        case .newClientCp: return "New Client CP"
         case .bookingCp: return "Booking CP"
         case .collectionCp: return "Collection CP"
         case .oldClient: return "Old Client"
@@ -3348,6 +3353,7 @@ private enum CpVisitCreateType: String, CaseIterable, Identifiable {
     var subtitle: String {
         switch self {
         case .svCumCp: return "Confirm a site visit"
+        case .newClientCp: return "First visit for a manually added client"
         case .bookingCp: return "Paperwork for active booking"
         case .collectionCp: return "Collect payment at client place"
         case .oldClient: return "Re-engage previous client"

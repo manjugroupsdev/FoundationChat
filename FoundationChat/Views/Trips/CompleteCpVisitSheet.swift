@@ -27,6 +27,10 @@ struct CompleteCpVisitSheet: View {
     @State private var cancelReason = ""
     @State private var referralName = ""
     @State private var referralPhone = ""
+    @State private var referralAddress = ""
+    @State private var referralDecisionTaken = false
+    @State private var showReferralQuestion = false
+    @State private var showReferralForm = false
     @State private var notInterestedBudgetConcern = ""
     @State private var notInterestedTimingNotes = ""
     @State private var notInterestedProjectDetails = ""
@@ -170,6 +174,31 @@ struct CompleteCpVisitSheet: View {
                 }
                 .appLibraryNativeSheet([.large])
             }
+            .alert("Any referrals?", isPresented: $showReferralQuestion) {
+                Button("Yes") {
+                    DispatchQueue.main.async {
+                        showReferralForm = true
+                    }
+                }
+                Button("No") {
+                    referralDecisionTaken = true
+                    Task { await submit() }
+                }
+                Button("Cancel", role: .cancel) {}
+            } message: {
+                Text("Did this client refer another person?")
+            }
+            .sheet(isPresented: $showReferralForm) {
+                NewClientReferralSheet { name, phone, address in
+                    referralName = name
+                    referralPhone = phone
+                    referralAddress = address
+                    referralDecisionTaken = true
+                    showReferralForm = false
+                    Task { await submit() }
+                }
+                .appLibraryNativeSheet([.medium, .large])
+            }
         }
         .appFormActivity()
     }
@@ -298,8 +327,8 @@ struct CompleteCpVisitSheet: View {
         cpType ?? cpVisitDetail?.cpType
     }
 
-    /// Physical "new client" CP: offers the five field outcomes (incl. Referral).
-    /// Mirrors Android `isNewClientCp = cpType == "new_client_cp"`.
+    /// Physical "new client" CP. Referral is asked separately after the real
+    /// outcome form is valid; it never replaces the operational outcome.
     private var isNewClientCp: Bool {
         effectiveCpType.normalizedCpMarker == "new_client_cp"
     }
@@ -335,10 +364,10 @@ struct CompleteCpVisitSheet: View {
 
     /// The outcome tabs to render. "Others" is gated to SV-style rows and the
     /// approved CP types (mirror Android CompleteCpVisitBottomSheet.kt:961-963).
-    /// `.referral` is exclusive to new_client_cp and never appears elsewhere.
+    /// Historical `.referral` remains decodable but is no longer selectable.
     private var visibleOutcomes: [CpVisitOutcome] {
         if isNewClientCp {
-            return [.booking, .siteVisit, .postponed, .notInterested, .referral]
+            return [.booking, .siteVisit, .postponed, .notInterested]
         }
         var list = CpVisitOutcome.allCases.filter { $0 != .other && $0 != .referral && $0 != .cancel }
         if isSvCumCp {
@@ -355,9 +384,9 @@ struct CompleteCpVisitSheet: View {
     private func displayTitle(for outcome: CpVisitOutcome) -> String {
         guard isNewClientCp else { return outcome.title }
         switch outcome {
-        case .booking: return "Online Booking"
-        case .siteVisit: return "SV Fixing"
-        case .postponed: return "Follow up"
+        case .booking: return "Booking"
+        case .siteVisit: return "Site Visit"
+        case .postponed: return "Postpone"
         default: return outcome.title
         }
     }
@@ -1408,16 +1437,6 @@ struct CompleteCpVisitSheet: View {
             errorMessage = "Please add remarks to explain this outcome"
             return
         }
-        if selectedOutcome == .referral {
-            guard !referralName.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else {
-                errorMessage = "Enter the referral's name"
-                return
-            }
-            guard referralPhone.filter(\.isNumber).count >= 10 else {
-                errorMessage = "Enter a valid referral phone number"
-                return
-            }
-        }
         let confirmsExistingLockedSiteVisit = isLockedSvMode && cpVisitDetail?.convertedSiteVisitId?.nilIfBlank != nil
         if selectedOutcome == .siteVisit && selectedProject == nil && !confirmsExistingLockedSiteVisit {
             errorMessage = "Please select a project"
@@ -1457,6 +1476,11 @@ struct CompleteCpVisitSheet: View {
             }
         }
 
+        if isNewClientCp && !referralDecisionTaken {
+            showReferralQuestion = true
+            return
+        }
+
         isSaving = true
         defer { isSaving = false }
 
@@ -1470,6 +1494,18 @@ struct CompleteCpVisitSheet: View {
                 onCompleted(nil)
                 dismiss()
                 return
+            }
+
+            if isNewClientCp, !referralName.isEmpty {
+                try await MarketingConvexAPIService.recordCpReferral(
+                    token: token,
+                    request: RecordCpReferralRequest(
+                        id: cpVisitId,
+                        clientName: referralName,
+                        mobileNumber: referralPhone,
+                        address: referralAddress
+                    )
+                )
             }
 
             try await MarketingConvexAPIService.markClientMet(
@@ -1776,6 +1812,75 @@ private extension String {
             || self.contains("site_visit_fixed")
             || self.contains("fixed_site_visit")
             || self.contains("sv_fixed")
+    }
+}
+
+private struct NewClientReferralSheet: View {
+    @Environment(\.dismiss) private var dismiss
+    @State private var name = ""
+    @State private var phone = ""
+    @State private var address = ""
+    @State private var errorMessage: String?
+
+    let onSave: (String, String, String) -> Void
+
+    var body: some View {
+        NavigationStack {
+            Form {
+                Section {
+                    TextField("Client name", text: $name)
+                        .textContentType(.name)
+                        .textInputAutocapitalization(.words)
+                    TextField("Client number", text: $phone)
+                        .textContentType(.telephoneNumber)
+                        .keyboardType(.phonePad)
+                    TextField("Client address", text: $address, axis: .vertical)
+                        .textContentType(.fullStreetAddress)
+                        .lineLimit(3...6)
+                } header: {
+                    Text("Referred client")
+                } footer: {
+                    Text("This person will appear in Clients with the referring client tagged.")
+                }
+
+                if let errorMessage {
+                    Section {
+                        Label(errorMessage, systemImage: "exclamationmark.triangle.fill")
+                            .foregroundStyle(.red)
+                    }
+                }
+            }
+            .navigationTitle("Add referral")
+            .navigationBarTitleDisplayMode(.inline)
+            .toolbar {
+                ToolbarItem(placement: .cancellationAction) {
+                    Button("Cancel") { dismiss() }
+                }
+                ToolbarItem(placement: .confirmationAction) {
+                    Button("Save") { validateAndSave() }
+                        .fontWeight(.semibold)
+                }
+            }
+        }
+    }
+
+    private func validateAndSave() {
+        let trimmedName = name.trimmingCharacters(in: .whitespacesAndNewlines)
+        let digits = phone.filter(\.isNumber)
+        let trimmedAddress = address.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !trimmedName.isEmpty else {
+            errorMessage = "Client name is required"
+            return
+        }
+        guard digits.count >= 10 else {
+            errorMessage = "Enter a valid client number"
+            return
+        }
+        guard !trimmedAddress.isEmpty else {
+            errorMessage = "Client address is required"
+            return
+        }
+        onSave(trimmedName, String(digits.suffix(10)), trimmedAddress)
     }
 }
 

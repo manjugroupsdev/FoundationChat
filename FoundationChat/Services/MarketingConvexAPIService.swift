@@ -789,6 +789,20 @@ enum MarketingConvexAPIService {
         return wrapper.revisit
     }
 
+    /// Idempotently creates/links a referred client discovered during a New
+    /// Client CP. The backend derives the referrer from the CP visit id.
+    static func recordCpReferral(token: String, request: RecordCpReferralRequest) async throws {
+        let data = try await post(
+            path: "/api/marketing/clientPlaceVisits/referral",
+            token: token,
+            body: request
+        )
+        let wrapper = try decode(BaseMutationResponse.self, from: data)
+        guard wrapper.success else {
+            throw MarketingAPIError.server(wrapper.error ?? "Failed to save referral")
+        }
+    }
+
     /// Cancels a CP visit outright (separate endpoint from setOutcome). Used by
     /// the SV-cum-CP "Cancel" outcome. Mirrors setCpVisitOutcome's request/decode.
     static func cancelCpVisit(token: String, id: String, reason: String?) async throws {

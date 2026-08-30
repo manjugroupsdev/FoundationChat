@@ -1654,6 +1654,13 @@ struct SetCpVisitOutcomeRequest: Encodable, Sendable {
     }
 }
 
+struct RecordCpReferralRequest: Encodable, Sendable {
+    let id: String
+    let clientName: String
+    let mobileNumber: String
+    let address: String
+}
+
 struct CpRevisitInfo: Decodable, Sendable, Equatable {
     let creationStatus: String
     let reason: String
