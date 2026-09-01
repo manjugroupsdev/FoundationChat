@@ -22,6 +22,7 @@ final class PushNotificationAppDelegate: NSObject, UIApplicationDelegate, UNUser
     didFinishLaunchingWithOptions launchOptions: [UIApplication.LaunchOptionsKey: Any]? = nil
   ) -> Bool {
     UNUserNotificationCenter.current().delegate = self
+    ModernDialerCallKitCoordinator.shared.start()
     print("\(logPrefix) app launched, UNUserNotificationCenter delegate set")
 
     if let remoteNotification = launchOptions?[.remoteNotification] as? [AnyHashable: Any] {
@@ -55,6 +56,9 @@ final class PushNotificationAppDelegate: NSObject, UIApplicationDelegate, UNUser
     willPresent notification: UNNotification
   ) async -> UNNotificationPresentationOptions {
     print("\(logPrefix) foreground push received")
+    if ModernDialerCallKitCoordinator.shared.handleFallbackRemoteNotification(notification.request.content.userInfo) {
+      return []
+    }
     handleGeoTrackSyncIfNeeded(from: notification.request.content.userInfo, source: "foreground")
     return [.banner, .sound, .badge]
   }
@@ -72,6 +76,10 @@ final class PushNotificationAppDelegate: NSObject, UIApplicationDelegate, UNUser
     didReceiveRemoteNotification userInfo: [AnyHashable: Any],
     fetchCompletionHandler completionHandler: @escaping (UIBackgroundFetchResult) -> Void
   ) {
+    if ModernDialerCallKitCoordinator.shared.handleFallbackRemoteNotification(userInfo) {
+      completionHandler(.newData)
+      return
+    }
     if handleGeoTrackSyncIfNeeded(from: userInfo, source: "background") {
       completionHandler(.newData)
     } else {

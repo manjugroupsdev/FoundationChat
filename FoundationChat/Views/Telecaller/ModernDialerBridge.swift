@@ -5,7 +5,7 @@ import SwiftUI
 import UIKit
 import WebKit
 
-// MARK: - Modern Dialer (WebRTC softphone) — OUTBOUND only
+// MARK: - Modern Dialer (WebRTC softphone)
 //
 // iOS port of the Android `ModernDialerWebViewBridge`
 // (app/.../notifications/ModernDialerWebViewBridge.kt).
@@ -23,12 +23,7 @@ import WebKit
 // Inbound events    : ready, phone:registered, call:incoming, call:ringing-out,
 //                     call:answered, call:ended, call:error, …
 //
-// Commands queue until the page has loaded AND the softphone has registered, with
-// a ~6s fallback flush so a call is never silently stuck "connecting".
-//
-// INCOMING-call handling is intentionally NOT ported — that needs CallKit /
-// PushKit / APNs-VoIP infrastructure and is out of scope. The incoming UI paths
-// exist (`stage == .incoming`, pickup/reject) but are never triggered here.
+// Commands queue until the page has loaded AND the softphone has registered.
 
 // MARK: - Event & call-state model
 
@@ -47,6 +42,21 @@ enum ModernCallStage: Equatable {
     case inCall
 }
 
+enum ModernDialerAudioRoute: String, CaseIterable, Codable {
+    case phone = "Phone"
+    case speaker = "Speaker"
+    case bluetooth = "Bluetooth"
+}
+
+struct ModernDialerRecentCall: Codable, Identifiable {
+    let id: UUID
+    let number: String
+    let direction: String
+    let status: String
+    let startedAt: Date
+    let durationSeconds: Int
+}
+
 @MainActor
 final class ModernDialerBridge: NSObject, ObservableObject {
 
@@ -59,8 +69,6 @@ final class ModernDialerBridge: NSObject, ObservableObject {
     /// accepts control messages from a proper parent.
     private let hostBaseURL = "https://mg.theairix.com"
     private let jsInterface = "MconnectDialerBridge"
-    /// If registration is never reported, flush queued commands anyway after this.
-    private let fallbackFlushMs: Int = 6_000
     /// Fail a stuck "Connecting" if no progress event arrives.
     private let connectingTimeoutSec: Double = 40
 
@@ -69,17 +77,29 @@ final class ModernDialerBridge: NSObject, ObservableObject {
     @Published private(set) var peerNumber: String?
     @Published private(set) var muted: Bool = false
     @Published private(set) var held: Bool = false
+    @Published private(set) var agentStatus: String = "unknown"
+    @Published private(set) var connectionStatus: String = "Connecting"
+    @Published private(set) var audioRoute: ModernDialerAudioRoute = .phone
+    @Published private(set) var recentCalls: [ModernDialerRecentCall] = []
     @Published var toast: String?
 
     private var webView: WKWebView?
     private var loadedURL: String?
     private var pageLoaded = false
     private var phoneRegistered = false
-    private var fallbackFlushPosted = false
     private var pendingCommands: [(type: String, payload: [String: Any])] = []
 
     private var connectingTimeoutTask: Task<Void, Never>?
-    private let ringback = RingbackTonePlayer()
+    private var callStartedAt: Date?
+    private var callAnsweredAt: Date?
+    private var callDirection = "outgoing"
+    private var activeCallId: String?
+    private var mediaRestartRequestedCalls = Set<String>()
+
+    override private init() {
+        super.init()
+        loadRecentCalls()
+    }
 
     // MARK: WebView lifecycle
 
@@ -115,7 +135,6 @@ final class ModernDialerBridge: NSObject, ObservableObject {
         if loadedURL != url {
             pageLoaded = false
             phoneRegistered = false
-            fallbackFlushPosted = false
             loadedURL = url
             view.loadHTMLString(buildHostHTML(embedURL: url), baseURL: URL(string: hostBaseURL))
         }
@@ -127,12 +146,16 @@ final class ModernDialerBridge: NSObject, ObservableObject {
     /// caller has (or will) attach the hidden WebView to the hierarchy.
     func startOutboundCall(destination: String, config: MobileDialerConfig) {
         peerNumber = destination
+        callStartedAt = Date()
+        callAnsweredAt = nil
+        callDirection = "outgoing"
         muted = false
         held = false
         stage = .connecting
         activateAudioSession()
         ensureLoaded(config: config)
         send("call", payload: ["destination": destination])
+        requestState()
         startConnectingTimeout()
         showToast("Placing call…")
     }
@@ -158,6 +181,16 @@ final class ModernDialerBridge: NSObject, ObservableObject {
         send("set-hold", payload: ["held": held])
     }
 
+    func setAgentStatus(_ status: String) {
+        guard status == "available" || status == "break" else { return }
+        send("set-status", payload: ["status": status])
+    }
+
+    func requestState() {
+        sendStateProbe("request-state")
+        sendStateProbe("get-state")
+    }
+
     // MARK: Command queue
 
     private func send(_ type: String, payload: [String: Any] = [:]) {
@@ -170,25 +203,16 @@ final class ModernDialerBridge: NSObject, ObservableObject {
         evaluateCommand(type: type, payload: payload)
     }
 
+    private func sendStateProbe(_ type: String) {
+        guard pageLoaded else { return }
+        evaluateCommand(type: type, payload: [:])
+    }
+
     private func maybeFlush() {
         guard pageLoaded, phoneRegistered else { return }
         let commands = pendingCommands
         pendingCommands.removeAll()
         for command in commands { evaluateCommand(type: command.type, payload: command.payload) }
-    }
-
-    /// Safety net: if registration is never confirmed, send queued commands anyway.
-    private func scheduleFallbackFlush() {
-        guard !fallbackFlushPosted else { return }
-        fallbackFlushPosted = true
-        DispatchQueue.main.asyncAfter(deadline: .now() + .milliseconds(fallbackFlushMs)) { [weak self] in
-            guard let self else { return }
-            if !self.phoneRegistered, self.pageLoaded, !self.pendingCommands.isEmpty {
-                let commands = self.pendingCommands
-                self.pendingCommands.removeAll()
-                for command in commands { self.evaluateCommand(type: command.type, payload: command.payload) }
-            }
-        }
     }
 
     private func evaluateCommand(type: String, payload: [String: Any]) {
@@ -217,20 +241,33 @@ final class ModernDialerBridge: NSObject, ObservableObject {
     /// Update registration from the event, flush queued commands once registered,
     /// then drive the call-panel state. Mirrors the Android bridge + fragment.
     private func onDialerMessage(type: String, parsed: [String: Any]) {
+        if let callId = (parsed["callId"] as? String)?.nonBlank
+            ?? (parsed["call_id"] as? String)?.nonBlank
+            ?? (parsed["id"] as? String)?.nonBlank {
+            activeCallId = callId
+        }
         switch type {
         case "ready":
             let ps = parsed["phoneState"] as? String
             phoneRegistered = (ps == nil || ps == "registered")
+            connectionStatus = phoneRegistered ? "Ready" : "Connecting"
             maybeFlush()
         case "phone:registered":
             phoneRegistered = true
+            connectionStatus = "Ready"
             maybeFlush()
         case "phone:state", "phone:status":
             let st = (parsed["state"] as? String) ?? (parsed["status"] as? String)
             phoneRegistered = (st == "registered")
+            connectionStatus = phoneRegistered ? "Ready" : "Connecting"
             if phoneRegistered { maybeFlush() }
         case "phone:unregistered":
             phoneRegistered = false
+            connectionStatus = "Offline"
+        case "agent:status":
+            if let status = parsed["status"] as? String { agentStatus = status }
+        case "agent:status-error":
+            showToast("Could not update dialer status")
         default:
             break
         }
@@ -241,38 +278,82 @@ final class ModernDialerBridge: NSObject, ObservableObject {
             // NOTE: outbound-only port — this path is never triggered without
             // CallKit/PushKit. Rendered defensively to match Android.
             peerNumber = event.string("from") ?? "Incoming call"
+            callStartedAt = Date()
+            callAnsweredAt = nil
+            callDirection = "incoming"
             stage = .incoming
             muted = false
             held = false
         case "call:ringing-out":
-            cancelConnectingTimeout()
-            ringback.start()
             peerNumber = event.string("to") ?? peerNumber
             stage = .connecting
         case "call:picked-up":
             cancelConnectingTimeout()
-            ringback.stop()
             stage = .connecting
         case "call:answered":
             cancelConnectingTimeout()
-            ringback.stop()
+            callAnsweredAt = callAnsweredAt ?? Date()
             peerNumber = event.string("from") ?? event.string("to") ?? peerNumber
             stage = .inCall
-        case "call:ended", "call:error", "call:incoming-suppressed":
-            resetCallState()
+        case "call:progress":
+            switch (event.string("status") ?? event.string("state"))?.lowercased() {
+            case "answered", "connected", "in-call", "active":
+                cancelConnectingTimeout()
+                callAnsweredAt = callAnsweredAt ?? Date()
+                stage = .inCall
+            case "ended", "completed", "hangup", "hung-up":
+                resetCallState(status: callAnsweredAt == nil ? "no_answer" : "completed")
+            case "failed", "busy", "rejected", "unavailable":
+                resetCallState(status: "failed")
+            default:
+                break
+            }
+        case "media:diagnostic":
+            let diagnostic = parsed["diagnostic"] as? [String: Any]
+            if diagnostic?["connectionState"] as? String == "failed" {
+                guard
+                    let callId = activeCallId,
+                    mediaRestartRequestedCalls.insert(callId).inserted
+                else { return }
+                showToast("Reconnecting call audio…")
+                NotificationCenter.default.post(
+                    name: .didFailModernDialerMedia,
+                    object: ["callId": callId]
+                )
+            }
+        case "call:ended":
+            resetCallState(status: callAnsweredAt == nil ? "no_answer" : "completed")
+        case "call:error":
+            resetCallState(status: "failed")
+        case "call:incoming-suppressed":
+            resetCallState(status: "missed")
         default:
             break
         }
     }
 
-    private func resetCallState() {
+    private func resetCallState(status: String? = nil) {
         cancelConnectingTimeout()
-        ringback.stop()
+        if let status { recordRecentCall(status: status) }
         deactivateAudioSession()
         stage = .idle
         peerNumber = nil
         muted = false
         held = false
+        callStartedAt = nil
+        callAnsweredAt = nil
+        if let activeCallId { mediaRestartRequestedCalls.remove(activeCallId) }
+        activeCallId = nil
+    }
+
+    func mediaRestartSucceeded() {
+        requestState()
+        showToast("Call audio reconnected")
+    }
+
+    func mediaRestartFailed(_ message: String) {
+        if let activeCallId { mediaRestartRequestedCalls.remove(activeCallId) }
+        showToast(message)
     }
 
     // MARK: Connecting timeout
@@ -283,7 +364,7 @@ final class ModernDialerBridge: NSObject, ObservableObject {
             try? await Task.sleep(nanoseconds: UInt64((self?.connectingTimeoutSec ?? 40) * 1_000_000_000))
             guard let self, !Task.isCancelled else { return }
             if self.stage == .connecting {
-                self.showToast("Call didn't connect. Check the station/registration and try again.")
+                self.showToast("Call didn't connect. Check your network and dialer status, then try again.")
                 self.resetCallState()
             }
         }
@@ -307,10 +388,63 @@ final class ModernDialerBridge: NSObject, ObservableObject {
         let session = AVAudioSession.sharedInstance()
         try? session.setCategory(.playAndRecord, mode: .voiceChat, options: [.allowBluetoothHFP, .allowBluetoothA2DP])
         try? session.setActive(true)
+        selectAudioRoute(audioRoute)
     }
 
     private func deactivateAudioSession() {
         try? AVAudioSession.sharedInstance().setActive(false, options: .notifyOthersOnDeactivation)
+    }
+
+    func selectAudioRoute(_ route: ModernDialerAudioRoute) {
+        let session = AVAudioSession.sharedInstance()
+        do {
+            switch route {
+            case .phone:
+                try session.overrideOutputAudioPort(.none)
+                if let builtIn = session.availableInputs?.first(where: { $0.portType == .builtInMic }) {
+                    try session.setPreferredInput(builtIn)
+                }
+            case .speaker:
+                try session.setPreferredInput(nil)
+                try session.overrideOutputAudioPort(.speaker)
+            case .bluetooth:
+                guard let bluetooth = session.availableInputs?.first(where: {
+                    $0.portType == .bluetoothHFP || $0.portType == .bluetoothLE
+                }) else {
+                    showToast("No Bluetooth call device is connected")
+                    return
+                }
+                try session.overrideOutputAudioPort(.none)
+                try session.setPreferredInput(bluetooth)
+            }
+            audioRoute = route
+        } catch {
+            showToast("Could not change the call audio route")
+        }
+    }
+
+    private func recordRecentCall(status: String) {
+        guard let number = peerNumber?.filter(\.isNumber), !number.isEmpty else { return }
+        let started = callStartedAt ?? Date()
+        let duration = max(0, Int(Date().timeIntervalSince(callAnsweredAt ?? started)))
+        recentCalls.insert(
+            ModernDialerRecentCall(
+                id: UUID(), number: number, direction: callDirection,
+                status: status, startedAt: started, durationSeconds: duration
+            ),
+            at: 0
+        )
+        recentCalls = Array(recentCalls.prefix(20))
+        if let data = try? JSONEncoder().encode(recentCalls) {
+            UserDefaults.standard.set(data, forKey: "modernDialerRecentCalls")
+        }
+    }
+
+    private func loadRecentCalls() {
+        guard let data = UserDefaults.standard.data(forKey: "modernDialerRecentCalls"),
+              let calls = try? JSONDecoder().decode([ModernDialerRecentCall].self, from: data)
+        else { return }
+        recentCalls = calls
     }
 
     // MARK: Host HTML + embed URL
@@ -379,8 +513,8 @@ extension ModernDialerBridge: WKNavigationDelegate {
     func webView(_ webView: WKWebView, didFinish navigation: WKNavigation!) {
         // The host page's own script relays messages to/from the iframe.
         pageLoaded = true
+        requestState()
         maybeFlush()
-        scheduleFallbackFlush()
     }
 }
 
@@ -409,57 +543,4 @@ struct ModernDialerWebViewContainer: UIViewRepresentable {
     }
 
     func updateUIView(_ uiView: WKWebView, context: Context) {}
-}
-
-// MARK: - Ringback tone
-
-/// Plays a looping ringback cadence (440+480 Hz, 2s on / 4s off) so the agent
-/// hears the outbound call ringing. Simple, self-contained — synthesizes a WAV
-/// once and loops it via AVAudioPlayer. (Android used ToneGenerator's
-/// TONE_SUP_RINGTONE, which has no direct iOS equivalent.)
-final class RingbackTonePlayer {
-    private var player: AVAudioPlayer?
-
-    func start() {
-        guard player == nil else { return }
-        guard let data = RingbackTonePlayer.makeWav() else { return }
-        player = try? AVAudioPlayer(data: data)
-        player?.numberOfLoops = -1
-        player?.volume = 0.5
-        player?.play()
-    }
-
-    func stop() {
-        player?.stop()
-        player = nil
-    }
-
-    private static func makeWav() -> Data? {
-        let sampleRate = 8000.0
-        let toneDuration = 2.0
-        let silenceDuration = 4.0
-        let totalSamples = Int((toneDuration + silenceDuration) * sampleRate)
-        let toneSamples = Int(toneDuration * sampleRate)
-        var samples = [Int16](repeating: 0, count: totalSamples)
-        let amplitude = 0.28 * 32767.0
-        for i in 0..<toneSamples {
-            let t = Double(i) / sampleRate
-            let value = (sin(2 * .pi * 440 * t) + sin(2 * .pi * 480 * t)) / 2
-            samples[i] = Int16(max(-32767, min(32767, value * amplitude)))
-        }
-
-        var data = Data()
-        func appendString(_ s: String) { data.append(contentsOf: Array(s.utf8)) }
-        func appendU32(_ v: UInt32) { var x = v.littleEndian; withUnsafeBytes(of: &x) { data.append(contentsOf: $0) } }
-        func appendU16(_ v: UInt16) { var x = v.littleEndian; withUnsafeBytes(of: &x) { data.append(contentsOf: $0) } }
-
-        let dataSize = samples.count * 2
-        let byteRate = UInt32(sampleRate) * 2
-        appendString("RIFF"); appendU32(UInt32(36 + dataSize)); appendString("WAVE")
-        appendString("fmt "); appendU32(16); appendU16(1); appendU16(1)
-        appendU32(UInt32(sampleRate)); appendU32(byteRate); appendU16(2); appendU16(16)
-        appendString("data"); appendU32(UInt32(dataSize))
-        for sample in samples { var x = sample.littleEndian; withUnsafeBytes(of: &x) { data.append(contentsOf: $0) } }
-        return data
-    }
 }

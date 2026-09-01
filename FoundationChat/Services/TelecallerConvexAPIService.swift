@@ -4,11 +4,6 @@ import Foundation
 enum TelecallerConvexAPIService {
     private static let baseURL = AppConfig.baseURL
 
-    /// Doocti click-to-call bridge endpoint. Lives on the MMS admin host
-    /// (Next.js), not Convex — must be called with the absolute URL.
-    /// Mirrors `DOOCTI_URL` in the Android `DialerFragment` / `MyLeadsFragment`.
-    private static let dooctiURL = "https://mms.aivida.in/api/doocti-call"
-
     struct LeadsPage: Sendable, Equatable {
         let leads: [ConvexLead]
         let nextCursor: String?
@@ -48,27 +43,6 @@ enum TelecallerConvexAPIService {
     private struct MutationResponse: Decodable {
         let success: Bool
         let error: String?
-    }
-
-    struct DialResult: Sendable, Equatable {
-        let ok: Bool
-        let stage: String?
-        let error: String?
-        let status: Int?
-    }
-
-    private struct DialDooctiRequest: Encodable {
-        let phone_number: String
-        let station: String?
-        let cli_number: String?
-        let agent: String?
-    }
-
-    private struct DialDooctiResponse: Decodable {
-        let ok: Bool?
-        let error: String?
-        let stage: String?
-        let status: Int?
     }
 
     /// Fetch leads assigned to the current user.
@@ -137,48 +111,72 @@ enum TelecallerConvexAPIService {
         }
     }
 
-    /// Place a Doocti click-to-call. Returns once the bridge has accepted
-    /// the request — the user's phone then rings shortly after.
-    static func dialDoocti(
-        phoneNumber: String,
-        station: String?,
-        cliNumber: String? = nil,
-        agent: String? = nil
-    ) async throws -> DialResult {
-        guard let url = URL(string: dooctiURL) else { throw TelecallerAPIError.badURL }
-        let body = DialDooctiRequest(
-            phone_number: phoneNumber,
-            station: station?.isEmpty == false ? station : nil,
-            cli_number: cliNumber?.isEmpty == false ? cliNumber : nil,
-            agent: agent?.isEmpty == false ? agent : nil
-        )
-        var request = URLRequest(url: url)
-        request.httpMethod = "POST"
-        request.setValue("application/json", forHTTPHeaderField: "Content-Type")
-        request.httpBody = try JSONEncoder().encode(body)
-        let (data, response) = try await URLSession.shared.data(for: request)
-        let status = (response as? HTTPURLResponse)?.statusCode
-        let decoded = try? JSONDecoder().decode(DialDooctiResponse.self, from: data)
-        let ok = decoded?.ok ?? ((status ?? 500) < 400)
-        if !ok {
-            let message = decoded?.error ?? decoded?.stage ?? "Call bridge failed"
-            throw TelecallerAPIError.server(message)
-        }
-        return DialResult(
-            ok: ok,
-            stage: decoded?.stage,
-            error: decoded?.error,
-            status: decoded?.status ?? status
-        )
-    }
-
     /// Fetch the authenticated Modern Dialer mapping (WebRTC token + extension).
     /// Mirrors the Android `ApiService.getMobileDialerConfig`, which hits
     /// `GET api/mobile/dialer/config` with the bearer token. Used to decide
-    /// whether to route through the Modern Dialer softphone or fall back to Doocti.
+    /// whether the authenticated user can use the Modern Dialer softphone.
     static func getMobileDialerConfig(token: String) async throws -> MobileDialerConfig {
         let data = try await get(path: "/api/mobile/dialer/config", token: token)
         return try JSONDecoder().decode(MobileDialerConfig.self, from: data)
+    }
+
+    static func getMobileDialerCurrentCall(token: String, callId: String? = nil) async throws -> MobileDialerCurrentCall? {
+        var path = "/api/mobile/dialer/calls/current"
+        if let callId = callId?.addingPercentEncoding(withAllowedCharacters: .urlQueryAllowed) {
+            path += "?callId=\(callId)"
+        }
+        let data = try await get(path: path, token: token)
+        return try JSONDecoder().decode(MobileDialerCurrentCallResponse.self, from: data).call
+    }
+
+    static func performMobileDialerAction(
+        token: String,
+        callId: String,
+        action: String,
+        deviceId: String,
+        eventId: String?,
+        idempotencyKey: UUID
+    ) async throws -> MobileDialerActionResponse {
+        let body = MobileDialerActionRequest(
+            action: action,
+            platform: "ios",
+            deviceId: deviceId,
+            eventId: eventId
+        )
+        let data = try await post(
+            path: "/api/mobile/dialer/calls/\(callId.urlPathComponent)/action",
+            token: token,
+            body: body,
+            headers: ["Idempotency-Key": idempotencyKey.uuidString]
+        )
+        return try JSONDecoder().decode(MobileDialerActionResponse.self, from: data)
+    }
+
+    static func restartMobileDialerMedia(
+        token: String,
+        callId: String,
+        deviceId: String,
+        idempotencyKey: UUID
+    ) async throws -> MobileDialerMediaRestartResponse {
+        let data = try await post(
+            path: "/api/mobile/dialer/calls/\(callId.urlPathComponent)/media/restart",
+            token: token,
+            body: MobileDialerMediaRestartRequest(
+                reason: "ice_failed",
+                platform: "ios",
+                deviceId: deviceId
+            ),
+            headers: ["Idempotency-Key": idempotencyKey.uuidString]
+        )
+        return try JSONDecoder().decode(MobileDialerMediaRestartResponse.self, from: data)
+    }
+
+    static func getMobileDialerMedia(token: String, callId: String) async throws -> MobileDialerMediaResponse {
+        let data = try await get(
+            path: "/api/mobile/dialer/calls/\(callId.urlPathComponent)/media",
+            token: token
+        )
+        return try JSONDecoder().decode(MobileDialerMediaResponse.self, from: data)
     }
 
     // MARK: - HTTP
@@ -205,12 +203,18 @@ enum TelecallerConvexAPIService {
         return data
     }
 
-    private static func post<T: Encodable>(path: String, token: String, body: T) async throws -> Data {
+    private static func post<T: Encodable>(
+        path: String,
+        token: String,
+        body: T,
+        headers: [String: String] = [:]
+    ) async throws -> Data {
         guard let url = URL(string: "\(baseURL)\(path)") else { throw TelecallerAPIError.badURL }
         var request = URLRequest(url: url)
         request.httpMethod = "POST"
         request.setValue("Bearer \(token)", forHTTPHeaderField: "Authorization")
         request.setValue("application/json", forHTTPHeaderField: "Content-Type")
+        for (name, value) in headers { request.setValue(value, forHTTPHeaderField: name) }
         request.httpBody = try JSONEncoder().encode(body)
         let (data, response) = try await URLSession.shared.data(for: request)
         if let http = response as? HTTPURLResponse {
@@ -270,7 +274,77 @@ struct MobileDialerFeatures: Decodable, Sendable, Equatable {
     let mute: Bool?
     let hold: Bool?
     let pushProvider: String?
+    let pushProviders: [String]?
     let pushConfigSource: String?
+}
+
+struct MobileDialerCurrentCallResponse: Decodable, Sendable {
+    let success: Bool
+    let call: MobileDialerCurrentCall?
+}
+
+struct MobileDialerCurrentCall: Decodable, Sendable {
+    let callId: String
+    let direction: String
+    let stage: String
+    let fromNumber: String?
+    let toNumber: String?
+    let displayName: String?
+    let `extension`: String?
+    let requiresPickup: Bool?
+    let muted: Bool?
+    let held: Bool?
+    let startedAt: String?
+    let expiresAt: String?
+}
+
+private struct MobileDialerActionRequest: Encodable {
+    let action: String
+    let platform: String
+    let deviceId: String
+    let eventId: String?
+}
+
+struct MobileDialerActionResponse: Decodable, Sendable {
+    let success: Bool
+    let callId: String
+    let stage: String
+    let alreadyApplied: Bool?
+}
+
+private struct MobileDialerMediaRestartRequest: Encodable {
+    let reason: String
+    let platform: String
+    let deviceId: String
+}
+
+struct MobileDialerMediaRestartResponse: Decodable, Sendable {
+    let success: Bool
+    let callId: String
+    let stage: String
+    let iceRestarted: Bool?
+}
+
+struct MobileDialerMediaResponse: Decodable, Sendable {
+    let success: Bool
+    let callId: String
+    let `extension`: String?
+    let media: MobileDialerMediaDiagnostics?
+}
+
+struct MobileDialerMediaDiagnostics: Decodable, Sendable {
+    let iceConnectionState: String?
+    let iceGatheringState: String?
+    let signalingState: String?
+    let candidateType: String?
+    let lastRtpAt: String?
+}
+
+private extension String {
+    var urlPathComponent: String {
+        let safe = CharacterSet.alphanumerics.union(CharacterSet(charactersIn: "-._~"))
+        return addingPercentEncoding(withAllowedCharacters: safe) ?? self
+    }
 }
 
 enum TelecallerAPIError: LocalizedError {

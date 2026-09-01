@@ -701,8 +701,8 @@ struct HomeView: View {
                 .foregroundStyle(.primary)
                         .padding(.horizontal, 10)
                         .frame(height: 34)
-                        .background(.white, in: Capsule())
-                        .overlay(Capsule().stroke(Color(hex: 0xE4E7EC), lineWidth: 1))
+                        .background(Color.appElevatedSurface, in: Capsule())
+                        .overlay(Capsule().stroke(Color.appSeparator, lineWidth: 1))
                 }
                 .buttonStyle(.plain)
                 .accessibilityHint("Choose the dashboard date")
@@ -725,7 +725,7 @@ struct HomeView: View {
                 .font(.system(size: 13, weight: .medium))
                 .frame(maxWidth: .infinity)
                 .padding(.vertical, 22)
-                .background(Color.white, in: RoundedRectangle(cornerRadius: 12, style: .continuous))
+                .background(Color.appSurface, in: RoundedRectangle(cornerRadius: 12, style: .continuous))
             }
 
             if let managementDashboardError, managementDashboard != nil {
@@ -744,7 +744,7 @@ struct HomeView: View {
         }
         .padding(3)
         .frame(height: 36)
-        .background(Color.white, in: RoundedRectangle(cornerRadius: 12, style: .continuous))
+        .background(Color.appElevatedSurface, in: RoundedRectangle(cornerRadius: 12, style: .continuous))
     }
 
     private func dashboardTabButton(_ tab: HomeDashboardTab) -> some View {
@@ -755,7 +755,7 @@ struct HomeView: View {
         } label: {
             Text(tab.title)
                 .font(.system(size: 18, weight: selectedManagementDashboardTab == tab ? .bold : .medium))
-                .foregroundStyle(selectedManagementDashboardTab == tab ? .white : Color(hex: 0x475467))
+                .foregroundStyle(selectedManagementDashboardTab == tab ? .white : Color.appSecondaryText)
                 .frame(maxWidth: .infinity)
                 .frame(height: 30)
                 .background(
@@ -826,8 +826,8 @@ struct HomeView: View {
                 }
                 .padding(14)
                 .frame(maxWidth: .infinity, minHeight: 145, alignment: .leading)
-                .background(.white, in: RoundedRectangle(cornerRadius: 16, style: .continuous))
-                .overlay(RoundedRectangle(cornerRadius: 16).stroke(Color(hex: 0xE5E7EB), lineWidth: 1))
+                .background(Color.appSurface, in: RoundedRectangle(cornerRadius: 16, style: .continuous))
+                .overlay(RoundedRectangle(cornerRadius: 16).stroke(Color.appSeparator, lineWidth: 1))
                 .shadow(color: Color(hex: 0x101828).opacity(0.04), radius: 7, y: 3)
             }
         }
@@ -907,13 +907,13 @@ struct HomeView: View {
                     } label: {
                         Text(filter.title)
                             .font(.system(size: 12, weight: selectedTripFilter == filter ? .semibold : .medium))
-                            .foregroundStyle(selectedTripFilter == filter ? .white : Color(hex: 0x475467))
+                            .foregroundStyle(selectedTripFilter == filter ? .white : Color.appSecondaryText)
                             .padding(.horizontal, 16)
                             .padding(.vertical, 8)
-                            .background(selectedTripFilter == filter ? HomePalette.headerBlue : Color.white, in: Capsule())
+                            .background(selectedTripFilter == filter ? HomePalette.headerBlue : Color.appElevatedSurface, in: Capsule())
                             .overlay(
                                 Capsule()
-                                    .stroke(Color(hex: 0xE5E7EB), lineWidth: selectedTripFilter == filter ? 0 : 1)
+                                    .stroke(Color.appSeparator, lineWidth: selectedTripFilter == filter ? 0 : 1)
                             )
                     }
                     .buttonStyle(.plain)
@@ -1021,12 +1021,12 @@ struct HomeView: View {
         .frame(maxWidth: .infinity, alignment: .leading)
         .frame(height: 58)
         .padding(.horizontal, 10)
-        .background(Color(red: 0.976, green: 0.98, blue: 0.986), in: RoundedRectangle(cornerRadius: 8, style: .continuous))
+        .background(Color.appFieldBackground, in: RoundedRectangle(cornerRadius: 8, style: .continuous))
     }
 
     private var dashboardCardBackground: some View {
         RoundedRectangle(cornerRadius: 12, style: .continuous)
-            .fill(.white)
+            .fill(Color.appSurface)
             .shadow(color: .black.opacity(0.03), radius: 1, x: 0, y: 1)
     }
 
@@ -1056,13 +1056,13 @@ struct HomeView: View {
 
                 Text("No Trips Available")
                     .font(.system(size: 14, weight: .semibold))
-                    .foregroundStyle(Color(red: 0.09, green: 0.11, blue: 0.14))
+                    .foregroundStyle(HomePalette.textPrimary)
                     .multilineTextAlignment(.center)
                     .padding(.top, 12)
 
                 Text("It looks like you don't have any meetings scheduled at the moment. This space will be updated as new meetings are added!")
                     .font(.system(size: 10))
-                    .foregroundStyle(Color(red: 0.47, green: 0.50, blue: 0.55))
+                    .foregroundStyle(HomePalette.textSecondary)
                     .multilineTextAlignment(.center)
                     .lineSpacing(3)
                     .padding(.horizontal, 18)
@@ -1080,7 +1080,7 @@ struct HomeView: View {
     }
 
     private var cardBackground: some ShapeStyle {
-        .white.shadow(.drop(color: .black.opacity(0.03), radius: 1, x: 0, y: 1))
+        Color.appSurface.shadow(.drop(color: .black.opacity(0.03), radius: 1, x: 0, y: 1))
     }
 
     private var dashboardGridColumns: [GridItem] {
@@ -1457,8 +1457,8 @@ struct HomeView: View {
             }
         }
         .padding(14)
-        .background(.white, in: RoundedRectangle(cornerRadius: 16, style: .continuous))
-        .overlay(RoundedRectangle(cornerRadius: 16).stroke(Color(hex: 0xE5E7EB), lineWidth: 1))
+        .background(Color.appSurface, in: RoundedRectangle(cornerRadius: 16, style: .continuous))
+        .overlay(RoundedRectangle(cornerRadius: 16).stroke(Color.appSeparator, lineWidth: 1))
         .shadow(color: Color(hex: 0x101828).opacity(0.06), radius: 10, y: 4)
     }
 
@@ -2294,6 +2294,8 @@ private struct ManagementDashboardMetric: Identifiable {
 }
 
 private struct ManagementDashboardMetricCard: View {
+    @Environment(\.colorScheme) private var colorScheme
+
     let metric: ManagementDashboardMetric
 
     var body: some View {
@@ -2332,7 +2334,7 @@ private struct ManagementDashboardMetricCard: View {
                 if let pill = metric.pill {
                     Text(pill)
                         .font(.system(size: 8.2, weight: .bold))
-                        .foregroundStyle(metric.pillTextColor)
+                        .foregroundStyle(colorScheme == .dark ? Color.appPrimaryText : metric.pillTextColor)
                         .lineLimit(1)
                         .minimumScaleFactor(0.64)
                         .padding(.horizontal, metric.size == .large ? 5 : 4)
@@ -2354,7 +2356,14 @@ private struct ManagementDashboardMetricCard: View {
         }
         .frame(maxWidth: .infinity)
         .frame(height: metric.size.height)
-        .background(metric.background, in: RoundedRectangle(cornerRadius: 16, style: .continuous))
+        .background {
+            RoundedRectangle(cornerRadius: 16, style: .continuous)
+                .fill(Color.appSurface)
+                .overlay {
+                    RoundedRectangle(cornerRadius: 16, style: .continuous)
+                        .fill(metric.background)
+                }
+        }
         .overlay {
             RoundedRectangle(cornerRadius: 16, style: .continuous)
                 .stroke(Color.appSeparator, lineWidth: 1)
@@ -2410,8 +2419,8 @@ private struct MarketingConversionCard: View {
         }
         .padding(13)
         .frame(width: 154, height: 142, alignment: .topLeading)
-        .background(.white, in: RoundedRectangle(cornerRadius: 16, style: .continuous))
-        .overlay(RoundedRectangle(cornerRadius: 16).stroke(Color(hex: 0xE5E7EB), lineWidth: 1))
+        .background(Color.appSurface, in: RoundedRectangle(cornerRadius: 16, style: .continuous))
+        .overlay(RoundedRectangle(cornerRadius: 16).stroke(Color.appSeparator, lineWidth: 1))
         .shadow(color: Color(hex: 0x101828).opacity(0.05), radius: 8, y: 3)
     }
 }
@@ -2439,8 +2448,8 @@ private struct HomeTripCard: View {
             .frame(maxWidth: .infinity, minHeight: 278, alignment: .top)
             .background(
                 RoundedRectangle(cornerRadius: 12)
-                    .fill(.white)
-                    .stroke(Color(red: 0.95, green: 0.96, blue: 0.97), lineWidth: 1)
+                    .fill(Color.appSurface)
+                    .stroke(Color.appSeparator, lineWidth: 1)
             )
         }
         .buttonStyle(.plain)
@@ -2454,7 +2463,7 @@ private struct HomeTripCard: View {
                 .font(.system(size: 18, weight: .semibold))
                 .foregroundStyle(HomePalette.textSecondary)
                 .frame(width: 44, height: 44)
-                .background(Color(red: 0.95, green: 0.96, blue: 0.98), in: Circle())
+                .background(Color.appFieldBackground, in: Circle())
 
             Text(title)
                 .font(.system(size: 14, weight: .semibold))
@@ -2491,7 +2500,7 @@ private struct HomeTripCard: View {
             Rectangle()
                 .fill(
                     LinearGradient(
-                        colors: [.clear, Color(red: 0.90, green: 0.91, blue: 0.94), .clear],
+                        colors: [.clear, Color.appSeparator, .clear],
                         startPoint: .top,
                         endPoint: .bottom
                     )
@@ -2512,7 +2521,7 @@ private struct HomeTripCard: View {
                 .font(.system(size: 18, weight: .medium))
                 .foregroundStyle(HomePalette.headerBlue)
                 .frame(width: 40, height: 40)
-                .background(Color(red: 0.95, green: 0.97, blue: 1.0), in: RoundedRectangle(cornerRadius: 12))
+                .background(HomePalette.headerBlue.opacity(0.10), in: RoundedRectangle(cornerRadius: 12))
 
             VStack(alignment: .leading, spacing: 3) {
                 Text(label)
@@ -2522,7 +2531,7 @@ private struct HomeTripCard: View {
 
                 Text(value)
                     .font(.system(size: 10, weight: .medium))
-                    .foregroundStyle(Color(red: 0.10, green: 0.10, blue: 0.10))
+                    .foregroundStyle(HomePalette.textPrimary)
                     .lineLimit(1)
             }
             .frame(maxWidth: .infinity, alignment: .leading)
@@ -2571,8 +2580,8 @@ private struct HomeTripSkeletonCard: View {
         .frame(maxWidth: .infinity, minHeight: 278, alignment: .top)
         .background(
             RoundedRectangle(cornerRadius: 12)
-                .fill(.white)
-                .stroke(Color(red: 0.95, green: 0.96, blue: 0.97), lineWidth: 1)
+                .fill(Color.appSurface)
+                .stroke(Color.appSeparator, lineWidth: 1)
         )
         .accessibilityLabel("Loading today's trip")
     }
@@ -3200,14 +3209,14 @@ private enum HomeTripState: Equatable {
 }
 
 private enum HomePalette {
-    static let pageBackground = Color(red: 0.95, green: 0.96, blue: 0.98)
+    static let pageBackground = Color.appScreenBackground
     static let headerBlue = Color(hex: 0x0B61CA)
     static let headerBlueDark = Color(hex: 0x02499D)
-    static let textPrimary = Color(red: 0.06, green: 0.09, blue: 0.16)
-    static let textSecondary = Color(red: 0.40, green: 0.44, blue: 0.52)
+    static let textPrimary = Color.appPrimaryText
+    static let textSecondary = Color.appSecondaryText
     static let badgePurple = Color(red: 0.48, green: 0.35, blue: 0.97)
     static let statusDot = Color(red: 0.13, green: 0.73, blue: 0.30)
-    static let skeleton = Color(red: 0.90, green: 0.92, blue: 0.95)
+    static let skeleton = Color.appFieldBackground
 }
 
 private enum HomeStar: CaseIterable, Identifiable {

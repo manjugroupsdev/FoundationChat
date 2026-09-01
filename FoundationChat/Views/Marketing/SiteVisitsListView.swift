@@ -18,8 +18,13 @@ struct SiteVisitsListView: View {
     @State private var searchText = ""
     @State private var selectedFilter: SiteVisitListFilter = .all
     @State private var showingDateFilter = false
+    @State private var showingCreateVisit = false
     @State private var fromDate = Calendar.current.date(byAdding: .day, value: -30, to: Date()) ?? Date()
     @State private var toDate = Calendar.current.date(byAdding: .day, value: 30, to: Date()) ?? Date()
+
+    private var canCreateSiteVisit: Bool {
+        authStore.hasPermission("marketing.siteVisits.create")
+    }
 
     private static let dateFormatter: DateFormatter = {
         let f = DateFormatter()
@@ -32,7 +37,9 @@ struct SiteVisitsListView: View {
     private var filteredVisits: [ConvexSiteVisit] {
         let needle = searchText.trimmingCharacters(in: .whitespacesAndNewlines)
         return visits
-            .filter { ($0.tripType ?? "").lowercased() != "client_place" && $0.clientPlaceVisitId == nil }
+            // A confirmed SV-cum-CP remains linked to its verification CP.
+            // Classify by trip type; the link itself does not make it a CP row.
+            .filter { ($0.tripType ?? "").lowercased() != "client_place" }
             .filter { selectedFilter.matches($0) }
             .filter { visit in
                 guard !needle.isEmpty else { return true }
@@ -64,6 +71,15 @@ struct SiteVisitsListView: View {
         .toolbarBackground(Color.appElevatedSurface, for: .navigationBar)
         .toolbarBackground(.visible, for: .navigationBar)
         .toolbar {
+            if canCreateSiteVisit {
+                ToolbarItem(placement: .topBarTrailing) {
+                    Button { showingCreateVisit = true } label: {
+                        Image(systemName: "plus")
+                            .font(.system(size: 17, weight: .semibold))
+                    }
+                    .accessibilityLabel("Schedule site visit")
+                }
+            }
             ToolbarItem(placement: .topBarTrailing) {
                 Button {
                     showingDateFilter = true
@@ -83,6 +99,13 @@ struct SiteVisitsListView: View {
                 Task { await load() }
             }
             .appLibraryNativeSheet([.medium])
+        }
+        .sheet(isPresented: $showingCreateVisit) {
+            CreateSiteVisitSheet {
+                showingCreateVisit = false
+                Task { await load() }
+            }
+            .appLibraryNativeSheet([.large])
         }
         .sheet(item: $selectedVisit) { visit in
             SiteVisitOverviewSheet(visit: visit) {
@@ -241,7 +264,7 @@ struct SiteVisitsListView: View {
                 toDate: toDateText
             )
             let normalized = result
-                .filter { ($0.tripType ?? "").lowercased() != "client_place" && $0.clientPlaceVisitId == nil }
+                .filter { ($0.tripType ?? "").lowercased() != "client_place" }
                 .sorted {
                     let left = $0.creationTime ?? 0
                     let right = $1.creationTime ?? 0
@@ -2006,4 +2029,400 @@ private extension AuthUser {
         SiteVisitsListView()
     }
     .environment(AuthStore())
+}
+
+private struct CreateSiteVisitSheet: View {
+    @Environment(AuthStore.self) private var authStore
+    @Environment(\.dismiss) private var dismiss
+
+    private enum Routing: String, CaseIterable, Identifiable {
+        case direct = "direct_sv"
+        case sameArea = "same_area"
+        case outstation = "out_of_station"
+        case immediate = "immediate_pickup"
+        var id: String { rawValue }
+        var title: String {
+            switch self { case .direct: "Direct SV"; case .sameArea: "Same Area"; case .outstation: "Outstation"; case .immediate: "Immediate SV" }
+        }
+        var detail: String {
+            switch self {
+            case .direct: "Client travels directly; no confirmation handoff"
+            case .sameArea: "Field staff verifies the client before the visit"
+            case .outstation, .immediate: "Requires GM verification"
+            }
+        }
+    }
+
+    private enum StaffField: String, Identifiable {
+        case lmo = "LMO", bdo = "BDO", incharge = "Site Incharge", field = "Field Staff"
+        case hod = "HOD", avp = "AVP", gm = "GM", senior = "Senior Manager"
+        var id: String { rawValue }
+    }
+
+    private struct Visitor: Identifiable {
+        let id = UUID()
+        var name = ""
+        var relation = ""
+        var age = ""
+        var isVeg = true
+    }
+
+    let onCreated: () -> Void
+    @State private var requestId = UUID().uuidString
+    @State private var routing: Routing?
+    @State private var origin = "telecaller"
+    @State private var phone = ""
+    @State private var clientName = ""
+    @State private var leadMatches: [TelecallerLeadSearchData] = []
+    @State private var selectedLead: TelecallerLeadSearchData?
+    @State private var projects: [MarketingProject] = []
+    @State private var selectedProject: MarketingProject?
+    @State private var staff: [ConvexStaffListItem] = []
+    @State private var selectedStaff: [StaffField: ConvexStaffListItem] = [:]
+    @State private var activeStaffField: StaffField?
+    @State private var showProjectPicker = false
+    @State private var scheduledAt = Date().addingTimeInterval(3600)
+    @State private var pickupAt = Date().addingTimeInterval(1800)
+    @State private var travelMode = "cab"
+    @State private var pickupAddress = ""
+    @State private var pickupPin: CpMapPinResult?
+    @State private var showMapPicker = false
+    @State private var visitors: [Visitor] = []
+    @State private var notes = ""
+    @State private var isLoadingOptions = true
+    @State private var isSearchingLead = false
+    @State private var isSubmitting = false
+    @State private var errorMessage: String?
+
+    private var digits: String { String(phone.filter(\.isNumber).suffix(10)) }
+    private var requiresPickup: Bool { routing != nil && routing != .direct }
+    private var activeStaffItems: [ConvexStaffListItem] {
+        guard let field = activeStaffField else { return [] }
+        switch field {
+        case .lmo, .bdo: return staff.filter(isEligibleLmo)
+        case .incharge, .field, .avp, .gm, .senior: return staff.filter(isSalesMarketing)
+        case .hod: return staff.filter { $0.isActive }
+        }
+    }
+
+    var body: some View {
+        NavigationStack {
+            Form {
+                if let errorMessage {
+                    Section {
+                        Label(errorMessage, systemImage: "exclamationmark.triangle.fill")
+                            .font(.footnote)
+                            .foregroundStyle(.red)
+                    }
+                }
+
+                Section("SV Type") {
+                    Picker("SV Type *", selection: $routing) {
+                        Text("Select SV type").tag(Routing?.none)
+                        ForEach(Routing.allCases) { item in Text(item.title).tag(Optional(item)) }
+                    }
+                    if let routing { Text(routing.detail).font(.caption).foregroundStyle(.secondary) }
+                }
+
+                Section("Client Details") {
+                    TextField("Client phone number *", text: $phone)
+                        .keyboardType(.phonePad)
+                    if isSearchingLead { ProgressView("Looking up client...") }
+                    if !leadMatches.isEmpty {
+                        Picker("Linked lead *", selection: $selectedLead) {
+                            ForEach(leadMatches) { lead in
+                                Text("\(lead.displayName) · \(lead.mobileNumber ?? digits)").tag(Optional(lead))
+                            }
+                        }
+                    } else if digits.count == 10 && !isSearchingLead {
+                        TextField("New client's full name *", text: $clientName)
+                            .textInputAutocapitalization(.words)
+                        Text("No lead found. The backend will create and link the client safely.")
+                            .font(.caption).foregroundStyle(.secondary)
+                    }
+                }
+
+                Section("Visit Details") {
+                    selectionButton("Project *", selectedProject?.name, systemImage: "building.2") { showProjectPicker = true }
+                    Picker("Origin", selection: $origin) {
+                        Text("Calls").tag("telecaller")
+                        Text("Walk-in").tag("walk_in")
+                        Text("Campaign").tag("campaign")
+                        Text("Referral").tag("referral")
+                        Text("Client place visit").tag("client_place_visit")
+                    }
+                    DatePicker("Scheduled *", selection: $scheduledAt, in: Date()...)
+                    if requiresPickup {
+                        DatePicker("Pickup time *", selection: $pickupAt, displayedComponents: .hourAndMinute)
+                    }
+                    Picker("Client travel", selection: $travelMode) {
+                        Text("Cab required").tag("cab")
+                        Text("Own vehicle").tag("own_vehicle")
+                    }
+                    .disabled(routing == .direct)
+                }
+
+                Section("Assignments") {
+                    staffButton(.lmo)
+                    staffButton(.bdo)
+                    staffButton(.incharge)
+                    if routing == .sameArea { staffButton(.field) }
+                    staffButton(.hod)
+                    staffButton(.avp)
+                    staffButton(.gm)
+                    staffButton(.senior)
+                }
+
+                Section("Pickup Location") {
+                    TextField("Pickup address *", text: $pickupAddress, axis: .vertical)
+                        .lineLimit(2...5)
+                    Button {
+                        showMapPicker = true
+                    } label: {
+                        Label(pickupPin == nil ? "Set pickup pin on map" : "Change pickup pin", systemImage: "map")
+                    }
+                    if let pin = pickupPin {
+                        Text(String(format: "Pinned: %.5f, %.5f", pin.latitude, pin.longitude))
+                            .font(.caption).foregroundStyle(.secondary)
+                    } else {
+                        Text("A precise map pin is required.").font(.caption).foregroundStyle(.secondary)
+                    }
+                }
+
+                Section("Visitors") {
+                    Stepper("Number of visitors: \(visitors.count)", value: visitorCountBinding, in: 0...10)
+                    ForEach($visitors) { $visitor in
+                        VStack(alignment: .leading, spacing: 8) {
+                            Text("Visitor \((visitors.firstIndex { $0.id == visitor.id } ?? 0) + 1)").font(.subheadline.weight(.semibold))
+                            TextField("Name", text: $visitor.name)
+                            TextField("Relation", text: $visitor.relation)
+                            TextField("Age", text: $visitor.age).keyboardType(.numberPad)
+                            Toggle("Vegetarian", isOn: $visitor.isVeg)
+                        }
+                        .padding(.vertical, 4)
+                    }
+                    TextField("Notes", text: $notes, axis: .vertical).lineLimit(2...5)
+                }
+            }
+            .navigationTitle("Schedule Site Visit")
+            .navigationBarTitleDisplayMode(.inline)
+            .toolbar {
+                ToolbarItem(placement: .cancellationAction) { Button("Cancel") { dismiss() }.disabled(isSubmitting) }
+                ToolbarItem(placement: .confirmationAction) {
+                    Button(isSubmitting ? "Scheduling..." : "Schedule") { Task { await submit() } }
+                        .fontWeight(.semibold)
+                        .disabled(isSubmitting || isLoadingOptions)
+                }
+            }
+            .task { await loadOptions() }
+            .task(id: digits) {
+                guard digits.count == 10 else {
+                    leadMatches = []; selectedLead = nil; return
+                }
+                try? await Task.sleep(for: .milliseconds(350))
+                guard !Task.isCancelled else { return }
+                await searchLead()
+            }
+            .onChange(of: routing) { _, newValue in
+                errorMessage = nil
+                if newValue == .direct { travelMode = "own_vehicle" }
+                if newValue != .sameArea { selectedStaff[.field] = nil }
+            }
+            .onChange(of: selectedLead) { _, lead in applyLead(lead) }
+            .sheet(isPresented: $showProjectPicker) {
+                NativeSearchableSelectionSheet(
+                    title: "Select Project", prompt: "Search projects", items: projects,
+                    selectedId: selectedProject?.id,
+                    searchText: { [$0.name, $0.location].compactMap { $0 }.joined(separator: " ") },
+                    rowContent: { project, selected in selectionRow(project.name ?? "Unnamed project", project.location, selected) },
+                    onSelect: { selectedProject = $0; showProjectPicker = false }
+                ).appLibraryNativeSheet([.medium, .large])
+            }
+            .sheet(item: $activeStaffField) { field in
+                NativeSearchableSelectionSheet(
+                    title: "Select \(field.rawValue)", prompt: "Search staff", items: activeStaffItems,
+                    selectedId: selectedStaff[field]?.id,
+                    searchText: { [$0.displayName, $0.employeeId, $0.designation, $0.phone].compactMap { $0 }.joined(separator: " ") },
+                    rowContent: { item, selected in selectionRow(item.displayName, item.subtitle, selected) },
+                    onSelect: { selectedStaff[field] = $0; activeStaffField = nil }
+                ).appLibraryNativeSheet([.medium, .large])
+            }
+            .sheet(isPresented: $showMapPicker) {
+                CpMapPinPicker(
+                    initialCoordinate: pickupPin.map {
+                        CLLocationCoordinate2D(latitude: $0.latitude, longitude: $0.longitude)
+                    },
+                    initialAddress: pickupAddress,
+                    onSelect: { result in
+                        pickupPin = result
+                        if !result.address.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty { pickupAddress = result.address }
+                        showMapPicker = false
+                    }
+                )
+            }
+        }
+    }
+
+    private var visitorCountBinding: Binding<Int> {
+        Binding(get: { visitors.count }, set: { count in
+            while visitors.count < count { visitors.append(Visitor()) }
+            if visitors.count > count { visitors.removeLast(visitors.count - count) }
+        })
+    }
+
+    @ViewBuilder private func selectionButton(_ title: String, _ value: String?, systemImage: String, action: @escaping () -> Void) -> some View {
+        Button(action: action) {
+            HStack { Label(title, systemImage: systemImage); Spacer(); Text(value ?? "Select").foregroundStyle(value == nil ? .secondary : .primary); Image(systemName: "chevron.right").foregroundStyle(.tertiary) }
+        }.buttonStyle(.plain)
+    }
+
+    private func staffButton(_ field: StaffField) -> some View {
+        selectionButton(field.rawValue + " *", selectedStaff[field]?.displayName, systemImage: "person") { activeStaffField = field }
+    }
+
+    private func selectionRow(_ title: String, _ subtitle: String?, _ selected: Bool) -> some View {
+        HStack {
+            VStack(alignment: .leading, spacing: 3) { Text(title); if let subtitle, !subtitle.isEmpty { Text(subtitle).font(.caption).foregroundStyle(.secondary) } }
+            Spacer()
+            if selected { Image(systemName: "checkmark.circle.fill").foregroundStyle(Color(hex: 0x0B61CA)) }
+        }
+    }
+
+    private func loadOptions() async {
+        guard let token = authStore.currentSession?.token else { errorMessage = "Session expired. Please sign in again."; return }
+        isLoadingOptions = true
+        defer { isLoadingOptions = false }
+        do {
+            async let projectRequest = MarketingConvexAPIService.getMarketingProjects(token: token)
+            async let staffRequest = HRConvexAPIService.listAllStaff(token: token, status: "active")
+            let loadedProjects = try await projectRequest
+            let loadedStaff = try await staffRequest
+            projects = loadedProjects
+            staff = loadedStaff.filter(\.isActive)
+        } catch {
+            errorMessage = friendlyError(error)
+        }
+    }
+
+    private func searchLead() async {
+        guard let token = authStore.currentSession?.token else { return }
+        isSearchingLead = true
+        defer { isSearchingLead = false }
+        do {
+            leadMatches = try await MarketingConvexAPIService.searchTelecallerLeadsByPhone(token: token, phone: digits)
+            selectedLead = leadMatches.first
+            if leadMatches.isEmpty { clientName = "" }
+        } catch {
+            errorMessage = friendlyError(error)
+        }
+    }
+
+    private func applyLead(_ lead: TelecallerLeadSearchData?) {
+        guard let lead else { return }
+        clientName = lead.contactName ?? ""
+        if let id = lead.projectId, selectedProject == nil { selectedProject = projects.first { $0.id == id } }
+        if let id = lead.assignedToStaffId, selectedStaff[.lmo] == nil { selectedStaff[.lmo] = staff.first { $0.id == id && isEligibleLmo($0) } }
+        if pickupAddress.isEmpty { pickupAddress = lead.suggestedVisitAddress ?? lead.locationPreferred ?? "" }
+        if let lat = lead.suggestedVisitLat, let lng = lead.suggestedVisitLng {
+            pickupPin = CpMapPinResult(latitude: lat, longitude: lng, address: pickupAddress)
+        }
+        if visitors.isEmpty, let name = lead.contactName?.nilIfBlank {
+            visitors = [Visitor(name: name, relation: "Self")]
+        }
+    }
+
+    private func submit() async {
+        guard let token = authStore.currentSession?.token else { errorMessage = "Session expired. Please sign in again."; return }
+        guard let request = validatedRequest() else { return }
+        isSubmitting = true
+        errorMessage = nil
+        defer { isSubmitting = false }
+        do {
+            let response = try await MarketingConvexAPIService.createSiteVisit(token: token, request: request)
+            requestId = UUID().uuidString
+            _ = response
+            onCreated()
+            dismiss()
+        } catch {
+            errorMessage = friendlyError(error)
+        }
+    }
+
+    private func validatedRequest() -> CreateSiteVisitRequest? {
+        func fail(_ message: String) -> CreateSiteVisitRequest? { errorMessage = message; return nil }
+        guard let routing else { return fail("Select SV type.") }
+        guard digits.count == 10 else { return fail("Enter the client's 10-digit phone number.") }
+        guard selectedLead != nil || !clientName.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else { return fail("Enter the new client's full name.") }
+        guard let project = selectedProject else { return fail("Select a project.") }
+        guard scheduledAt >= Date() else { return fail("Scheduled date/time cannot be in the past.") }
+        if routing == .immediate, !Calendar.current.isDateInToday(scheduledAt) { return fail("Immediate SV must be scheduled for today.") }
+        if requiresPickup {
+            let pickupClock = Calendar.current.dateComponents([.hour, .minute], from: pickupAt)
+            guard let pickupOnVisitDay = Calendar.current.date(
+                bySettingHour: pickupClock.hour ?? 0,
+                minute: pickupClock.minute ?? 0,
+                second: 0,
+                of: scheduledAt
+            ) else { return fail("Select a valid pickup time.") }
+            if pickupOnVisitDay < Date() { return fail("Pickup date/time cannot be in the past.") }
+            if pickupOnVisitDay > scheduledAt { return fail("Pickup time can't be after the scheduled site time.") }
+        }
+        guard let lmo = selectedStaff[.lmo], let bdo = selectedStaff[.bdo], let incharge = selectedStaff[.incharge] else { return fail("Select LMO, BDO, and Site Incharge.") }
+        if routing == .sameArea, selectedStaff[.field] == nil { return fail("Select the Same Area verification staff.") }
+        guard let hod = selectedStaff[.hod], let avp = selectedStaff[.avp], let gm = selectedStaff[.gm], let senior = selectedStaff[.senior] else { return fail("Complete all required reporting assignments.") }
+        let address = pickupAddress.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !address.isEmpty else { return fail("Enter the pickup address.") }
+        guard let pin = pickupPin else { return fail("Set the client pickup location on the map.") }
+        guard pin.latitude.isFinite, pin.longitude.isFinite,
+              pin.latitude != 0, pin.longitude != 0,
+              (-90...90).contains(pin.latitude), (-180...180).contains(pin.longitude)
+        else { return fail("Select a valid pickup location on the map.") }
+        let dateFormatter = DateFormatter(); dateFormatter.locale = Locale(identifier: "en_US_POSIX"); dateFormatter.dateFormat = "yyyy-MM-dd"
+        let timeFormatter = DateFormatter(); timeFormatter.locale = Locale(identifier: "en_US_POSIX"); timeFormatter.dateFormat = "HH:mm"
+        let attendeeRequests = visitors.map { SiteVisitAttendeeRequest(name: $0.name.nilIfBlank, relation: $0.relation.nilIfBlank, age: $0.age.nilIfBlank, isVeg: $0.isVeg) }
+        return CreateSiteVisitRequest(
+            requestId: requestId, routing: routing.rawValue, origin: origin,
+            leadId: selectedLead?.id, clientName: selectedLead == nil ? clientName.nilIfBlank : nil,
+            mobileNumber: digits, projectId: project.id,
+            scheduledDate: dateFormatter.string(from: scheduledAt), scheduledTime: timeFormatter.string(from: scheduledAt),
+            pickupTime: requiresPickup ? timeFormatter.string(from: pickupAt) : nil,
+            travelMode: routing == .direct ? "own_vehicle" : travelMode,
+            telecallerId: lmo.id, bdoStaffId: bdo.id, inchargeStaffId: incharge.id,
+            fieldStaffId: selectedStaff[.field]?.id, hodStaffId: hod.id, avpStaffId: avp.id,
+            gmStaffId: gm.id, seniorManagerStaffId: senior.id,
+            pickupAddress: address, pickupLat: pin.latitude, pickupLng: pin.longitude,
+            pickupGoogleMapsLink: pin.googleMapsLink,
+            expectedAttendeeCount: attendeeRequests.isEmpty ? nil : attendeeRequests.count,
+            attendees: attendeeRequests.isEmpty ? nil : attendeeRequests,
+            notes: notes.nilIfBlank
+        )
+    }
+
+    private func isSalesMarketing(_ item: ConvexStaffListItem) -> Bool {
+        item.isActive && (item.department ?? "").lowercased().contains("sales") && (item.department ?? "").lowercased().contains("marketing")
+    }
+
+    private func isEligibleLmo(_ item: ConvexStaffListItem) -> Bool {
+        guard item.isActive else { return false }
+        let department = (item.department ?? "").lowercased()
+        let designation = (item.designation ?? "").lowercased()
+        return (department.contains("telesales") && (designation == "lmo" || designation.contains("lead management") || designation.contains("telecaller")))
+            || department.contains("channel partner")
+            || (department.contains("sales") && department.contains("marketing") && (designation == "bdo" || designation.contains("business development")))
+    }
+
+    private func friendlyError(_ error: Error) -> String {
+        if let urlError = error as? URLError {
+            switch urlError.code {
+            case .notConnectedToInternet, .cannotFindHost, .cannotConnectToHost, .dnsLookupFailed:
+                return "No network. Check your connection and try again."
+            case .timedOut: return "The server took too long to respond. Please retry."
+            default: break
+            }
+        }
+        let message = error.localizedDescription
+            .replacingOccurrences(of: "Uncaught Error: ", with: "")
+            .split(separator: "\n").first.map(String.init) ?? ""
+        return message.isEmpty ? "Couldn't schedule site visit. Please try again." : message
+    }
 }

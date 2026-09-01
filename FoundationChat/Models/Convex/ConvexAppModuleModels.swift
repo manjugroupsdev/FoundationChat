@@ -1586,6 +1586,10 @@ struct CreateCpVisitRequest: Encodable, Sendable {
     // Required by the backend when cpType is joint_cp. This records the
     // actual purpose while cpType continues to drive the two-staff workflow.
     var jointCpCategory: String? = nil
+    // New Client CP only. For own_referral the backend derives the staff from
+    // authenticated first attendance; clients must never submit a staff id.
+    var referralSourceType: String? = nil
+    var referringClientId: String? = nil
     let visitAddress: String
     let visitLat: Double?
     let visitLng: Double?
@@ -1600,12 +1604,93 @@ struct CreateCpVisitRequest: Encodable, Sendable {
     var jointStaffIds: [String]? = nil
 }
 
+struct CreateSiteVisitRequest: Encodable, Sendable {
+    let requestId: String
+    let routing: String
+    let origin: String
+    let leadId: String?
+    let clientName: String?
+    let mobileNumber: String
+    let projectId: String
+    let scheduledDate: String
+    let scheduledTime: String
+    let pickupTime: String?
+    let travelMode: String
+    let telecallerId: String
+    let bdoStaffId: String
+    let inchargeStaffId: String
+    let fieldStaffId: String?
+    let hodStaffId: String
+    let avpStaffId: String
+    let gmStaffId: String
+    let seniorManagerStaffId: String
+    let pickupAddress: String
+    let pickupLat: Double
+    let pickupLng: Double
+    let pickupGoogleMapsLink: String?
+    let expectedAttendeeCount: Int?
+    let attendees: [SiteVisitAttendeeRequest]?
+    let notes: String?
+}
+
+struct CreateSiteVisitResponse: Decodable, Sendable {
+    let success: Bool
+    let siteVisitId: String?
+    let handoffId: String?
+    let clientPlaceVisitId: String?
+    let mode: String?
+    let message: String?
+    let error: String?
+    let code: String?
+}
+
+struct ReferralClientCandidate: Decodable, Identifiable, Sendable, Hashable {
+    let id: String
+    let name: String
+    let mobileNumber: String
+    let formattedAddress: String?
+
+    init(id: String, name: String, mobileNumber: String, formattedAddress: String?) {
+        self.id = id
+        self.name = name
+        self.mobileNumber = mobileNumber
+        self.formattedAddress = formattedAddress
+    }
+
+    private enum CodingKeys: String, CodingKey {
+        case id = "_id"
+        case fallbackId = "id"
+        case name = "clientName"
+        case fallbackName = "name"
+        case mobileNumber
+        case formattedAddress
+    }
+
+    init(from decoder: Decoder) throws {
+        let container = try decoder.container(keyedBy: CodingKeys.self)
+        id = try container.decodeIfPresent(String.self, forKey: .id)
+            ?? container.decode(String.self, forKey: .fallbackId)
+        name = try container.decodeIfPresent(String.self, forKey: .name)
+            ?? container.decode(String.self, forKey: .fallbackName)
+        mobileNumber = try container.decode(String.self, forKey: .mobileNumber)
+        formattedAddress = try container.decodeIfPresent(String.self, forKey: .formattedAddress)
+    }
+}
+
+struct ReferralClientCandidatesResponse: Decodable, Sendable {
+    let success: Bool
+    let clients: [ReferralClientCandidate]?
+    let nextCursor: String?
+    let error: String?
+}
+
 struct CreateCpVisitResponse: Decodable, Sendable {
     let success: Bool
     let id: String?
     let fieldVisitId: String?
     let followupId: String?
     let clientPlaceId: String?
+    let clientId: String?
     let error: String?
 }
 

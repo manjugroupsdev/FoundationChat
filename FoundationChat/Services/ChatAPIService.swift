@@ -575,9 +575,16 @@ enum ChatAPIService {
 
   // MARK: - Push Notifications
 
-  static func registerPushToken(token: String, deviceToken: String, platform: String = "ios", bundleId: String? = nil) async throws -> String {
+  static func registerPushToken(
+    token: String,
+    deviceToken: String,
+    platform: String = "ios",
+    provider: String? = nil,
+    bundleId: String? = nil
+  ) async throws -> String {
     let resolvedBundleId = bundleId ?? Bundle.main.bundleIdentifier ?? "com.manjugroups.mconnect"
-    let body: [String: Any] = ["token": deviceToken, "platform": platform, "bundleId": resolvedBundleId]
+    var body: [String: Any] = ["token": deviceToken, "platform": platform, "bundleId": resolvedBundleId]
+    if let provider { body["provider"] = provider }
     let data = try await post(path: "/api/push/register", token: token, jsonBody: body)
     let wrapper = try await decode(RegisterPushResponse.self, from: data)
     guard wrapper.success else { throw ChatAPIError.unexpected(wrapper.error ?? "Push registration failed") }

@@ -2,22 +2,12 @@ import AVFAudio
 import SwiftUI
 import UIKit
 
-/// Telecaller dialer: 4×3 keypad, editable Station number persisted to defaults.
-/// Tapping Call routes through the Modern Dialer WebRTC softphone when the
-/// account has a mapping (token + extension); otherwise it falls back to the
-/// Doocti PBX bridge so the agent's deskphone rings first.
-///
-/// Mirrors the Android `DialerFragment` behaviour. Station defaults key matches
-/// Android: `dialer.station`. Default station mirrors Android: `6369487527`.
+/// Mobile Modern Dialer, matching the embedded web provider controls.
 struct DialerView: View {
-    private static let defaultStation = "6369487527"
-
     @Environment(AuthStore.self) private var authStore
     @ObservedObject private var dialer = ModernDialerBridge.shared
 
-    @AppStorage("dialer.station") private var station: String = DialerView.defaultStation
     @State private var dialed: String = ""
-    @State private var isEditingStation: Bool = false
     @State private var callError: String?
     @State private var statusMessage: String?
     @State private var isCalling: Bool = false
@@ -32,14 +22,17 @@ struct DialerView: View {
     ]
 
     var body: some View {
-        VStack(spacing: 0) {
-            stationField
-            displaySection
-            keypad
-            callRow
+        ScrollView {
+            VStack(spacing: 0) {
+                modernDialerHeader
+                displaySection
+                keypad
+                callRow
+                recentCallsSection
+            }
+            .padding(.horizontal)
+            .padding(.bottom, 12)
         }
-        .padding(.horizontal)
-        .padding(.bottom, 12)
         .navigationTitle("Dialer")
         .navigationBarTitleDisplayMode(.inline)
         .alert("Cannot Call", isPresented: Binding(
@@ -69,14 +62,6 @@ struct DialerView: View {
                     .transition(.opacity)
             }
         }
-        // Hidden 1×1 WebRTC softphone host — kept attached to the hierarchy so
-        // mic capture works. Never visible.
-        .background(
-            ModernDialerWebViewContainer()
-                .frame(width: 1, height: 1)
-                .opacity(0)
-                .allowsHitTesting(false)
-        )
         .task { await prefetchDialerConfig() }
         // Surface bridge toasts (placing/timeout) in the existing status pill.
         .onChange(of: dialer.toast) { _, newValue in
@@ -86,34 +71,42 @@ struct DialerView: View {
 
     // MARK: - Sections
 
-    private var stationField: some View {
-        VStack(alignment: .leading, spacing: 6) {
-            Text("STATION")
-                .font(AppModuleFont.rowMetaSemibold)
-                .foregroundStyle(.secondary)
+    private var modernDialerHeader: some View {
+        VStack(alignment: .leading, spacing: 12) {
             HStack {
-                Image(systemName: "antenna.radiowaves.left.and.right")
-                    .foregroundStyle(.secondary)
-                TextField("Station number", text: $station)
-                    .keyboardType(.phonePad)
-                    .textContentType(.telephoneNumber)
-                    .autocorrectionDisabled()
-                    .onSubmit { isEditingStation = false }
-                if !station.isEmpty {
-                    Button {
-                        station = ""
-                    } label: {
-                        Image(systemName: "xmark.circle.fill")
-                            .foregroundStyle(.secondary)
-                    }
-                    .buttonStyle(.plain)
+                VStack(alignment: .leading, spacing: 3) {
+                    Text("Modern Dialer").font(AppModuleFont.rowTitle)
+                    Text(dialerIdentity)
+                        .font(AppModuleFont.rowMeta)
+                        .foregroundStyle(.secondary)
                 }
+                Spacer()
+                Text(dialerConfig?.configured == true ? dialer.connectionStatus : "Unavailable")
+                    .font(AppModuleFont.rowMetaSemibold)
+                    .foregroundStyle(dialer.connectionStatus == "Ready" ? .green : .secondary)
             }
-            .padding(.horizontal, 12)
-            .padding(.vertical, 10)
-            .background(.regularMaterial, in: RoundedRectangle(cornerRadius: 10))
+
+            Picker("Agent status", selection: Binding(
+                get: { dialer.agentStatus },
+                set: { dialer.setAgentStatus($0) }
+            )) {
+                Text("Available").tag("available")
+                Text("Break").tag("break")
+            }
+            .pickerStyle(.segmented)
+            .disabled(dialerConfig?.configured != true)
         }
+        .padding(12)
+        .background(Color(.secondarySystemBackground), in: RoundedRectangle(cornerRadius: 8))
         .padding(.top, 8)
+    }
+
+    private var dialerIdentity: String {
+        guard let config = dialerConfig else { return "Checking your dialer access..." }
+        guard config.configured == true else { return "Modern Dialer is not configured for this account" }
+        return [config.staff?.name?.nonBlank, config.mapping?.extension?.nonBlank.map { "Extension \($0)" }]
+            .compactMap { $0 }
+            .joined(separator: " • ")
     }
 
     private var displaySection: some View {
@@ -194,7 +187,7 @@ struct DialerView: View {
     // MARK: - Actions
 
     private var callEnabled: Bool {
-        !sanitizedNumberForCall.isEmpty
+        !sanitizedNumberForCall.isEmpty && dialer.agentStatus == "available"
     }
 
     private var sanitizedNumberForCall: String {
@@ -212,6 +205,10 @@ struct DialerView: View {
     }
 
     private func placeCall() {
+        guard dialer.agentStatus == "available" else {
+            callError = "Switch to Available before placing a call"
+            return
+        }
         let number = sanitizedNumberForCall
         let digits = number.filter(\.isNumber)
         guard digits.count >= 10 else {
@@ -233,9 +230,7 @@ struct DialerView: View {
         }
     }
 
-    /// Route to the Modern Dialer softphone when the account is configured
-    /// (token + extension); otherwise fall back to Doocti. Mirrors the Android
-    /// `DialerFragment.routeCall`.
+    /// Route exclusively through the Modern Dialer softphone.
     @MainActor
     private func routeCall(digits: String, config: MobileDialerConfig?) async {
         let token = config?.mapping?.token?.nonBlank
@@ -252,41 +247,59 @@ struct DialerView: View {
             statusMessage = nil
             dialer.startOutboundCall(destination: digits, config: config)
         } else if config == nil {
-            // Couldn't reach the config service at all — don't place a call on
-            // the (potentially dead) Doocti endpoint; tell the user to retry.
+            // Couldn't reach the config service; tell the user to retry.
             isCalling = false
             statusMessage = nil
             callError = "Couldn't reach the dialer service. Check your connection and try again."
         } else {
-            await placeDooctiCall(digits: digits)
+            isCalling = false
+            statusMessage = nil
+            callError = "Modern Dialer is not configured for this account. Contact an administrator."
         }
     }
 
-    /// Existing Doocti click-to-call path, preserved unchanged as the fallback.
-    @MainActor
-    private func placeDooctiCall(digits: String) async {
-        statusMessage = "Placing call…"
-        let stationNumber = station.filter(\.isNumber).isEmpty
-            ? Self.defaultStation
-            : station.filter(\.isNumber)
-        defer { isCalling = false }
-        do {
-            _ = try await TelecallerConvexAPIService.dialDoocti(
-                phoneNumber: digits,
-                station: stationNumber
-            )
-            statusMessage = "Call placed — your phone will ring shortly"
-            try? await Task.sleep(nanoseconds: 3_000_000_000)
-            statusMessage = nil
-        } catch {
-            statusMessage = nil
-            callError = "Call failed: \(error.localizedDescription)"
+    private var recentCallsSection: some View {
+        VStack(alignment: .leading, spacing: 8) {
+            Text("Recent calls")
+                .font(AppModuleFont.rowTitle)
+                .frame(maxWidth: .infinity, alignment: .leading)
+            if dialer.recentCalls.isEmpty {
+                Text("No recent calls")
+                    .font(AppModuleFont.rowMeta)
+                    .foregroundStyle(.secondary)
+            } else {
+                ForEach(dialer.recentCalls.prefix(8)) { call in
+                    Button {
+                        dialed = call.number
+                    } label: {
+                        HStack(spacing: 12) {
+                            Image(systemName: call.direction == "incoming" ? "phone.arrow.down.left" : "phone.arrow.up.right")
+                                .foregroundStyle(call.status == "failed" || call.status == "missed" ? .red : .green)
+                            VStack(alignment: .leading, spacing: 3) {
+                                Text(call.number).font(AppModuleFont.rowTitle)
+                                Text("\(call.startedAt.formatted(date: .abbreviated, time: .shortened)) • \(call.status) • \(durationText(call.durationSeconds))")
+                                    .font(AppModuleFont.rowMeta)
+                                    .foregroundStyle(.secondary)
+                            }
+                            Spacer()
+                        }
+                        .padding(12)
+                        .background(Color(.secondarySystemBackground), in: RoundedRectangle(cornerRadius: 8))
+                    }
+                    .buttonStyle(.plain)
+                }
+            }
         }
+        .padding(.top, 18)
+    }
+
+    private func durationText(_ seconds: Int) -> String {
+        seconds < 60 ? "\(seconds)s" : "\(seconds / 60)m \(seconds % 60)s"
     }
 
     /// Fetch the Modern Dialer mapping with a small retry (mirrors Android's
     /// `fetchDialerConfigWithRetry` — a transient failure must not be mistaken
-    /// for "no mapping" and wrongly drop to Doocti).
+    /// for "no mapping" and wrongly report the user as unconfigured.
     private func fetchDialerConfig() async -> MobileDialerConfig? {
         guard let token = authStore.currentSession?.token else { return nil }
         for attempt in 0..<3 {
@@ -299,7 +312,13 @@ struct DialerView: View {
     }
 
     private func prefetchDialerConfig() async {
-        if dialerConfig == nil { dialerConfig = await fetchDialerConfig() }
+        if dialerConfig == nil {
+            dialerConfig = await fetchDialerConfig()
+            if let dialerConfig, dialerConfig.configured == true {
+                dialer.ensureLoaded(config: dialerConfig)
+                dialer.requestState()
+            }
+        }
     }
 
     private func requestMicPermission() async -> Bool {
@@ -426,6 +445,16 @@ private struct CallPanelView: View {
                             tint: dialer.held ? .orange : .gray
                         ) { dialer.toggleHold() }
                     }
+
+                    Picker("Audio route", selection: Binding(
+                        get: { dialer.audioRoute },
+                        set: { dialer.selectAudioRoute($0) }
+                    )) {
+                        ForEach(ModernDialerAudioRoute.allCases, id: \.self) { route in
+                            Text(route.rawValue).tag(route)
+                        }
+                    }
+                    .pickerStyle(.segmented)
                 }
 
                 HStack(spacing: 40) {

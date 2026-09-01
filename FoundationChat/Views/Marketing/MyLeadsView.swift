@@ -1,3 +1,4 @@
+import AVFAudio
 import SwiftUI
 import UIKit
 
@@ -6,7 +7,7 @@ import UIKit
 struct MyLeadsView: View {
     @Environment(AuthStore.self) private var authStore
 
-    @AppStorage("dialer.station") private var station: String = "6369487527"
+    @ObservedObject private var dialer = ModernDialerBridge.shared
 
     @State private var mode: LeadMode = .all
     @State private var leads: [ConvexLead] = []
@@ -215,25 +216,43 @@ struct MyLeadsView: View {
         }
         guard dialingPhone == nil else { return }
         dialingPhone = digits
-        statusMessage = "Placing call…"
-        let stationNumber = station.filter(\.isNumber).isEmpty ? "6369487527" : station.filter(\.isNumber)
+        statusMessage = "Checking dialer..."
         Task {
             defer {
                 Task { @MainActor in dialingPhone = nil }
             }
             do {
-                _ = try await TelecallerConvexAPIService.dialDoocti(
-                    phoneNumber: digits,
-                    station: stationNumber
-                )
-                await MainActor.run { statusMessage = "Call placed — your phone will ring shortly" }
-                try? await Task.sleep(nanoseconds: 3_000_000_000)
-                await MainActor.run { statusMessage = nil }
+                guard let token = authStore.currentSession?.token else {
+                    throw TelecallerAPIError.unauthorized
+                }
+                let config = try await TelecallerConvexAPIService.getMobileDialerConfig(token: token)
+                guard config.configured == true,
+                      config.mapping?.token?.nonBlank != nil,
+                      config.mapping?.extension?.nonBlank != nil else {
+                    throw TelecallerAPIError.server("Modern Dialer is not configured for this account")
+                }
+                let granted = await requestMicPermission()
+                guard granted else {
+                    throw TelecallerAPIError.server("Microphone permission is required for Modern Dialer calls")
+                }
+                await MainActor.run {
+                    statusMessage = nil
+                    dialer.startOutboundCall(destination: digits, config: config)
+                }
             } catch {
                 await MainActor.run {
                     statusMessage = nil
                     errorMessage = "Call failed: \(error.localizedDescription)"
                 }
+            }
+        }
+    }
+
+    private func requestMicPermission() async -> Bool {
+        if AVAudioApplication.shared.recordPermission == .granted { return true }
+        return await withCheckedContinuation { continuation in
+            AVAudioApplication.requestRecordPermission { granted in
+                continuation.resume(returning: granted)
             }
         }
     }

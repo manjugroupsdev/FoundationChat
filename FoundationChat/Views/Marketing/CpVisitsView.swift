@@ -1737,7 +1737,11 @@ private struct CreateCpVisitSheet: View {
     @State private var longitude = ""
     @State private var notes = ""
     @State private var selectedCpType: CpVisitCreateType?
+    @State private var showCpTypePicker = false
     @State private var selectedJointCpCategory: CpVisitCreateType?
+    @State private var selectedReferralSource: NewClientReferralSource?
+    @State private var selectedReferringClient: ReferralClientCandidate?
+    @State private var showReferringClientPicker = false
     @State private var bookingGatePhone: String?
     @State private var bookingGateCount = 0
     @State private var isCheckingBookingGate = false
@@ -1752,6 +1756,9 @@ private struct CreateCpVisitSheet: View {
     @State private var selectedLmo: ConvexStaffListItem?
     @State private var leadMatches: [TelecallerLeadSearchData] = []
     @State private var selectedLead: TelecallerLeadSearchData?
+    @State private var existingClientProfile: BookingClientProfile?
+    @State private var existingClientPhone: String?
+    @State private var showExistingClientWarning = false
     @State private var isLoadingProjects = false
     @State private var isLoadingStaff = false
     @State private var isSearchingLead = false
@@ -1788,11 +1795,21 @@ private struct CreateCpVisitSheet: View {
                     if selectedCpType == .jointCp {
                         jointCpCategoryPicker
                     }
+                    if isNewClientCpPurpose {
+                        referralSourcePicker
+                        if selectedReferralSource == .clientReferral {
+                            referringClientPicker
+                        }
+                    }
 
                     cpTextField("Client Phone Number *", placeholder: "Enter Client Number", text: $phone, systemImage: "phone", keyboard: .phonePad)
                         .onChange(of: phone) { _, newValue in
                             selectedLead = nil
                             leadMatches = []
+                            if AppModuleFormatters.normalizePhone(newValue) != existingClientPhone {
+                                existingClientProfile = nil
+                                existingClientPhone = nil
+                            }
                             bookingGatePhone = nil
                             bookingGateCount = 0
                             scheduleAutomaticLeadLookup(for: newValue)
@@ -1973,6 +1990,21 @@ private struct CreateCpVisitSheet: View {
         } message: {
             Text(errorMessage ?? "")
         }
+        .alert("Client already exists", isPresented: $showExistingClientWarning) {
+            Button("Choose CP type") {
+                DispatchQueue.main.async { showCpTypePicker = true }
+            }
+        } message: {
+            Text("This number already exists as a client. Convert to another type of CP. The existing client details have been filled in.")
+        }
+        .confirmationDialog("Select CP type", isPresented: $showCpTypePicker, titleVisibility: .visible) {
+            ForEach(CpVisitCreateType.allCases) { type in
+                Button(type.title) {
+                    Task { await selectCpType(type) }
+                }
+            }
+            Button("Cancel", role: .cancel) {}
+        }
         .sheet(isPresented: $showStaffPicker) {
             NativeSearchableSelectionSheet(
                 title: "Select Staff",
@@ -2071,6 +2103,19 @@ private struct CreateCpVisitSheet: View {
                 showMapPinPicker = false
             }
             .appLibraryNativeSheet([.large])
+        }
+        .sheet(isPresented: $showReferringClientPicker) {
+            if let token = authStore.currentSession?.token {
+                ReferralClientPickerSheet(
+                    token: token,
+                    excludingPhone: AppModuleFormatters.normalizePhone(phone),
+                    selectedId: selectedReferringClient?.id
+                ) { client in
+                    selectedReferringClient = client
+                    showReferringClientPicker = false
+                }
+                .appLibraryNativeSheet([.medium, .large])
+            }
         }
         .task { await loadBootstrapData() }
         // The lead lookup can resolve before the staff list finishes loading,
@@ -2246,14 +2291,8 @@ private struct CreateCpVisitSheet: View {
 
     private var cpTypePicker: some View {
         pickerShell(title: "CP Type *", icon: "tag") {
-            Menu {
-                ForEach(CpVisitCreateType.allCases) { type in
-                    Button {
-                        Task { await selectCpType(type) }
-                    } label: {
-                        Label(type.title, systemImage: selectedCpType == type ? "checkmark" : "circle")
-                    }
-                }
+            Button {
+                showCpTypePicker = true
             } label: {
                 HStack {
                     VStack(alignment: .leading, spacing: 2) {
@@ -2323,6 +2362,71 @@ private struct CreateCpVisitSheet: View {
                 .frame(maxWidth: .infinity)
                 .contentShape(Rectangle())
             }
+        }
+    }
+
+    private var referralSourcePicker: some View {
+        pickerShell(title: "Referral Source *", icon: "person.2") {
+            Menu {
+                ForEach(NewClientReferralSource.allCases) { source in
+                    Button {
+                        selectedReferralSource = source
+                        if source != .clientReferral {
+                            selectedReferringClient = nil
+                        }
+                    } label: {
+                        Label(
+                            source.title,
+                            systemImage: selectedReferralSource == source ? "checkmark" : "circle"
+                        )
+                    }
+                }
+            } label: {
+                HStack {
+                    VStack(alignment: .leading, spacing: 2) {
+                        Text(selectedReferralSource?.title ?? "Select referral source")
+                            .font(.system(size: 14, weight: .medium))
+                            .foregroundStyle(selectedReferralSource == nil ? Color(hex: 0x9CA3AF) : Color(hex: 0x101828))
+                        Text(selectedReferralSource?.subtitle ?? "Required")
+                            .font(.system(size: 10, weight: .medium))
+                            .foregroundStyle(.secondary)
+                    }
+                    Spacer()
+                    Image(systemName: "chevron.down")
+                        .font(.system(size: 12, weight: .semibold))
+                        .foregroundStyle(.secondary)
+                }
+                .frame(maxWidth: .infinity)
+                .contentShape(Rectangle())
+            }
+            .buttonStyle(.plain)
+        }
+    }
+
+    private var referringClientPicker: some View {
+        pickerShell(title: "Referring Client *", icon: "person.text.rectangle") {
+            Button {
+                showReferringClientPicker = true
+            } label: {
+                HStack {
+                    VStack(alignment: .leading, spacing: 2) {
+                        Text(selectedReferringClient?.name ?? "Search client by name or mobile")
+                            .font(.system(size: 14, weight: .medium))
+                            .foregroundStyle(selectedReferringClient == nil ? Color(hex: 0x9CA3AF) : Color(hex: 0x101828))
+                            .lineLimit(1)
+                        Text(selectedReferringClient?.mobileNumber ?? "Existing clients only")
+                            .font(.system(size: 10, weight: .medium))
+                            .foregroundStyle(.secondary)
+                    }
+                    Spacer()
+                    Image(systemName: "magnifyingglass")
+                        .font(.system(size: 14, weight: .semibold))
+                        .foregroundStyle(.secondary)
+                }
+                .frame(maxWidth: .infinity)
+                .contentShape(Rectangle())
+            }
+            .buttonStyle(.plain)
         }
     }
 
@@ -2476,18 +2580,26 @@ private struct CreateCpVisitSheet: View {
         guard let token = authStore.currentSession?.token else { return }
         isSearchingLead = true
         defer { isSearchingLead = false }
-        do {
-            let matches = try await MarketingConvexAPIService.searchTelecallerLeadsByPhone(
-                token: token,
-                phone: normalizedPhone
-            )
-            guard AppModuleFormatters.normalizePhone(phone) == normalizedPhone else { return }
-            leadMatches = matches
-            if let first = matches.first {
-                applyLead(first)
+        async let leadSearch = MarketingConvexAPIService.searchTelecallerLeadsByPhone(
+            token: token,
+            phone: normalizedPhone
+        )
+        async let clientSearch = MarketingConvexAPIService.searchClientByPhone(
+            token: token,
+            phone: normalizedPhone
+        )
+        let matches = (try? await leadSearch) ?? []
+        let existingClient = try? await clientSearch
+        guard AppModuleFormatters.normalizePhone(phone) == normalizedPhone else { return }
+        leadMatches = matches
+        if let first = matches.first {
+            applyLead(first)
+        }
+        if let existingClient {
+            applyExistingClient(existingClient, phone: normalizedPhone)
+            if isNewClientCpPurpose {
+                blockNewClientCpForExistingClient()
             }
-        } catch {
-            // Android treats automatic lookup as opportunistic.
         }
     }
 
@@ -2581,6 +2693,38 @@ private struct CreateCpVisitSheet: View {
         leadMatches = []
     }
 
+    private func applyExistingClient(_ client: BookingClientProfile, phone normalizedPhone: String) {
+        fillIfBlank($clientName, client.clientName)
+        phone = AppModuleFormatters.normalizePhone(client.mobileNumber ?? normalizedPhone)
+        fillIfBlank($doorNo, client.doorNo)
+        fillIfBlank($street, client.streetName)
+        fillIfBlank($addressLine1, client.addressLine1 ?? client.homeAddress ?? client.formattedAddress)
+        fillIfBlank($addressLine2, client.addressLine2 ?? client.landmark)
+        fillIfBlank($city, client.district ?? client.location)
+        fillIfBlank($state, client.state)
+        fillIfBlank($pincode, client.pincode)
+        fillIfBlank($mapsLink, client.googleMapsLink)
+        if latitude.blankToNil == nil, let lat = client.lat { latitude = String(lat) }
+        if longitude.blankToNil == nil, let lng = client.lng { longitude = String(lng) }
+        existingClientProfile = client
+        existingClientPhone = normalizedPhone
+    }
+
+    private var hasCurrentExistingClient: Bool {
+        existingClientProfile != nil &&
+            existingClientPhone == AppModuleFormatters.normalizePhone(phone)
+    }
+
+    private func blockNewClientCpForExistingClient() {
+        guard existingClientProfile != nil else { return }
+        selectedCpType = nil
+        selectedJointCpCategory = nil
+        selectedJointPartner = nil
+        selectedReferralSource = nil
+        selectedReferringClient = nil
+        showExistingClientWarning = true
+    }
+
     private func fillIfBlank(_ binding: Binding<String>, _ value: String?) {
         guard let value = value?.blankToNil else { return }
         if binding.wrappedValue.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
@@ -2590,6 +2734,10 @@ private struct CreateCpVisitSheet: View {
 
     @MainActor
     private func selectCpType(_ type: CpVisitCreateType) async {
+        if type == .newClientCp, hasCurrentExistingClient {
+            blockNewClientCpForExistingClient()
+            return
+        }
         // Drop a partner chosen for a Joint CP the moment the type changes.
         // Must run BEFORE the early return below, otherwise switching Joint CP
         // -> Booking CP would keep the partner and still submit a second
@@ -2600,6 +2748,7 @@ private struct CreateCpVisitSheet: View {
         }
         if !type.requiresConfirmedBooking {
             selectedCpType = type
+            clearReferralSourceIfNeeded()
             return
         }
         let normalizedPhone = AppModuleFormatters.normalizePhone(phone)
@@ -2619,6 +2768,7 @@ private struct CreateCpVisitSheet: View {
                 return
             }
             selectedCpType = type
+            clearReferralSourceIfNeeded()
         } catch {
             errorMessage = error.localizedDescription
         }
@@ -2627,8 +2777,13 @@ private struct CreateCpVisitSheet: View {
     @MainActor
     private func selectJointCpCategory(_ type: CpVisitCreateType) async {
         guard type != .jointCp else { return }
+        if type == .newClientCp, hasCurrentExistingClient {
+            blockNewClientCpForExistingClient()
+            return
+        }
         if !type.requiresConfirmedBooking {
             selectedJointCpCategory = type
+            clearReferralSourceIfNeeded()
             return
         }
         let normalizedPhone = AppModuleFormatters.normalizePhone(phone)
@@ -2651,6 +2806,7 @@ private struct CreateCpVisitSheet: View {
                 return
             }
             selectedJointCpCategory = type
+            clearReferralSourceIfNeeded()
         } catch {
             errorMessage = error.localizedDescription
         }
@@ -2685,6 +2841,22 @@ private struct CreateCpVisitSheet: View {
         // CP Type drives the whole post-arrival branch in the trip flow, and an
         // untyped CP shows as a bare dash in every list.
         guard selectedCpType != nil else { errorMessage = "Select the CP type"; return }
+        if isNewClientCpPurpose {
+            guard let selectedReferralSource else {
+                errorMessage = "Select Own Referral or Client Referral"
+                return
+            }
+            if selectedReferralSource == .clientReferral {
+                guard let selectedReferringClient else {
+                    errorMessage = "Select the referring client"
+                    return
+                }
+                guard AppModuleFormatters.normalizePhone(selectedReferringClient.mobileNumber) != normalizedPhone else {
+                    errorMessage = "A client cannot refer themselves"
+                    return
+                }
+            }
+        }
         // A Joint CP is meaningless with one person on it, and the server
         // requires exactly two different active staff.
         if selectedCpType == .jointCp {
@@ -2732,6 +2904,21 @@ private struct CreateCpVisitSheet: View {
             return
         }
         guard let token = authStore.currentSession?.token else { return }
+        if isNewClientCpPurpose {
+            do {
+                if let existing = try await MarketingConvexAPIService.searchClientByPhone(
+                    token: token,
+                    phone: normalizedPhone
+                ) {
+                    applyExistingClient(existing, phone: normalizedPhone)
+                    blockNewClientCpForExistingClient()
+                    return
+                }
+            } catch {
+                errorMessage = "Couldn't verify whether this client already exists. \(error.localizedDescription)"
+                return
+            }
+        }
         let effectiveCpPurpose = selectedCpType == .jointCp
             ? selectedJointCpCategory
             : selectedCpType
@@ -2798,6 +2985,10 @@ private struct CreateCpVisitSheet: View {
             jointCpCategory: selectedCpType == .jointCp
                 ? selectedJointCpCategory?.rawValue
                 : nil,
+            referralSourceType: isNewClientCpPurpose ? selectedReferralSource?.rawValue : nil,
+            referringClientId: isNewClientCpPurpose && selectedReferralSource == .clientReferral
+                ? selectedReferringClient?.id
+                : nil,
             visitAddress: trimmedAddress,
             visitLat: resolvedLatitude,
             visitLng: resolvedLongitude,
@@ -2816,9 +3007,23 @@ private struct CreateCpVisitSheet: View {
         do {
             _ = try await MarketingConvexAPIService.createCpVisit(token: token, request: request)
             onCreated()
+        } catch MarketingAPIError.newClientAlreadyExists(let client, _) {
+            applyExistingClient(client, phone: normalizedPhone)
+            blockNewClientCpForExistingClient()
         } catch {
             errorMessage = error.localizedDescription
         }
+    }
+
+    private var isNewClientCpPurpose: Bool {
+        selectedCpType == .newClientCp ||
+            (selectedCpType == .jointCp && selectedJointCpCategory == .newClientCp)
+    }
+
+    private func clearReferralSourceIfNeeded() {
+        guard !isNewClientCpPurpose else { return }
+        selectedReferralSource = nil
+        selectedReferringClient = nil
     }
 
     private var composedAddress: String {
@@ -2991,6 +3196,7 @@ private extension CpVisitDetail {
     }
 
     var isSvCumCp: Bool {
+        if cpType?.normalizedMarker == "sv_cum_cp" { return true }
         if proposedSiteVisit?.isMeaningful == true { return true }
         if lead?.followUpStatus?.normalizedMarker.contains("sv_fixed") == true { return true }
         if (expectedAttendeeCount ?? 0) > 0 { return true }
@@ -3090,6 +3296,7 @@ struct CpMapPinPicker: View {
     @State private var searchResults: [CpMapSearchResult] = []
     @State private var isSearching = false
     @State private var isSearchPresented = false
+    @State private var searchErrorMessage: String?
 
     init(
         initialCoordinate: CLLocationCoordinate2D?,
@@ -3134,6 +3341,10 @@ struct CpMapPinPicker: View {
                 if isSearching {
                     Label("Searching Manju Maps…", systemImage: "sparkle.magnifyingglass")
                         .foregroundStyle(.secondary)
+                }
+                if let searchErrorMessage {
+                    Label(searchErrorMessage, systemImage: "wifi.exclamationmark")
+                        .foregroundStyle(.red)
                 }
                 ForEach(searchResults) { result in
                     Button {
@@ -3242,31 +3453,60 @@ struct CpMapPinPicker: View {
         let query = searchText.trimmingCharacters(in: .whitespacesAndNewlines)
         guard query.count >= 2 else {
             searchResults = []
+            searchErrorMessage = nil
             return
         }
         try? await Task.sleep(for: .milliseconds(320))
         guard !Task.isCancelled else { return }
         isSearching = true
+        searchErrorMessage = nil
         defer { isSearching = false }
         do {
             let response = try await MapServiceAPI.search(query: query, limit: 6)
             guard !Task.isCancelled else { return }
-            searchResults = response.compactMap(CpMapSearchResult.init)
-            if let first = searchResults.first {
-                cameraPosition = .region(MKCoordinateRegion(
-                    center: first.coordinate,
-                    span: MKCoordinateSpan(latitudeDelta: 0.08, longitudeDelta: 0.08)
-                ))
+            let remoteResults = response.compactMap(CpMapSearchResult.init)
+            if remoteResults.isEmpty {
+                searchResults = try await nativeSearch(query: query)
+            } else {
+                searchResults = remoteResults
             }
         } catch {
-            searchResults = []
+            do {
+                searchResults = try await nativeSearch(query: query)
+            } catch {
+                searchResults = []
+                searchErrorMessage = "No network. Check your connection and try again."
+            }
         }
+        guard !Task.isCancelled else { return }
+        if searchResults.isEmpty, searchErrorMessage == nil {
+            searchErrorMessage = "No matching places found. Try a more specific address."
+        }
+        if let first = searchResults.first {
+            cameraPosition = .region(MKCoordinateRegion(
+                center: first.coordinate,
+                span: MKCoordinateSpan(latitudeDelta: 0.08, longitudeDelta: 0.08)
+            ))
+        }
+    }
+
+    @MainActor
+    private func nativeSearch(query: String) async throws -> [CpMapSearchResult] {
+        let request = MKLocalSearch.Request()
+        request.naturalLanguageQuery = query
+        request.region = MKCoordinateRegion(
+            center: selectedCoordinate ?? CLLocationCoordinate2D(latitude: 13.0827, longitude: 80.2707),
+            span: MKCoordinateSpan(latitudeDelta: 1.5, longitudeDelta: 1.5)
+        )
+        let response = try await MKLocalSearch(request: request).start()
+        return response.mapItems.prefix(6).map(CpMapSearchResult.init)
     }
 
     private func choose(_ result: CpMapSearchResult) {
         searchText = ""
         isSearchPresented = false
         searchResults = []
+        searchErrorMessage = nil
         selectedCoordinate = result.coordinate
         selectedAddress = [result.title, result.subtitle]
             .filter { !$0.isEmpty }
@@ -3312,10 +3552,182 @@ struct CpMapSearchResult: Identifiable {
         id = item.placeId?.blankToNil ?? "\(title)|\(latitude)|\(longitude)"
     }
 
+    init(_ item: MKMapItem) {
+        coordinate = item.placemark.coordinate
+        title = item.name?.blankToNil ?? "Location"
+        subtitle = item.placemark.title?.blankToNil ?? title
+        types = []
+        id = "native|\(title)|\(coordinate.latitude)|\(coordinate.longitude)"
+    }
+
     var symbolName: String {
         if types.contains("real_estate_agency") { return "building.2.crop.circle" }
         if types.contains("general_contractor") { return "hammer.circle" }
         return "mappin.circle"
+    }
+}
+
+private enum NewClientReferralSource: String, CaseIterable, Identifiable {
+    case ownReferral = "own_referral"
+    case clientReferral = "client_referral"
+
+    var id: String { rawValue }
+
+    var title: String {
+        switch self {
+        case .ownReferral: return "Own Referral"
+        case .clientReferral: return "Client Referral"
+        }
+    }
+
+    var subtitle: String {
+        switch self {
+        case .ownReferral: return "Credit the staff who first attends this CP"
+        case .clientReferral: return "Credit an existing client"
+        }
+    }
+}
+
+private struct ReferralClientPickerSheet: View {
+    @Environment(\.dismiss) private var dismiss
+    let token: String
+    let excludingPhone: String
+    let selectedId: String?
+    let onSelect: (ReferralClientCandidate) -> Void
+
+    @State private var query = ""
+    @State private var clients: [ReferralClientCandidate] = []
+    @State private var isLoading = false
+    @State private var errorMessage: String?
+
+    var body: some View {
+        NavigationStack {
+            Group {
+                if query.trimmingCharacters(in: .whitespacesAndNewlines).count < 2 {
+                    ContentUnavailableView(
+                        "Find referring client",
+                        systemImage: "person.badge.plus",
+                        description: Text("Enter at least 2 letters or mobile digits.")
+                    )
+                } else if isLoading && clients.isEmpty {
+                    ProgressView("Searching clients…")
+                } else if let errorMessage, clients.isEmpty {
+                    ContentUnavailableView(
+                        "Search unavailable",
+                        systemImage: "wifi.exclamationmark",
+                        description: Text(errorMessage)
+                    )
+                } else if clients.isEmpty {
+                    ContentUnavailableView.search(text: query)
+                } else {
+                    List(clients) { client in
+                        Button {
+                            onSelect(client)
+                        } label: {
+                            HStack(spacing: 12) {
+                                Text(String(client.name.prefix(1)).uppercased())
+                                    .font(.system(size: 14, weight: .semibold))
+                                    .foregroundStyle(Color(hex: 0x0B61CA))
+                                    .frame(width: 42, height: 42)
+                                    .background(Color(hex: 0xEAF2FC), in: Circle())
+                                VStack(alignment: .leading, spacing: 4) {
+                                    Text(client.name)
+                                        .font(.system(size: 15, weight: .semibold))
+                                        .foregroundStyle(.primary)
+                                    Text(client.mobileNumber)
+                                        .font(.system(size: 12, weight: .medium))
+                                        .foregroundStyle(.secondary)
+                                    if let address = client.formattedAddress?.blankToNil {
+                                        Text(address)
+                                            .font(.system(size: 11))
+                                            .foregroundStyle(.secondary)
+                                            .lineLimit(1)
+                                    }
+                                }
+                                Spacer()
+                                if client.id == selectedId {
+                                    Image(systemName: "checkmark.circle.fill")
+                                        .foregroundStyle(Color(hex: 0x0B61CA))
+                                }
+                            }
+                            .contentShape(Rectangle())
+                        }
+                        .buttonStyle(.plain)
+                    }
+                    .listStyle(.plain)
+                }
+            }
+            .navigationTitle("Referring Client")
+            .navigationBarTitleDisplayMode(.inline)
+            .toolbar {
+                ToolbarItem(placement: .cancellationAction) {
+                    Button("Cancel") { dismiss() }
+                }
+            }
+            .searchable(text: $query, prompt: "Name or mobile number")
+            .task(id: query) {
+                await search()
+            }
+        }
+    }
+
+    @MainActor
+    private func search() async {
+        let trimmed = query.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard trimmed.count >= 2 else {
+            clients = []
+            errorMessage = nil
+            return
+        }
+        do {
+            try await Task.sleep(for: .milliseconds(300))
+            guard !Task.isCancelled else { return }
+            isLoading = true
+            errorMessage = nil
+            defer { isLoading = false }
+            let response: [ReferralClientCandidate]
+            do {
+                let remote = try await MarketingConvexAPIService.searchReferralClientCandidates(
+                    token: token,
+                    query: trimmed
+                )
+                response = remote.clients ?? []
+            } catch {
+                let digits = AppModuleFormatters.normalizePhone(trimmed)
+                guard error.localizedDescription.contains("(404)"), digits.count == 10 else {
+                    throw error
+                }
+                if let exact = try await MarketingConvexAPIService.searchClientByPhone(
+                    token: token,
+                    phone: digits
+                ) {
+                    response = [ReferralClientCandidate(
+                        id: exact.id,
+                        name: exact.clientName?.blankToNil ?? "Client",
+                        mobileNumber: exact.mobileNumber?.blankToNil ?? digits,
+                        formattedAddress: exact.formattedAddress
+                            ?? exact.homeAddress
+                            ?? exact.addressLine1
+                    )]
+                } else {
+                    response = []
+                }
+            }
+            guard !Task.isCancelled else { return }
+            clients = response.filter {
+                AppModuleFormatters.normalizePhone($0.mobileNumber) != excludingPhone
+            }
+        } catch is CancellationError {
+            return
+        } catch {
+            guard !Task.isCancelled else { return }
+            clients = []
+            if error.localizedDescription.contains("(404)") {
+                errorMessage = "Client name search is not available yet. Try a full mobile number."
+            } else {
+                errorMessage = error.localizedDescription
+            }
+        }
     }
 }
 

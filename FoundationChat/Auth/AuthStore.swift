@@ -397,6 +397,10 @@ final class AuthStore {
        let t = token, let deviceToken = lastKnownAPNSToken {
       try? await ChatAPIService.unregisterPushToken(token: t, deviceToken: deviceToken)
     }
+    if currentSession?.user.isExternalFleetPrincipal != true,
+       let t = token, let voipToken = ModernDialerVoIPTokenCache.token {
+      try? await ChatAPIService.unregisterPushToken(token: t, deviceToken: voipToken)
+    }
     if let t = token {
       if currentSession?.user.isExternalFleetPrincipal == true {
         try? await AuthAPIService.logoutTravelDesk(token: t)
@@ -419,6 +423,7 @@ final class AuthStore {
     pendingOTPUsesTravelDesk = false
     lastKnownAPNSToken = nil
     registeredAPNSToken = nil
+    ModernDialerVoIPTokenCache.token = nil
     status = .signedOut
   }
 
@@ -440,6 +445,7 @@ final class AuthStore {
     pendingPasswordChangeCredential = nil
     pendingOTPUsesTravelDesk = false
     registeredAPNSToken = nil
+    ModernDialerVoIPTokenCache.token = nil
     status = .signedOut
   }
 

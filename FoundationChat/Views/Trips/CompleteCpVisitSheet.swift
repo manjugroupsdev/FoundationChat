@@ -386,7 +386,7 @@ struct CompleteCpVisitSheet: View {
         switch outcome {
         case .booking: return "Booking"
         case .siteVisit: return "Site Visit"
-        case .postponed: return "Postpone"
+        case .postponed: return "Follow-up"
         default: return outcome.title
         }
     }
@@ -890,12 +890,12 @@ struct CompleteCpVisitSheet: View {
 
     private var postponeSection: some View {
         VStack(alignment: .leading, spacing: 10) {
-            sectionLabel("Next visit date")
-            Text("When should this visit be rescheduled to?")
+            sectionLabel("Follow-up date")
+            Text("When should the client be followed up?")
                 .font(.caption)
                 .foregroundStyle(.secondary)
             DatePicker(
-                "Next visit date",
+                "Follow-up date",
                 selection: $postponeFollowUpDate,
                 in: postponeDateRange,
                 displayedComponents: .date
@@ -907,7 +907,7 @@ struct CompleteCpVisitSheet: View {
 
             sectionLabel("Reason")
                 .padding(.top, 6)
-            Text("Why is the visit being postponed?")
+            Text("Why does this client need a follow-up?")
                 .font(.caption)
                 .foregroundStyle(.secondary)
             ForEach(CpPostponeReason.allCases) { reason in
@@ -1426,7 +1426,7 @@ struct CompleteCpVisitSheet: View {
             }
         }
         if selectedOutcome == .postponed && selectedPostponeReasons.isEmpty {
-            errorMessage = "Select at least one reason for postponement"
+            errorMessage = "Select at least one reason for follow-up"
             return
         }
         if selectedOutcome == .notInterested && selectedNotInterestedReasons.isEmpty {
@@ -1901,7 +1901,7 @@ private enum CpVisitOutcome: String, CaseIterable, Identifiable {
         switch self {
         case .booking: return "Booking"
         case .siteVisit: return "Site Visit"
-        case .postponed: return "Postpone"
+        case .postponed: return "Follow-up"
         case .notInterested: return "Not Interested"
         case .other: return "Others"
         case .referral: return "Referral"

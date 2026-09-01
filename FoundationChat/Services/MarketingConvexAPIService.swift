@@ -12,6 +12,19 @@ struct StaffDigitalSign: Decodable, Sendable {
 enum MarketingConvexAPIService {
     private static let baseURL = AppConfig.baseURL
 
+    private struct NewClientDuplicateResponse: Decodable {
+        let code: String?
+        let error: String?
+        let client: BookingClientProfile?
+    }
+
+    private struct NormalizedAPIErrorResponse: Decodable {
+        let code: String?
+        let error: String?
+        let fieldErrors: [String: String]?
+        let correlationId: String?
+    }
+
     // MARK: - Response wrappers
 
     private struct MyLoansResponse: Decodable {
@@ -757,6 +770,40 @@ enum MarketingConvexAPIService {
         return wrapper
     }
 
+    static func createSiteVisit(token: String, request: CreateSiteVisitRequest) async throws -> CreateSiteVisitResponse {
+        let data = try await post(path: "/api/marketing/siteVisits/create", token: token, body: request)
+        let wrapper = try decode(CreateSiteVisitResponse.self, from: data)
+        guard wrapper.success else {
+            throw MarketingAPIError.server(wrapper.error ?? "Failed to schedule site visit")
+        }
+        return wrapper
+    }
+
+    static func searchReferralClientCandidates(
+        token: String,
+        query: String,
+        limit: Int = 25,
+        cursor: String? = nil
+    ) async throws -> ReferralClientCandidatesResponse {
+        var queryItems = [
+            URLQueryItem(name: "query", value: query),
+            URLQueryItem(name: "limit", value: String(limit))
+        ]
+        if let cursor, !cursor.isEmpty {
+            queryItems.append(URLQueryItem(name: "cursor", value: cursor))
+        }
+        let data = try await get(
+            path: "/api/clients/referral-candidates",
+            token: token,
+            queryItems: queryItems
+        )
+        let wrapper = try decode(ReferralClientCandidatesResponse.self, from: data)
+        guard wrapper.success else {
+            throw MarketingAPIError.server(wrapper.error ?? "Failed to search clients")
+        }
+        return wrapper
+    }
+
     static func parseAddress(token: String, raw: String) async throws -> ParsedAddressFields {
         let data = try await post(
             path: "/api/address/parse",
@@ -1061,6 +1108,24 @@ enum MarketingConvexAPIService {
                 throw MarketingAPIError.unauthorized
             }
             if http.statusCode >= 400 {
+                if http.statusCode == 409,
+                   let duplicate = try? JSONDecoder().decode(NewClientDuplicateResponse.self, from: data),
+                   duplicate.code == "NEW_CLIENT_ALREADY_EXISTS",
+                   let client = duplicate.client {
+                    throw MarketingAPIError.newClientAlreadyExists(
+                        client,
+                        duplicate.error ?? "This number already exists as a client. Convert to another type of CP."
+                    )
+                }
+                if let normalized = try? JSONDecoder().decode(NormalizedAPIErrorResponse.self, from: data),
+                   normalized.code != nil || normalized.error != nil {
+                    throw MarketingAPIError.structuredServer(
+                        code: normalized.code,
+                        message: friendlyServerMessage(normalized.error ?? "Request failed"),
+                        fieldErrors: normalized.fieldErrors,
+                        correlationId: normalized.correlationId
+                    )
+                }
                 if let json = try? JSONSerialization.jsonObject(with: data) as? [String: Any],
                    let error = json["error"] as? String {
                     throw MarketingAPIError.server(friendlyServerMessage(error))
@@ -1170,6 +1235,8 @@ struct CpApprovalRoutePoint: Decodable, Sendable {
 enum MarketingAPIError: LocalizedError {
     case badURL
     case unauthorized
+    case newClientAlreadyExists(BookingClientProfile, String)
+    case structuredServer(code: String?, message: String, fieldErrors: [String: String]?, correlationId: String?)
     case server(String)
     case decoding(Error)
 
@@ -1177,6 +1244,12 @@ enum MarketingAPIError: LocalizedError {
         switch self {
         case .badURL: return "Invalid URL"
         case .unauthorized: return "Session expired. Please sign in again."
+        case .newClientAlreadyExists(_, let message): return message
+        case .structuredServer(_, let message, let fieldErrors, let correlationId):
+            if !message.isEmpty && message != "Request failed" { return message }
+            if let fieldMessage = fieldErrors?.values.first, !fieldMessage.isEmpty { return fieldMessage }
+            if let correlationId, !correlationId.isEmpty { return "Request failed. Reference: \(correlationId)" }
+            return "Request failed"
         case .server(let message): return message
         case .decoding(let error): return "Failed to decode response: \(error.localizedDescription)"
         }
