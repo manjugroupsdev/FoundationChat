@@ -203,7 +203,35 @@ struct UploadLoanDocumentRequest: Encodable, Sendable {
 
 struct UploadLoanDocumentResponse: Decodable, Sendable {
     let success: Bool
+    let attached: Bool?
+    let alreadyUploaded: Bool?
+    let document: UploadedLoanDocument?
+    let loanCase: LoanCaseRow?
     let error: String?
+}
+
+struct UploadedLoanDocument: Decodable, Sendable {
+    let loanCaseId: String?
+    let label: String?
+    let storageId: String?
+    let fileName: String?
+    let contentType: String?
+    let size: Int?
+    let url: String?
+}
+
+struct DeleteLoanDocumentRequest: Encodable, Sendable {
+    let loanCaseId: String
+    let label: String
+    let storageId: String
+}
+
+struct DeleteLoanDocumentResponse: Decodable, Sendable {
+    let success: Bool
+    let deleted: Bool?
+    let loanCase: LoanCaseRow?
+    let error: String?
+    let code: String?
 }
 
 struct AssignLoanRequest: Encodable, Sendable {

@@ -1691,6 +1691,8 @@ struct CreateCpVisitResponse: Decodable, Sendable {
     let followupId: String?
     let clientPlaceId: String?
     let clientId: String?
+    let requestId: String?
+    let alreadyCreated: Bool?
     let error: String?
 }
 

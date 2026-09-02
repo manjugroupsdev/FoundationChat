@@ -17,10 +17,12 @@ struct SiteVisitsListView: View {
     @State private var bdoNamesByVisitId: [String: String] = [:]
     @State private var searchText = ""
     @State private var selectedFilter: SiteVisitListFilter = .all
-    @State private var showingDateFilter = false
+    @State private var showingAdvancedFilter = false
     @State private var showingCreateVisit = false
-    @State private var fromDate = Calendar.current.date(byAdding: .day, value: -30, to: Date()) ?? Date()
-    @State private var toDate = Calendar.current.date(byAdding: .day, value: 30, to: Date()) ?? Date()
+    @State private var advancedFilter = AdvancedFilterState(
+        fromDate: Calendar.current.date(byAdding: .day, value: -30, to: Date()) ?? Date(),
+        toDate: Calendar.current.date(byAdding: .day, value: 30, to: Date()) ?? Date()
+    )
 
     private var canCreateSiteVisit: Bool {
         authStore.hasPermission("marketing.siteVisits.create")
@@ -41,12 +43,16 @@ struct SiteVisitsListView: View {
             // Classify by trip type; the link itself does not make it a CP row.
             .filter { ($0.tripType ?? "").lowercased() != "client_place" }
             .filter { selectedFilter.matches($0) }
+            .filter { matchesAdvancedFilter($0, state: advancedFilter) }
             .filter { visit in
                 guard !needle.isEmpty else { return true }
                 return [
                     visit.leadName,
                     visit.placeName,
-                    visit.placeAddress
+                    visit.placeAddress,
+                    visit.projectName,
+                    visit.lmoName,
+                    visit.bdoName
                 ]
                 .compactMap { $0 }
                 .contains { $0.localizedStandardContains(needle) }
@@ -82,23 +88,30 @@ struct SiteVisitsListView: View {
             }
             ToolbarItem(placement: .topBarTrailing) {
                 Button {
-                    showingDateFilter = true
+                    showingAdvancedFilter = true
                 } label: {
-                    Image(systemName: "calendar")
+                    Image(systemName: "line.3.horizontal.decrease")
                         .font(.system(size: 18, weight: .semibold))
                 }
-                .accessibilityLabel("Filter site visits by date")
+                .accessibilityLabel("Filter site visits")
             }
         }
         .refreshable { await load() }
         .task {
             if !hasLoadedOnce { await load() }
         }
-        .sheet(isPresented: $showingDateFilter) {
-            SiteVisitDateFilterSheet(fromDate: $fromDate, toDate: $toDate) {
-                Task { await load() }
-            }
-            .appLibraryNativeSheet([.medium])
+        .fullScreenCover(isPresented: $showingAdvancedFilter) {
+            AdvancedListFilterView(
+                title: "Filter Site Visits",
+                categories: advancedFilterCategories,
+                state: advancedFilter,
+                resultCount: { state in visits.filter { matchesAdvancedFilter($0, state: state) }.count },
+                onApply: { state in
+                    advancedFilter = state
+                    selectedFilter = SiteVisitListFilter(rawValue: state.selected("status").first ?? "") ?? .all
+                    Task { await load() }
+                }
+            )
         }
         .sheet(isPresented: $showingCreateVisit) {
             CreateSiteVisitSheet {
@@ -175,6 +188,7 @@ struct SiteVisitsListView: View {
                 ForEach(SiteVisitListFilter.allCases) { filter in
                     Button {
                         selectedFilter = filter
+                        advancedFilter.setSelected(filter == .all ? [] : [filter.rawValue], for: "status")
                     } label: {
                         Text(filter.title)
                             .font(.system(size: 14, weight: selectedFilter == filter ? .semibold : .medium))
@@ -242,8 +256,10 @@ struct SiteVisitsListView: View {
             errorMessage = "Not signed in."
             return
         }
-        let fromDateText = Self.dateFormatter.string(from: min(fromDate, toDate))
-        let toDateText = Self.dateFormatter.string(from: max(fromDate, toDate))
+        let selectedFrom = advancedFilter.fromDate ?? Calendar.current.date(byAdding: .day, value: -30, to: Date()) ?? Date()
+        let selectedTo = advancedFilter.toDate ?? Calendar.current.date(byAdding: .day, value: 30, to: Date()) ?? Date()
+        let fromDateText = Self.dateFormatter.string(from: min(selectedFrom, selectedTo))
+        let toDateText = Self.dateFormatter.string(from: max(selectedFrom, selectedTo))
         let key = cacheKey(fromDate: fromDateText, toDate: toDateText)
         if visits.isEmpty, let cached = LocalCache.get(key, as: [ConvexSiteVisit].self) {
             visits = cached
@@ -351,6 +367,65 @@ struct SiteVisitsListView: View {
             if let name { resolved[visit.id] = name }
         }
         bdoNamesByVisitId = resolved
+    }
+
+    private var advancedFilterCategories: [AdvancedFilterCategory] {
+        [
+            AdvancedFilterCategory(id: "date", title: "Date", showsDateRange: true),
+            AdvancedFilterCategory(
+                id: "status",
+                title: "Status",
+                options: SiteVisitListFilter.allCases.filter { $0 != .all }.map {
+                    AdvancedFilterOption(id: $0.rawValue, label: $0.title)
+                },
+                selectionMode: .single
+            ),
+            AdvancedFilterCategory(id: "project", title: "Project", options: uniqueVisitOptions { visit in
+                guard let name = visit.projectName?.nilIfBlank else { return nil }
+                return AdvancedFilterOption(id: visit.projectId?.nilIfBlank ?? "name:\(name.lowercased())", label: name)
+            }),
+            AdvancedFilterCategory(id: "lmo", title: "LMO", options: uniqueVisitOptions { visit in
+                guard let name = visit.lmoName?.nilIfBlank else { return nil }
+                return AdvancedFilterOption(id: visit.lmoStaffId?.nilIfBlank ?? "name:\(name.lowercased())", label: name)
+            }),
+            AdvancedFilterCategory(id: "fieldStaff", title: "Field Staff", options: uniqueVisitOptions { visit in
+                guard let name = (visit.bdoName ?? bdoNamesByVisitId[visit.id])?.nilIfBlank else { return nil }
+                return AdvancedFilterOption(id: visit.bdoStaffId?.nilIfBlank ?? "name:\(name.lowercased())", label: name)
+            })
+        ]
+    }
+
+    private func uniqueVisitOptions(_ transform: (ConvexSiteVisit) -> AdvancedFilterOption?) -> [AdvancedFilterOption] {
+        var seen = Set<String>()
+        return visits.compactMap(transform).filter { seen.insert($0.id).inserted }.sorted { $0.label < $1.label }
+    }
+
+    private func matchesAdvancedFilter(_ visit: ConvexSiteVisit, state: AdvancedFilterState) -> Bool {
+        if let from = state.fromDate, (visit.scheduledDate ?? "") < Self.dateFormatter.string(from: from) { return false }
+        if let to = state.toDate, (visit.scheduledDate ?? "") > Self.dateFormatter.string(from: to) { return false }
+        let statuses = state.selected("status")
+        if !statuses.isEmpty && !statuses.contains(where: { SiteVisitListFilter(rawValue: $0)?.matches(visit) == true }) { return false }
+        if !matchesSelection(state.selected("project"), id: visit.projectId, name: visit.projectName) { return false }
+        if !matchesSelection(state.selected("lmo"), id: visit.lmoStaffId, name: visit.lmoName) { return false }
+        if !matchesSelection(
+            state.selected("fieldStaff"),
+            id: visit.bdoStaffId,
+            name: visit.bdoName ?? bdoNamesByVisitId[visit.id]
+        ) { return false }
+        return true
+    }
+
+    private func matchesSelection(_ selected: Set<String>, id: String?, name: String?) -> Bool {
+        guard !selected.isEmpty else { return true }
+        let key: String
+        if let id = id?.nilIfBlank {
+            key = id
+        } else if let name = name?.nilIfBlank {
+            key = "name:\(name.lowercased())"
+        } else {
+            key = ""
+        }
+        return selected.contains(key)
     }
 }
 
@@ -2339,12 +2414,31 @@ private struct CreateSiteVisitSheet: View {
         defer { isSubmitting = false }
         do {
             let response = try await MarketingConvexAPIService.createSiteVisit(token: token, request: request)
+            try validateCreatedVisit(response, routing: request.routing)
             requestId = UUID().uuidString
-            _ = response
             onCreated()
             dismiss()
         } catch {
             errorMessage = friendlyError(error)
+        }
+    }
+
+    private func validateCreatedVisit(_ response: CreateSiteVisitResponse, routing: String) throws {
+        func require(_ value: String?, _ message: String) throws {
+            guard value?.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty == false else {
+                throw MarketingAPIError.server(message)
+            }
+        }
+        switch routing {
+        case "direct_sv":
+            try require(response.siteVisitId, "The server did not return the created Site Visit. Please retry.")
+        case "same_area":
+            try require(response.siteVisitId, "The server did not return the linked Site Visit. Please retry.")
+            try require(response.clientPlaceVisitId, "The server did not return the Same Area verification CP. Please retry.")
+        case "out_of_station", "immediate_pickup":
+            try require(response.handoffId, "The server did not return the pending GM handoff. Please retry.")
+        default:
+            throw MarketingAPIError.server("Unsupported Site Visit route.")
         }
     }
 

@@ -16,6 +16,12 @@ struct LeavesListView: View {
     @State private var rejectReason = ""
     @State private var actionInFlightId: String?
     @State private var isReportingManager = false
+    @State private var showAdvancedFilter = false
+    @State private var advancedFilter: AdvancedFilterState = {
+        var state = AdvancedFilterState()
+        state.setSelected(["review"], for: "status")
+        return state
+    }()
 
     private var canManageTeamLeaves: Bool {
         isReportingManager || authStore.hasPermission("leaves.approve")
@@ -112,6 +118,20 @@ struct LeavesListView: View {
                 loadData()
             }
             .appLibraryNativeSheet([.height(620), .large])
+        }
+        .fullScreenCover(isPresented: $showAdvancedFilter) {
+            AdvancedListFilterView(
+                title: "Filter Leaves",
+                categories: leaveFilterCategories,
+                state: advancedFilter,
+                resultCount: { state in scopedLeaves.filter { matchesLeave($0, state: state) }.count },
+                onApply: { state in
+                    advancedFilter = state
+                    if let status = state.selected("status").first {
+                        historyFilter = leaveHistoryFilter(status)
+                    }
+                }
+            )
         }
         .alert("Error", isPresented: .constant(errorMessage != nil), actions: {
             Button("OK") { errorMessage = nil }
@@ -289,6 +309,8 @@ struct LeavesListView: View {
                             withAnimation(.snappy(duration: 0.2)) {
                                 activeScope = scope
                                 historyFilter = .review
+                                advancedFilter.setSelected([], for: "staff")
+                                advancedFilter.setSelected(["review"], for: "status")
                             }
                         } label: {
                             if scope == .team, pendingLeaves.count > 0 {
@@ -367,6 +389,7 @@ struct LeavesListView: View {
                 Button {
                     withAnimation(.snappy(duration: 0.18)) {
                         historyFilter = filter
+                        advancedFilter.setSelected([leaveStatusID(filter)], for: "status")
                     }
                 } label: {
                     Text(filter.title(with: scopedLeaves))
@@ -391,6 +414,14 @@ struct LeavesListView: View {
                 }
                 .buttonStyle(.plain)
             }
+            Button { showAdvancedFilter = true } label: {
+                Image(systemName: "line.3.horizontal.decrease")
+                    .font(.system(size: 15, weight: .semibold))
+                    .foregroundStyle(Color(hex: 0x0B61CA))
+                    .frame(width: 34, height: 32)
+            }
+            .buttonStyle(.plain)
+            .accessibilityLabel("Filter leaves")
         }
         .padding(3)
         .background(Color(hex: 0xE9EDF5), in: Capsule())
@@ -486,7 +517,9 @@ struct LeavesListView: View {
     }
 
     private var filteredLeaves: [ConvexLeave] {
-        scopedLeaves.filter { historyFilter.contains(status: $0.status ?? "pending") }
+        scopedLeaves.filter {
+            historyFilter.contains(status: $0.status ?? "pending") && matchesLeave($0, state: advancedFilter)
+        }
     }
 
     private var scopedLeaves: [ConvexLeave] {
@@ -1135,6 +1168,67 @@ struct LeavesListView: View {
                 if Self.isCancellation(error) { return }
                 errorMessage = error.localizedDescription
             }
+        }
+    }
+
+    private var leaveFilterCategories: [AdvancedFilterCategory] {
+        var categories = [
+            AdvancedFilterCategory(id: "date", title: "Date", showsDateRange: true),
+            AdvancedFilterCategory(
+                id: "status",
+                title: "Status",
+                options: [
+                    AdvancedFilterOption(id: "review", label: "Review"),
+                    AdvancedFilterOption(id: "approved", label: "Approved"),
+                    AdvancedFilterOption(id: "rejected", label: "Rejected")
+                ],
+                selectionMode: .single
+            ),
+            AdvancedFilterCategory(id: "leaveType", title: "Leave Type", options: uniqueLeaveOptions { leave in
+                guard let id = leave.leaveType?.nonBlank else { return nil }
+                return AdvancedFilterOption(id: id.lowercased(), label: leave.leaveTypeLabel)
+            })
+        ]
+        if activeScope != .my {
+            categories.append(AdvancedFilterCategory(id: "staff", title: "Staff", options: uniqueLeaveOptions { leave in
+                guard let id = leave.staffId?.nonBlank, let name = leave.staffName?.nonBlank else { return nil }
+                return AdvancedFilterOption(id: id, label: name)
+            }))
+        }
+        return categories
+    }
+
+    private func uniqueLeaveOptions(_ transform: (ConvexLeave) -> AdvancedFilterOption?) -> [AdvancedFilterOption] {
+        var seen = Set<String>()
+        return scopedLeaves.compactMap(transform).filter { seen.insert($0.id).inserted }.sorted { $0.label < $1.label }
+    }
+
+    private func matchesLeave(_ leave: ConvexLeave, state: AdvancedFilterState) -> Bool {
+        if let from = state.fromDate, (leave.toDate ?? leave.fromDate ?? "") < AppModuleFormatters.ymd.string(from: from) { return false }
+        if let to = state.toDate, (leave.fromDate ?? "") > AppModuleFormatters.ymd.string(from: to) { return false }
+        let selectedStatus = state.selected("status").first
+        let statusFilter = selectedStatus.map(leaveHistoryFilter) ?? historyFilter
+        if !statusFilter.contains(status: leave.status ?? "pending") { return false }
+        let types = state.selected("leaveType")
+        if !types.isEmpty && !types.contains(leave.leaveType?.lowercased() ?? "") { return false }
+        let staff = state.selected("staff")
+        if !staff.isEmpty && !staff.contains(leave.staffId ?? "") { return false }
+        return true
+    }
+
+    private func leaveStatusID(_ filter: LeaveHistoryFilter) -> String {
+        switch filter {
+        case .review: return "review"
+        case .approved: return "approved"
+        case .rejected: return "rejected"
+        }
+    }
+
+    private func leaveHistoryFilter(_ id: String) -> LeaveHistoryFilter {
+        switch id {
+        case "approved": return .approved
+        case "rejected": return .rejected
+        default: return .review
         }
     }
 

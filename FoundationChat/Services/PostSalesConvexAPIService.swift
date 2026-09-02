@@ -300,12 +300,64 @@ enum PostSalesConvexAPIService {
         return wrapper.loanCase
     }
 
-    static func uploadLoanDocument(token: String, request: UploadLoanDocumentRequest) async throws {
-        let data = try await post(path: "/api/postsales/loans/upload-document", token: token, body: request)
+    static func uploadLoanDocument(
+        token: String,
+        loanCaseId: String,
+        label: String,
+        fileURL: URL,
+        requestId: String
+    ) async throws -> UploadLoanDocumentResponse {
+        let access = fileURL.startAccessingSecurityScopedResource()
+        defer { if access { fileURL.stopAccessingSecurityScopedResource() } }
+        let fileData = try Data(contentsOf: fileURL)
+        guard !fileData.isEmpty else { throw MarketingAPIError.server("The selected document is empty.") }
+        guard fileData.count <= 20 * 1024 * 1024 else { throw MarketingAPIError.server("Documents must be 20 MB or smaller.") }
+
+        let boundary = "MConnect-\(UUID().uuidString)"
+        var body = Data()
+        func append(_ text: String) { body.append(Data(text.utf8)) }
+        func appendField(_ name: String, _ value: String) {
+            append("--\(boundary)\r\n")
+            append("Content-Disposition: form-data; name=\"\(name)\"\r\n\r\n")
+            append("\(value)\r\n")
+        }
+        appendField("loanCaseId", loanCaseId)
+        appendField("label", label)
+        appendField("requestId", requestId)
+        let mimeType = UTType(filenameExtension: fileURL.pathExtension)?.preferredMIMEType ?? "application/octet-stream"
+        append("--\(boundary)\r\n")
+        append("Content-Disposition: form-data; name=\"file\"; filename=\"\(fileURL.lastPathComponent)\"\r\n")
+        append("Content-Type: \(mimeType)\r\n\r\n")
+        body.append(fileData)
+        append("\r\n--\(boundary)--\r\n")
+
+        guard let url = URL(string: "\(baseURL)/api/postsales/loans/upload-document") else {
+            throw MarketingAPIError.badURL
+        }
+        var request = URLRequest(url: url)
+        request.httpMethod = "POST"
+        request.setValue("Bearer \(token)", forHTTPHeaderField: "Authorization")
+        request.setValue("multipart/form-data; boundary=\(boundary)", forHTTPHeaderField: "Content-Type")
+        request.setValue(requestId, forHTTPHeaderField: "Idempotency-Key")
+        request.httpBody = body
+        let data = try await perform(request)
         let wrapper = try decode(UploadLoanDocumentResponse.self, from: data)
         guard wrapper.success else {
             throw MarketingAPIError.server(wrapper.error ?? "Failed to attach document to loan case")
         }
+        return wrapper
+    }
+
+    static func deleteLoanDocument(
+        token: String,
+        request: DeleteLoanDocumentRequest
+    ) async throws -> DeleteLoanDocumentResponse {
+        let data = try await post(path: "/api/postsales/loans/delete-document", token: token, body: request)
+        let wrapper = try decode(DeleteLoanDocumentResponse.self, from: data)
+        guard wrapper.success else {
+            throw MarketingAPIError.server(wrapper.error ?? "Failed to delete document")
+        }
+        return wrapper
     }
 
     @discardableResult

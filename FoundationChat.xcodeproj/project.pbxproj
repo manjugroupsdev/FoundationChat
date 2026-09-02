@@ -305,7 +305,7 @@
 				INFOPLIST_KEY_NEXT_PUBLIC_STACK_API_URL = "https://api.manjuauth.aivida.in";
 				INFOPLIST_KEY_NEXT_PUBLIC_STACK_PROJECT_ID = "d680fa85-f908-4cf7-9541-0401ab1340b2";
 				INFOPLIST_KEY_NEXT_PUBLIC_STACK_PUBLISHABLE_CLIENT_KEY = pck_18m9221t81ptja3yf1jek80wr5j9310w697he77ghnyp8;
-				INFOPLIST_KEY_NSCameraUsageDescription = "M-Connect needs camera access to take attendance selfie photos.";
+				INFOPLIST_KEY_NSCameraUsageDescription = "M-Connect uses the camera for attendance photos and document scanning.";
 				INFOPLIST_KEY_NSLocationAlwaysAndWhenInUseUsageDescription = "M-Connect uses your location for GeoTrack attendance and visit tracking while a tracking session is active.";
 				INFOPLIST_KEY_NSLocationWhenInUseUsageDescription = "M-Connect uses your location for attendance punch-in, visits, and GeoTrack tracking when required.";
 				INFOPLIST_KEY_NSMicrophoneUsageDescription = "M-Connect needs microphone access to record and send voice messages.";
@@ -376,7 +376,7 @@
 				INFOPLIST_KEY_NEXT_PUBLIC_STACK_API_URL = "https://api.manjuauth.aivida.in";
 				INFOPLIST_KEY_NEXT_PUBLIC_STACK_PROJECT_ID = "d680fa85-f908-4cf7-9541-0401ab1340b2";
 				INFOPLIST_KEY_NEXT_PUBLIC_STACK_PUBLISHABLE_CLIENT_KEY = pck_18m9221t81ptja3yf1jek80wr5j9310w697he77ghnyp8;
-				INFOPLIST_KEY_NSCameraUsageDescription = "M-Connect needs camera access to take attendance selfie photos.";
+				INFOPLIST_KEY_NSCameraUsageDescription = "M-Connect uses the camera for attendance photos and document scanning.";
 				INFOPLIST_KEY_NSLocationAlwaysAndWhenInUseUsageDescription = "M-Connect uses your location for GeoTrack attendance and visit tracking while a tracking session is active.";
 				INFOPLIST_KEY_NSLocationWhenInUseUsageDescription = "M-Connect uses your location for attendance punch-in, visits, and GeoTrack tracking when required.";
 				INFOPLIST_KEY_NSMicrophoneUsageDescription = "M-Connect needs microphone access to record and send voice messages.";

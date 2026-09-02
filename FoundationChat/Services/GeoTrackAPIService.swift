@@ -47,6 +47,11 @@ final class GeoTrackAPIService {
 
     private let baseURL: String
 
+    private struct ErrorEnvelope: Decodable {
+        let error: String?
+        let message: String?
+    }
+
     private let encoder: JSONEncoder = {
         let e = JSONEncoder()
         return e
@@ -117,6 +122,11 @@ final class GeoTrackAPIService {
             SessionInvalidationBus.emit()
         }
         guard (200..<300).contains(http.statusCode) else {
+            if let envelope = try? JSONDecoder().decode(ErrorEnvelope.self, from: data),
+               let message = envelope.error ?? envelope.message,
+               !message.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
+                throw GeoTrackAPIError.serverError(message)
+            }
             throw GeoTrackAPIError.badStatus(http.statusCode)
         }
         do {

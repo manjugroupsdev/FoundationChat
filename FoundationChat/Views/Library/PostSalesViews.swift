@@ -1,6 +1,8 @@
 import SwiftUI
 import UIKit
 import UniformTypeIdentifiers
+import PDFKit
+import VisionKit
 
 struct CollectionsView: View {
     @Environment(AuthStore.self) private var authStore
@@ -2322,6 +2324,8 @@ private struct LoanCaseDocumentsSheet: View {
     @State private var slots: [LoanDocSlot] = []
     @State private var didBuildSlots = false
     @State private var importingSlotId: UUID?
+    @State private var scanningSlotId: UUID?
+    @State private var deletingSlotId: UUID?
     @State private var previewURL: URL?
     @State private var errorMessage: String?
     @State private var isSubmitting = false
@@ -2387,6 +2391,26 @@ private struct LoanCaseDocumentsSheet: View {
             ) { result in
                 Task { await importDocument(result) }
             }
+            .fullScreenCover(isPresented: Binding(
+                get: { scanningSlotId != nil },
+                set: { if !$0 { scanningSlotId = nil } }
+            )) {
+                if let slotId = scanningSlotId,
+                   let slot = slots.first(where: { $0.id == slotId }) {
+                    LoanDocumentScanner(label: slot.label, caseId: loanCase.caseId ?? loanCase.id) { result in
+                        scanningSlotId = nil
+                        switch result {
+                        case .success(let url):
+                            Task { await uploadDocument(url, to: slotId, startsNewAttempt: true) }
+                        case .failure(let error) where error is CancellationError:
+                            break
+                        case .failure(let error):
+                            errorMessage = error.localizedDescription
+                        }
+                    }
+                    .ignoresSafeArea()
+                }
+            }
             .toolbar {
                 ToolbarItem(placement: .cancellationAction) {
                     Button(isEditable ? "Cancel" : "Close") { dismiss() }
@@ -2405,6 +2429,21 @@ private struct LoanCaseDocumentsSheet: View {
             } message: {
                 Text(errorMessage ?? "")
             }
+            .confirmationDialog(
+                "Delete this document?",
+                isPresented: Binding(
+                    get: { deletingSlotId != nil },
+                    set: { if !$0 { deletingSlotId = nil } }
+                ),
+                titleVisibility: .visible
+            ) {
+                Button("Delete Document", role: .destructive) {
+                    if let slotId = deletingSlotId { Task { await deleteDocument(slotId) } }
+                }
+                Button("Cancel", role: .cancel) { deletingSlotId = nil }
+            } message: {
+                Text("The attachment will be removed only after the server confirms the deletion.")
+            }
             .sheet(item: Binding(get: { previewURL.map(URLPreviewItem.init(url:)) }, set: { if $0 == nil { previewURL = nil } })) { item in
                 StoragePreviewSheet(url: item.url)
                     .appLibraryNativeSheet([.medium, .large])
@@ -2414,34 +2453,54 @@ private struct LoanCaseDocumentsSheet: View {
 
     private func documentRow(_ slot: Binding<LoanDocSlot>) -> some View {
         let value = slot.wrappedValue
-        return HStack(spacing: 12) {
-            Image(systemName: value.storageId == nil ? "doc.badge.plus" : "doc.fill")
-                .foregroundStyle(value.storageId == nil ? Color(hex: 0x667085) : Color(hex: 0x16A34A))
-            VStack(alignment: .leading, spacing: 3) {
-                Text(value.label)
-                Text(value.fileName?.nonBlank ?? "No file selected")
-                    .font(.caption)
-                    .foregroundStyle(.secondary)
-                    .lineLimit(1)
-            }
-            Spacer()
-            if value.storageId?.nonBlank != nil {
-                Button {
-                    Task { await preview(value) }
-                } label: {
-                    Image(systemName: "eye")
+        return VStack(alignment: .leading, spacing: 10) {
+            HStack(spacing: 12) {
+                Image(systemName: value.storageId == nil ? "doc.badge.plus" : "doc.fill")
+                    .foregroundStyle(value.storageId == nil ? Color(hex: 0x667085) : Color(hex: 0x16A34A))
+                VStack(alignment: .leading, spacing: 3) {
+                    Text(value.label)
+                    Text(value.fileName?.nonBlank ?? value.pendingFileURL?.lastPathComponent ?? "No file selected")
+                        .font(.caption)
+                        .foregroundStyle(.secondary)
+                        .lineLimit(1)
                 }
-                .buttonStyle(.borderless)
-                .tint(Color(hex: 0x0B61CA))
+                Spacer()
             }
-            if isEditable {
-                Button {
-                    importingSlotId = value.id
-                } label: {
-                    Image(systemName: "paperclip")
+
+            HStack(spacing: 16) {
+                if value.storageId?.nonBlank != nil {
+                    Button { Task { await preview(value) } } label: {
+                        Label("Preview", systemImage: "eye")
+                    }
+                    .accessibilityLabel("Preview \(value.label)")
                 }
-                .buttonStyle(.bordered)
+                if isEditable {
+                    Button { scanningSlotId = value.id } label: {
+                        Label("Scan", systemImage: "doc.viewfinder")
+                    }
+                    .accessibilityLabel("Scan \(value.label)")
+                    Button { importingSlotId = value.id } label: {
+                        Image(systemName: "paperclip")
+                    }
+                    .accessibilityLabel("Attach \(value.label)")
+                    if value.pendingFileURL != nil && !isUploading {
+                        Button("Retry") {
+                            if let url = value.pendingFileURL {
+                                Task { await uploadDocument(url, to: value.id, startsNewAttempt: false) }
+                            }
+                        }
+                    }
+                    Spacer(minLength: 0)
+                    if value.storageId?.nonBlank != nil {
+                        Button(role: .destructive) { deletingSlotId = value.id } label: {
+                            Image(systemName: "trash")
+                        }
+                        .accessibilityLabel("Delete \(value.label)")
+                    }
+                }
             }
+            .font(.system(size: 13, weight: .semibold))
+            .buttonStyle(.borderless)
         }
     }
 
@@ -2459,9 +2518,7 @@ private struct LoanCaseDocumentsSheet: View {
 
     @MainActor
     private func importDocument(_ result: Result<[URL], Error>) async {
-        guard let token = authStore.currentSession?.token,
-              let slotId = importingSlotId
-        else { return }
+        guard authStore.currentSession?.token != nil, let slotId = importingSlotId else { return }
         do {
             guard let url = try result.get().first else { return }
             isUploading = true
@@ -2469,20 +2526,65 @@ private struct LoanCaseDocumentsSheet: View {
                 isUploading = false
                 importingSlotId = nil
             }
-            guard let slotIndex = slots.firstIndex(where: { $0.id == slotId }) else { return }
-            let uploaded = try await PostSalesStorageService.uploadFile(token: token, fileURL: url)
-            try await PostSalesConvexAPIService.uploadLoanDocument(
+            await uploadDocument(url, to: slotId, startsNewAttempt: true)
+        } catch {
+            errorMessage = error.localizedDescription
+        }
+    }
+
+    @MainActor
+    private func uploadDocument(_ url: URL, to slotId: UUID, startsNewAttempt: Bool) async {
+        guard let token = authStore.currentSession?.token,
+              let slotIndex = slots.firstIndex(where: { $0.id == slotId }) else { return }
+        if startsNewAttempt {
+            slots[slotIndex].requestId = UUID().uuidString
+        }
+        slots[slotIndex].pendingFileURL = url
+        isUploading = true
+        defer { isUploading = false }
+        do {
+            let response = try await PostSalesConvexAPIService.uploadLoanDocument(
                 token: token,
-                request: UploadLoanDocumentRequest(
+                loanCaseId: loanCase.id,
+                label: slots[slotIndex].label,
+                fileURL: url,
+                requestId: slots[slotIndex].requestId
+            )
+            guard let document = response.document,
+                  let storageId = document.storageId?.nonBlank else {
+                throw MarketingAPIError.server("The server accepted the upload without returning the document ID.")
+            }
+            slots[slotIndex].storageId = storageId
+            slots[slotIndex].fileName = document.fileName?.nonBlank ?? url.lastPathComponent
+            slots[slotIndex].pendingFileURL = nil
+            slots[slotIndex].isFresh = true
+            await onSaved()
+        } catch {
+            errorMessage = error.localizedDescription
+        }
+    }
+
+    @MainActor
+    private func deleteDocument(_ slotId: UUID) async {
+        defer { deletingSlotId = nil }
+        guard let token = authStore.currentSession?.token,
+              let slotIndex = slots.firstIndex(where: { $0.id == slotId }),
+              let storageId = slots[slotIndex].storageId?.nonBlank else { return }
+        do {
+            _ = try await PostSalesConvexAPIService.deleteLoanDocument(
+                token: token,
+                request: DeleteLoanDocumentRequest(
                     loanCaseId: loanCase.id,
-                    index: slotIndex,
-                    storageId: uploaded.storageId,
-                    fileName: uploaded.fileName
+                    label: slots[slotIndex].label,
+                    storageId: storageId
                 )
             )
-            slots[slotIndex].storageId = uploaded.storageId
-            slots[slotIndex].fileName = uploaded.fileName
-            slots[slotIndex].isFresh = true
+            slots[slotIndex].storageId = nil
+            slots[slotIndex].fileName = nil
+            slots[slotIndex].pendingFileURL = nil
+            slots[slotIndex].isFresh = false
+            slots[slotIndex].requestId = UUID().uuidString
+            await onSaved()
         } catch {
             errorMessage = error.localizedDescription
         }
@@ -2530,6 +2632,8 @@ private struct LoanDocSlot: Identifiable, Equatable {
     let label: String
     var storageId: String?
     var fileName: String?
+    var pendingFileURL: URL?
+    var requestId = UUID().uuidString
     // True when the file was picked in this session (vs. seeded from the
     // server) — only fresh uploads go in the submit payload.
     var isFresh: Bool = false
@@ -2547,6 +2651,89 @@ private struct LoanDocSlot: Identifiable, Equatable {
                 storageId: doc.storageId?.nonBlank,
                 fileName: doc.fileName?.nonBlank
             )
+        }
+    }
+}
+
+private struct LoanDocumentScanner: UIViewControllerRepresentable {
+    let label: String
+    let caseId: String
+    let completion: (Result<URL, Error>) -> Void
+
+    func makeCoordinator() -> Coordinator { Coordinator(parent: self) }
+
+    func makeUIViewController(context: Context) -> VNDocumentCameraViewController {
+        let controller = VNDocumentCameraViewController()
+        controller.delegate = context.coordinator
+        return controller
+    }
+
+    func updateUIViewController(_ uiViewController: VNDocumentCameraViewController, context: Context) {}
+
+    final class Coordinator: NSObject, VNDocumentCameraViewControllerDelegate {
+        let parent: LoanDocumentScanner
+
+        init(parent: LoanDocumentScanner) { self.parent = parent }
+
+        func documentCameraViewControllerDidCancel(_ controller: VNDocumentCameraViewController) {
+            parent.completion(.failure(CancellationError()))
+        }
+
+        func documentCameraViewController(
+            _ controller: VNDocumentCameraViewController,
+            didFailWithError error: Error
+        ) {
+            parent.completion(.failure(error))
+        }
+
+        func documentCameraViewController(
+            _ controller: VNDocumentCameraViewController,
+            didFinishWith scan: VNDocumentCameraScan
+        ) {
+            do {
+                guard scan.pageCount <= 20 else {
+                    throw MarketingAPIError.server("A scan can contain at most 20 pages.")
+                }
+                let document = PDFDocument()
+                for index in 0..<scan.pageCount {
+                    guard let page = PDFPage(image: optimized(scan.imageOfPage(at: index))) else { continue }
+                    document.insert(page, at: document.pageCount)
+                }
+                guard document.pageCount > 0 else {
+                    throw MarketingAPIError.server("No document pages were captured.")
+                }
+                let formatter = DateFormatter()
+                formatter.locale = Locale(identifier: "en_US_POSIX")
+                formatter.dateFormat = "yyyyMMdd_HHmmss_SSS"
+                let safeLabel = parent.label.lowercased()
+                    .components(separatedBy: CharacterSet.alphanumerics.inverted)
+                    .filter { !$0.isEmpty }
+                    .joined(separator: "_")
+                let safeCase = parent.caseId
+                    .components(separatedBy: CharacterSet.alphanumerics.inverted)
+                    .filter { !$0.isEmpty }
+                    .joined(separator: "_")
+                let name = "loan_\(safeLabel)_\(safeCase)_\(formatter.string(from: Date())).pdf"
+                let url = FileManager.default.temporaryDirectory.appendingPathComponent(name)
+                guard document.write(to: url) else {
+                    throw MarketingAPIError.server("Could not create the scanned PDF.")
+                }
+                parent.completion(.success(url))
+            } catch {
+                parent.completion(.failure(error))
+            }
+        }
+
+        private func optimized(_ image: UIImage) -> UIImage {
+            let longest = max(image.size.width, image.size.height)
+            let scale = min(1, 2200 / max(longest, 1))
+            let size = CGSize(width: image.size.width * scale, height: image.size.height * scale)
+            let renderer = UIGraphicsImageRenderer(size: size)
+            let resized = renderer.image { _ in image.draw(in: CGRect(origin: .zero, size: size)) }
+            guard let data = resized.jpegData(compressionQuality: 0.78), let compressed = UIImage(data: data) else {
+                return resized
+            }
+            return compressed
         }
     }
 }

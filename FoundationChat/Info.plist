@@ -27,7 +27,7 @@
 	<key>LSRequiresIPhoneOS</key>
 	<true/>
 	<key>NSCameraUsageDescription</key>
-	<string>M-Connect needs camera access to take attendance selfie photos.</string>
+	<string>M-Connect uses the camera for attendance photos and document scanning.</string>
 	<key>NSLocationAlwaysAndWhenInUseUsageDescription</key>
 	<string>M-Connect uses your location for GeoTrack attendance and visit tracking while a tracking session is active.</string>
 	<key>NSLocationWhenInUseUsageDescription</key>

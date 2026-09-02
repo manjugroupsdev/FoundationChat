@@ -34,9 +34,13 @@ struct ConvexSiteVisit: Codable, Identifiable, Equatable, Sendable {
     let confirmationStatus: String?
     let visitCategory: String?
     let lmoName: String?
+    let lmoStaffId: String?
     // The visit's assigned BDO from the backend, never the signed-in viewer.
     let bdoName: String?
+    let bdoStaffId: String?
     let staffName: String?
+    let projectId: String?
+    let projectName: String?
 
     var id: String { _id }
 
@@ -45,7 +49,7 @@ struct ConvexSiteVisit: Codable, Identifiable, Equatable, Sendable {
         case placeLat, placeLng, tripType, clientPlaceVisitId, leadName, leadPhone, cpVisit
         case outcome, convertedBookingId, convertedSiteVisitId, completedAt, completedOffline
         case creationTime, travelMode, vehiclePreference, vehicleAssigned, confirmationStatus, visitCategory
-        case lmoName, bdoName, staffName
+        case lmoName, lmoStaffId, bdoName, bdoStaffId, staffName, projectId, projectName
         case scheduledStartTime, scheduledEndTime
         case startTime, endTime, scheduledTime, scheduledFrom, scheduledTo
     }
@@ -79,8 +83,12 @@ struct ConvexSiteVisit: Codable, Identifiable, Equatable, Sendable {
         confirmationStatus = try container.decodeIfPresent(String.self, forKey: .confirmationStatus)
         visitCategory = try container.decodeIfPresent(String.self, forKey: .visitCategory)
         lmoName = try container.decodeIfPresent(String.self, forKey: .lmoName)
+        lmoStaffId = try container.decodeIfPresent(String.self, forKey: .lmoStaffId)
         bdoName = try container.decodeIfPresent(String.self, forKey: .bdoName)
+        bdoStaffId = try container.decodeIfPresent(String.self, forKey: .bdoStaffId)
         staffName = try container.decodeIfPresent(String.self, forKey: .staffName)
+        projectId = try container.decodeIfPresent(String.self, forKey: .projectId)
+        projectName = try container.decodeIfPresent(String.self, forKey: .projectName)
         scheduledStartTime = try container.decodeFirstPresentString(for: [.scheduledStartTime, .startTime, .scheduledTime, .scheduledFrom])
         scheduledEndTime = try container.decodeFirstPresentString(for: [.scheduledEndTime, .endTime, .scheduledTo])
     }
@@ -116,8 +124,12 @@ struct ConvexSiteVisit: Codable, Identifiable, Equatable, Sendable {
         try container.encodeIfPresent(confirmationStatus, forKey: .confirmationStatus)
         try container.encodeIfPresent(visitCategory, forKey: .visitCategory)
         try container.encodeIfPresent(lmoName, forKey: .lmoName)
+        try container.encodeIfPresent(lmoStaffId, forKey: .lmoStaffId)
         try container.encodeIfPresent(bdoName, forKey: .bdoName)
+        try container.encodeIfPresent(bdoStaffId, forKey: .bdoStaffId)
         try container.encodeIfPresent(staffName, forKey: .staffName)
+        try container.encodeIfPresent(projectId, forKey: .projectId)
+        try container.encodeIfPresent(projectName, forKey: .projectName)
     }
 
     /// Canonical bucket (matches the Android `bindRow` mapping).
@@ -225,6 +237,9 @@ struct MyMarketingCpVisitsResponse: Codable, Sendable {
     let success: Bool
     let total: Int?
     let visits: [CpVisitDetail]
+    let scope: String?
+    let directReportIds: [String]?
+    let canViewTeam: Bool?
     let error: String?
 }
 

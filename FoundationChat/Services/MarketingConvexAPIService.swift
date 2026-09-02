@@ -154,6 +154,7 @@ enum MarketingConvexAPIService {
         let success: Bool
         let error: String?
         let revisit: CpRevisitInfo?
+        let followUpTaskId: String?
     }
 
     private struct InventoryUnitIdRequest: Encodable {
@@ -763,8 +764,18 @@ enum MarketingConvexAPIService {
         guard wrapper.success else { throw MarketingAPIError.server(wrapper.error ?? "Failed to reject booking") }
     }
 
-    static func createCpVisit(token: String, request: CreateCpVisitRequest) async throws -> CreateCpVisitResponse {
-        let data = try await post(path: "/api/marketing/clientPlaceVisits/create", token: token, body: request)
+    static func createCpVisit(
+        token: String,
+        request: CreateCpVisitRequest,
+        idempotencyKey: String? = nil
+    ) async throws -> CreateCpVisitResponse {
+        let headers = idempotencyKey.map { ["Idempotency-Key": $0] } ?? [:]
+        let data = try await post(
+            path: "/api/marketing/clientPlaceVisits/create",
+            token: token,
+            body: request,
+            headers: headers
+        )
         let wrapper = try decode(CreateCpVisitResponse.self, from: data)
         guard wrapper.success else { throw MarketingAPIError.server(wrapper.error ?? "Failed to create CP visit") }
         return wrapper
@@ -834,6 +845,20 @@ enum MarketingConvexAPIService {
         let wrapper = try decode(BaseMutationResponse.self, from: data)
         guard wrapper.success else { throw MarketingAPIError.server(wrapper.error ?? "Failed to set outcome") }
         return wrapper.revisit
+    }
+
+    static func rejectCpVisitOutcome(
+        token: String,
+        request: SetCpVisitOutcomeRequest
+    ) async throws -> String {
+        let data = try await post(path: "/api/marketing/clientPlaceVisits/setOutcome", token: token, body: request)
+        let wrapper = try decode(BaseMutationResponse.self, from: data)
+        guard wrapper.success else { throw MarketingAPIError.server(wrapper.error ?? "Failed to reject visit") }
+        guard let followUpTaskId = wrapper.followUpTaskId?.trimmingCharacters(in: .whitespacesAndNewlines),
+              !followUpTaskId.isEmpty else {
+            throw MarketingAPIError.server("Visit was not closed with the required follow-up task. Please retry.")
+        }
+        return followUpTaskId
     }
 
     /// Idempotently creates/links a referred client discovered during a New
@@ -1040,6 +1065,24 @@ enum MarketingConvexAPIService {
         limit: Int? = nil,
         search: String? = nil
     ) async throws -> [CpVisitDetail] {
+        (try await getMarketingCpVisitPage(
+            token: token,
+            fromDate: fromDate,
+            toDate: toDate,
+            scope: scope,
+            limit: limit,
+            search: search
+        )).visits
+    }
+
+    static func getMarketingCpVisitPage(
+        token: String,
+        fromDate: String? = nil,
+        toDate: String? = nil,
+        scope: String = "all",
+        limit: Int? = nil,
+        search: String? = nil
+    ) async throws -> MyMarketingCpVisitsResponse {
         var items = [URLQueryItem(name: "scope", value: scope)]
         if let fromDate, !fromDate.isEmpty {
             items.append(URLQueryItem(name: "fromDate", value: fromDate))
@@ -1056,7 +1099,7 @@ enum MarketingConvexAPIService {
         let data = try await get(path: "/api/marketing/clientPlaceVisits/my", token: token, queryItems: items)
         let wrapper = try decode(MyMarketingCpVisitsResponse.self, from: data)
         guard wrapper.success else { throw MarketingAPIError.server(wrapper.error ?? "Failed to load CP visits") }
-        return wrapper.visits
+        return wrapper
     }
 
     // MARK: - HTTP
@@ -1076,12 +1119,20 @@ enum MarketingConvexAPIService {
         return try await perform(request)
     }
 
-    private static func post<T: Encodable>(path: String, token: String, body: T) async throws -> Data {
+    private static func post<T: Encodable>(
+        path: String,
+        token: String,
+        body: T,
+        headers: [String: String] = [:]
+    ) async throws -> Data {
         guard let url = URL(string: "\(baseURL)\(path)") else { throw MarketingAPIError.badURL }
         var request = URLRequest(url: url)
         request.httpMethod = "POST"
         request.setValue("Bearer \(token)", forHTTPHeaderField: "Authorization")
         request.setValue("application/json", forHTTPHeaderField: "Content-Type")
+        for (name, value) in headers {
+            request.setValue(value, forHTTPHeaderField: name)
+        }
         request.httpBody = try JSONEncoder().encode(body)
         return try await perform(request)
     }

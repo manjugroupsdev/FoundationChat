@@ -59,6 +59,10 @@ struct ConvexAttendanceListView: View {
     @State private var refreshedTabs: Set<AttendanceListTab> = []
     @State private var errorMessage: String?
     @State private var filter: AttendanceFilter = .currentMonth()
+    @State private var advancedFilter: AdvancedFilterState = {
+        let current = AttendanceFilter.currentMonth()
+        return AdvancedFilterState(fromDate: current.fromDate, toDate: current.toDate)
+    }()
     @State private var selectedTab: AttendanceListTab = .my
     @State private var isReportingOfficer = false
     @State private var approvalSubTab: AttendanceApprovalSubTab = .attendance
@@ -95,11 +99,11 @@ struct ConvexAttendanceListView: View {
     }
 
     private var filteredRecords: [ConvexAttendanceRecord] {
-        myAttendanceRows.filter { filter.matches(status: $0.approvedAttendance ?? $0.status) }
+        myAttendanceRows.filter { filter.matches(status: $0.approvedAttendance ?? $0.status) && matchesAttendanceStaff($0, state: advancedFilter) }
     }
 
     private var filteredTeamRecords: [ConvexAttendanceRecord] {
-        teamRecords.filter { filter.matches(status: $0.approvedAttendance ?? $0.status) }
+        teamRecords.filter { filter.matches(status: $0.approvedAttendance ?? $0.status) && matchesAttendanceStaff($0, state: advancedFilter) }
     }
 
     private var filteredApprovalRecords: [ConvexAttendanceRecord] {
@@ -111,12 +115,14 @@ struct ConvexAttendanceListView: View {
                     : !isRequest && !isRequestLinkedAttendance(record)
             }
             .filter { filter.matches(status: $0.approvedAttendance ?? $0.status) }
+            .filter { matchesAttendanceStaff($0, state: advancedFilter) }
     }
 
     private var filteredAllApprovalRecords: [ConvexAttendanceRecord] {
         allApprovalRecords
             .filter { !isAttendanceRequest($0) && !isRequestLinkedAttendance($0) }
             .filter { filter.matches(status: $0.approvedAttendance ?? $0.status) }
+            .filter { matchesAttendanceStaff($0, state: advancedFilter) }
     }
 
     private var filteredHrReviewRecords: [ConvexAttendanceRecord] {
@@ -128,10 +134,11 @@ struct ConvexAttendanceListView: View {
                     : !isRequest && !isRequestLinkedAttendance(record)
             }
             .filter { filter.matches(status: $0.approvedAttendance ?? $0.status) }
+            .filter { matchesAttendanceStaff($0, state: advancedFilter) }
     }
 
     private var filteredAllRecords: [ConvexAttendanceRecord] {
-        allRecords.filter { filter.matches(status: $0.approvedAttendance ?? $0.status) }
+        allRecords.filter { filter.matches(status: $0.approvedAttendance ?? $0.status) && matchesAttendanceStaff($0, state: advancedFilter) }
     }
 
     private var myAttendanceRows: [ConvexAttendanceRecord] {
@@ -266,9 +273,19 @@ struct ConvexAttendanceListView: View {
                 .accessibilityLabel("Filter attendance")
             }
         }
-        .sheet(isPresented: $showFilter) {
-            AttendanceFilterSheet(filter: $filter)
-                .appLibraryNativeSheet([.height(250)])
+        .fullScreenCover(isPresented: $showFilter) {
+            AdvancedListFilterView(
+                title: "Filter Attendance",
+                categories: attendanceFilterCategories,
+                state: advancedFilter,
+                resultCount: { state in attendanceSourceRecords.filter { matchesAttendance($0, state: state) }.count },
+                onApply: { state in
+                    advancedFilter = state
+                    filter.fromDate = state.fromDate ?? filter.fromDate
+                    filter.toDate = state.toDate ?? state.fromDate ?? filter.toDate
+                    filter.statuses = state.selected("status")
+                }
+            )
         }
         .sheet(item: $selectedRecord) { record in
             PunchLogSheet(record: record)
@@ -311,6 +328,7 @@ struct ConvexAttendanceListView: View {
             await resolveAttendanceTeamScope()
         }
         .onChange(of: selectedTab) { _, tab in
+            advancedFilter.setSelected([], for: "staff")
             if tab == .approval || tab == .hrReview {
                 approvalSubTab = .attendance
             }
@@ -333,6 +351,7 @@ struct ConvexAttendanceListView: View {
                 .foregroundStyle(.secondary)
                 Button("Clear") {
                     filter.statuses.removeAll()
+                    advancedFilter.setSelected([], for: "status")
                 }
                 .font(.system(size: 12, weight: .semibold))
                 .foregroundStyle(Color(hex: 0x0B61CA))
@@ -910,6 +929,69 @@ struct ConvexAttendanceListView: View {
             cursor = previous
         }
         return output
+    }
+
+    private var attendanceSourceRecords: [ConvexAttendanceRecord] {
+        switch selectedTab {
+        case .my: return myAttendanceRows
+        case .team: return teamRecords
+        case .approval:
+            return approvalRecords.filter { approvalSubTab == .request ? isAttendanceRequest($0) : !isAttendanceRequest($0) && !isRequestLinkedAttendance($0) }
+        case .allApproval: return allApprovalRecords.filter { !isAttendanceRequest($0) && !isRequestLinkedAttendance($0) }
+        case .hrReview:
+            return hrReviewRecords.filter { approvalSubTab == .request ? isAttendanceRequest($0) : !isAttendanceRequest($0) && !isRequestLinkedAttendance($0) }
+        case .all: return allRecords
+        }
+    }
+
+    private var attendanceFilterCategories: [AdvancedFilterCategory] {
+        var categories = [
+            AdvancedFilterCategory(id: "date", title: "Date", showsDateRange: true),
+            AdvancedFilterCategory(
+                id: "status",
+                title: "Status",
+                options: attendanceStatusOptions,
+                selectionMode: .multiple
+            )
+        ]
+        if selectedTab != .my {
+            categories.append(AdvancedFilterCategory(id: "staff", title: "Staff", options: attendanceStaffOptions))
+        }
+        return categories
+    }
+
+    private var attendanceStatusOptions: [AdvancedFilterOption] {
+        let standard = ["present", "approved", "half-day", "absent", "weekoff", "holiday", "pending", "rejected"]
+        let values = Set(standard + attendanceSourceRecords.compactMap { normalizedAttendanceStatus($0) })
+        return values.sorted().map {
+            AdvancedFilterOption(id: $0, label: $0.replacingOccurrences(of: "-", with: " ").capitalized)
+        }
+    }
+
+    private var attendanceStaffOptions: [AdvancedFilterOption] {
+        var seen = Set<String>()
+        return attendanceSourceRecords.compactMap { record -> AdvancedFilterOption? in
+            guard let id = record.staffId?.nilIfBlank, let name = record.staffName?.nilIfBlank else { return nil }
+            return AdvancedFilterOption(id: id, label: name, subtitle: record.employeeId?.nilIfBlank)
+        }.filter { seen.insert($0.id).inserted }.sorted { $0.label < $1.label }
+    }
+
+    private func normalizedAttendanceStatus(_ record: ConvexAttendanceRecord) -> String? {
+        let raw = (record.approvedAttendance ?? record.status)?.lowercased().trimmingCharacters(in: .whitespacesAndNewlines)
+        return raw == "auto-approved" ? "approved" : raw
+    }
+
+    private func matchesAttendanceStaff(_ record: ConvexAttendanceRecord, state: AdvancedFilterState) -> Bool {
+        let selected = state.selected("staff")
+        return selected.isEmpty || selected.contains(record.staffId ?? "")
+    }
+
+    private func matchesAttendance(_ record: ConvexAttendanceRecord, state: AdvancedFilterState) -> Bool {
+        if let from = state.fromDate, (record.date ?? "") < Self.dateKeyFormatter.string(from: from) { return false }
+        if let to = state.toDate, (record.date ?? "") > Self.dateKeyFormatter.string(from: to) { return false }
+        let statuses = state.selected("status")
+        if !statuses.isEmpty && !statuses.contains(normalizedAttendanceStatus(record) ?? "") { return false }
+        return matchesAttendanceStaff(record, state: state)
     }
 
     private static let dateKeyFormatter: DateFormatter = {

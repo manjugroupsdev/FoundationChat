@@ -10,6 +10,12 @@ struct BookingsListView: View {
     @State private var errorMessage: String?
     @State private var showCreate = false
     @State private var selectedBooking: AppBooking?
+    @State private var showAdvancedFilter = false
+    @State private var advancedFilter: AdvancedFilterState = {
+        var state = AdvancedFilterState()
+        state.setSelected([BookingStatusFilter.draft.rawValue], for: "status")
+        return state
+    }()
 
     private var canCreateBooking: Bool {
         authStore.hasPermission("marketing.bookings.create")
@@ -18,6 +24,7 @@ struct BookingsListView: View {
     private var filteredBookings: [AppBooking] {
         let query = searchText.trimmingCharacters(in: .whitespacesAndNewlines)
         return bookings.filter { booking in
+            guard matchesAdvancedFilter(booking, state: advancedFilter) else { return false }
             guard !query.isEmpty else { return true }
             return [
                 booking.bookingRefNo,
@@ -58,8 +65,14 @@ struct BookingsListView: View {
                     .foregroundStyle(Color(hex: 0x101828))
             }
 
-            if canCreateBooking {
-                ToolbarItem(placement: .topBarTrailing) {
+            ToolbarItemGroup(placement: .topBarTrailing) {
+                Button { showAdvancedFilter = true } label: {
+                    Image(systemName: "line.3.horizontal.decrease")
+                        .font(.system(size: 18, weight: .semibold))
+                }
+                .accessibilityLabel("Filter bookings")
+
+                if canCreateBooking {
                     Button {
                         showCreate = true
                     } label: {
@@ -84,6 +97,18 @@ struct BookingsListView: View {
                 Task { await load() }
             }
             .appLibraryNativeSheet([.medium, .large])
+        }
+        .fullScreenCover(isPresented: $showAdvancedFilter) {
+            AdvancedListFilterView(
+                title: "Filter Bookings",
+                categories: advancedFilterCategories,
+                state: advancedFilter,
+                resultCount: { state in bookings.filter { matchesAdvancedFilter($0, state: state) }.count },
+                onApply: { state in
+                    advancedFilter = state
+                    selectedStatus = BookingStatusFilter(rawValue: state.selected("status").first ?? "") ?? .all
+                }
+            )
         }
         .task { if !hasLoaded { await load() } }
         .onChange(of: selectedStatus) { _, _ in
@@ -141,6 +166,7 @@ struct BookingsListView: View {
                     Button {
                         guard selectedStatus != status else { return }
                         selectedStatus = status
+                        advancedFilter.setSelected(status == .all ? [] : [status.rawValue], for: "status")
                     } label: {
                         Text(status.title)
                             .font(.system(size: 13, weight: .semibold))
@@ -191,6 +217,56 @@ struct BookingsListView: View {
         } catch {
             errorMessage = error.localizedDescription
         }
+    }
+
+    private var advancedFilterCategories: [AdvancedFilterCategory] {
+        [
+            AdvancedFilterCategory(id: "date", title: "Date", showsDateRange: true),
+            AdvancedFilterCategory(
+                id: "status",
+                title: "Status",
+                options: BookingStatusFilter.allCases.filter { $0 != .all }.map {
+                    AdvancedFilterOption(id: $0.rawValue, label: $0.title)
+                },
+                selectionMode: .single
+            ),
+            AdvancedFilterCategory(id: "project", title: "Project", options: uniqueBookingOptions { booking in
+                guard let name = booking.projectName?.nilIfBlank else { return nil }
+                return AdvancedFilterOption(id: booking.projectId?.nilIfBlank ?? "name:\(name.lowercased())", label: name)
+            }),
+            AdvancedFilterCategory(id: "plot", title: "Plot", options: uniqueBookingOptions { booking in
+                guard let name = (booking.plotNo ?? booking.plotNumber)?.nilIfBlank else { return nil }
+                return AdvancedFilterOption(id: booking.plotId?.nilIfBlank ?? "name:\(name.lowercased())", label: name)
+            })
+        ]
+    }
+
+    private func uniqueBookingOptions(_ transform: (AppBooking) -> AdvancedFilterOption?) -> [AdvancedFilterOption] {
+        var seen = Set<String>()
+        return bookings.compactMap(transform).filter { seen.insert($0.id).inserted }.sorted { $0.label < $1.label }
+    }
+
+    private func matchesAdvancedFilter(_ booking: AppBooking, state: AdvancedFilterState) -> Bool {
+        if let from = state.fromDate, (booking.bookingDate ?? "") < AppModuleFormatters.ymd.string(from: from) { return false }
+        if let to = state.toDate, (booking.bookingDate ?? "") > AppModuleFormatters.ymd.string(from: to) { return false }
+        let statuses = state.selected("status")
+        if !statuses.isEmpty && !statuses.contains(where: { BookingStatusFilter(rawValue: $0)?.matches(booking.displayStatus) == true }) { return false }
+        if !matchesBookingSelection(state.selected("project"), id: booking.projectId, name: booking.projectName) { return false }
+        if !matchesBookingSelection(state.selected("plot"), id: booking.plotId, name: booking.plotNo ?? booking.plotNumber) { return false }
+        return true
+    }
+
+    private func matchesBookingSelection(_ selected: Set<String>, id: String?, name: String?) -> Bool {
+        guard !selected.isEmpty else { return true }
+        let key: String
+        if let id = id?.nilIfBlank {
+            key = id
+        } else if let name = name?.nilIfBlank {
+            key = "name:\(name.lowercased())"
+        } else {
+            key = ""
+        }
+        return selected.contains(key)
     }
 }
 

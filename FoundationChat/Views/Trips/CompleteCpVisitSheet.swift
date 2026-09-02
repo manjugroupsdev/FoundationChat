@@ -17,10 +17,8 @@ struct CompleteCpVisitSheet: View {
     @State private var budgetConcern = ""
     @State private var timingNotes = ""
     @State private var projectDetails = ""
-    @State private var otherPostponeNotes = ""
     @State private var postponeFollowUpDate = Date()
-    @State private var selectedPostponeReasons: Set<CpPostponeReason> = []
-    @State private var postponedNotes = ""
+    @State private var postponeReason = ""
     @State private var selectedNotInterestedReasons: Set<CpNotInterestedReason> = []
     @State private var notInterestedReasonDetails: [CpNotInterestedReason: String] = [:]
     @State private var otherRemarks = ""
@@ -894,31 +892,33 @@ struct CompleteCpVisitSheet: View {
             Text("When should the client be followed up?")
                 .font(.caption)
                 .foregroundStyle(.secondary)
-            DatePicker(
-                "Follow-up date",
-                selection: $postponeFollowUpDate,
-                in: postponeDateRange,
-                displayedComponents: .date
-            )
-                .font(.system(size: 12, weight: .medium))
+            HStack(spacing: 10) {
+                Image(systemName: "calendar")
+                    .font(.system(size: 15, weight: .medium))
+                    .foregroundStyle(Color(hex: 0x0B61CA))
+                DatePicker(
+                    "Follow-up date",
+                    selection: $postponeFollowUpDate,
+                    in: postponeDateRange,
+                    displayedComponents: .date
+                )
+                .labelsHidden()
+                .datePickerStyle(.compact)
+                .font(.system(size: 13, weight: .medium))
+                Spacer(minLength: 0)
+            }
                 .padding(.horizontal, 14)
                 .frame(minHeight: 48)
                 .background(Color.appFieldBackground, in: RoundedRectangle(cornerRadius: 14))
+                .accessibilityElement(children: .combine)
+                .accessibilityLabel("Follow-up date")
 
             sectionLabel("Reason")
                 .padding(.top, 6)
             Text("Why does this client need a follow-up?")
                 .font(.caption)
                 .foregroundStyle(.secondary)
-            ForEach(CpPostponeReason.allCases) { reason in
-                ReasonToggleRow(
-                    title: reason.title,
-                    isSelected: selectedPostponeReasons.contains(reason)
-                ) {
-                    togglePostponeReason(reason)
-                }
-            }
-            fieldEditor("Additional notes", text: $postponedNotes, minLines: 3)
+            fieldEditor("Reason for follow-up", text: $postponeReason, minLines: 2)
 
             if isBookingCp {
                 Button {
@@ -1083,14 +1083,6 @@ struct CompleteCpVisitSheet: View {
                     .font(.system(size: 12, weight: .semibold))
                     .foregroundStyle(.secondary)
             }
-        }
-    }
-
-    private func togglePostponeReason(_ reason: CpPostponeReason) {
-        if selectedPostponeReasons.contains(reason) {
-            selectedPostponeReasons.remove(reason)
-        } else {
-            selectedPostponeReasons.insert(reason)
         }
     }
 
@@ -1425,8 +1417,8 @@ struct CompleteCpVisitSheet: View {
                 return
             }
         }
-        if selectedOutcome == .postponed && selectedPostponeReasons.isEmpty {
-            errorMessage = "Select at least one reason for follow-up"
+        if selectedOutcome == .postponed && postponeReason.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
+            errorMessage = "Enter a reason for follow-up"
             return
         }
         if selectedOutcome == .notInterested && selectedNotInterestedReasons.isEmpty {
@@ -1570,26 +1562,21 @@ struct CompleteCpVisitSheet: View {
                     )
                 }
             } else {
-                // Postpone's next-visit date/time: for a Booking CP the backend
-                // spawns another booking_cp for this slot; ignored for others.
+                // Android sends only the selected follow-up date. Keep iOS on
+                // the same contract instead of deriving a time from Date().
                 let isPostpone = selectedOutcome == .postponed
-                let followUpTimeFmt = DateFormatter()
-                followUpTimeFmt.dateFormat = "HH:mm"
-                followUpTimeFmt.locale = Locale(identifier: "en_IN")
                 revisit = try await MarketingConvexAPIService.setCpVisitOutcome(
                     token: token,
                     request: SetCpVisitOutcomeRequest(
                         id: cpVisitId,
                         outcome: selectedOutcome.rawValue,
-                        postponeReasons: isPostpone ? selectedPostponeReasons.map(\.rawValue).sorted() : nil,
+                        postponeReasons: isPostpone ? [postponeReason.trimmingCharacters(in: .whitespacesAndNewlines)] : nil,
                         notes: buildOutcomeNotes(for: selectedOutcome),
                         arrivalPhotoStorageId: nil,
                         followUpDate: isPostpone
                             ? AppModuleFormatters.ymd.string(from: postponeFollowUpDate)
                             : nil,
-                        followUpTime: isPostpone
-                            ? followUpTimeFmt.string(from: postponeFollowUpDate)
-                            : nil
+                        followUpTime: nil
                     )
                 )
             }
@@ -1628,11 +1615,7 @@ struct CompleteCpVisitSheet: View {
         defer { isSaving = false }
 
         do {
-            try await MarketingConvexAPIService.markClientMet(
-                token: token,
-                request: MarkClientMetRequest(id: cpVisitId, clientMet: true)
-            )
-            _ = try await MarketingConvexAPIService.setCpVisitOutcome(
+            _ = try await MarketingConvexAPIService.rejectCpVisitOutcome(
                 token: token,
                 request: SetCpVisitOutcomeRequest(
                     id: cpVisitId,
@@ -1687,14 +1670,8 @@ struct CompleteCpVisitSheet: View {
 
     private var postponeNotesPayload: String? {
         let nextVisit = DateFormatter.cpOutcomeDate.string(from: postponeFollowUpDate)
-        var rows = [
-            "Next visit: \(nextVisit)",
-            "Reasons: \(selectedPostponeReasons.map(\.title).sorted().joined(separator: ", "))"
-        ]
-        if let notes = postponedNotes.nilIfBlank {
-            rows.append("Notes: \(notes)")
-        }
-        return rows.joined(separator: "\n")
+        let reason = postponeReason.trimmingCharacters(in: .whitespacesAndNewlines)
+        return "Next visit: \(nextVisit) — \(reason)"
     }
 
     private var notInterestedNotesPayload: String? {
@@ -1918,28 +1895,6 @@ private enum CpVisitOutcome: String, CaseIterable, Identifiable {
         case .other: return "ellipsis.circle.fill"
         case .referral: return "person.crop.circle.badge.plus"
         case .cancel: return "xmark.bin"
-        }
-    }
-}
-
-private enum CpPostponeReason: String, CaseIterable, Identifiable {
-    case clientUnavailable = "client_unavailable"
-    case weather
-    case vehicleIssue = "vehicle_issue"
-    case documentPending = "document_pending"
-    case rescheduledByClient = "rescheduled_by_client"
-    case otherCommitment = "other_commitment"
-
-    var id: String { rawValue }
-
-    var title: String {
-        switch self {
-        case .clientUnavailable: return "Client unavailable"
-        case .weather: return "Weather"
-        case .vehicleIssue: return "Vehicle issue"
-        case .documentPending: return "Document pending"
-        case .rescheduledByClient: return "Rescheduled by client"
-        case .otherCommitment: return "Other commitment"
         }
     }
 }

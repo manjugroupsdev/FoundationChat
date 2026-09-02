@@ -201,6 +201,10 @@ struct ArrivalOtpSheet: View {
     // MARK: - Actions
 
     private func performVerify() async {
+        guard !visitId.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else {
+            errorText = "This visit is missing its field-visit ID. Refresh the trip and try again."
+            return
+        }
         guard otp.count == 4 else {
             errorText = "Enter all 4 digits"
             return
@@ -238,7 +242,10 @@ struct ArrivalOtpSheet: View {
     }
 
     private func requestGmAssistance() async {
-        guard let clientPlaceVisitId, !clientPlaceVisitId.isEmpty else { return }
+        guard let clientPlaceVisitId, !clientPlaceVisitId.isEmpty else {
+            errorText = "This CP visit is missing its ID. Refresh the trip and try again."
+            return
+        }
         isRequestingAssistance = true
         errorText = nil
         defer { isRequestingAssistance = false }

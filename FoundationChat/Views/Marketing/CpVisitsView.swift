@@ -18,9 +18,11 @@ struct CpVisitsView: View {
     @State private var showCpRevisitConfirmation = false
     @State private var selectedSpecialOutcomeVisit: CpListVisit?
     @State private var showSpecialOutcome = false
-    @State private var showDateFilter = false
-    @State private var filterFromDate: Date?
-    @State private var filterToDate: Date?
+    @State private var showAdvancedFilter = false
+    @State private var advancedFilter = AdvancedFilterState()
+    @State private var listScope: CpListScope = .mine
+    @State private var canViewDirectTeam = false
+    @State private var loadGeneration = 0
     @State private var showPunchIn = false
     @State private var showHomeFenceWarning = false
     @State private var isCheckingHomeFence = false
@@ -29,6 +31,7 @@ struct CpVisitsView: View {
     private var filteredVisits: [CpListVisit] {
         visits.filter { visit in
             selectedFilter.matches(visit)
+                && matchesAdvancedFilter(visit, state: advancedFilter)
                 && (searchText.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty || visit.matchesCpSearch(searchText))
         }
     }
@@ -87,17 +90,18 @@ struct CpVisitsView: View {
             } message: {
                 Text(pendingCpRevisit?.dialogMessage ?? "")
             }
-            .sheet(isPresented: $showDateFilter) {
-                CpDateRangeFilterSheet(
-                    initialFrom: filterFromDate,
-                    initialTo: filterToDate
-                ) { from, to in
-                    filterFromDate = from
-                    filterToDate = to
-                    showDateFilter = false
-                    Task { await load() }
-                }
-                .appLibraryNativeSheet([.medium])
+            .fullScreenCover(isPresented: $showAdvancedFilter) {
+                AdvancedListFilterView(
+                    title: "Filter CP Visits",
+                    categories: advancedFilterCategories,
+                    state: advancedFilter,
+                    resultCount: { state in visits.filter { matchesAdvancedFilter($0, state: state) }.count },
+                    onApply: { state in
+                        advancedFilter = state
+                        selectedFilter = CpVisitFilter(rawValue: state.selected("status").first ?? "") ?? .all
+                        Task { await load() }
+                    }
+                )
             }
             .sheet(isPresented: $showPunchIn) {
                 PunchFlowView(mode: .punchIn) {
@@ -119,6 +123,9 @@ struct CpVisitsView: View {
 
     private var visitsContent: some View {
         ScrollView {
+            if canViewDirectTeam {
+                scopePicker
+            }
             filterPills
             dateFilterChip
 
@@ -161,11 +168,11 @@ struct CpVisitsView: View {
 
         ToolbarItem(placement: .topBarTrailing) {
             HStack(spacing: 16) {
-                Button { showDateFilter = true } label: {
-                    Image(systemName: "calendar")
+                Button { showAdvancedFilter = true } label: {
+                    Image(systemName: "line.3.horizontal.decrease")
                         .font(.system(size: 18, weight: .semibold))
                 }
-                .accessibilityLabel("Filter CP visits by date")
+                .accessibilityLabel("Filter CP visits")
 
                 Button { showCreateSheet = true } label: {
                     Image(systemName: "plus")
@@ -248,6 +255,7 @@ struct CpVisitsView: View {
                 ForEach(CpVisitFilter.allCases) { filter in
                     Button {
                         selectedFilter = filter
+                        advancedFilter.setSelected(filter == .all ? [] : [filter.rawValue], for: "status")
                     } label: {
                         Text(filter.title)
                             .font(.system(size: 13, weight: selectedFilter == filter ? .semibold : .medium))
@@ -269,15 +277,15 @@ struct CpVisitsView: View {
 
     @ViewBuilder
     private var dateFilterChip: some View {
-        if let from = filterFromDate {
+        if let from = advancedFilter.fromDate {
             Button {
-                filterFromDate = nil
-                filterToDate = nil
+                advancedFilter.fromDate = nil
+                advancedFilter.toDate = nil
                 Task { await load() }
             } label: {
                 HStack(spacing: 7) {
                     Image(systemName: "calendar")
-                    Text(CpDateRangeFilterSheet.label(from: from, to: filterToDate))
+                    Text(CpDateRangeFilterSheet.label(from: from, to: advancedFilter.toDate))
                     Image(systemName: "xmark.circle.fill")
                 }
                 .font(.system(size: 12, weight: .semibold))
@@ -368,8 +376,10 @@ struct CpVisitsView: View {
             hasLoaded = true
             return
         }
-        let fromDate = filterFromDate.map { AppModuleFormatters.ymd.string(from: $0) }
-        let effectiveTo = filterToDate ?? filterFromDate
+        loadGeneration += 1
+        let generation = loadGeneration
+        let fromDate = advancedFilter.fromDate.map { AppModuleFormatters.ymd.string(from: $0) }
+        let effectiveTo = advancedFilter.toDate ?? advancedFilter.fromDate
         let toDate = effectiveTo.map { AppModuleFormatters.ymd.string(from: $0) }
         let query = (searchOverride ?? searchText).trimmingCharacters(in: .whitespacesAndNewlines)
         let cacheKey = cpCacheKey(fromDate: fromDate, toDate: toDate, search: query)
@@ -378,7 +388,12 @@ struct CpVisitsView: View {
         }
 
         isLoading = visits.isEmpty
-        defer { isLoading = false; hasLoaded = true }
+        defer {
+            if generation == loadGeneration {
+                isLoading = false
+                hasLoaded = true
+            }
+        }
         do {
             async let visitsRequest = fetchCpVisits(
                 token: token,
@@ -387,11 +402,14 @@ struct CpVisitsView: View {
                 search: query
             )
             async let attendanceRequest = loadClockInState(token: token)
-            let all = try await visitsRequest
-            visits = all
+            let page = try await visitsRequest
+            guard generation == loadGeneration else { return }
+            canViewDirectTeam = page.canViewTeam == true || !(page.directReportIds ?? []).isEmpty
+            let scoped = scopedCpVisits(page)
+            visits = scoped
                 .compactMap(CpListVisit.init(detail:))
                 .sorted(by: CpListVisit.androidOrder)
-            LocalCache.put(cacheKey, all)
+            LocalCache.put(cacheKey, scoped)
             errorMessage = nil
             isClockedIn = await attendanceRequest
         } catch {
@@ -404,14 +422,15 @@ struct CpVisitsView: View {
         fromDate: String?,
         toDate: String?,
         search: String
-    ) async throws -> [CpVisitDetail] {
+    ) async throws -> MyMarketingCpVisitsResponse {
         var lastError: Error?
         for attempt in 0..<2 {
             do {
-                return try await MarketingConvexAPIService.getMyMarketingCpVisits(
+                return try await MarketingConvexAPIService.getMarketingCpVisitPage(
                     token: token,
                     fromDate: fromDate,
                     toDate: toDate,
+                    scope: listScope.apiValue,
                     limit: 200,
                     search: search.nilIfEmpty
                 )
@@ -431,7 +450,7 @@ struct CpVisitsView: View {
         let staffId = user?.staffId ?? user?._id ?? "unknown"
         let range = "\(fromDate ?? "all")-\(toDate ?? "all")"
         let query = search.isEmpty ? "all" : String(search.lowercased().prefix(80))
-        return "marketing.cp-visits.my.\(staffId).\(range).\(query)"
+        return "marketing.cp-visits.\(listScope.rawValue).\(staffId).\(range).\(query)"
     }
 
     @MainActor
@@ -475,6 +494,111 @@ struct CpVisitsView: View {
             showPunchIn = true
         }
     }
+
+    private var scopePicker: some View {
+        Picker("CP ownership", selection: $listScope) {
+            ForEach(CpListScope.allCases) { scope in
+                Text(scope.title).tag(scope)
+            }
+        }
+        .pickerStyle(.segmented)
+        .padding(.horizontal, 16)
+        .padding(.top, 12)
+        .onChange(of: listScope) { _, _ in
+            visits = []
+            Task { await load() }
+        }
+    }
+
+    private var advancedFilterCategories: [AdvancedFilterCategory] {
+        [
+            AdvancedFilterCategory(id: "date", title: "Date", showsDateRange: true),
+            AdvancedFilterCategory(
+                id: "status",
+                title: "Status",
+                options: CpVisitFilter.allCases.filter { $0 != .all }.map {
+                    AdvancedFilterOption(id: $0.rawValue, label: $0.title)
+                },
+                selectionMode: .single
+            ),
+            AdvancedFilterCategory(id: "outcome", title: "Outcome", options: uniqueCpOptions { visit in
+                guard let value = visit.outcome?.normalizedMarker, !value.isEmpty else { return nil }
+                return AdvancedFilterOption(id: value, label: value.replacingOccurrences(of: "_", with: " ").capitalized)
+            }),
+            AdvancedFilterCategory(id: "cpType", title: "CP Type", options: uniqueCpOptions { visit in
+                guard let value = visit.cpType?.normalizedMarker, !value.isEmpty else { return nil }
+                return AdvancedFilterOption(id: value, label: visit.typeLabel)
+            }),
+            AdvancedFilterCategory(id: "fieldStaff", title: "Field Staff", options: uniqueCpOptions { visit in
+                guard let id = visit.detail.assignedStaffId?.blankToNil,
+                      let name = visit.fieldStaffName?.blankToNil else { return nil }
+                return AdvancedFilterOption(id: id, label: name)
+            }),
+            AdvancedFilterCategory(id: "telecaller", title: "Telecaller", options: uniqueCpOptions { visit in
+                guard let id = visit.detail.telecallerStaffId?.blankToNil,
+                      let name = visit.lmoName?.blankToNil else { return nil }
+                return AdvancedFilterOption(id: id, label: name)
+            })
+        ]
+    }
+
+    private func uniqueCpOptions(_ transform: (CpListVisit) -> AdvancedFilterOption?) -> [AdvancedFilterOption] {
+        var seen = Set<String>()
+        return visits.compactMap(transform).filter { seen.insert($0.id).inserted }.sorted { $0.label < $1.label }
+    }
+
+    private func matchesAdvancedFilter(_ visit: CpListVisit, state: AdvancedFilterState) -> Bool {
+        if let from = state.fromDate {
+            let lower = AppModuleFormatters.ymd.string(from: from)
+            if (visit.scheduledDate ?? "") < lower { return false }
+        }
+        if let to = state.toDate {
+            let upper = AppModuleFormatters.ymd.string(from: to)
+            if (visit.scheduledDate ?? "") > upper { return false }
+        }
+        let statuses = state.selected("status")
+        if !statuses.isEmpty && !statuses.contains(where: { CpVisitFilter(rawValue: $0)?.matches(visit) == true }) { return false }
+        let outcomes = state.selected("outcome")
+        if !outcomes.isEmpty && !outcomes.contains(visit.outcome?.normalizedMarker ?? "") { return false }
+        let cpTypes = state.selected("cpType")
+        if !cpTypes.isEmpty && !cpTypes.contains(visit.cpType?.normalizedMarker ?? "") { return false }
+        let fieldStaff = state.selected("fieldStaff")
+        if !fieldStaff.isEmpty && !fieldStaff.contains(visit.detail.assignedStaffId ?? "") { return false }
+        let telecallers = state.selected("telecaller")
+        if !telecallers.isEmpty && !telecallers.contains(visit.detail.telecallerStaffId ?? "") { return false }
+        return true
+    }
+
+    private func scopedCpVisits(_ page: MyMarketingCpVisitsResponse) -> [CpVisitDetail] {
+        switch listScope {
+        case .mine:
+            guard let user = authStore.currentSession?.user else { return [] }
+            let ownIDs = Set([user.staffId, user._id].compactMap { $0?.blankToNil })
+            return page.visits.filter { detail in
+                ownIDs.contains(detail.assignedStaffId ?? "")
+                    || ownIDs.contains(detail.joint?.leadStaffId ?? "")
+                    || (detail.joint?.participants ?? []).contains { ownIDs.contains($0.staffId ?? "") }
+            }
+        case .direct:
+            guard page.scope?.lowercased() == CpListScope.direct.apiValue else { return [] }
+            let directIDs = Set(page.directReportIds ?? [])
+            guard !directIDs.isEmpty else { return [] }
+            return page.visits.filter { detail in
+                directIDs.contains(detail.assignedStaffId ?? "")
+                    || directIDs.contains(detail.joint?.leadStaffId ?? "")
+                    || (detail.joint?.participants ?? []).contains { directIDs.contains($0.staffId ?? "") }
+            }
+        }
+    }
+}
+
+private enum CpListScope: String, CaseIterable, Identifiable {
+    case mine
+    case direct
+
+    var id: String { rawValue }
+    var apiValue: String { rawValue }
+    var title: String { self == .mine ? "My" : "Team" }
 }
 
 private struct CpListVisit: Identifiable {
@@ -1773,6 +1897,8 @@ private struct CreateCpVisitSheet: View {
     @State private var leadLookupTask: Task<Void, Never>?
     @State private var addressParseTask: Task<Void, Never>?
     @State private var lastParsedAddressLine1 = ""
+    @State private var createRequestId = UUID().uuidString
+    @State private var createRequestFingerprint: String?
     private let directionsClient = GeoTrackDirectionsClient()
 
     var body: some View {
@@ -3005,7 +3131,21 @@ private struct CreateCpVisitSheet: View {
         isSubmitting = true
         defer { isSubmitting = false }
         do {
-            _ = try await MarketingConvexAPIService.createCpVisit(token: token, request: request)
+            let fingerprint = try JSONEncoder().encode(request).base64EncodedString()
+            if createRequestFingerprint != fingerprint {
+                createRequestId = UUID().uuidString
+                createRequestFingerprint = fingerprint
+            }
+            let response = try await MarketingConvexAPIService.createCpVisit(
+                token: token,
+                request: request,
+                idempotencyKey: createRequestId
+            )
+            guard response.id?.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty == false else {
+                throw MarketingAPIError.server("The server did not return the created CP. Please retry.")
+            }
+            createRequestId = UUID().uuidString
+            createRequestFingerprint = nil
             onCreated()
         } catch MarketingAPIError.newClientAlreadyExists(let client, _) {
             applyExistingClient(client, phone: normalizedPhone)

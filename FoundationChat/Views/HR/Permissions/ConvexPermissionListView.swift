@@ -17,6 +17,12 @@ struct ConvexPermissionListView: View {
     @State private var rejectReason = ""
     @State private var actionInFlightId: String?
     @State private var isReportingManager = false
+    @State private var showAdvancedFilter = false
+    @State private var advancedFilter: AdvancedFilterState = {
+        var state = AdvancedFilterState()
+        state.setSelected(["review"], for: "status")
+        return state
+    }()
 
     private var canManageTeamPermissions: Bool {
         isReportingManager || authStore.hasPermission("permissions.approve")
@@ -45,7 +51,9 @@ struct ConvexPermissionListView: View {
     }
 
     private var filteredPermissions: [ConvexPermission] {
-        scopedPermissions.filter { historyFilter.contains(status: $0.status ?? "pending") }
+        scopedPermissions.filter {
+            historyFilter.contains(status: $0.status ?? "pending") && matchesPermission($0, state: advancedFilter)
+        }
     }
 
     private var shouldShowApprovalActions: Bool {
@@ -147,6 +155,20 @@ struct ConvexPermissionListView: View {
             }
             .appLibraryNativeSheet([.height(590), .large])
         }
+        .fullScreenCover(isPresented: $showAdvancedFilter) {
+            AdvancedListFilterView(
+                title: "Filter Permissions",
+                categories: permissionFilterCategories,
+                state: advancedFilter,
+                resultCount: { state in scopedPermissions.filter { matchesPermission($0, state: state) }.count },
+                onApply: { state in
+                    advancedFilter = state
+                    if let status = state.selected("status").first {
+                        historyFilter = permissionHistoryFilter(status)
+                    }
+                }
+            )
+        }
         .alert("Error", isPresented: .constant(errorMessage != nil), actions: {
             Button("OK") { errorMessage = nil }
         }, message: {
@@ -229,6 +251,8 @@ struct ConvexPermissionListView: View {
                                 withAnimation(.snappy(duration: 0.2)) {
                                     activeScope = scope
                                     historyFilter = .review
+                                    advancedFilter.setSelected([], for: "staff")
+                                    advancedFilter.setSelected(["review"], for: "status")
                                 }
                             } label: {
                                 if scope == .team, pendingPermissions.count > 0 {
@@ -310,6 +334,7 @@ struct ConvexPermissionListView: View {
                 Button {
                     withAnimation(.snappy(duration: 0.18)) {
                         historyFilter = filter
+                        advancedFilter.setSelected([permissionStatusID(filter)], for: "status")
                     }
                 } label: {
                     Text(filter.title(with: scopedPermissions))
@@ -332,6 +357,14 @@ struct ConvexPermissionListView: View {
                 }
                 .buttonStyle(.plain)
             }
+            Button { showAdvancedFilter = true } label: {
+                Image(systemName: "line.3.horizontal.decrease")
+                    .font(.system(size: 15, weight: .semibold))
+                    .foregroundStyle(Color(hex: 0x0B61CA))
+                    .frame(width: 34, height: 32)
+            }
+            .buttonStyle(.plain)
+            .accessibilityLabel("Filter permissions")
         }
         .padding(3)
         .background(Color(hex: 0xE9EEF6), in: Capsule())
@@ -795,6 +828,61 @@ struct ConvexPermissionListView: View {
             return "\(whole) Hr\(whole == 1 ? "" : "s")"
         }
         return String(format: "%.1f Hrs", hours)
+    }
+
+    private var permissionFilterCategories: [AdvancedFilterCategory] {
+        var categories = [
+            AdvancedFilterCategory(id: "date", title: "Date", showsDateRange: true),
+            AdvancedFilterCategory(
+                id: "status",
+                title: "Status",
+                options: [
+                    AdvancedFilterOption(id: "review", label: "Review"),
+                    AdvancedFilterOption(id: "approved", label: "Approved"),
+                    AdvancedFilterOption(id: "rejected", label: "Rejected")
+                ],
+                selectionMode: .single
+            )
+        ]
+        if activeScope != .my {
+            categories.append(AdvancedFilterCategory(id: "staff", title: "Staff", options: uniquePermissionOptions { permission in
+                guard let id = permission.staffId?.nonBlank, let name = permission.staffName?.nonBlank else { return nil }
+                return AdvancedFilterOption(id: id, label: name)
+            }))
+        }
+        return categories
+    }
+
+    private func uniquePermissionOptions(_ transform: (ConvexPermission) -> AdvancedFilterOption?) -> [AdvancedFilterOption] {
+        var seen = Set<String>()
+        return scopedPermissions.compactMap(transform).filter { seen.insert($0.id).inserted }.sorted { $0.label < $1.label }
+    }
+
+    private func matchesPermission(_ permission: ConvexPermission, state: AdvancedFilterState) -> Bool {
+        if let from = state.fromDate, (permission.date ?? "") < AppModuleFormatters.ymd.string(from: from) { return false }
+        if let to = state.toDate, (permission.date ?? "") > AppModuleFormatters.ymd.string(from: to) { return false }
+        let selectedStatus = state.selected("status").first
+        let statusFilter = selectedStatus.map(permissionHistoryFilter) ?? historyFilter
+        if !statusFilter.contains(status: permission.status ?? "pending") { return false }
+        let staff = state.selected("staff")
+        if !staff.isEmpty && !staff.contains(permission.staffId ?? "") { return false }
+        return true
+    }
+
+    private func permissionStatusID(_ filter: PermissionHistoryFilter) -> String {
+        switch filter {
+        case .review: return "review"
+        case .approved: return "approved"
+        case .rejected: return "rejected"
+        }
+    }
+
+    private func permissionHistoryFilter(_ id: String) -> PermissionHistoryFilter {
+        switch id {
+        case "approved": return .approved
+        case "rejected": return .rejected
+        default: return .review
+        }
     }
 
     private func authorName(for permission: ConvexPermission) -> String {
