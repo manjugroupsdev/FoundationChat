@@ -22,6 +22,7 @@ struct CpVisitsView: View {
     @State private var showAdvancedFilter = false
     @State private var advancedFilter = AdvancedFilterState()
     @State private var listScope: CpListScope = .mine
+    @State private var activeOwnershipScope: CpListScope?
     @State private var didInitializeScope = false
     @State private var canViewDirectTeam = false
     @State private var loadGeneration = 0
@@ -109,6 +110,8 @@ struct CpVisitsView: View {
                     resultCount: { state in visits.filter { matchesAdvancedFilter($0, state: state) }.count },
                     onApply: { state in
                         advancedFilter = state
+                        activeOwnershipScope = nil
+                        listScope = authStore.isAdmin ? .all : .mine
                         selectedFilter = CpVisitFilter(rawValue: state.selected("status").first ?? "") ?? .all
                         Task { await load() }
                     }
@@ -271,16 +274,24 @@ struct CpVisitsView: View {
                 }
                 ForEach(CpVisitFilter.allCases) { filter in
                     Button {
+                        let defaultScope: CpListScope = authStore.isAdmin ? .all : .mine
+                        let needsReload = listScope != defaultScope
+                        activeOwnershipScope = nil
+                        listScope = defaultScope
                         selectedFilter = filter
                         advancedFilter.setSelected(filter == .all ? [] : [filter.rawValue], for: "status")
+                        if needsReload {
+                            visits = []
+                            Task { await load() }
+                        }
                     } label: {
                         Text(filter.title)
-                            .font(.system(size: 13, weight: selectedFilter == filter ? .semibold : .medium))
-                            .foregroundStyle(selectedFilter == filter ? .white : Color(hex: 0x475467))
+                            .font(.system(size: 13, weight: activeOwnershipScope == nil && selectedFilter == filter ? .semibold : .medium))
+                            .foregroundStyle(activeOwnershipScope == nil && selectedFilter == filter ? .white : Color(hex: 0x475467))
                             .padding(.horizontal, 16)
                             .frame(height: 34)
                             .background(
-                                selectedFilter == filter ? Color(hex: 0x0B61CA) : .white,
+                                activeOwnershipScope == nil && selectedFilter == filter ? Color(hex: 0x0B61CA) : .white,
                                 in: Capsule()
                             )
                     }
@@ -293,11 +304,12 @@ struct CpVisitsView: View {
     }
 
     private func scopePill(_ scope: CpListScope) -> some View {
-        let isActive = listScope == scope
+        let isActive = activeOwnershipScope == scope
         return Button {
-            let target: CpListScope = authStore.isAdmin && isActive ? .all : scope
-            guard target != listScope else { return }
-            listScope = target
+            listScope = scope
+            activeOwnershipScope = scope
+            selectedFilter = .all
+            advancedFilter.setSelected([], for: "status")
             visits = []
             Task { await load() }
         } label: {

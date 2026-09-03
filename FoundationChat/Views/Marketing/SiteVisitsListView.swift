@@ -18,6 +18,7 @@ struct SiteVisitsListView: View {
     @State private var searchText = ""
     @State private var selectedFilter: SiteVisitListFilter = .all
     @State private var listScope: SiteVisitListScope = .all
+    @State private var activeOwnershipScope: SiteVisitListScope?
     @State private var directReportIDs: Set<String> = []
     @State private var didLoadOwnership = false
     @State private var showingAdvancedFilter = false
@@ -129,6 +130,8 @@ struct SiteVisitsListView: View {
                 resultCount: { state in visits.filter { matchesAdvancedFilter($0, state: state) }.count },
                 onApply: { state in
                     advancedFilter = state
+                    activeOwnershipScope = nil
+                    listScope = .all
                     selectedFilter = SiteVisitListFilter(rawValue: state.selected("status").first ?? "") ?? .all
                     Task { await load() }
                 }
@@ -217,21 +220,23 @@ struct SiteVisitsListView: View {
                 }
                 ForEach(SiteVisitListFilter.allCases) { filter in
                     Button {
+                        activeOwnershipScope = nil
+                        listScope = .all
                         selectedFilter = filter
                         advancedFilter.setSelected(filter == .all ? [] : [filter.rawValue], for: "status")
                     } label: {
                         Text(filter.title)
-                            .font(.system(size: 14, weight: selectedFilter == filter ? .semibold : .medium))
-                            .foregroundStyle(selectedFilter == filter ? .white : .primary)
+                            .font(.system(size: 14, weight: activeOwnershipScope == nil && selectedFilter == filter ? .semibold : .medium))
+                            .foregroundStyle(activeOwnershipScope == nil && selectedFilter == filter ? .white : .primary)
                             .padding(.horizontal, 18)
                             .frame(height: 38)
                             .background(
-                                selectedFilter == filter ? Color(hex: 0x0B61CA) : Color.appSurface,
+                                activeOwnershipScope == nil && selectedFilter == filter ? Color(hex: 0x0B61CA) : Color.appSurface,
                                 in: Capsule()
                             )
                             .overlay(
                                 Capsule()
-                                    .stroke(selectedFilter == filter ? Color.clear : Color.appSeparator, lineWidth: 1)
+                                    .stroke(activeOwnershipScope == nil && selectedFilter == filter ? Color.clear : Color.appSeparator, lineWidth: 1)
                             )
                     }
                     .buttonStyle(.plain)
@@ -351,9 +356,12 @@ struct SiteVisitsListView: View {
     }
 
     private func scopePill(_ scope: SiteVisitListScope) -> some View {
-        let isActive = listScope == scope
+        let isActive = activeOwnershipScope == scope
         return Button {
-            listScope = isActive ? .all : scope
+            listScope = scope
+            activeOwnershipScope = scope
+            selectedFilter = .all
+            advancedFilter.setSelected([], for: "status")
         } label: {
             Text(scope.title)
                 .font(.system(size: 14, weight: isActive ? .semibold : .medium))
