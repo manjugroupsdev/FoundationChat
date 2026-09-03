@@ -17,6 +17,7 @@ struct AdvancedFilterCategory: Identifiable {
     var options: [AdvancedFilterOption] = []
     var selectionMode: SelectionMode = .multiple
     var showsDateRange = false
+    var isSearchable = true
 }
 
 struct AdvancedFilterState: Equatable {
@@ -58,6 +59,7 @@ struct AdvancedListFilterView: View {
 
     @State private var draft: AdvancedFilterState
     @State private var selectedCategoryID: String
+    @State private var optionSearchText = ""
 
     init(
         title: String = "Filters",
@@ -115,6 +117,7 @@ struct AdvancedListFilterView: View {
                 ForEach(categories) { category in
                     Button {
                         selectedCategoryID = category.id
+                        optionSearchText = ""
                     } label: {
                         HStack(spacing: 6) {
                             Text(category.title)
@@ -151,8 +154,24 @@ struct AdvancedListFilterView: View {
     @ViewBuilder
     private var optionPane: some View {
         if let category = selectedCategory {
-            ScrollView {
-                LazyVStack(alignment: .leading, spacing: 0) {
+            VStack(spacing: 0) {
+                if category.isSearchable && !category.showsDateRange {
+                    HStack(spacing: 10) {
+                        Image(systemName: "magnifyingglass")
+                            .foregroundStyle(.secondary)
+                        TextField("Search \(category.title.lowercased())", text: $optionSearchText)
+                            .textInputAutocapitalization(.never)
+                            .autocorrectionDisabled()
+                    }
+                    .padding(.horizontal, 14)
+                    .frame(height: 46)
+                    .background(Color(.secondarySystemBackground), in: RoundedRectangle(cornerRadius: 8))
+                    .padding(.horizontal, 14)
+                    .padding(.top, 12)
+                }
+
+                ScrollView {
+                    LazyVStack(alignment: .leading, spacing: 0) {
                     Text(category.title)
                         .font(.system(size: 15, weight: .semibold))
                         .foregroundStyle(.secondary)
@@ -162,17 +181,30 @@ struct AdvancedListFilterView: View {
 
                     if category.showsDateRange {
                         dateRangeOptions
-                    } else if category.options.isEmpty {
-                        ContentUnavailableView("No options", systemImage: "line.3.horizontal.decrease.circle")
+                    } else if filteredOptions(in: category).isEmpty {
+                        ContentUnavailableView(
+                            optionSearchText.isEmpty ? "No options available" : "No matching options",
+                            systemImage: "line.3.horizontal.decrease.circle"
+                        )
                             .frame(maxWidth: .infinity)
                             .padding(.top, 60)
                     } else {
-                        ForEach(category.options) { option in
+                        ForEach(filteredOptions(in: category)) { option in
                             optionRow(option, category: category)
                         }
                     }
+                    }
                 }
             }
+        }
+    }
+
+    private func filteredOptions(in category: AdvancedFilterCategory) -> [AdvancedFilterOption] {
+        let query = optionSearchText.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !query.isEmpty else { return category.options }
+        return category.options.filter {
+            $0.label.localizedCaseInsensitiveContains(query)
+                || ($0.subtitle?.localizedCaseInsensitiveContains(query) == true)
         }
     }
 

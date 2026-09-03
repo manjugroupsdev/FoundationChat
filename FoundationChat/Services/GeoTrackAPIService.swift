@@ -33,9 +33,9 @@ enum GeoTrackAPIError: LocalizedError {
 
 // MARK: - GeoTrack API Service
 
-/// Wraps all 18 Convex HTTP geotrack endpoints.
+/// Wraps MMS business endpoints and direct Airix GeoTrack transport endpoints.
 /// Auth: Bearer token from the active OTP session (same as Android GeoTrackApi.kt).
-/// Base URL: AppConfig.baseURL  (e.g. https://opulent-cricket-895.convex.site)
+/// GPS writes bypass MMS and go directly to `AppConfig.geoTrackBaseURL`.
 @MainActor
 @Observable
 final class GeoTrackAPIService {
@@ -46,6 +46,15 @@ final class GeoTrackAPIService {
     var urlSession: any GeoTrackHTTPSession
 
     private let baseURL: String
+    private let trackingBaseURL: String
+    private let pendingControlKey = "geotrack.pendingDirectControl"
+
+    private struct PendingControl: Codable {
+        let action: String
+        let requestId: String
+        let lat: Double?
+        let lng: Double?
+    }
 
     private struct ErrorEnvelope: Decodable {
         let error: String?
@@ -59,10 +68,12 @@ final class GeoTrackAPIService {
 
     init(
         baseURL: String? = nil,
+        trackingBaseURL: String? = nil,
         tokenProvider: (() -> String?)? = nil,
         urlSession: (any GeoTrackHTTPSession) = URLSession.shared
     ) {
         self.baseURL = baseURL ?? AppConfig.baseURL
+        self.trackingBaseURL = trackingBaseURL ?? (baseURL ?? AppConfig.geoTrackBaseURL)
         self.tokenProvider = tokenProvider
         self.urlSession = urlSession
     }
@@ -72,17 +83,27 @@ final class GeoTrackAPIService {
     private func makeRequest(
         path: String,
         method: String,
-        body: (any Encodable)? = nil
+        body: (any Encodable)? = nil,
+        directGeoTrack: Bool = false,
+        idempotencyKey: String? = nil
     ) throws -> URLRequest {
-        guard let url = URL(string: baseURL + path) else {
+        let host = directGeoTrack ? trackingBaseURL : baseURL
+        guard let url = URL(string: host + path) else {
             throw URLError(.badURL)
         }
 
         var request = URLRequest(url: url)
         request.httpMethod = method
         request.setValue("application/json", forHTTPHeaderField: "Content-Type")
+        if let idempotencyKey {
+            request.setValue(idempotencyKey, forHTTPHeaderField: "Idempotency-Key")
+        }
 
-        if let token = tokenProvider?() {
+        let token = tokenProvider?()
+        if directGeoTrack && token?.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty != false {
+            throw GeoTrackAPIError.noToken
+        }
+        if let token {
             request.setValue("Bearer \(token)", forHTTPHeaderField: "Authorization")
         }
 
@@ -166,28 +187,109 @@ final class GeoTrackAPIService {
     func pushBatch(
         sessionId: String,
         deviceId: String,
+        requestId: String,
         points: [GeoTrackLocationPoint]
     ) async throws -> GeoTrackPushBatchResponse {
-        let body = GeoTrackPushBatchRequest(sessionId: sessionId, deviceId: deviceId, points: points)
-        let request = try makeRequest(path: "/api/tracking/location/batch", method: "POST", body: body)
+        await retryPendingTrackingControl()
+        let body = GeoTrackPushBatchRequest(
+            sessionId: sessionId,
+            deviceId: deviceId,
+            requestId: requestId,
+            points: points
+        )
+        let request = try makeRequest(
+            path: "/api/tracking/location/batch",
+            method: "POST",
+            body: body,
+            directGeoTrack: true,
+            idempotencyKey: requestId
+        )
         let result: GeoTrackPushBatchResponse = try await perform(request)
-        if let err = result.error { throw GeoTrackAPIError.serverError(err) }
+        guard result.success else {
+            throw GeoTrackAPIError.serverError(result.error ?? "GeoTrack rejected the location batch")
+        }
         return result
     }
 
     /// POST /api/geotrack/start
     func startTracking(lat: Double? = nil, lng: Double? = nil) async throws {
         let body = GeoTrackStartRequest(lat: lat, lng: lng)
-        let request = try makeRequest(path: "/api/geotrack/start", method: "POST", body: body)
+        let requestId = "tracking-start-\(GeoTrackBootstrapCoordinator.shared.deviceId)-\(GeoTrackBootstrapCoordinator.shared.activeSessionId ?? "current")"
+        savePendingControl(PendingControl(action: "start", requestId: requestId, lat: lat, lng: lng))
+        let request = try makeRequest(
+            path: "/api/geotrack/start",
+            method: "POST",
+            body: body,
+            directGeoTrack: true,
+            idempotencyKey: requestId
+        )
         let result: GeoTrackBaseResponse = try await perform(request)
-        if let err = result.error { throw GeoTrackAPIError.serverError(err) }
+        guard result.success else {
+            throw GeoTrackAPIError.serverError(result.error ?? "GeoTrack start failed")
+        }
+        clearPendingControl(requestId: requestId)
     }
 
     /// POST /api/geotrack/stop
     func stopTracking() async throws {
-        let request = try makeRequest(path: "/api/geotrack/stop", method: "POST")
+        let requestId = "tracking-stop-\(GeoTrackBootstrapCoordinator.shared.deviceId)-\(GeoTrackBootstrapCoordinator.shared.activeSessionId ?? "current")"
+        savePendingControl(PendingControl(action: "stop", requestId: requestId, lat: nil, lng: nil))
+        let request = try makeRequest(
+            path: "/api/geotrack/stop",
+            method: "POST",
+            body: EmptyGeoTrackRequest(),
+            directGeoTrack: true,
+            idempotencyKey: requestId
+        )
         let result: GeoTrackBaseResponse = try await perform(request)
-        if let err = result.error { throw GeoTrackAPIError.serverError(err) }
+        guard result.success else {
+            throw GeoTrackAPIError.serverError(result.error ?? "GeoTrack stop failed")
+        }
+        clearPendingControl(requestId: requestId)
+    }
+
+    /// Replays a failed start/stop with its original body and idempotency key.
+    func retryPendingTrackingControl() async {
+        guard let data = UserDefaults.standard.data(forKey: pendingControlKey),
+              let pending = try? JSONDecoder().decode(PendingControl.self, from: data) else { return }
+        do {
+            let path = pending.action == "stop" ? "/api/geotrack/stop" : "/api/geotrack/start"
+            let request: URLRequest
+            if pending.action == "stop" {
+                request = try makeRequest(
+                    path: path,
+                    method: "POST",
+                    body: EmptyGeoTrackRequest(),
+                    directGeoTrack: true,
+                    idempotencyKey: pending.requestId
+                )
+            } else {
+                request = try makeRequest(
+                    path: path,
+                    method: "POST",
+                    body: GeoTrackStartRequest(lat: pending.lat, lng: pending.lng),
+                    directGeoTrack: true,
+                    idempotencyKey: pending.requestId
+                )
+            }
+            let result: GeoTrackBaseResponse = try await perform(request)
+            guard result.success, result.error == nil else { return }
+            clearPendingControl(requestId: pending.requestId)
+        } catch {
+            // Keep the exact command for the next reconnect/bootstrap.
+        }
+    }
+
+    private func savePendingControl(_ command: PendingControl) {
+        guard let data = try? JSONEncoder().encode(command) else { return }
+        UserDefaults.standard.set(data, forKey: pendingControlKey)
+    }
+
+    private func clearPendingControl(requestId: String) {
+        guard let data = UserDefaults.standard.data(forKey: pendingControlKey),
+              let pending = try? JSONDecoder().decode(PendingControl.self, from: data),
+              pending.requestId == requestId else { return }
+        UserDefaults.standard.removeObject(forKey: pendingControlKey)
     }
 
     // MARK: - Heartbeat
@@ -212,13 +314,19 @@ final class GeoTrackAPIService {
         sessionId: String? = nil,
         deviceId: String? = nil
     ) async throws {
+        await retryPendingTrackingControl()
         let coordinator = GeoTrackBootstrapCoordinator.shared
+        let timestamp = recordedAt ?? Int64(Date().timeIntervalSince1970 * 1_000)
+        let resolvedDeviceId = deviceId ?? coordinator.deviceId
+        let requestId = "heartbeat-\(resolvedDeviceId)-\(timestamp)"
         let body = GeoTrackHeartbeatRequest(
             sessionId: sessionId ?? coordinator.activeSessionId,
-            deviceId: deviceId ?? coordinator.deviceId,
+            deviceId: resolvedDeviceId,
+            requestId: requestId,
+            deviceSequence: timestamp,
             batteryPct: batteryPct,
             appVersion: appVersion,
-            recordedAt: recordedAt ?? Int64(Date().timeIntervalSince1970 * 1_000),
+            recordedAt: timestamp,
             // iOS exposes NO public API for flight mode, so this stays nil
             // rather than guessing: inferring it from "no interfaces" would
             // mislabel a phone that is merely out of signal. Flight mode is
@@ -230,23 +338,63 @@ final class GeoTrackAPIService {
             // an iPhone reached the backend with no device state to explain it.
             locationEnabled: Self.locationServicesUsable()
         )
-        let request = try makeRequest(path: "/api/tracking/heartbeat", method: "POST", body: body)
+        let request = try makeRequest(
+            path: "/api/tracking/heartbeat",
+            method: "POST",
+            body: body,
+            directGeoTrack: true,
+            idempotencyKey: requestId
+        )
         let result: GeoTrackBaseResponse = try await perform(request)
-        if let err = result.error { throw GeoTrackAPIError.serverError(err) }
+        guard result.success else {
+            throw GeoTrackAPIError.serverError(result.error ?? "GeoTrack heartbeat failed")
+        }
     }
 
     // MARK: - Tamper
 
-    /// POST /api/geotrack/tamper/report
+    /// Sends supported device-state events directly; MMS-only legacy event
+    /// types keep their existing endpoint so the direct API does not reject them.
     func reportTamper(
         eventType: GeoTrackTamperEventType,
         metadata: [String: String] = [:],
         detectedAt: Int64? = nil
     ) async throws {
-        let body = GeoTrackTamperReportRequest(eventType: eventType, metadata: metadata, detectedAt: detectedAt)
-        let request = try makeRequest(path: "/api/geotrack/tamper/report", method: "POST", body: body)
+        let timestamp = metadata["_detectedAt"].flatMap { Int64($0) }
+            ?? detectedAt
+            ?? Int64(Date().timeIntervalSince1970 * 1_000)
+        let requestId = metadata["_requestId"]
+            ?? "tamper-\(GeoTrackBootstrapCoordinator.shared.deviceId)-\(eventType.rawValue)-\(timestamp)"
+        let publicMetadata = metadata.filter { !$0.key.hasPrefix("_") }
+        let directEventType: String?
+        switch eventType {
+        case .permissionDowngrade:
+            directEventType = "PERMISSION_MISSING"
+        case .teleportation, .appForceKilled:
+            directEventType = nil
+        default:
+            directEventType = eventType.rawValue
+        }
+        let body = GeoTrackTamperReportRequest(
+            sessionId: metadata["_sessionId"] ?? GeoTrackBootstrapCoordinator.shared.activeSessionId,
+            eventType: directEventType ?? eventType.rawValue,
+            metadata: publicMetadata,
+            detectedAt: timestamp,
+            requestId: requestId
+        )
+        let request = try makeRequest(
+            path: directEventType == nil
+                ? "/api/geotrack/tamper/report"
+                : "/api/tracking/tamper-events",
+            method: "POST",
+            body: body,
+            directGeoTrack: directEventType != nil,
+            idempotencyKey: directEventType == nil ? nil : requestId
+        )
         let result: GeoTrackBaseResponse = try await perform(request)
-        if let err = result.error { throw GeoTrackAPIError.serverError(err) }
+        guard result.success else {
+            throw GeoTrackAPIError.serverError(result.error ?? "GeoTrack tamper report failed")
+        }
     }
 
     /// GET /api/geotrack/tamper/feed?limit=...
@@ -598,6 +746,7 @@ final class GeoTrackAPIService {
     /// POST /api/geotrack/visit/arrival-otp/verify
     func verifyArrivalOtp(
         visitId: String,
+        fallbackClientPlaceVisitId: String? = nil,
         otp: String,
         lat: Double? = nil,
         lng: Double? = nil,
@@ -611,8 +760,32 @@ final class GeoTrackAPIService {
             arrivalPhotoStorageId: arrivalPhotoStorageId
         )
         let request = try makeRequest(path: "/api/geotrack/visit/arrival-otp/verify", method: "POST", body: body)
-        let result: GeoTrackArrivalOtpVerifyResponse = try await perform(request)
-        return result
+        do {
+            let result: GeoTrackArrivalOtpVerifyResponse = try await perform(request)
+            return result
+        } catch GeoTrackAPIError.badStatus(400) {
+            let fallbackId = fallbackClientPlaceVisitId?
+                .trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
+            guard !fallbackId.isEmpty, fallbackId != visitId else { throw GeoTrackAPIError.badStatus(400) }
+
+            // Older compatibility layers can require the CP id instead of the
+            // linked field-visit id. Their 400 happens before OTP verification,
+            // so retrying once with the alternate id cannot consume an attempt.
+            let fallbackBody = GeoTrackArrivalOtpVerifyBody(
+                visitId: fallbackId,
+                otp: otp,
+                lat: lat,
+                lng: lng,
+                arrivalPhotoStorageId: arrivalPhotoStorageId
+            )
+            let fallbackRequest = try makeRequest(
+                path: "/api/geotrack/visit/arrival-otp/verify",
+                method: "POST",
+                body: fallbackBody
+            )
+            let result: GeoTrackArrivalOtpVerifyResponse = try await perform(fallbackRequest)
+            return result
+        }
     }
 
     /// POST /api/geotrack/visit/arrival-otp/cancel

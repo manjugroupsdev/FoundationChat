@@ -112,7 +112,9 @@ final class LocationTracker: NSObject {
         let lng = lastLocation?.coordinate.longitude
 
         if shouldStartServerSession {
-            try await geoAPI.startTracking(lat: lat, lng: lng)
+            // Keep collecting into the durable local queue during an outage;
+            // the direct start command is persisted and replayed unchanged.
+            try? await geoAPI.startTracking(lat: lat, lng: lng)
         }
 
         isTracking = true
@@ -158,7 +160,9 @@ final class LocationTracker: NSObject {
             )
         }
         await flushWaypoints()
-        try await geoAPI.stopTracking()
+        // A failed direct stop is persisted by GeoTrackAPIService and retried
+        // on the next bootstrap without keeping iOS location updates alive.
+        try? await geoAPI.stopTracking()
         stopTracking()
         return GPSSessionEndResult(totalWaypoints: nil, totalDistanceKm: nil, totalDuration: nil)
     }
@@ -340,11 +344,35 @@ final class LocationTracker: NSObject {
                 var madeProgress = false
                 for (sessionId, rows) in grouped {
                     let items = rows.map(\.1)
+                    let deviceId = items.first?.deviceId ?? defaultDeviceId
+                    let requestId = "geo-batch-\(deviceId)-\(items.first?.id.uuidString ?? "first")-\(items.last?.id.uuidString ?? "last")"
+                    let points = items.enumerated().map { index, item in
+                        let point = item.point
+                        return GeoTrackLocationPoint(
+                            pointId: "\(deviceId)-\(point.recordedAt)-\(item.id.uuidString)",
+                            deviceSequence: point.recordedAt + Int64(index),
+                            lat: point.lat,
+                            lng: point.lng,
+                            accuracy: point.accuracy,
+                            speed: point.speed,
+                            bearing: point.bearing,
+                            altitude: point.altitude,
+                            activity: point.activity,
+                            activityConfidence: point.activityConfidence,
+                            isMock: point.isMock,
+                            batteryPct: point.batteryPct,
+                            networkType: point.networkType,
+                            gpsEnabled: point.gpsEnabled,
+                            airplaneMode: point.airplaneMode,
+                            recordedAt: point.recordedAt
+                        )
+                    }
                     do {
                         _ = try await geoAPI.pushBatch(
                             sessionId: sessionId,
-                            deviceId: items.first?.deviceId ?? defaultDeviceId,
-                            points: items.map(\.point)
+                            deviceId: deviceId,
+                            requestId: requestId,
+                            points: points
                         )
                         try await persistence.markAsSent(ids: items.map(\.id))
                         madeProgress = true

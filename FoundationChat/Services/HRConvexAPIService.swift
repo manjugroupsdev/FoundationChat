@@ -622,12 +622,6 @@ enum HRConvexAPIService {
         let error: String?
     }
 
-    private struct AttendanceRequestResponse: Decodable, Sendable {
-        let success: Bool
-        let requestId: String?
-        let error: String?
-    }
-
     private struct OnDutyTripResponse: Decodable, Sendable {
         let success: Bool
         let tripId: String?
@@ -905,33 +899,6 @@ enum HRConvexAPIService {
         let wrapper = try await decode(HomeFenceResponse.self, from: data)
         guard wrapper.success else { throw HRConvexAPIError.server(wrapper.error ?? "Failed to load home fence") }
         return wrapper.fence
-    }
-
-    static func submitAttendanceRequest(
-        token: String,
-        attendanceId: String,
-        date: String,
-        type: String,
-        remark: String? = nil,
-        correctedPunchIn: String? = nil,
-        correctedPunchOut: String? = nil,
-        correctionReason: String? = nil
-    ) async throws -> String {
-        var body: [String: Any] = [
-            "attendanceId": attendanceId,
-            "date": date,
-            "type": type
-        ]
-        if let remark { body["remark"] = remark }
-        if let correctedPunchIn { body["correctedPunchIn"] = correctedPunchIn }
-        if let correctedPunchOut { body["correctedPunchOut"] = correctedPunchOut }
-        if let correctionReason { body["correctionReason"] = correctionReason }
-        let data = try await post(path: "/api/hr/attendance/request", token: token, jsonBody: body)
-        let wrapper = try await decode(AttendanceRequestResponse.self, from: data)
-        guard wrapper.success else {
-            throw HRConvexAPIError.server(wrapper.error ?? "Failed to submit attendance request")
-        }
-        return wrapper.requestId ?? ""
     }
 
     static func startOnDutyTrip(

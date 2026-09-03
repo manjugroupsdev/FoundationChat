@@ -1145,6 +1145,26 @@ enum MarketingConvexAPIService {
         return wrapper
     }
 
+    static func getMarketingCpVisitFilterOptions(
+        token: String,
+        scope: String,
+        fromDate: String? = nil,
+        toDate: String? = nil
+    ) async throws -> CpVisitFilterOptionsResponse {
+        var items = [URLQueryItem(name: "scope", value: scope)]
+        if let fromDate, !fromDate.isEmpty { items.append(URLQueryItem(name: "fromDate", value: fromDate)) }
+        if let toDate, !toDate.isEmpty { items.append(URLQueryItem(name: "toDate", value: toDate)) }
+        let data = try await get(
+            path: "/api/marketing/clientPlaceVisits/filter-options",
+            token: token,
+            queryItems: items,
+            cachePolicy: .reloadIgnoringLocalCacheData
+        )
+        let wrapper = try decode(CpVisitFilterOptionsResponse.self, from: data)
+        guard wrapper.success else { throw MarketingAPIError.server(wrapper.error ?? "Failed to load CP filters") }
+        return wrapper
+    }
+
     // MARK: - HTTP
 
     private static func get(

@@ -12,6 +12,7 @@ struct CpVisitsView: View {
     @State private var showCreateSheet = false
     @State private var searchText = ""
     @State private var selectedFilter: CpVisitFilter = .all
+    @State private var filterOptions: CpVisitFilterOptionsResponse?
     @State private var isClockedIn = false
     @State private var selectedOutcomeVisit: CpListVisit?
     @State private var pendingCpRevisit: CpRevisitInfo?
@@ -402,6 +403,11 @@ struct CpVisitsView: View {
                 search: query
             )
             async let attendanceRequest = loadClockInState(token: token)
+            async let filterOptionsRequest = fetchCpFilterOptions(
+                token: token,
+                fromDate: fromDate,
+                toDate: toDate
+            )
             let page = try await visitsRequest
             guard generation == loadGeneration else { return }
             canViewDirectTeam = page.canViewTeam == true || !(page.directReportIds ?? []).isEmpty
@@ -412,6 +418,7 @@ struct CpVisitsView: View {
             LocalCache.put(cacheKey, scoped)
             errorMessage = nil
             isClockedIn = await attendanceRequest
+            if let options = await filterOptionsRequest { filterOptions = options }
         } catch {
             errorMessage = error.localizedDescription
         }
@@ -447,6 +454,22 @@ struct CpVisitsView: View {
                 guard attempt == 0 else { break }
                 try await Task.sleep(for: .milliseconds(500))
             }
+        }
+        if selectedFilter != .all || !advancedFilter.selected("outcome").isEmpty {
+            return try await MarketingConvexAPIService.getMarketingCpVisitPage(
+                token: token,
+                fromDate: fromDate,
+                toDate: toDate,
+                scope: listScope.apiValue,
+                limit: 200,
+                search: search.nilIfEmpty,
+                assignedStaffId: advancedFilter.selected("fieldStaff").first,
+                telecallerStaffId: advancedFilter.selected("telecaller").first,
+                status: nil,
+                outcome: nil,
+                cpType: advancedFilter.selected("cpType").first,
+                pageSize: 200
+            )
         }
         throw lastError ?? MarketingAPIError.server("Failed to load CP visits")
     }
@@ -504,6 +527,19 @@ struct CpVisitsView: View {
         }
     }
 
+    private func fetchCpFilterOptions(
+        token: String,
+        fromDate: String?,
+        toDate: String?
+    ) async -> CpVisitFilterOptionsResponse? {
+        try? await MarketingConvexAPIService.getMarketingCpVisitFilterOptions(
+            token: token,
+            scope: listScope.apiValue,
+            fromDate: fromDate,
+            toDate: toDate
+        )
+    }
+
     private var scopePicker: some View {
         Picker("CP ownership", selection: $listScope) {
             ForEach(CpListScope.allCases) { scope in
@@ -530,26 +566,71 @@ struct CpVisitsView: View {
                 },
                 selectionMode: .single
             ),
-            AdvancedFilterCategory(id: "outcome", title: "Outcome", options: uniqueCpOptions { visit in
-                guard let value = visit.outcome?.normalizedMarker, !value.isEmpty else { return nil }
-                return AdvancedFilterOption(id: value, label: value.replacingOccurrences(of: "_", with: " ").capitalized)
-            }),
-            AdvancedFilterCategory(id: "cpType", title: "CP Type", options: uniqueCpOptions { visit in
-                guard let value = visit.cpType?.normalizedMarker, !value.isEmpty else { return nil }
-                return AdvancedFilterOption(id: value, label: visit.typeLabel)
-            }),
-            AdvancedFilterCategory(id: "fieldStaff", title: "Field Staff", options: uniqueCpOptions { visit in
+            AdvancedFilterCategory(id: "outcome", title: "Outcome", options: mergeCpOptions(
+                Self.cpOutcomeOptions,
+                serverCpOptions(filterOptions?.outcomes)
+            )),
+            AdvancedFilterCategory(id: "cpType", title: "CP Type", options: mergeCpOptions(
+                Self.cpTypeOptions,
+                serverCpOptions(filterOptions?.cpTypes)
+            )),
+            AdvancedFilterCategory(id: "fieldStaff", title: "Field Staff", options: mergeCpOptions(
+                serverCpOptions(filterOptions?.fieldStaff),
+                uniqueCpOptions { visit in
                 guard let id = visit.detail.assignedStaffId?.blankToNil,
                       let name = visit.fieldStaffName?.blankToNil else { return nil }
                 return AdvancedFilterOption(id: id, label: name)
-            }),
-            AdvancedFilterCategory(id: "telecaller", title: "Telecaller", options: uniqueCpOptions { visit in
+                }
+            )),
+            AdvancedFilterCategory(id: "telecaller", title: "Telecaller", options: mergeCpOptions(
+                serverCpOptions(filterOptions?.telecallers),
+                uniqueCpOptions { visit in
                 guard let id = visit.detail.telecallerStaffId?.blankToNil,
                       let name = visit.lmoName?.blankToNil else { return nil }
                 return AdvancedFilterOption(id: id, label: name)
-            })
+                }
+            ))
         ]
     }
+
+    private func serverCpOptions(_ values: [CpVisitFilterOption]?) -> [AdvancedFilterOption] {
+        values?.compactMap { option in
+            guard let id = option.id?.blankToNil else { return nil }
+            let label = option.name?.blankToNil ?? option.label?.blankToNil
+                ?? id.replacingOccurrences(of: "_", with: " ").capitalized
+            let staffDetail = [option.employeeId, option.designation, option.department]
+                .compactMap { $0?.blankToNil }
+                .joined(separator: " • ")
+            return AdvancedFilterOption(
+                id: id,
+                label: label,
+                subtitle: staffDetail.blankToNil ?? option.count.map { "\($0) visits" }
+            )
+        } ?? []
+    }
+
+    private func mergeCpOptions(_ groups: [AdvancedFilterOption]...) -> [AdvancedFilterOption] {
+        var seen = Set<String>()
+        return groups.flatMap { $0 }.filter { seen.insert($0.id).inserted }
+    }
+
+    private static let cpOutcomeOptions = [
+        ("interested", "Interested"), ("not_interested", "Not interested"),
+        ("postponed", "Follow-up"), ("referral", "Referral"),
+        ("converted_to_site_visit", "Converted to Site Visit"),
+        ("converted_to_booking", "Converted to Booking"), ("other", "Others"),
+        ("rejected", "Rejected"), ("gift_distributed", "Gift Distributed"),
+        ("old_client_visited", "Old Client Visited"), ("collection_done", "Collection Done"),
+        ("not_collected", "Not Collected")
+    ].map { AdvancedFilterOption(id: $0.0, label: $0.1) }
+
+    private static let cpTypeOptions = [
+        ("sv_cum_cp", "SV cum CP"), ("follow_up", "Follow-up"),
+        ("booking_cp", "Booking CP"), ("collection_cp", "Collection CP"),
+        ("old_client", "Old Client"), ("gift_distribution", "Gift Distribution"),
+        ("new_client_cp", "New Client CP"), ("other_cp", "Other CP"),
+        ("joint_cp", "Joint CP")
+    ].map { AdvancedFilterOption(id: $0.0, label: $0.1) }
 
     private func uniqueCpOptions(_ transform: (CpListVisit) -> AdvancedFilterOption?) -> [AdvancedFilterOption] {
         var seen = Set<String>()
@@ -1290,6 +1371,7 @@ private enum CpVisitFilter: String, CaseIterable, Identifiable {
     case inProgress
     case completed
     case cancelled
+    case pendingGmApproval
 
     var id: String { rawValue }
 
@@ -1297,6 +1379,7 @@ private enum CpVisitFilter: String, CaseIterable, Identifiable {
         switch self {
         case .all: return nil
         case .inProgress: return "in_progress"
+        case .pendingGmApproval: return "pending_gm_approval"
         default: return rawValue
         }
     }
@@ -1309,6 +1392,7 @@ private enum CpVisitFilter: String, CaseIterable, Identifiable {
         case .inProgress: return "In progress"
         case .completed: return "Completed"
         case .cancelled: return "Cancelled"
+        case .pendingGmApproval: return "Pending Approval"
         }
     }
 
@@ -1327,6 +1411,8 @@ private enum CpVisitFilter: String, CaseIterable, Identifiable {
             return status.isCompleted
         case .cancelled:
             return status.isCancelled
+        case .pendingGmApproval:
+            return status == "pending_gm_approval" || status == "pending-gm-approval"
         }
     }
 }
@@ -1879,7 +1965,7 @@ private struct CreateCpVisitSheet: View {
     @State private var notes = ""
     @State private var selectedCpType: CpVisitCreateType?
     @State private var showCpTypePicker = false
-    @State private var selectedJointCpCategory: CpVisitCreateType?
+    @State private var isJointCp = false
     @State private var selectedReferralSource: NewClientReferralSource?
     @State private var selectedReferringClient: ReferralClientCandidate?
     @State private var showReferringClientPicker = false
@@ -1934,10 +2020,8 @@ private struct CreateCpVisitSheet: View {
                         .foregroundStyle(.secondary)
                         .padding(.bottom, 2)
 
+                    jointCpToggle
                     cpTypePicker
-                    if selectedCpType == .jointCp {
-                        jointCpCategoryPicker
-                    }
                     if isNewClientCpPurpose {
                         referralSourcePicker
                         if selectedReferralSource == .clientReferral {
@@ -2020,7 +2104,7 @@ private struct CreateCpVisitSheet: View {
                     staffPicker
                     lmoPicker
                     projectPicker
-                    if selectedCpType == .jointCp {
+                    if isJointCp {
                         jointPartnerPicker
                     }
                     cpDatePicker
@@ -2141,7 +2225,9 @@ private struct CreateCpVisitSheet: View {
             Text("This number already exists as a client. Convert to another type of CP. The existing client details have been filled in.")
         }
         .confirmationDialog("Select CP type", isPresented: $showCpTypePicker, titleVisibility: .visible) {
-            ForEach(CpVisitCreateType.allCases) { type in
+            ForEach(CpVisitCreateType.allCases.filter {
+                $0 != .jointCp && (!isJointCp || $0 != .newClientCp)
+            }) { type in
                 Button(type.title) {
                     Task { await selectCpType(type) }
                 }
@@ -2466,44 +2552,30 @@ private struct CreateCpVisitSheet: View {
         }
     }
 
-    /// Joint CP describes who travels; this required category records why
-    /// they are visiting. Joint CP is intentionally not offered recursively.
-    private var jointCpCategoryPicker: some View {
-        pickerShell(title: "Joint CP Category *", icon: "list.bullet.rectangle") {
-            Menu {
-                ForEach(CpVisitCreateType.allCases.filter { $0 != .jointCp }) { type in
-                    Button {
-                        Task { await selectJointCpCategory(type) }
-                    } label: {
-                        Label(
-                            type.title,
-                            systemImage: selectedJointCpCategory == type ? "checkmark" : "circle"
-                        )
-                    }
-                }
-            } label: {
-                HStack {
-                    VStack(alignment: .leading, spacing: 2) {
-                        Text(selectedJointCpCategory?.title ?? "Select Joint CP category")
-                            .font(.system(size: 14, weight: .medium))
-                            .foregroundStyle(selectedJointCpCategory == nil ? Color(hex: 0x9CA3AF) : Color(hex: 0x101828))
-                            .lineLimit(1)
-                        Text(selectedJointCpCategory?.subtitle ?? "Required")
-                            .font(.system(size: 10, weight: .medium))
-                            .foregroundStyle(.secondary)
-                            .lineLimit(1)
-                    }
-                    Spacer()
-                    if isCheckingBookingGate {
-                        ProgressView().controlSize(.small)
-                    } else {
-                        Image(systemName: "chevron.down")
-                            .font(.system(size: 12, weight: .semibold))
-                            .foregroundStyle(.secondary)
-                    }
-                }
-                .frame(maxWidth: .infinity)
-                .contentShape(Rectangle())
+    private var jointCpToggle: some View {
+        Toggle(isOn: $isJointCp) {
+            VStack(alignment: .leading, spacing: 3) {
+                Text("Joint CP")
+                    .font(.system(size: 14, weight: .semibold))
+                Text("Add a second staff to this visit")
+                    .font(.system(size: 11))
+                    .foregroundStyle(.secondary)
+            }
+        }
+        .tint(Color(hex: 0x0B61CA))
+        .padding(.horizontal, 14)
+        .frame(minHeight: 58)
+        .background(Color.appFieldBackground, in: RoundedRectangle(cornerRadius: 12, style: .continuous))
+        .overlay(
+            RoundedRectangle(cornerRadius: 12, style: .continuous)
+                .stroke(Color.appSeparator, lineWidth: 1)
+        )
+        .padding(.top, 12)
+        .onChange(of: isJointCp) { _, enabled in
+            if !enabled {
+                selectedJointPartner = nil
+            } else if selectedCpType == .newClientCp {
+                selectedCpType = nil
             }
         }
     }
@@ -2861,8 +2933,6 @@ private struct CreateCpVisitSheet: View {
     private func blockNewClientCpForExistingClient() {
         guard existingClientProfile != nil else { return }
         selectedCpType = nil
-        selectedJointCpCategory = nil
-        selectedJointPartner = nil
         selectedReferralSource = nil
         selectedReferringClient = nil
         showExistingClientWarning = true
@@ -2877,17 +2947,10 @@ private struct CreateCpVisitSheet: View {
 
     @MainActor
     private func selectCpType(_ type: CpVisitCreateType) async {
+        guard type != .jointCp else { return }
         if type == .newClientCp, hasCurrentExistingClient {
             blockNewClientCpForExistingClient()
             return
-        }
-        // Drop a partner chosen for a Joint CP the moment the type changes.
-        // Must run BEFORE the early return below, otherwise switching Joint CP
-        // -> Booking CP would keep the partner and still submit a second
-        // participant.
-        if type != .jointCp {
-            selectedJointPartner = nil
-            selectedJointCpCategory = nil
         }
         if !type.requiresConfirmedBooking {
             selectedCpType = type
@@ -2911,44 +2974,6 @@ private struct CreateCpVisitSheet: View {
                 return
             }
             selectedCpType = type
-            clearReferralSourceIfNeeded()
-        } catch {
-            errorMessage = error.localizedDescription
-        }
-    }
-
-    @MainActor
-    private func selectJointCpCategory(_ type: CpVisitCreateType) async {
-        guard type != .jointCp else { return }
-        if type == .newClientCp, hasCurrentExistingClient {
-            blockNewClientCpForExistingClient()
-            return
-        }
-        if !type.requiresConfirmedBooking {
-            selectedJointCpCategory = type
-            clearReferralSourceIfNeeded()
-            return
-        }
-        let normalizedPhone = AppModuleFormatters.normalizePhone(phone)
-        guard normalizedPhone.count == 10 else {
-            errorMessage = "Enter the client's 10-digit mobile first, then pick \(type.title)."
-            return
-        }
-        guard let token = authStore.currentSession?.token else { return }
-        isCheckingBookingGate = true
-        defer { isCheckingBookingGate = false }
-        do {
-            let cases = try await PostSalesConvexAPIService.getCasesByMobile(
-                token: token,
-                mobile: normalizedPhone
-            )
-            bookingGatePhone = normalizedPhone
-            bookingGateCount = cases.count
-            guard !cases.isEmpty else {
-                errorMessage = "\(type.title) blocked. This client has no confirmed booking."
-                return
-            }
-            selectedJointCpCategory = type
             clearReferralSourceIfNeeded()
         } catch {
             errorMessage = error.localizedDescription
@@ -3002,11 +3027,7 @@ private struct CreateCpVisitSheet: View {
         }
         // A Joint CP is meaningless with one person on it, and the server
         // requires exactly two different active staff.
-        if selectedCpType == .jointCp {
-            guard selectedJointCpCategory != nil else {
-                errorMessage = "Select the Joint CP category"
-                return
-            }
+        if isJointCp {
             guard let partnerId = selectedJointPartner?.id, !partnerId.isEmpty else {
                 errorMessage = "Select the second staff for this Joint CP"
                 return
@@ -3062,9 +3083,7 @@ private struct CreateCpVisitSheet: View {
                 return
             }
         }
-        let effectiveCpPurpose = selectedCpType == .jointCp
-            ? selectedJointCpCategory
-            : selectedCpType
+        let effectiveCpPurpose = selectedCpType
         if effectiveCpPurpose?.requiresConfirmedBooking == true {
             let cachedPhone = bookingGatePhone ?? ""
             if cachedPhone != normalizedPhone || bookingGateCount == 0 {
@@ -3124,10 +3143,8 @@ private struct CreateCpVisitSheet: View {
             lmoStaffId: lmoStaffId,
             scheduledDate: scheduledDate,
             scheduledTime: Self.timeFormatter.string(from: date),
-            cpType: selectedCpType?.rawValue,
-            jointCpCategory: selectedCpType == .jointCp
-                ? selectedJointCpCategory?.rawValue
-                : nil,
+            cpType: isJointCp ? CpVisitCreateType.jointCp.rawValue : selectedCpType?.rawValue,
+            jointCpCategory: isJointCp ? selectedCpType?.rawValue : nil,
             referralSourceType: isNewClientCpPurpose ? selectedReferralSource?.rawValue : nil,
             referringClientId: isNewClientCpPurpose && selectedReferralSource == .clientReferral
                 ? selectedReferringClient?.id
@@ -3140,7 +3157,7 @@ private struct CreateCpVisitSheet: View {
             pincode: normalizedPincode,
             // Only for a Joint CP; the server ignores it for every other type
             // and promotes the SENIOR of the two onto the visit.
-            jointStaffIds: selectedCpType == .jointCp
+            jointStaffIds: isJointCp
                 ? [selectedJointPartner?.id].compactMap(\.self)
                 : nil
         )
@@ -3173,8 +3190,7 @@ private struct CreateCpVisitSheet: View {
     }
 
     private var isNewClientCpPurpose: Bool {
-        selectedCpType == .newClientCp ||
-            (selectedCpType == .jointCp && selectedJointCpCategory == .newClientCp)
+        selectedCpType == .newClientCp
     }
 
     private func clearReferralSourceIfNeeded() {

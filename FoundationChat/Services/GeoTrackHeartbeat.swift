@@ -3,8 +3,8 @@ import UIKit
 
 // MARK: - GeoTrackHeartbeat
 
-/// Sends a recurring heartbeat to the Convex backend every 120 seconds while tracking is active.
-/// Matches Android's `startHeartbeatLoop()` with `HEARTBEAT_INTERVAL_MS = 120_000`.
+/// Sends a recurring heartbeat directly to Airix GeoTrack every 75 seconds while tracking is active.
+/// Matches Android's `startHeartbeatLoop()` with `HEARTBEAT_INTERVAL_MS = 75_000`.
 ///
 /// On each successful ping it:
 ///  - Updates `lastHeartbeatDate` (observable for UI if needed)
@@ -27,8 +27,8 @@ final class GeoTrackHeartbeat {
 
     // MARK: - Constants
 
-    /// Matches Android: `HEARTBEAT_INTERVAL_MS = 120_000`
-    nonisolated static let defaultInterval: TimeInterval = 120
+    /// Matches Android and the direct GeoTrack 60–90 second contract.
+    nonisolated static let defaultInterval: TimeInterval = 75
 
     // MARK: - Injected providers
 

@@ -71,8 +71,6 @@ struct ConvexAttendanceListView: View {
     @State private var selectedRecord: ConvexAttendanceRecord?
     @State private var approvalReviewRecord: ConvexAttendanceRecord?
     @State private var requestReviewRecord: ConvexAttendanceRecord?
-    @State private var editRecord: ConvexAttendanceRecord?
-    @State private var submittedRequestDates: Set<String> = []
     @State private var displayedMyAttendanceCacheKey: String?
 
     private var visibleTabs: [AttendanceListTab] {
@@ -313,14 +311,6 @@ struct ConvexAttendanceListView: View {
                 await loadDataAsync()
             }
             .appLibraryNativeSheet([.medium, .large])
-        }
-        .sheet(item: $editRecord) { record in
-            AttendanceRequestSheet(record: record) {
-                if let date = record.date { submittedRequestDates.insert(date) }
-                await loadDataAsync()
-            }
-            .appFormActivity()
-            .appLibraryNativeSheet([.height(560), .large])
         }
         .task(id: filter.apiRange.from + "_" + filter.apiRange.to) {
             await loadDataAsync()
@@ -565,13 +555,7 @@ struct ConvexAttendanceListView: View {
                     ForEach(activeRecords) { record in
                         switch selectedTab {
                         case .my:
-                            AttendanceHistoryCard(
-                                record: record,
-                                requestSubmitted: record.date.map { submittedRequestDates.contains($0) } == true,
-                                canEdit: record.canSubmitAttendanceRequest && !(record.date.map { submittedRequestDates.contains($0) } == true)
-                            ) {
-                                editRecord = record
-                            }
+                            AttendanceHistoryCard(record: record)
                             .contentShape(Rectangle())
                             .onTapGesture {
                                 selectedRecord = record
@@ -1055,9 +1039,6 @@ struct ConvexAttendanceListView: View {
 
 private struct AttendanceHistoryCard: View {
     let record: ConvexAttendanceRecord
-    let requestSubmitted: Bool
-    let canEdit: Bool
-    let onEdit: () -> Void
 
     var body: some View {
         VStack(alignment: .leading, spacing: 14) {
@@ -3315,305 +3296,9 @@ private enum AttendanceSheetFormat {
     }
 }
 
-private struct AttendanceRequestSheet: View {
-    @Environment(AuthStore.self) private var authStore
-    @Environment(\.dismiss) private var dismiss
-
-    let record: ConvexAttendanceRecord
-    let onSubmitted: () async -> Void
-
-    @State private var requestType = "remark"
-    @State private var remarks = ""
-    @State private var usePunchIn = false
-    @State private var usePunchOut = false
-    @State private var correctedPunchIn = Date()
-    @State private var correctedPunchOut = Date()
-    @State private var isSubmitting = false
-    @State private var errorMessage: String?
-
-    var body: some View {
-        VStack(alignment: .leading, spacing: 0) {
-            Text("Remarks My Attendance")
-                .font(.system(size: 16, weight: .bold))
-                .foregroundStyle(.primary)
-
-            Text("Want to Remark Todays Attendance")
-                .font(.system(size: 12, weight: .medium))
-                .foregroundStyle(Color(hex: 0x0B61CA))
-                .padding(.top, 2)
-                .padding(.bottom, 12)
-
-            sectionLabel("Request Type")
-            Menu {
-                Button("Remark") { requestType = "remark" }
-                Button("Time Correction (Unavailable)") {
-                    requestType = "remark"
-                    errorMessage = "Time Correction is currently unavailable. Submit a remark instead."
-                }
-            } label: {
-                fieldShell {
-                    Text(requestType == "correction" ? "Time Correction" : "Remark")
-                        .font(.system(size: 15, weight: .semibold))
-                .foregroundStyle(.primary)
-                    Spacer()
-                    Image(systemName: "chevron.down")
-                        .font(.system(size: 12, weight: .semibold))
-                .foregroundStyle(.secondary)
-                }
-            }
-            .buttonStyle(.plain)
-            .padding(.top, 4)
-
-            if requestType == "correction" {
-                sectionLabel("In Time")
-                    .padding(.top, 10)
-                timePickerField(title: "Select In Time", selection: $correctedPunchIn, isSelected: usePunchIn) {
-                    usePunchIn = true
-                }
-                    .padding(.top, 4)
-
-                sectionLabel("Out Time")
-                    .padding(.top, 10)
-                timePickerField(title: "Select Out Time", selection: $correctedPunchOut, isSelected: usePunchOut) {
-                    usePunchOut = true
-                }
-                    .padding(.top, 4)
-            }
-
-            sectionLabel("Remarks (Optional)")
-                .padding(.top, 10)
-
-            ZStack(alignment: .topLeading) {
-                RoundedRectangle(cornerRadius: 10, style: .continuous)
-                    .fill(Color.appSurface)
-                    .overlay(RoundedRectangle(cornerRadius: 10, style: .continuous).stroke(Color(hex: 0xD0D5DD), lineWidth: 1))
-                if remarks.isEmpty {
-                    Text("Enter Remarks")
-                        .font(.system(size: 14, weight: .medium))
-                .foregroundStyle(.tertiary)
-                        .padding(.horizontal, 12)
-                        .padding(.top, 12)
-                }
-                TextEditor(text: $remarks)
-                    .font(.system(size: 14, weight: .medium))
-                .foregroundStyle(.primary)
-                    .scrollContentBackground(.hidden)
-                    .frame(minHeight: 90, maxHeight: 104)
-                    .padding(.horizontal, 8)
-                    .padding(.vertical, 6)
-            }
-            .padding(.top, 4)
-
-            if let errorMessage {
-                Label(errorMessage, systemImage: "exclamationmark.triangle.fill")
-                    .font(.system(size: 12, weight: .medium))
-                    .foregroundStyle(Color(hex: 0xB42318))
-                    .padding(.top, 10)
-            }
-
-            Button {
-                submit()
-            } label: {
-                Text(isSubmitting ? "Submitting..." : "Submit Now")
-                    .font(.system(size: 14, weight: .semibold))
-                    .foregroundStyle(.white)
-                    .frame(maxWidth: .infinity)
-                    .frame(height: 54)
-                    .background(androidGreenGradient, in: Capsule())
-            }
-            .buttonStyle(.plain)
-            .disabled(isSubmitting)
-            .opacity(isSubmitting ? 0.72 : 1)
-            .padding(.top, 20)
-        }
-        .padding(.horizontal, 20)
-        .padding(.top, 12)
-        .padding(.bottom, 20)
-        .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
-            .background(Color.appSurface)
-        .clipShape(
-            UnevenRoundedRectangle(
-                topLeadingRadius: 28,
-                bottomLeadingRadius: 0,
-                bottomTrailingRadius: 0,
-                topTrailingRadius: 28,
-                style: .continuous
-            )
-        )
-        .onAppear {
-            let existingIn = initialDateIfPresent(from: record.firstPunchIn ?? record.sessions?.first?.punchInTime)
-            let existingOut = initialDateIfPresent(from: record.lastPunchOut ?? record.sessions?.last?.punchOutTime)
-            correctedPunchIn = existingIn ?? Date()
-            correctedPunchOut = existingOut ?? Date()
-            usePunchIn = existingIn != nil
-            usePunchOut = existingOut != nil
-        }
-    }
-
-    private func sectionLabel(_ title: String) -> some View {
-        Text(title)
-            .font(.system(size: 12, weight: .medium))
-                .foregroundStyle(.secondary)
-    }
-
-    private func fieldShell<Content: View>(@ViewBuilder content: () -> Content) -> some View {
-        HStack(spacing: 10) {
-            content()
-        }
-        .frame(height: 52)
-        .padding(.horizontal, 12)
-        .background(Color.appSurface, in: RoundedRectangle(cornerRadius: 10, style: .continuous))
-        .overlay(RoundedRectangle(cornerRadius: 10, style: .continuous).stroke(Color(hex: 0xD0D5DD), lineWidth: 1))
-    }
-
-    private func timePickerField(
-        title: String,
-        selection: Binding<Date>,
-        isSelected: Bool,
-        onSelectionChanged: @escaping () -> Void
-    ) -> some View {
-        fieldShell {
-            Image(systemName: "clock")
-                .font(.system(size: 15, weight: .medium))
-                .foregroundStyle(.secondary)
-            DatePicker(title, selection: selection, displayedComponents: .hourAndMinute)
-                .labelsHidden()
-                .datePickerStyle(.compact)
-                .onChange(of: selection.wrappedValue) { _, _ in
-                    onSelectionChanged()
-                }
-            if !isSelected {
-                Text(title)
-                    .font(.system(size: 15, weight: .semibold))
-                .foregroundStyle(.tertiary)
-            }
-            Spacer()
-            Image(systemName: "chevron.down")
-                .font(.system(size: 12, weight: .semibold))
-                .foregroundStyle(.secondary)
-        }
-    }
-
-    private var displayDate: String {
-        guard let raw = record.date, let date = Self.ymd.date(from: raw) else {
-            return record.date ?? "--"
-        }
-        let formatter = DateFormatter()
-        formatter.dateFormat = "d MMMM yyyy"
-        return formatter.string(from: date)
-    }
-
-    private func submit() {
-        guard let token = authStore.currentSession?.token else { return }
-        guard let attendanceId = record._id?.nilIfBlank ?? record.attendanceId?.nilIfBlank,
-              let date = record.date?.nilIfBlank
-        else {
-            errorMessage = "This day can't be edited."
-            return
-        }
-
-        let trimmed = remarks.trimmingCharacters(in: .whitespacesAndNewlines)
-        if requestType == "correction", !usePunchIn, !usePunchOut {
-            errorMessage = "Select a corrected in or out time."
-            return
-        }
-        if requestType == "correction", usePunchOut {
-            let comparisonInTime = usePunchIn
-                ? correctedPunchIn
-                : initialDateIfPresent(from: record.firstPunchIn ?? record.sessions?.first?.punchInTime)
-            if let comparisonInTime,
-               !Self.isOutTimeLaterThanInTime(inTime: comparisonInTime, outTime: correctedPunchOut) {
-                errorMessage = "Out time must be later than in time."
-                return
-            }
-        }
-
-        isSubmitting = true
-        errorMessage = nil
-        Task {
-            defer { isSubmitting = false }
-            do {
-                _ = try await HRConvexAPIService.submitAttendanceRequest(
-                    token: token,
-                    attendanceId: attendanceId,
-                    date: date,
-                    type: requestType,
-                    remark: requestType == "remark" ? trimmed.nilIfBlank ?? "Remark requested from mobile app" : nil,
-                    correctedPunchIn: requestType == "correction" && usePunchIn ? Self.isoString(date: date, time: correctedPunchIn) : nil,
-                    correctedPunchOut: requestType == "correction" && usePunchOut ? Self.isoString(date: date, time: correctedPunchOut) : nil,
-                    correctionReason: requestType == "correction" ? trimmed.nilIfBlank ?? "Time correction requested from mobile app" : nil
-                )
-                await onSubmitted()
-                dismiss()
-            } catch {
-                errorMessage = error.localizedDescription
-            }
-        }
-    }
-
-    private func initialDate(from raw: String?) -> Date {
-        initialDateIfPresent(from: raw) ?? Date()
-    }
-
-    private func initialDateIfPresent(from raw: String?) -> Date? {
-        guard let raw else { return nil }
-        let fractional = ISO8601DateFormatter()
-        fractional.formatOptions = [.withInternetDateTime, .withFractionalSeconds]
-        if let date = fractional.date(from: raw) { return date }
-        let plain = ISO8601DateFormatter()
-        plain.formatOptions = [.withInternetDateTime]
-        return plain.date(from: raw)
-    }
-
-    private static func isoString(date: String, time: Date) -> String {
-        let calendar = Calendar.current
-        let timeParts = calendar.dateComponents([.hour, .minute], from: time)
-        let base = ymd.date(from: date) ?? Date()
-        var components = calendar.dateComponents([.year, .month, .day], from: base)
-        components.hour = timeParts.hour
-        components.minute = timeParts.minute
-        components.second = 0
-        let localDate = calendar.date(from: components) ?? time
-        let formatter = ISO8601DateFormatter()
-        formatter.formatOptions = [.withInternetDateTime, .withFractionalSeconds]
-        formatter.timeZone = TimeZone(secondsFromGMT: 0)
-        return formatter.string(from: localDate)
-    }
-
-    private static func isOutTimeLaterThanInTime(inTime: Date, outTime: Date) -> Bool {
-        let calendar = Calendar.current
-        let inParts = calendar.dateComponents([.hour, .minute], from: inTime)
-        let outParts = calendar.dateComponents([.hour, .minute], from: outTime)
-        let inMinutes = (inParts.hour ?? 0) * 60 + (inParts.minute ?? 0)
-        let outMinutes = (outParts.hour ?? 0) * 60 + (outParts.minute ?? 0)
-        return outMinutes > inMinutes
-    }
-
-    private static let ymd: DateFormatter = {
-        let formatter = DateFormatter()
-        formatter.dateFormat = "yyyy-MM-dd"
-        formatter.locale = Locale(identifier: "en_US_POSIX")
-        return formatter
-    }()
-
-    private var androidGreenGradient: LinearGradient {
-        LinearGradient(
-            colors: [Color(hex: 0x1BCA0B), Color(hex: 0x3D9D02)],
-            startPoint: .top,
-            endPoint: .bottom
-        )
-    }
-}
-
 private extension String {
     var nilIfBlank: String? {
         let trimmed = trimmingCharacters(in: .whitespacesAndNewlines)
         return trimmed.isEmpty ? nil : trimmed
-    }
-}
-
-private extension ConvexAttendanceRecord {
-    var canSubmitAttendanceRequest: Bool {
-        _id?.isEmpty == false && date?.isEmpty == false
     }
 }

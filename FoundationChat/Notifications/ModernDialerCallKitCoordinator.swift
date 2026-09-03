@@ -47,6 +47,8 @@ final class ModernDialerCallKitCoordinator: NSObject {
         self.registry = registry
     }
 
+    var hasActiveCall: Bool { !calls.isEmpty }
+
     func handleFallbackRemoteNotification(_ userInfo: [AnyHashable: Any]) -> Bool {
         switch string(userInfo["type"])?.replacingOccurrences(of: "_", with: "-") {
         case "dialer-call-incoming", "modern-dialer-incoming", "incoming-call":

@@ -4,7 +4,7 @@ import Network
 
 // MARK: - GeoTrackTamperMonitor
 
-/// Detects five tamper conditions on iOS and reports them to the Convex backend.
+/// Detects five tamper conditions on iOS and reports them to Airix GeoTrack.
 ///
 /// Detection methods:
 ///  1. MOCK_LOCATION        — CLLocation.sourceInformation.isSimulatedBySoftware (iOS 15+)
@@ -33,7 +33,7 @@ final class GeoTrackTamperMonitor {
     /// Returns the current wall-clock time (wraps Date()).
     var nowProvider: () -> Date
 
-    /// Async closure that dispatches a detected event to the Convex backend.
+    /// Async closure that dispatches a detected event to the GeoTrack transport.
     /// Injectable so tests can capture events without network I/O.
     var reportHandler: (GeoTrackTamperEventType, [String: String]) async -> Void
 
@@ -264,8 +264,12 @@ final class GeoTrackTamperMonitor {
         lastReportedAt[type] = now
 
         let handler = reportHandler
+        var stableMetadata = metadata
+        stableMetadata["_requestId"] = UUID().uuidString
+        stableMetadata["_detectedAt"] = String(Int64(now.timeIntervalSince1970 * 1_000))
+        stableMetadata["_sessionId"] = GeoTrackBootstrapCoordinator.shared.activeSessionId
         Task {
-            await handler(type, metadata)
+            await handler(type, stableMetadata)
         }
     }
 

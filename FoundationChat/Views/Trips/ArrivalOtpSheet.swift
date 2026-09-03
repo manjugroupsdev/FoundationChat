@@ -217,6 +217,7 @@ struct ArrivalOtpSheet: View {
             geoAPI.tokenProvider = { token }
             let resp = try await geoAPI.verifyArrivalOtp(
                 visitId: visitId,
+                fallbackClientPlaceVisitId: clientPlaceVisitId,
                 otp: otp,
                 lat: lat,
                 lng: lng,

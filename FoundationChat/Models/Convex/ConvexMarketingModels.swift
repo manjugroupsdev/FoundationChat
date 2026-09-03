@@ -243,6 +243,43 @@ struct MyMarketingCpVisitsResponse: Codable, Sendable {
     let error: String?
 }
 
+struct CpVisitFilterOption: Decodable, Sendable {
+    let id: String?
+    let name: String?
+    let label: String?
+    let employeeId: String?
+    let designation: String?
+    let department: String?
+    let count: Int?
+
+    private enum CodingKeys: String, CodingKey {
+        case id, legacyId = "_id", value, name, label, employeeId, designation, department, count
+    }
+
+    init(from decoder: Decoder) throws {
+        let values = try decoder.container(keyedBy: CodingKeys.self)
+        id = try values.decodeIfPresent(String.self, forKey: .id)
+            ?? values.decodeIfPresent(String.self, forKey: .legacyId)
+            ?? values.decodeIfPresent(String.self, forKey: .value)
+        name = try values.decodeIfPresent(String.self, forKey: .name)
+        label = try values.decodeIfPresent(String.self, forKey: .label)
+        employeeId = try values.decodeIfPresent(String.self, forKey: .employeeId)
+        designation = try values.decodeIfPresent(String.self, forKey: .designation)
+        department = try values.decodeIfPresent(String.self, forKey: .department)
+        count = try values.decodeIfPresent(Int.self, forKey: .count)
+    }
+}
+
+struct CpVisitFilterOptionsResponse: Decodable, Sendable {
+    let success: Bool
+    let fieldStaff: [CpVisitFilterOption]?
+    let telecallers: [CpVisitFilterOption]?
+    let statuses: [CpVisitFilterOption]?
+    let outcomes: [CpVisitFilterOption]?
+    let cpTypes: [CpVisitFilterOption]?
+    let error: String?
+}
+
 struct CpVisitDetail: Codable, Identifiable, Sendable {
     let id: String
     let leadId: String?

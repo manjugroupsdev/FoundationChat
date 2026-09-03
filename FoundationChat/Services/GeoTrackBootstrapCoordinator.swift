@@ -51,6 +51,7 @@ final class GeoTrackBootstrapCoordinator {
 
     func sync(reason: String, force: Bool = false) async {
         guard !isSyncing else { return }
+        await geoAPI.retryPendingTrackingControl()
         if !force, let lastSyncDate, Date().timeIntervalSince(lastSyncDate) < 30 {
             return
         }
@@ -115,15 +116,13 @@ final class GeoTrackBootstrapCoordinator {
         )
         syncConsentFlags(from: bootstrap)
 
-        // Source-agnostic clock-in gate. A `nil` result means the attendance
-        // endpoints didn't answer authoritatively (transient network/server
-        // outage) — NOT that the staffer is clocked out. Android's
-        // `enforceClockInGate()` keeps tracking on a null gate, so here we retain
-        // the last-known `shouldTrackNow` state instead of stopping, so a blip
-        // never drops a legitimate in-window journey. A real clock-out (a
-        // definitive `false`) still stops tracking on the next successful sync.
+        // A cold launch must fail closed: stale shouldTrack/session defaults
+        // from yesterday cannot start location, heartbeat, or tamper monitoring
+        // before today's first punch. Only a tracker already verified and
+        // running in this process may survive a temporary attendance outage.
         let previousShouldTrack = userDefaults.bool(forKey: DefaultsKey.shouldTrackNow)
-        let attendanceActive = attendanceOpen ?? previousShouldTrack
+        let attendanceActive = attendanceOpen
+            ?? (tracker?.isTracking == true && previousShouldTrack)
         let shouldTrack = attendanceActive && bootstrap?.shouldTrack == true
         userDefaults.set(shouldTrack, forKey: DefaultsKey.shouldTrackNow)
 

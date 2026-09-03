@@ -23,6 +23,7 @@ struct FoundationChatApp: App {
     }
 
     @State private var authStore = AuthStore()
+    @State private var appUpdateCoordinator = AppUpdateCoordinator.shared
     @State private var launchPhase: LaunchPhase
 
     init() {
@@ -71,6 +72,15 @@ struct FoundationChatApp: App {
                     .opacity(0)
                     .allowsHitTesting(false)
             }
+            .overlay {
+                if appUpdateCoordinator.mustShowUpdate {
+                    MandatoryAppUpdateView(
+                        version: appUpdateCoordinator.requiredVersion,
+                        onUpdate: appUpdateCoordinator.openAppStore
+                    )
+                    .zIndex(10_000)
+                }
+            }
             .environment(\.locale, Locale(identifier: languagePreference))
             .preferredColorScheme(preferredColorScheme)
             .modelContainer(for: [Conversation.self, Message.self])
@@ -79,6 +89,7 @@ struct FoundationChatApp: App {
                 handleScenePhaseChange(from: oldPhase, to: newPhase)
             }
             .onChange(of: authStore.currentSession?.token) { _, token in
+                Task { await refreshMandatoryUpdate() }
                 guard token != nil, let voipToken = ModernDialerVoIPTokenCache.token else { return }
                 Task { await registerModernDialerVoIPToken(voipToken) }
             }
@@ -113,6 +124,12 @@ struct FoundationChatApp: App {
                 else { return }
                 Task { await restartModernDialerMedia(callId: callId) }
             }
+            .task {
+                while !Task.isCancelled {
+                    await refreshMandatoryUpdate()
+                    try? await Task.sleep(nanoseconds: 60_000_000_000)
+                }
+            }
         }
     }
 
@@ -144,6 +161,7 @@ struct FoundationChatApp: App {
                 Self.recoverVisibleWindowLayout()
             }
             Task { await flushPendingAttendancePunchesIfSignedIn() }
+            Task { await refreshMandatoryUpdate() }
 
         default:
             break
@@ -153,6 +171,13 @@ struct FoundationChatApp: App {
     private func flushPendingAttendancePunchesIfSignedIn() async {
         guard let token = authStore.currentSession?.token else { return }
         await PendingPunchSyncCoordinator.shared.flush(token: token)
+    }
+
+    private func refreshMandatoryUpdate() async {
+        await appUpdateCoordinator.refresh(
+            token: authStore.currentSession?.token,
+            isExternalFleetPrincipal: authStore.currentSession?.user.isExternalFleetPrincipal == true
+        )
     }
 
     private func registerModernDialerVoIPToken(_ deviceToken: String) async {
@@ -293,5 +318,55 @@ struct FoundationChatApp: App {
         if let presentedViewController = viewController.presentedViewController {
             markLayoutForRefresh(presentedViewController)
         }
+    }
+}
+
+private struct MandatoryAppUpdateView: View {
+    let version: String?
+    let onUpdate: () -> Void
+
+    var body: some View {
+        VStack(spacing: 0) {
+            Spacer()
+
+            Image(systemName: "arrow.down.app.fill")
+                .font(.system(size: 54, weight: .semibold))
+                .foregroundStyle(Color(hex: 0x0B61CA))
+
+            Text("Update required")
+                .font(.system(size: 26, weight: .bold))
+                .foregroundStyle(.primary)
+                .padding(.top, 22)
+
+            Text(message)
+                .font(.system(size: 15, weight: .regular))
+                .foregroundStyle(.secondary)
+                .multilineTextAlignment(.center)
+                .padding(.horizontal, 34)
+                .padding(.top, 10)
+
+            Button(action: onUpdate) {
+                Text("Update M-Connect")
+                    .font(.system(size: 16, weight: .semibold))
+                    .foregroundStyle(.white)
+                    .frame(maxWidth: .infinity)
+                    .frame(height: 52)
+                    .background(Color(hex: 0x0B61CA), in: RoundedRectangle(cornerRadius: 8))
+            }
+            .buttonStyle(.plain)
+            .padding(.horizontal, 28)
+            .padding(.top, 28)
+
+            Spacer()
+        }
+        .frame(maxWidth: .infinity, maxHeight: .infinity)
+        .background(Color.appScreenBackground.ignoresSafeArea())
+    }
+
+    private var message: String {
+        if let version {
+            return "M-Connect version \(version) is ready. Update the app to continue."
+        }
+        return "A new M-Connect version is ready. Update the app to continue."
     }
 }

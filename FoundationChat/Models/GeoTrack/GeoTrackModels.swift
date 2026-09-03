@@ -167,6 +167,8 @@ struct TrackingBootstrapData: Decodable, Sendable {
 
 /// Matches the Convex locationPointValidator exactly.
 struct GeoTrackLocationPoint: Encodable, Sendable {
+    let pointId: String?
+    let deviceSequence: Int64?
     let lat: Double
     let lng: Double
     let accuracy: Double
@@ -181,11 +183,48 @@ struct GeoTrackLocationPoint: Encodable, Sendable {
     let gpsEnabled: Bool
     let airplaneMode: Bool
     let recordedAt: Int64  // Unix epoch milliseconds
+
+    init(
+        pointId: String? = nil,
+        deviceSequence: Int64? = nil,
+        lat: Double,
+        lng: Double,
+        accuracy: Double,
+        speed: Double,
+        bearing: Double,
+        altitude: Double?,
+        activity: String,
+        activityConfidence: Int,
+        isMock: Bool,
+        batteryPct: Int,
+        networkType: String,
+        gpsEnabled: Bool,
+        airplaneMode: Bool,
+        recordedAt: Int64
+    ) {
+        self.pointId = pointId
+        self.deviceSequence = deviceSequence
+        self.lat = lat
+        self.lng = lng
+        self.accuracy = accuracy
+        self.speed = speed
+        self.bearing = bearing
+        self.altitude = altitude
+        self.activity = activity
+        self.activityConfidence = activityConfidence
+        self.isMock = isMock
+        self.batteryPct = batteryPct
+        self.networkType = networkType
+        self.gpsEnabled = gpsEnabled
+        self.airplaneMode = airplaneMode
+        self.recordedAt = recordedAt
+    }
 }
 
 struct GeoTrackPushBatchRequest: Encodable, Sendable {
     let sessionId: String
     let deviceId: String
+    let requestId: String
     let points: [GeoTrackLocationPoint]
 }
 
@@ -193,6 +232,10 @@ struct GeoTrackPushBatchResponse: Decodable, Sendable {
     let success: Bool
     let error: String?
     let inserted: Int?
+    let insertedCount: Int?
+    let duplicateCount: Int?
+    let filteredCount: Int?
+    let filteredReasons: [String: Int]?
     let tamperDetected: Bool?
 }
 
@@ -210,11 +253,15 @@ struct GeoTrackStartRequest: Encodable, Sendable {
 
 // MARK: - Stop Tracking (no body needed, response is GeoTrackBaseResponse)
 
+struct EmptyGeoTrackRequest: Encodable, Sendable {}
+
 // MARK: - Heartbeat
 
 struct GeoTrackHeartbeatRequest: Encodable, Sendable {
     let sessionId: String?
     let deviceId: String?
+    let requestId: String
+    let deviceSequence: Int64
     let batteryPct: Int
     let appVersion: String
     let recordedAt: Int64
@@ -243,7 +290,8 @@ enum GeoTrackTamperSeverity: String, Decodable, Sendable {
 }
 
 struct GeoTrackTamperReportRequest: Encodable, Sendable {
-    let eventType: GeoTrackTamperEventType
+    let sessionId: String?
+    let eventType: String
     let metadata: [String: String]
     // Original occurrence time (ms epoch) for offline-queued events, so a
     // replayed GPS_DISABLED / DEVICE_REBOOT / AIRPLANE_MODE_ON surfaces in the
@@ -251,11 +299,20 @@ struct GeoTrackTamperReportRequest: Encodable, Sendable {
     // Mirrors Android `TamperReportRequest.detectedAt`. Synthesized Encodable
     // omits this key when nil (a live report stamps server-side receive time).
     let detectedAt: Int64?
+    let requestId: String
 
-    init(eventType: GeoTrackTamperEventType, metadata: [String: String] = [:], detectedAt: Int64? = nil) {
+    init(
+        sessionId: String? = nil,
+        eventType: String,
+        metadata: [String: String] = [:],
+        detectedAt: Int64? = nil,
+        requestId: String
+    ) {
+        self.sessionId = sessionId
         self.eventType = eventType
         self.metadata = metadata
         self.detectedAt = detectedAt
+        self.requestId = requestId
     }
 }
 
