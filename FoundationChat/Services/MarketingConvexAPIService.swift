@@ -1118,6 +1118,7 @@ enum MarketingConvexAPIService {
         status: String? = nil,
         outcome: String? = nil,
         cpType: String? = nil,
+        cursor: String? = nil,
         pageSize: Int? = nil
     ) async throws -> MyMarketingCpVisitsResponse {
         var items = [URLQueryItem(name: "scope", value: scope)]
@@ -1138,6 +1139,7 @@ enum MarketingConvexAPIService {
         if let status, !status.isEmpty { items.append(URLQueryItem(name: "status", value: status)) }
         if let outcome, !outcome.isEmpty { items.append(URLQueryItem(name: "outcome", value: outcome)) }
         if let cpType, !cpType.isEmpty { items.append(URLQueryItem(name: "cpType", value: cpType)) }
+        if let cursor, !cursor.isEmpty { items.append(URLQueryItem(name: "cursor", value: cursor)) }
         if let pageSize { items.append(URLQueryItem(name: "pageSize", value: String(pageSize))) }
         let data = try await get(path: "/api/marketing/clientPlaceVisits/my", token: token, queryItems: items)
         let wrapper = try decode(MyMarketingCpVisitsResponse.self, from: data)

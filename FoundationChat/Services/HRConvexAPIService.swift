@@ -970,6 +970,45 @@ enum HRConvexAPIService {
         let error: String?
     }
 
+    struct MySiteVisitsPage: Sendable {
+        let visits: [ConvexSiteVisit]
+        let nextCursor: String?
+        let hasMore: Bool
+    }
+
+    struct SiteVisitFilterOption: Decodable, Sendable {
+        let id: String?
+        let value: String?
+        let name: String?
+        let label: String?
+        let count: Int?
+
+        private enum CodingKeys: String, CodingKey {
+            case id
+            case legacyID = "_id"
+            case value, name, label, count
+        }
+
+        init(from decoder: Decoder) throws {
+            let values = try decoder.container(keyedBy: CodingKeys.self)
+            id = try values.decodeIfPresent(String.self, forKey: .id)
+                ?? values.decodeIfPresent(String.self, forKey: .legacyID)
+            value = try values.decodeIfPresent(String.self, forKey: .value)
+            name = try values.decodeIfPresent(String.self, forKey: .name)
+            label = try values.decodeIfPresent(String.self, forKey: .label)
+            count = try values.decodeIfPresent(Int.self, forKey: .count)
+        }
+    }
+
+    struct SiteVisitFilterOptions: Decodable, Sendable {
+        let success: Bool
+        let projects: [SiteVisitFilterOption]?
+        let lmos: [SiteVisitFilterOption]?
+        let fieldStaff: [SiteVisitFilterOption]?
+        let statuses: [SiteVisitFilterOption]?
+        let error: String?
+    }
+
     /// `GET /api/sitevisits/my?fromDate&toDate` — returns the staff's scheduled
     /// site visits across the given date range. Mirrors Android `getMySiteVisits`.
     static func getMySiteVisits(
@@ -983,6 +1022,32 @@ enum HRConvexAPIService {
         search: String? = nil,
         pageSize: Int? = nil
     ) async throws -> [ConvexSiteVisit] {
+        try await getMySiteVisitsPage(
+            token: token,
+            fromDate: fromDate,
+            toDate: toDate,
+            projectId: projectId,
+            telecallerStaffId: telecallerStaffId,
+            assignedStaffId: assignedStaffId,
+            status: status,
+            search: search,
+            cursor: nil,
+            pageSize: pageSize
+        ).visits
+    }
+
+    static func getMySiteVisitsPage(
+        token: String,
+        fromDate: String? = nil,
+        toDate: String? = nil,
+        projectId: String? = nil,
+        telecallerStaffId: String? = nil,
+        assignedStaffId: String? = nil,
+        status: String? = nil,
+        search: String? = nil,
+        cursor: String? = nil,
+        pageSize: Int? = nil
+    ) async throws -> MySiteVisitsPage {
         var items: [URLQueryItem] = []
         if let fromDate { items.append(URLQueryItem(name: "fromDate", value: fromDate)) }
         if let toDate { items.append(URLQueryItem(name: "toDate", value: toDate)) }
@@ -993,6 +1058,7 @@ enum HRConvexAPIService {
         if let search = search?.trimmingCharacters(in: .whitespacesAndNewlines), !search.isEmpty {
             items.append(URLQueryItem(name: "search", value: search))
         }
+        if let cursor, !cursor.isEmpty { items.append(URLQueryItem(name: "cursor", value: cursor)) }
         if let pageSize { items.append(URLQueryItem(name: "pageSize", value: String(pageSize))) }
         var components = URLComponents()
         components.queryItems = items.isEmpty ? nil : items
@@ -1002,7 +1068,30 @@ enum HRConvexAPIService {
         if !wrapper.success, let err = wrapper.error {
             throw HRConvexAPIError.server(err)
         }
-        return wrapper.visits ?? []
+        return MySiteVisitsPage(
+            visits: wrapper.visits ?? [],
+            nextCursor: wrapper.nextCursor,
+            hasMore: wrapper.hasMore == true && wrapper.nextCursor?.isEmpty == false
+        )
+    }
+
+    static func getSiteVisitFilterOptions(
+        token: String,
+        fromDate: String? = nil,
+        toDate: String? = nil
+    ) async throws -> SiteVisitFilterOptions {
+        var items: [URLQueryItem] = []
+        if let fromDate { items.append(URLQueryItem(name: "fromDate", value: fromDate)) }
+        if let toDate { items.append(URLQueryItem(name: "toDate", value: toDate)) }
+        var components = URLComponents()
+        components.queryItems = items.isEmpty ? nil : items
+        let query = components.percentEncodedQuery.map { "?\($0)" } ?? ""
+        let data = try await request(path: "/api/sitevisits/filter-options\(query)", token: token)
+        let response = try await decode(SiteVisitFilterOptions.self, from: data)
+        guard response.success else {
+            throw HRConvexAPIError.server(response.error ?? "Failed to load Site Visit filters")
+        }
+        return response
     }
 
     // MARK: - Staff Directory

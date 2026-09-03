@@ -24,12 +24,14 @@ final class AppUpdateCoordinator {
 
     private struct VersionPolicyResponse: Decodable {
         let success: Bool
+        let platform: String?
         let latestVersion: String?
         let latestBuildNumber: Int?
         let minimumSupportedVersion: String?
         let minimumSupportedBuildNumber: Int?
         let updateRequired: Bool?
         let updateUrl: String?
+        let publishedAt: String?
     }
 
     private(set) var requiredVersion: String?
@@ -41,9 +43,8 @@ final class AppUpdateCoordinator {
     private var lastStoreCheck: Date?
 
     var mustShowUpdate: Bool {
-        let newerVersion = requiredVersion.map { Self.isNewer($0, than: Self.currentVersion) } == true
         let newerBuild = requiredBuild.map { $0 > Self.currentBuildNumber } == true
-        return (newerVersion || newerBuild) && isOperationallySafe
+        return newerBuild && isOperationallySafe
     }
 
     private init(defaults: UserDefaults = .standard) {
@@ -60,9 +61,8 @@ final class AppUpdateCoordinator {
             }
         }
 
-        let newerVersion = requiredVersion.map { Self.isNewer($0, than: Self.currentVersion) } == true
         let newerBuild = requiredBuild.map { $0 > Self.currentBuildNumber } == true
-        guard newerVersion || newerBuild else {
+        guard newerBuild else {
             clearKnownUpdate()
             isOperationallySafe = false
             return
@@ -135,11 +135,12 @@ final class AppUpdateCoordinator {
             let policy = try JSONDecoder().decode(VersionPolicyResponse.self, from: data)
             guard policy.success else { return false }
 
-            let candidateVersion = policy.latestVersion ?? policy.minimumSupportedVersion
-            let candidateBuild = policy.latestBuildNumber ?? policy.minimumSupportedBuildNumber
-            let newerBuild = candidateBuild.map { $0 > Self.currentBuildNumber } == true
-            let newerVersion = candidateVersion.map { Self.isNewer($0, than: Self.currentVersion) } == true
-            guard policy.updateRequired == true || newerBuild || newerVersion,
+            let candidateVersion = policy.minimumSupportedVersion ?? policy.latestVersion
+            let candidateBuild = policy.minimumSupportedBuildNumber
+                ?? (policy.updateRequired == true ? policy.latestBuildNumber : nil)
+            let belowMinimumBuild = candidateBuild.map { Self.currentBuildNumber < $0 } == true
+            guard (policy.updateRequired == true || belowMinimumBuild),
+                  let candidateBuild,
                   let rawURL = policy.updateUrl,
                   let url = URL(string: rawURL)
             else {
@@ -167,7 +168,7 @@ final class AppUpdateCoordinator {
             return
         }
         let build = (defaults.object(forKey: DefaultsKey.requiredBuild) as? NSNumber)?.intValue
-        guard Self.isNewer(version, than: Self.currentVersion) || build.map({ $0 > Self.currentBuildNumber }) == true else {
+        guard build.map({ $0 > Self.currentBuildNumber }) == true else {
             clearKnownUpdate()
             return
         }

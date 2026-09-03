@@ -139,7 +139,12 @@ final class GeoTrackAPIService {
         guard let http = response as? HTTPURLResponse else {
             throw GeoTrackAPIError.badStatus(0)
         }
-        if http.statusCode == 401 {
+        // The MMS host owns the app session. A direct GeoTrack 401 is an
+        // operation failure, not proof that the MMS token should be erased.
+        let authorityHost = URL(string: baseURL)?.host
+        let isAuthenticatedMMSRequest = request.value(forHTTPHeaderField: "Authorization") != nil
+            && request.url?.host?.caseInsensitiveCompare(authorityHost ?? "") == .orderedSame
+        if http.statusCode == 401 && isAuthenticatedMMSRequest {
             SessionInvalidationBus.emit()
         }
         guard (200..<300).contains(http.statusCode) else {

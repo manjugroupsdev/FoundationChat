@@ -19,6 +19,12 @@ struct SiteVisitsListView: View {
     @State private var selectedFilter: SiteVisitListFilter = .all
     @State private var showingAdvancedFilter = false
     @State private var showingCreateVisit = false
+    @State private var nextCursor: String?
+    @State private var hasMoreServerVisits = false
+    @State private var isLoadingMore = false
+    @State private var loadGeneration = 0
+    @State private var autoFillPages = 0
+    @State private var filterOptions: HRConvexAPIService.SiteVisitFilterOptions?
     @State private var advancedFilter = AdvancedFilterState(
         fromDate: Calendar.current.date(byAdding: .day, value: -30, to: Date()) ?? Date(),
         toDate: Calendar.current.date(byAdding: .day, value: 30, to: Date()) ?? Date()
@@ -179,6 +185,11 @@ struct SiteVisitsListView: View {
                             )
                         }
                         .buttonStyle(.plain)
+                        .onAppear {
+                            if visit.id == filteredVisits.last?.id {
+                                Task { await loadMore() }
+                            }
+                        }
                     }
                 }
                 .padding(.horizontal, 16)
@@ -267,6 +278,9 @@ struct SiteVisitsListView: View {
         let fromDateText = Self.dateFormatter.string(from: min(selectedFrom, selectedTo))
         let toDateText = Self.dateFormatter.string(from: max(selectedFrom, selectedTo))
         let key = cacheKey(fromDate: fromDateText, toDate: toDateText)
+        loadGeneration += 1
+        let generation = loadGeneration
+        autoFillPages = 0
         if visits.isEmpty, let cached = LocalCache.get(key, as: [ConvexSiteVisit].self) {
             visits = cached
             loadFailed = false
@@ -280,7 +294,15 @@ struct SiteVisitsListView: View {
         defer { isLoading = false; hasLoadedOnce = true }
 
         do {
-            let result = try await HRConvexAPIService.getMySiteVisits(
+            Task {
+                guard let loadedFilterOptions = try? await HRConvexAPIService.getSiteVisitFilterOptions(
+                    token: session.token,
+                    fromDate: fromDateText,
+                    toDate: toDateText
+                ), generation == loadGeneration else { return }
+                filterOptions = loadedFilterOptions
+            }
+            let page = try await HRConvexAPIService.getMySiteVisitsPage(
                 token: session.token,
                 fromDate: fromDateText,
                 toDate: toDateText,
@@ -289,23 +311,73 @@ struct SiteVisitsListView: View {
                 assignedStaffId: advancedFilter.selected("fieldStaff").first,
                 status: selectedFilter.apiValue,
                 search: searchText.nilIfBlank,
+                cursor: nil,
                 pageSize: 200
             )
-            let normalized = result
-                .filter { ($0.tripType ?? "").lowercased() != "client_place" }
-                .sorted {
-                    let left = $0.creationTime ?? 0
-                    let right = $1.creationTime ?? 0
-                    if left != right { return left > right }
-                    return ($0.scheduledDate ?? "") > ($1.scheduledDate ?? "")
-                }
+            guard generation == loadGeneration else { return }
+            let normalized = normalize(page.visits)
             visits = normalized
+            nextCursor = page.nextCursor
+            hasMoreServerVisits = page.hasMore
             LocalCache.put(key, normalized)
             Task { await hydrateBdoNames(for: normalized, token: session.token) }
+            if normalized.count < 20 && page.hasMore {
+                Task { await loadMore() }
+            }
         } catch {
             loadFailed = visits.isEmpty
             errorMessage = error.localizedDescription
         }
+    }
+
+    @MainActor
+    private func loadMore() async {
+        guard !isLoadingMore, hasMoreServerVisits,
+              let cursor = nextCursor, let token = authStore.currentSession?.token else { return }
+        isLoadingMore = true
+        let generation = loadGeneration
+        defer { isLoadingMore = false }
+        do {
+            let selectedFrom = advancedFilter.fromDate ?? Calendar.current.date(byAdding: .day, value: -30, to: Date()) ?? Date()
+            let selectedTo = advancedFilter.toDate ?? Calendar.current.date(byAdding: .day, value: 30, to: Date()) ?? Date()
+            let page = try await HRConvexAPIService.getMySiteVisitsPage(
+                token: token,
+                fromDate: Self.dateFormatter.string(from: min(selectedFrom, selectedTo)),
+                toDate: Self.dateFormatter.string(from: max(selectedFrom, selectedTo)),
+                projectId: advancedFilter.selected("project").first,
+                telecallerStaffId: advancedFilter.selected("lmo").first,
+                assignedStaffId: advancedFilter.selected("fieldStaff").first,
+                status: selectedFilter.apiValue,
+                search: searchText.nilIfBlank,
+                cursor: cursor,
+                pageSize: 200
+            )
+            guard generation == loadGeneration else { return }
+            autoFillPages += 1
+            var byID = Dictionary(uniqueKeysWithValues: visits.map { ($0.id, $0) })
+            normalize(page.visits).forEach { byID[$0.id] = $0 }
+            visits = Array(byID.values).sorted(by: newestFirst)
+            nextCursor = page.nextCursor
+            hasMoreServerVisits = page.hasMore && page.nextCursor != cursor
+            if visits.count < 20 && hasMoreServerVisits && autoFillPages < 10 {
+                Task { await loadMore() }
+            }
+        } catch {
+            // Preserve pages already shown; pull-to-refresh retries page one.
+        }
+    }
+
+    private func normalize(_ source: [ConvexSiteVisit]) -> [ConvexSiteVisit] {
+        source
+            .filter { ($0.tripType ?? "").lowercased() != "client_place" }
+            .sorted(by: newestFirst)
+    }
+
+    private func newestFirst(_ left: ConvexSiteVisit, _ right: ConvexSiteVisit) -> Bool {
+        let leftCreated = left.creationTime ?? 0
+        let rightCreated = right.creationTime ?? 0
+        if leftCreated != rightCreated { return leftCreated > rightCreated }
+        return (left.scheduledDate ?? "") > (right.scheduledDate ?? "")
     }
 
     private func cacheKey(fromDate: String, toDate: String) -> String {
@@ -395,19 +467,50 @@ struct SiteVisitsListView: View {
                 },
                 selectionMode: .single
             ),
-            AdvancedFilterCategory(id: "project", title: "Project", options: uniqueVisitOptions { visit in
-                guard let name = visit.projectName?.nilIfBlank else { return nil }
-                return AdvancedFilterOption(id: visit.projectId?.nilIfBlank ?? "name:\(name.lowercased())", label: name)
-            }),
-            AdvancedFilterCategory(id: "lmo", title: "LMO", options: uniqueVisitOptions { visit in
-                guard let name = visit.lmoName?.nilIfBlank else { return nil }
-                return AdvancedFilterOption(id: visit.lmoStaffId?.nilIfBlank ?? "name:\(name.lowercased())", label: name)
-            }),
-            AdvancedFilterCategory(id: "fieldStaff", title: "Field Staff", options: uniqueVisitOptions { visit in
-                guard let name = (visit.bdoName ?? bdoNamesByVisitId[visit.id])?.nilIfBlank else { return nil }
-                return AdvancedFilterOption(id: visit.bdoStaffId?.nilIfBlank ?? "name:\(name.lowercased())", label: name)
-            })
+            AdvancedFilterCategory(id: "project", title: "Project", options: mergeVisitOptions(
+                serverVisitOptions(filterOptions?.projects),
+                uniqueVisitOptions { visit in
+                    guard let name = visit.projectName?.nilIfBlank else { return nil }
+                    return AdvancedFilterOption(id: visit.projectId?.nilIfBlank ?? "name:\(name.lowercased())", label: name)
+                }
+            )),
+            AdvancedFilterCategory(id: "lmo", title: "LMO", options: mergeVisitOptions(
+                serverVisitOptions(filterOptions?.lmos),
+                uniqueVisitOptions { visit in
+                    guard let name = visit.lmoName?.nilIfBlank else { return nil }
+                    return AdvancedFilterOption(id: visit.lmoStaffId?.nilIfBlank ?? "name:\(name.lowercased())", label: name)
+                }
+            )),
+            AdvancedFilterCategory(id: "fieldStaff", title: "Field Staff", options: mergeVisitOptions(
+                serverVisitOptions(filterOptions?.fieldStaff),
+                uniqueVisitOptions { visit in
+                    guard let name = (visit.bdoName ?? bdoNamesByVisitId[visit.id])?.nilIfBlank else { return nil }
+                    return AdvancedFilterOption(id: visit.bdoStaffId?.nilIfBlank ?? "name:\(name.lowercased())", label: name)
+                }
+            ))
         ]
+    }
+
+    private func serverVisitOptions(
+        _ values: [HRConvexAPIService.SiteVisitFilterOption]?
+    ) -> [AdvancedFilterOption] {
+        values?.compactMap { option in
+            guard let id = (option.id ?? option.value)?.nilIfBlank else { return nil }
+            let label = option.name?.nilIfBlank ?? option.label?.nilIfBlank
+                ?? id.replacingOccurrences(of: "_", with: " ").capitalized
+            return AdvancedFilterOption(
+                id: id,
+                label: label,
+                subtitle: option.count.map { "\($0) visits" }
+            )
+        } ?? []
+    }
+
+    private func mergeVisitOptions(_ groups: [AdvancedFilterOption]...) -> [AdvancedFilterOption] {
+        var seen = Set<String>()
+        return groups.flatMap { $0 }
+            .filter { seen.insert($0.id).inserted }
+            .sorted { $0.label.localizedCaseInsensitiveCompare($1.label) == .orderedAscending }
     }
 
     private func uniqueVisitOptions(_ transform: (ConvexSiteVisit) -> AdvancedFilterOption?) -> [AdvancedFilterOption] {

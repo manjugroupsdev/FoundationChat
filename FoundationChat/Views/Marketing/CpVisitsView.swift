@@ -22,12 +22,16 @@ struct CpVisitsView: View {
     @State private var showAdvancedFilter = false
     @State private var advancedFilter = AdvancedFilterState()
     @State private var listScope: CpListScope = .mine
+    @State private var didInitializeScope = false
     @State private var canViewDirectTeam = false
     @State private var loadGeneration = 0
     @State private var showPunchIn = false
     @State private var showHomeFenceWarning = false
     @State private var isCheckingHomeFence = false
     @State private var searchTask: Task<Void, Never>?
+    @State private var nextCursor: String?
+    @State private var hasMoreServerVisits = false
+    @State private var isLoadingMore = false
 
     private var filteredVisits: [CpListVisit] {
         visits.filter { visit in
@@ -53,7 +57,13 @@ struct CpVisitsView: View {
             .toolbarBackground(Color.appElevatedSurface, for: .navigationBar)
             .toolbarBackground(.visible, for: .navigationBar)
             .toolbar { navigationToolbar }
-            .task { if !hasLoaded { await load() } }
+            .task {
+                if !didInitializeScope {
+                    didInitializeScope = true
+                    listScope = authStore.isAdmin ? .all : .mine
+                }
+                if !hasLoaded { await load() }
+            }
             .onChange(of: searchText) { _, value in
                 scheduleServerSearch(value)
             }
@@ -124,7 +134,7 @@ struct CpVisitsView: View {
 
     private var visitsContent: some View {
         ScrollView {
-            if canViewDirectTeam {
+            if canViewDirectTeam || authStore.isAdmin {
                 scopePicker
             }
             filterPills
@@ -140,6 +150,11 @@ struct CpVisitsView: View {
                 LazyVStack(spacing: 12) {
                     ForEach(filteredVisits) { visit in
                         visitRow(visit)
+                            .onAppear {
+                                if visit.id == filteredVisits.last?.id {
+                                    Task { await loadMoreCpVisits() }
+                                }
+                            }
                     }
                 }
                 .padding(.horizontal, 16)
@@ -379,6 +394,9 @@ struct CpVisitsView: View {
         }
         loadGeneration += 1
         let generation = loadGeneration
+        nextCursor = nil
+        hasMoreServerVisits = false
+        isLoadingMore = false
         let fromDate = advancedFilter.fromDate.map { AppModuleFormatters.ymd.string(from: $0) }
         let effectiveTo = advancedFilter.toDate ?? advancedFilter.fromDate
         let toDate = effectiveTo.map { AppModuleFormatters.ymd.string(from: $0) }
@@ -415,6 +433,8 @@ struct CpVisitsView: View {
             visits = scoped
                 .compactMap(CpListVisit.init(detail:))
                 .sorted(by: CpListVisit.androidOrder)
+            nextCursor = page.nextCursor
+            hasMoreServerVisits = page.hasMore == true && page.nextCursor?.isEmpty == false
             LocalCache.put(cacheKey, scoped)
             errorMessage = nil
             isClockedIn = await attendanceRequest
@@ -527,6 +547,42 @@ struct CpVisitsView: View {
         }
     }
 
+    @MainActor
+    private func loadMoreCpVisits() async {
+        guard !isLoadingMore, hasMoreServerVisits, let cursor = nextCursor,
+              let token = authStore.currentSession?.token else { return }
+        isLoadingMore = true
+        let generation = loadGeneration
+        defer { isLoadingMore = false }
+        do {
+            let effectiveToDate = advancedFilter.toDate ?? advancedFilter.fromDate
+            let page = try await MarketingConvexAPIService.getMarketingCpVisitPage(
+                token: token,
+                fromDate: advancedFilter.fromDate.map { AppModuleFormatters.ymd.string(from: $0) },
+                toDate: effectiveToDate.map { AppModuleFormatters.ymd.string(from: $0) },
+                scope: listScope.apiValue,
+                limit: 200,
+                search: searchText.nilIfEmpty,
+                assignedStaffId: advancedFilter.selected("fieldStaff").first,
+                telecallerStaffId: advancedFilter.selected("telecaller").first,
+                status: selectedFilter.apiValue,
+                outcome: advancedFilter.selected("outcome").first,
+                cpType: advancedFilter.selected("cpType").first,
+                cursor: cursor,
+                pageSize: 200
+            )
+            guard generation == loadGeneration else { return }
+            let incoming = scopedCpVisits(page).compactMap(CpListVisit.init(detail:))
+            var byID = Dictionary(uniqueKeysWithValues: visits.map { ($0.id, $0) })
+            incoming.forEach { byID[$0.id] = $0 }
+            visits = Array(byID.values).sorted(by: CpListVisit.androidOrder)
+            nextCursor = page.nextCursor
+            hasMoreServerVisits = page.hasMore == true && page.nextCursor?.isEmpty == false && page.nextCursor != cursor
+        } catch {
+            // Preserve loaded pages; pull-to-refresh retries from page one.
+        }
+    }
+
     private func fetchCpFilterOptions(
         token: String,
         fromDate: String?,
@@ -542,7 +598,7 @@ struct CpVisitsView: View {
 
     private var scopePicker: some View {
         Picker("CP ownership", selection: $listScope) {
-            ForEach(CpListScope.allCases) { scope in
+            ForEach(CpListScope.allCases.filter { $0 != .all || authStore.isAdmin }) { scope in
                 Text(scope.title).tag(scope)
             }
         }
@@ -678,6 +734,9 @@ struct CpVisitsView: View {
                     || directIDs.contains(detail.joint?.leadStaffId ?? "")
                     || (detail.joint?.participants ?? []).contains { directIDs.contains($0.staffId ?? "") }
             }
+        case .all:
+            guard authStore.isAdmin, page.scope?.lowercased() == CpListScope.all.apiValue else { return [] }
+            return page.visits
         }
     }
 }
@@ -685,10 +744,17 @@ struct CpVisitsView: View {
 private enum CpListScope: String, CaseIterable, Identifiable {
     case mine
     case direct
+    case all
 
     var id: String { rawValue }
     var apiValue: String { rawValue }
-    var title: String { self == .mine ? "My" : "Team" }
+    var title: String {
+        switch self {
+        case .mine: "My"
+        case .direct: "Team"
+        case .all: "All"
+        }
+    }
 }
 
 private struct CpListVisit: Identifiable {
