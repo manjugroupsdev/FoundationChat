@@ -134,9 +134,6 @@ struct CpVisitsView: View {
 
     private var visitsContent: some View {
         ScrollView {
-            if canViewDirectTeam || authStore.isAdmin {
-                scopePicker
-            }
             filterPills
             dateFilterChip
 
@@ -268,6 +265,10 @@ struct CpVisitsView: View {
     private var filterPills: some View {
         ScrollView(.horizontal, showsIndicators: false) {
             HStack(spacing: 8) {
+                if canViewDirectTeam || authStore.isAdmin {
+                    scopePill(.mine)
+                    scopePill(.direct)
+                }
                 ForEach(CpVisitFilter.allCases) { filter in
                     Button {
                         selectedFilter = filter
@@ -289,6 +290,25 @@ struct CpVisitsView: View {
             .padding(.horizontal, 16)
         }
         .padding(.top, 12)
+    }
+
+    private func scopePill(_ scope: CpListScope) -> some View {
+        let isActive = listScope == scope
+        return Button {
+            let target: CpListScope = authStore.isAdmin && isActive ? .all : scope
+            guard target != listScope else { return }
+            listScope = target
+            visits = []
+            Task { await load() }
+        } label: {
+            Text(scope.title)
+                .font(.system(size: 13, weight: isActive ? .semibold : .medium))
+                .foregroundStyle(isActive ? .white : Color(hex: 0x475467))
+                .padding(.horizontal, 16)
+                .frame(height: 34)
+                .background(isActive ? Color(hex: 0x0B61CA) : .white, in: Capsule())
+        }
+        .buttonStyle(.plain)
     }
 
     @ViewBuilder
@@ -596,21 +616,6 @@ struct CpVisitsView: View {
         )
     }
 
-    private var scopePicker: some View {
-        Picker("CP ownership", selection: $listScope) {
-            ForEach(CpListScope.allCases.filter { $0 != .all || authStore.isAdmin }) { scope in
-                Text(scope.title).tag(scope)
-            }
-        }
-        .pickerStyle(.segmented)
-        .padding(.horizontal, 16)
-        .padding(.top, 12)
-        .onChange(of: listScope) { _, _ in
-            visits = []
-            Task { await load() }
-        }
-    }
-
     private var advancedFilterCategories: [AdvancedFilterCategory] {
         [
             AdvancedFilterCategory(id: "date", title: "Date", showsDateRange: true),
@@ -735,7 +740,7 @@ struct CpVisitsView: View {
                     || (detail.joint?.participants ?? []).contains { directIDs.contains($0.staffId ?? "") }
             }
         case .all:
-            guard authStore.isAdmin, page.scope?.lowercased() == CpListScope.all.apiValue else { return [] }
+            guard authStore.isAdmin else { return [] }
             return page.visits
         }
     }

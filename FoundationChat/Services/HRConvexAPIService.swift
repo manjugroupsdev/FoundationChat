@@ -971,6 +971,7 @@ enum HRConvexAPIService {
     }
 
     struct MySiteVisitsPage: Sendable {
+        let total: Int?
         let visits: [ConvexSiteVisit]
         let nextCursor: String?
         let hasMore: Bool
@@ -1069,6 +1070,7 @@ enum HRConvexAPIService {
             throw HRConvexAPIError.server(err)
         }
         return MySiteVisitsPage(
+            total: wrapper.total,
             visits: wrapper.visits ?? [],
             nextCursor: wrapper.nextCursor,
             hasMore: wrapper.hasMore == true && wrapper.nextCursor?.isEmpty == false

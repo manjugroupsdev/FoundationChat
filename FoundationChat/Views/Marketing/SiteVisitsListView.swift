@@ -17,10 +17,14 @@ struct SiteVisitsListView: View {
     @State private var bdoNamesByVisitId: [String: String] = [:]
     @State private var searchText = ""
     @State private var selectedFilter: SiteVisitListFilter = .all
+    @State private var listScope: SiteVisitListScope = .all
+    @State private var directReportIDs: Set<String> = []
+    @State private var didLoadOwnership = false
     @State private var showingAdvancedFilter = false
     @State private var showingCreateVisit = false
     @State private var nextCursor: String?
     @State private var hasMoreServerVisits = false
+    @State private var serverTotal: Int?
     @State private var isLoadingMore = false
     @State private var loadGeneration = 0
     @State private var autoFillPages = 0
@@ -48,6 +52,7 @@ struct SiteVisitsListView: View {
             // A confirmed SV-cum-CP remains linked to its verification CP.
             // Classify by trip type; the link itself does not make it a CP row.
             .filter { ($0.tripType ?? "").lowercased() != "client_place" }
+            .filter { matchesScope($0) }
             .filter { selectedFilter.matches($0) }
             .filter { matchesAdvancedFilter($0, state: advancedFilter) }
             .filter { visit in
@@ -104,6 +109,10 @@ struct SiteVisitsListView: View {
         }
         .refreshable { await load() }
         .task {
+            if !didLoadOwnership {
+                didLoadOwnership = true
+                Task { await loadOwnershipDirectory() }
+            }
             if !hasLoadedOnce { await load() }
         }
         .task(id: searchText) {
@@ -202,6 +211,10 @@ struct SiteVisitsListView: View {
     private var filterPills: some View {
         ScrollView(.horizontal) {
             HStack(spacing: 8) {
+                scopePill(.mine)
+                if authStore.isAdmin || !directReportIDs.isEmpty {
+                    scopePill(.direct)
+                }
                 ForEach(SiteVisitListFilter.allCases) { filter in
                     Button {
                         selectedFilter = filter
@@ -281,6 +294,7 @@ struct SiteVisitsListView: View {
         loadGeneration += 1
         let generation = loadGeneration
         autoFillPages = 0
+        serverTotal = nil
         if visits.isEmpty, let cached = LocalCache.get(key, as: [ConvexSiteVisit].self) {
             visits = cached
             loadFailed = false
@@ -318,16 +332,40 @@ struct SiteVisitsListView: View {
             let normalized = normalize(page.visits)
             visits = normalized
             nextCursor = page.nextCursor
-            hasMoreServerVisits = page.hasMore
+            serverTotal = page.total
+            hasMoreServerVisits = hasUsableNextPage(
+                hasMore: page.hasMore,
+                currentCursor: nil,
+                nextCursor: page.nextCursor,
+                total: page.total
+            )
             LocalCache.put(key, normalized)
             Task { await hydrateBdoNames(for: normalized, token: session.token) }
-            if normalized.count < 20 && page.hasMore {
+            if normalized.count < 20 && hasMoreServerVisits {
                 Task { await loadMore() }
             }
         } catch {
             loadFailed = visits.isEmpty
             errorMessage = error.localizedDescription
         }
+    }
+
+    private func scopePill(_ scope: SiteVisitListScope) -> some View {
+        let isActive = listScope == scope
+        return Button {
+            listScope = isActive ? .all : scope
+        } label: {
+            Text(scope.title)
+                .font(.system(size: 14, weight: isActive ? .semibold : .medium))
+                .foregroundStyle(isActive ? .white : .primary)
+                .padding(.horizontal, 18)
+                .frame(height: 38)
+                .background(isActive ? Color(hex: 0x0B61CA) : Color.appSurface, in: Capsule())
+                .overlay(
+                    Capsule().stroke(isActive ? Color.clear : Color.appSeparator, lineWidth: 1)
+                )
+        }
+        .buttonStyle(.plain)
     }
 
     @MainActor
@@ -358,7 +396,13 @@ struct SiteVisitsListView: View {
             normalize(page.visits).forEach { byID[$0.id] = $0 }
             visits = Array(byID.values).sorted(by: newestFirst)
             nextCursor = page.nextCursor
-            hasMoreServerVisits = page.hasMore && page.nextCursor != cursor
+            serverTotal = page.total ?? serverTotal
+            hasMoreServerVisits = hasUsableNextPage(
+                hasMore: page.hasMore,
+                currentCursor: cursor,
+                nextCursor: page.nextCursor,
+                total: serverTotal
+            )
             if visits.count < 20 && hasMoreServerVisits && autoFillPages < 10 {
                 Task { await loadMore() }
             }
@@ -378,6 +422,41 @@ struct SiteVisitsListView: View {
         let rightCreated = right.creationTime ?? 0
         if leftCreated != rightCreated { return leftCreated > rightCreated }
         return (left.scheduledDate ?? "") > (right.scheduledDate ?? "")
+    }
+
+    @MainActor
+    private func loadOwnershipDirectory() async {
+        guard let session = authStore.currentSession else { return }
+        let staff = (try? await HRConvexAPIService.listAllStaff(token: session.token, status: "active")) ?? []
+        let viewerIDs = Set([session.user.staffId, session.user._id].compactMap { $0?.nilIfBlank })
+        directReportIDs = Set(staff.compactMap { person in
+            viewerIDs.contains(person.reportingTo ?? "") ? person.id : nil
+        })
+    }
+
+    private func matchesScope(_ visit: ConvexSiteVisit) -> Bool {
+        let owners = Set([visit.bdoStaffId, visit.lmoStaffId].compactMap { $0?.nilIfBlank })
+        switch listScope {
+        case .all:
+            return true
+        case .mine:
+            guard let user = authStore.currentSession?.user else { return false }
+            let viewerIDs = Set([user.staffId, user._id].compactMap { $0?.nilIfBlank })
+            return !owners.isDisjoint(with: viewerIDs)
+        case .direct:
+            return !owners.isDisjoint(with: directReportIDs)
+        }
+    }
+
+    private func hasUsableNextPage(
+        hasMore: Bool,
+        currentCursor: String?,
+        nextCursor: String?,
+        total: Int?
+    ) -> Bool {
+        guard hasMore, let nextCursor, !nextCursor.isEmpty, nextCursor != currentCursor else { return false }
+        guard let offset = Int(nextCursor), let total else { return true }
+        return offset < total
     }
 
     private func cacheKey(fromDate: String, toDate: String) -> String {
@@ -884,6 +963,15 @@ private enum AndroidSiteVisitRowStatus {
             return false
         }
     }
+}
+
+private enum SiteVisitListScope: String, Identifiable {
+    case mine
+    case direct
+    case all
+
+    var id: String { rawValue }
+    var title: String { self == .mine ? "My" : self == .direct ? "Team" : "All" }
 }
 
 private enum SiteVisitListFilter: String, CaseIterable, Identifiable {
