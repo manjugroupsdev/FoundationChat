@@ -381,6 +381,7 @@ struct CpVisitsView: View {
         case .inProgress: return "No Visits In Progress"
         case .completed: return "No Completed Visits"
         case .cancelled: return "No Cancelled Visits"
+        case .pendingGmApproval: return "No Visits Pending Approval"
         case .all: return "No CP Visits Yet"
         }
     }
@@ -401,6 +402,8 @@ struct CpVisitsView: View {
             return "Completed CP visits will appear here with their captured outcome."
         case .cancelled:
             return "Cancelled CP visits will appear here for review."
+        case .pendingGmApproval:
+            return "CP visits awaiting GM approval will appear here."
         case .all:
             return "Create or receive CP visits to start tracking client-place work."
         }
@@ -446,21 +449,31 @@ struct CpVisitsView: View {
             }
         }
         do {
-            async let visitsRequest = fetchCpVisits(
+            Task {
+                let clockedIn = await loadClockInState(token: token)
+                guard generation == loadGeneration else { return }
+                isClockedIn = clockedIn
+            }
+            Task {
+                let options = await fetchCpFilterOptions(
+                    token: token,
+                    fromDate: fromDate,
+                    toDate: toDate
+                )
+                guard generation == loadGeneration, let options else { return }
+                filterOptions = options
+            }
+            let page = try await fetchCpVisits(
                 token: token,
                 fromDate: fromDate,
                 toDate: toDate,
                 search: query
             )
-            async let attendanceRequest = loadClockInState(token: token)
-            async let filterOptionsRequest = fetchCpFilterOptions(
-                token: token,
-                fromDate: fromDate,
-                toDate: toDate
-            )
-            let page = try await visitsRequest
             guard generation == loadGeneration else { return }
-            canViewDirectTeam = page.canViewTeam == true || !(page.directReportIds ?? []).isEmpty
+            canViewDirectTeam = page.canViewTeam == true
+                || page.hasDirectReports == true
+                || (page.directReportCount ?? 0) > 0
+                || !(page.directReportIds ?? []).isEmpty
             let scoped = scopedCpVisits(page)
             visits = scoped
                 .compactMap(CpListVisit.init(detail:))
@@ -469,8 +482,6 @@ struct CpVisitsView: View {
             hasMoreServerVisits = page.hasMore == true && page.nextCursor?.isEmpty == false
             LocalCache.put(cacheKey, scoped)
             errorMessage = nil
-            isClockedIn = await attendanceRequest
-            if let options = await filterOptionsRequest { filterOptions = options }
         } catch {
             errorMessage = error.localizedDescription
         }

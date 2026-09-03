@@ -1088,7 +1088,7 @@ enum HRConvexAPIService {
         var components = URLComponents()
         components.queryItems = items.isEmpty ? nil : items
         let query = components.percentEncodedQuery.map { "?\($0)" } ?? ""
-        let data = try await request(path: "/api/sitevisits/filter-options\(query)", token: token)
+        let data = try await get(path: "/api/sitevisits/filter-options\(query)", token: token)
         let response = try await decode(SiteVisitFilterOptions.self, from: data)
         guard response.success else {
             throw HRConvexAPIError.server(response.error ?? "Failed to load Site Visit filters")

@@ -238,8 +238,13 @@ struct MyMarketingCpVisitsResponse: Codable, Sendable {
     let total: Int?
     let visits: [CpVisitDetail]
     let scope: String?
+    let viewerStaffId: String?
+    let hasDirectReports: Bool?
+    let directReportCount: Int?
     let directReportIds: [String]?
     let canViewTeam: Bool?
+    let nextCursor: String?
+    let hasMore: Bool?
     let error: String?
 }
 
