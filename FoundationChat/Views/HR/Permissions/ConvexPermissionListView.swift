@@ -166,6 +166,7 @@ struct ConvexPermissionListView: View {
                     if let status = state.selected("status").first {
                         historyFilter = permissionHistoryFilter(status)
                     }
+                    loadData()
                 }
             )
         }
@@ -666,21 +667,28 @@ struct ConvexPermissionListView: View {
         let staff = authStore.currentSession?.user.staffId?.nonBlank
             ?? authStore.currentSession?.user._id.nonBlank
             ?? "anon"
-        return "permissions.my.\(staff)"
+        return "permissions.my.\(staff).\(permissionFacetCacheKey)"
+    }
+
+    private var permissionFacetCacheKey: String {
+        let ids = ["status", "staff"]
+            .map { advancedFilter.selected($0).sorted().joined(separator: ",") }
+            .joined(separator: "|")
+        return "\(advancedFilter.fromDate?.timeIntervalSince1970 ?? 0)-\(advancedFilter.toDate?.timeIntervalSince1970 ?? 0)-\(ids)"
     }
 
     private var teamPermissionsCacheKey: String {
         let staff = authStore.currentSession?.user.staffId?.nonBlank
             ?? authStore.currentSession?.user._id.nonBlank
             ?? "anon"
-        return "permissions.team.pending.\(staff)"
+        return "permissions.team.pending.\(staff).\(permissionFacetCacheKey)"
     }
 
     private var allPermissionsCacheKey: String {
         let staff = authStore.currentSession?.user.staffId?.nonBlank
             ?? authStore.currentSession?.user._id.nonBlank
             ?? "anon"
-        return "permissions.all.pending.\(staff)"
+        return "permissions.all.pending.\(staff).\(permissionFacetCacheKey)"
     }
 
     private func loadData() {
@@ -711,17 +719,42 @@ struct ConvexPermissionListView: View {
                 let now = Date()
                 let year = Calendar.current.component(.year, from: now)
                 let month = Calendar.current.component(.month, from: now)
-                async let permsReq = HRConvexAPIService.listPermissions(token: token)
+                let fromDate = advancedFilter.fromDate.map { AppModuleFormatters.ymd.string(from: $0) }
+                let toDate = (advancedFilter.toDate ?? advancedFilter.fromDate).map { AppModuleFormatters.ymd.string(from: $0) }
+                let staffId = advancedFilter.selected("staff").first
+                let selectedStatus = advancedFilter.selected("status").first
+                let apiStatus = selectedStatus == "review" ? "pending" : selectedStatus
+                async let permsReq = HRConvexAPIService.listPermissions(
+                    token: token,
+                    staffId: staffId,
+                    status: apiStatus,
+                    fromDate: fromDate,
+                    toDate: toDate,
+                    pageSize: 200
+                )
                 async let usageReq = HRConvexAPIService.getMonthlyPermissionUsage(token: token, year: year, month: month)
                 async let pendingReq: [ConvexPermission] = canManageTeamPermissions
                     ? HRConvexAPIService.getPendingPermissionApprovals(
                         token: token,
                         scope: "direct",
-                        viewerStaffId: authStore.currentSession?.user._id
+                        viewerStaffId: authStore.currentSession?.user._id,
+                        fromDate: fromDate,
+                        toDate: toDate,
+                        status: apiStatus,
+                        staffId: staffId,
+                        pageSize: 200
                     )
                     : []
                 async let allReq: [ConvexPermission] = canViewAllPermissions
-                    ? HRConvexAPIService.getPendingPermissionApprovals(token: token, all: true)
+                    ? HRConvexAPIService.getPendingPermissionApprovals(
+                        token: token,
+                        all: true,
+                        fromDate: fromDate,
+                        toDate: toDate,
+                        status: apiStatus,
+                        staffId: staffId,
+                        pageSize: 200
+                    )
                     : []
                 permissions = try await permsReq
                 // Offline-keep: never null out cached usage on a transient failure.

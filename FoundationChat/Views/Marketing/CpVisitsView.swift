@@ -432,7 +432,13 @@ struct CpVisitsView: View {
                     toDate: toDate,
                     scope: listScope.apiValue,
                     limit: 200,
-                    search: search.nilIfEmpty
+                    search: search.nilIfEmpty,
+                    assignedStaffId: advancedFilter.selected("fieldStaff").first,
+                    telecallerStaffId: advancedFilter.selected("telecaller").first,
+                    status: selectedFilter.apiValue,
+                    outcome: advancedFilter.selected("outcome").first,
+                    cpType: advancedFilter.selected("cpType").first,
+                    pageSize: 200
                 )
             } catch is CancellationError {
                 throw CancellationError()
@@ -450,7 +456,10 @@ struct CpVisitsView: View {
         let staffId = user?.staffId ?? user?._id ?? "unknown"
         let range = "\(fromDate ?? "all")-\(toDate ?? "all")"
         let query = search.isEmpty ? "all" : String(search.lowercased().prefix(80))
-        return "marketing.cp-visits.\(listScope.rawValue).\(staffId).\(range).\(query)"
+        let facets = ["status", "outcome", "cpType", "fieldStaff", "telecaller"]
+            .map { advancedFilter.selected($0).sorted().joined(separator: ",") }
+            .joined(separator: "|")
+        return "marketing.cp-visits.\(listScope.rawValue).\(staffId).\(range).\(query).\(facets)"
     }
 
     @MainActor
@@ -1283,6 +1292,14 @@ private enum CpVisitFilter: String, CaseIterable, Identifiable {
     case cancelled
 
     var id: String { rawValue }
+
+    var apiValue: String? {
+        switch self {
+        case .all: return nil
+        case .inProgress: return "in_progress"
+        default: return rawValue
+        }
+    }
 
     var title: String {
         switch self {

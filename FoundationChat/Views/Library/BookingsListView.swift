@@ -105,12 +105,22 @@ struct BookingsListView: View {
                 state: advancedFilter,
                 resultCount: { state in bookings.filter { matchesAdvancedFilter($0, state: state) }.count },
                 onApply: { state in
+                    let previousStatus = selectedStatus
                     advancedFilter = state
                     selectedStatus = BookingStatusFilter(rawValue: state.selected("status").first ?? "") ?? .all
+                    if previousStatus == selectedStatus {
+                        Task { await load() }
+                    }
                 }
             )
         }
         .task { if !hasLoaded { await load() } }
+        .task(id: searchText) {
+            guard hasLoaded else { return }
+            try? await Task.sleep(for: .milliseconds(350))
+            guard !Task.isCancelled else { return }
+            await load()
+        }
         .onChange(of: selectedStatus) { _, _ in
             Task { await load() }
         }
@@ -195,7 +205,11 @@ struct BookingsListView: View {
             hasLoaded = true
             return
         }
-        let cacheKey = BookingCache.listKey(status: selectedStatus.apiValue)
+        let facets = ["project", "plot"]
+            .map { advancedFilter.selected($0).sorted().joined(separator: ",") }
+            .joined(separator: "|")
+        let dateKey = "\(advancedFilter.fromDate?.timeIntervalSince1970 ?? 0)-\(advancedFilter.toDate?.timeIntervalSince1970 ?? 0)"
+        let cacheKey = BookingCache.listKey(status: selectedStatus.apiValue) + ".\(dateKey).\(facets).\(searchText.lowercased())"
         let cached = BookingCache.readList(forKey: cacheKey)
         if !cached.isEmpty {
             bookings = cached
@@ -205,9 +219,16 @@ struct BookingsListView: View {
         isLoading = bookings.isEmpty
         defer { isLoading = false; hasLoaded = true }
         do {
+            let normalizedQuery = searchText.trimmingCharacters(in: .whitespacesAndNewlines)
             let refreshedBookings = try await MarketingConvexAPIService.listBookings(
                 token: token,
-                status: selectedStatus.apiValue
+                status: selectedStatus.apiValue,
+                query: normalizedQuery.isEmpty ? nil : normalizedQuery,
+                projectId: advancedFilter.selected("project").first,
+                plotId: advancedFilter.selected("plot").first,
+                fromDate: advancedFilter.fromDate.map { AppModuleFormatters.ymd.string(from: $0) },
+                toDate: (advancedFilter.toDate ?? advancedFilter.fromDate).map { AppModuleFormatters.ymd.string(from: $0) },
+                pageSize: 200
             )
                 .sorted { ($0.bookingDate ?? "") > ($1.bookingDate ?? "") }
             bookings = refreshedBookings

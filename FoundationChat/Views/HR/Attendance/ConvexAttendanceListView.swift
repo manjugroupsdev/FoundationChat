@@ -176,7 +176,13 @@ struct ConvexAttendanceListView: View {
         guard let user = authStore.currentSession?.user else { return nil }
         let userKey = user.staffId?.nilIfBlank ?? user._id
         let range = filter.apiRange
-        return "hr.attendance.my.\(userKey).\(range.from).\(range.to)"
+        return "hr.attendance.my.\(userKey).\(range.from).\(range.to).\(attendanceFacetCacheKey)"
+    }
+
+    private var attendanceFacetCacheKey: String {
+        let status = advancedFilter.selected("status").sorted().joined(separator: ",")
+        let staff = advancedFilter.selected("staff").sorted().joined(separator: ",")
+        return "\(status)|\(staff)|\(normalizedSearchText)"
     }
 
     private func attendanceCacheKey(for tab: AttendanceListTab) -> String? {
@@ -187,13 +193,13 @@ struct ConvexAttendanceListView: View {
         case .my:
             return myAttendanceCacheKey
         case .team:
-            return "hr.attendance.team.\(userKey).\(range.from).\(range.to)"
+            return "hr.attendance.team.\(userKey).\(range.from).\(range.to).\(attendanceFacetCacheKey)"
         case .approval:
-            return "hr.attendance.approval.direct.requests.\(userKey)"
+            return "hr.attendance.approval.direct.requests.\(userKey).\(attendanceFacetCacheKey)"
         case .allApproval:
-            return "hr.attendance.approval.all.\(userKey)"
+            return "hr.attendance.approval.all.\(userKey).\(attendanceFacetCacheKey)"
         case .hrReview:
-            return "hr.attendance.hrReview.\(userKey).allTime"
+            return "hr.attendance.hrReview.\(userKey).allTime.\(attendanceFacetCacheKey)"
         case .all:
             return "hr.attendance.all.\(userKey).\(range.from).\(range.to).\(normalizedSearchText)"
         }
@@ -280,10 +286,15 @@ struct ConvexAttendanceListView: View {
                 state: advancedFilter,
                 resultCount: { state in attendanceSourceRecords.filter { matchesAttendance($0, state: state) }.count },
                 onApply: { state in
+                    let previousRange = filter.apiRange
                     advancedFilter = state
                     filter.fromDate = state.fromDate ?? filter.fromDate
                     filter.toDate = state.toDate ?? state.fromDate ?? filter.toDate
                     filter.statuses = state.selected("status")
+                    let updatedRange = filter.apiRange
+                    if previousRange.from == updatedRange.from && previousRange.to == updatedRange.to {
+                        Task { await loadDataAsync() }
+                    }
                 }
             )
         }
@@ -695,7 +706,15 @@ struct ConvexAttendanceListView: View {
         hydrateMyAttendanceCacheIfNeeded()
         isLoading = true
         do {
-            let loadedRecords = try await HRConvexAPIService.getMyAttendance(token: token, fromDate: from, toDate: to)
+            let loadedRecords = try await HRConvexAPIService.getMyAttendance(
+                token: token,
+                fromDate: from,
+                toDate: to,
+                status: advancedFilter.selected("status").first,
+                staffId: advancedFilter.selected("staff").first,
+                search: normalizedSearchText.nilIfBlank,
+                pageSize: 200
+            )
             records = loadedRecords
             if let cacheKey = myAttendanceCacheKey {
                 LocalCache.put(cacheKey, loadedRecords)
@@ -765,27 +784,57 @@ struct ConvexAttendanceListView: View {
                 case .my:
                     loadedRecords = []
                 case .team:
-                    loadedRecords = try await HRConvexAPIService.getTeamAttendance(token: token, fromDate: from, toDate: to)
+                    loadedRecords = try await HRConvexAPIService.getTeamAttendance(
+                        token: token,
+                        fromDate: from,
+                        toDate: to,
+                        status: advancedFilter.selected("status").first,
+                        staffId: advancedFilter.selected("staff").first,
+                        search: normalizedSearchText.nilIfBlank,
+                        pageSize: 200
+                    )
                 case .approval:
                     loadedRecords = try await HRConvexAPIService.getPendingAttendanceApprovals(
                         token: token,
                         scope: "direct",
-                        includeRequests: true
+                        includeRequests: true,
+                        fromDate: from,
+                        toDate: to,
+                        status: advancedFilter.selected("status").first,
+                        staffId: advancedFilter.selected("staff").first,
+                        search: normalizedSearchText.nilIfBlank,
+                        pageSize: 200
                     )
                 case .allApproval:
-                    loadedRecords = try await HRConvexAPIService.getPendingAttendanceApprovals(token: token, all: true)
+                    loadedRecords = try await HRConvexAPIService.getPendingAttendanceApprovals(
+                        token: token,
+                        all: true,
+                        fromDate: from,
+                        toDate: to,
+                        status: advancedFilter.selected("status").first,
+                        staffId: advancedFilter.selected("staff").first,
+                        search: normalizedSearchText.nilIfBlank,
+                        pageSize: 200
+                    )
                 case .hrReview:
                     loadedRecords = try await HRConvexAPIService.getHrReview(
                         token: token,
                         fromDate: Self.allTimeReviewRange.from,
-                        toDate: Self.allTimeReviewRange.to
+                        toDate: Self.allTimeReviewRange.to,
+                        status: advancedFilter.selected("status").first,
+                        staffId: advancedFilter.selected("staff").first,
+                        search: normalizedSearchText.nilIfBlank,
+                        pageSize: 200
                     )
                 case .all:
                     loadedRecords = try await HRConvexAPIService.getAllAttendance(
                         token: token,
                         fromDate: from,
                         toDate: to,
-                        search: normalizedSearchText.nilIfBlank
+                        search: normalizedSearchText.nilIfBlank,
+                        status: advancedFilter.selected("status").first,
+                        staffId: advancedFilter.selected("staff").first,
+                        pageSize: 200
                     )
                 }
 

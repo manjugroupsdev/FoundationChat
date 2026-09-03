@@ -100,6 +100,12 @@ struct SiteVisitsListView: View {
         .task {
             if !hasLoadedOnce { await load() }
         }
+        .task(id: searchText) {
+            guard hasLoadedOnce else { return }
+            try? await Task.sleep(for: .milliseconds(350))
+            guard !Task.isCancelled else { return }
+            await load()
+        }
         .fullScreenCover(isPresented: $showingAdvancedFilter) {
             AdvancedListFilterView(
                 title: "Filter Site Visits",
@@ -277,7 +283,13 @@ struct SiteVisitsListView: View {
             let result = try await HRConvexAPIService.getMySiteVisits(
                 token: session.token,
                 fromDate: fromDateText,
-                toDate: toDateText
+                toDate: toDateText,
+                projectId: advancedFilter.selected("project").first,
+                telecallerStaffId: advancedFilter.selected("lmo").first,
+                assignedStaffId: advancedFilter.selected("fieldStaff").first,
+                status: selectedFilter.apiValue,
+                search: searchText.nilIfBlank,
+                pageSize: 200
             )
             let normalized = result
                 .filter { ($0.tripType ?? "").lowercased() != "client_place" }
@@ -299,7 +311,10 @@ struct SiteVisitsListView: View {
     private func cacheKey(fromDate: String, toDate: String) -> String {
         let user = authStore.currentSession?.user
         let staffId = user?.staffId ?? user?._id ?? "unknown"
-        return "marketing.site-visits.my.\(staffId).\(fromDate).\(toDate)"
+        let facets = ["status", "project", "lmo", "fieldStaff"]
+            .map { advancedFilter.selected($0).sorted().joined(separator: ",") }
+            .joined(separator: "|")
+        return "marketing.site-visits.my.\(staffId).\(fromDate).\(toDate).\(searchText).\(facets)"
     }
 
     @MainActor
@@ -780,6 +795,14 @@ private enum SiteVisitListFilter: String, CaseIterable, Identifiable {
     case postponed
 
     var id: String { rawValue }
+
+    var apiValue: String? {
+        switch self {
+        case .all: return nil
+        case .returningHome: return "returning_home"
+        default: return rawValue
+        }
+    }
 
     var title: String {
         switch self {

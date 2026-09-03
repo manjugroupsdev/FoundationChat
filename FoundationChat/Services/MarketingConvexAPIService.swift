@@ -724,14 +724,28 @@ enum MarketingConvexAPIService {
         _ = try await post(path: "/api/bookings/draft/clear", token: token, body: ClearDraftRequest(sourceKey: sourceKey))
     }
 
-    static func listBookings(token: String, status: String? = nil, query: String? = nil) async throws -> [AppBooking] {
+    static func listBookings(
+        token: String,
+        status: String? = nil,
+        query: String? = nil,
+        projectId: String? = nil,
+        plotId: String? = nil,
+        fromDate: String? = nil,
+        toDate: String? = nil,
+        pageSize: Int? = nil
+    ) async throws -> [AppBooking] {
         var items: [URLQueryItem] = []
         if let status, !status.isEmpty, status != "all" {
             items.append(URLQueryItem(name: "status", value: status))
         }
         if let query, !query.isEmpty {
-            items.append(URLQueryItem(name: "q", value: query))
+            items.append(URLQueryItem(name: "search", value: query))
         }
+        if let projectId, !projectId.isEmpty { items.append(URLQueryItem(name: "projectId", value: projectId)) }
+        if let plotId, !plotId.isEmpty { items.append(URLQueryItem(name: "plotId", value: plotId)) }
+        if let fromDate, !fromDate.isEmpty { items.append(URLQueryItem(name: "fromDate", value: fromDate)) }
+        if let toDate, !toDate.isEmpty { items.append(URLQueryItem(name: "toDate", value: toDate)) }
+        if let pageSize { items.append(URLQueryItem(name: "pageSize", value: String(pageSize))) }
         let data = try await get(path: "/api/marketing/bookings/my", token: token, queryItems: items)
         let wrapper = try decode(BookingsResponse.self, from: data)
         guard wrapper.success else { throw MarketingAPIError.server(wrapper.error ?? "Failed to load bookings") }
@@ -863,11 +877,16 @@ enum MarketingConvexAPIService {
 
     /// Idempotently creates/links a referred client discovered during a New
     /// Client CP. The backend derives the referrer from the CP visit id.
-    static func recordCpReferral(token: String, request: RecordCpReferralRequest) async throws {
+    static func recordCpReferral(
+        token: String,
+        request: RecordCpReferralRequest,
+        idempotencyKey: String = UUID().uuidString
+    ) async throws {
         let data = try await post(
             path: "/api/marketing/clientPlaceVisits/referral",
             token: token,
-            body: request
+            body: request,
+            headers: ["Idempotency-Key": idempotencyKey]
         )
         let wrapper = try decode(BaseMutationResponse.self, from: data)
         guard wrapper.success else {
@@ -1063,7 +1082,13 @@ enum MarketingConvexAPIService {
         toDate: String? = nil,
         scope: String = "all",
         limit: Int? = nil,
-        search: String? = nil
+        search: String? = nil,
+        assignedStaffId: String? = nil,
+        telecallerStaffId: String? = nil,
+        status: String? = nil,
+        outcome: String? = nil,
+        cpType: String? = nil,
+        pageSize: Int? = nil
     ) async throws -> [CpVisitDetail] {
         (try await getMarketingCpVisitPage(
             token: token,
@@ -1071,7 +1096,13 @@ enum MarketingConvexAPIService {
             toDate: toDate,
             scope: scope,
             limit: limit,
-            search: search
+            search: search,
+            assignedStaffId: assignedStaffId,
+            telecallerStaffId: telecallerStaffId,
+            status: status,
+            outcome: outcome,
+            cpType: cpType,
+            pageSize: pageSize
         )).visits
     }
 
@@ -1081,7 +1112,13 @@ enum MarketingConvexAPIService {
         toDate: String? = nil,
         scope: String = "all",
         limit: Int? = nil,
-        search: String? = nil
+        search: String? = nil,
+        assignedStaffId: String? = nil,
+        telecallerStaffId: String? = nil,
+        status: String? = nil,
+        outcome: String? = nil,
+        cpType: String? = nil,
+        pageSize: Int? = nil
     ) async throws -> MyMarketingCpVisitsResponse {
         var items = [URLQueryItem(name: "scope", value: scope)]
         if let fromDate, !fromDate.isEmpty {
@@ -1096,6 +1133,12 @@ enum MarketingConvexAPIService {
         if let search = search?.trimmingCharacters(in: .whitespacesAndNewlines), !search.isEmpty {
             items.append(URLQueryItem(name: "search", value: search))
         }
+        if let assignedStaffId, !assignedStaffId.isEmpty { items.append(URLQueryItem(name: "assignedStaffId", value: assignedStaffId)) }
+        if let telecallerStaffId, !telecallerStaffId.isEmpty { items.append(URLQueryItem(name: "telecallerStaffId", value: telecallerStaffId)) }
+        if let status, !status.isEmpty { items.append(URLQueryItem(name: "status", value: status)) }
+        if let outcome, !outcome.isEmpty { items.append(URLQueryItem(name: "outcome", value: outcome)) }
+        if let cpType, !cpType.isEmpty { items.append(URLQueryItem(name: "cpType", value: cpType)) }
+        if let pageSize { items.append(URLQueryItem(name: "pageSize", value: String(pageSize))) }
         let data = try await get(path: "/api/marketing/clientPlaceVisits/my", token: token, queryItems: items)
         let wrapper = try decode(MyMarketingCpVisitsResponse.self, from: data)
         guard wrapper.success else { throw MarketingAPIError.server(wrapper.error ?? "Failed to load CP visits") }

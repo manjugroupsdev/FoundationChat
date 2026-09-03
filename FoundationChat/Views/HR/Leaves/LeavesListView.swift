@@ -130,6 +130,7 @@ struct LeavesListView: View {
                     if let status = state.selected("status").first {
                         historyFilter = leaveHistoryFilter(status)
                     }
+                    loadData()
                 }
             )
         }
@@ -1036,21 +1037,28 @@ struct LeavesListView: View {
         let staff = authStore.currentSession?.user.staffId?.nonBlank
             ?? authStore.currentSession?.user._id.nonBlank
             ?? "anon"
-        return "leaves.my.\(staff)"
+        return "leaves.my.\(staff).\(leaveFacetCacheKey)"
+    }
+
+    private var leaveFacetCacheKey: String {
+        let ids = ["status", "leaveType", "staff"]
+            .map { advancedFilter.selected($0).sorted().joined(separator: ",") }
+            .joined(separator: "|")
+        return "\(advancedFilter.fromDate?.timeIntervalSince1970 ?? 0)-\(advancedFilter.toDate?.timeIntervalSince1970 ?? 0)-\(ids)"
     }
 
     private var teamLeavesCacheKey: String {
         let staff = authStore.currentSession?.user.staffId?.nonBlank
             ?? authStore.currentSession?.user._id.nonBlank
             ?? "anon"
-        return "leaves.team.pending.\(staff)"
+        return "leaves.team.pending.\(staff).\(leaveFacetCacheKey)"
     }
 
     private var allLeavesCacheKey: String {
         let staff = authStore.currentSession?.user.staffId?.nonBlank
             ?? authStore.currentSession?.user._id.nonBlank
             ?? "anon"
-        return "leaves.all.pending.\(staff)"
+        return "leaves.all.pending.\(staff).\(leaveFacetCacheKey)"
     }
 
     private func loadData() {
@@ -1078,18 +1086,46 @@ struct LeavesListView: View {
             defer { isLoading = false }
             do {
                 let year = Calendar.current.component(.year, from: Date())
-                async let leavesReq = HRConvexAPIService.getMyLeaves(token: token)
+                let fromDate = advancedFilter.fromDate.map { AppModuleFormatters.ymd.string(from: $0) }
+                let toDate = (advancedFilter.toDate ?? advancedFilter.fromDate).map { AppModuleFormatters.ymd.string(from: $0) }
+                let leaveType = advancedFilter.selected("leaveType").first
+                let staffId = advancedFilter.selected("staff").first
+                let selectedStatus = advancedFilter.selected("status").first
+                let apiStatus = selectedStatus == "review" ? "pending" : selectedStatus
+                async let leavesReq = HRConvexAPIService.getMyLeaves(
+                    token: token,
+                    fromDate: fromDate,
+                    toDate: toDate,
+                    status: apiStatus,
+                    leaveType: leaveType,
+                    staffId: staffId,
+                    pageSize: 200
+                )
                 async let balanceReq = HRConvexAPIService.getLeaveBalance(token: token, year: year)
                 async let pendingReq: [ConvexLeave] = canManageTeamLeaves
                     ? HRConvexAPIService.getPendingLeaveApprovals(
                         token: token,
                         teamOnly: true,
                         scope: "direct",
-                        viewerStaffId: authStore.currentSession?.user._id
+                        viewerStaffId: authStore.currentSession?.user._id,
+                        fromDate: fromDate,
+                        toDate: toDate,
+                        status: apiStatus,
+                        leaveType: leaveType,
+                        staffId: staffId,
+                        pageSize: 200
                     )
                     : []
                 async let allReq: [ConvexLeave] = canViewAllLeaves
-                    ? HRConvexAPIService.getPendingLeaveApprovals(token: token)
+                    ? HRConvexAPIService.getPendingLeaveApprovals(
+                        token: token,
+                        fromDate: fromDate,
+                        toDate: toDate,
+                        status: apiStatus,
+                        leaveType: leaveType,
+                        staffId: staffId,
+                        pageSize: 200
+                    )
                     : []
                 leaves = try await leavesReq
                 // Offline-keep: never null out a cached balance on a transient
