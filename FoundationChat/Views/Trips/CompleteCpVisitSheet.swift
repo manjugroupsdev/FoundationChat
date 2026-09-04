@@ -8,7 +8,28 @@ struct CompleteCpVisitSheet: View {
     let cpVisitId: String
     let initialOutcome: String?
     let cpType: String?
+    let jointCtaMode: String?
+    let jointOutcomeSummary: String?
+    let onTerminalClosed: () -> Void
     let onCompleted: (CpRevisitInfo?) -> Void
+
+    init(
+        cpVisitId: String,
+        initialOutcome: String?,
+        cpType: String?,
+        jointCtaMode: String? = nil,
+        jointOutcomeSummary: String? = nil,
+        onTerminalClosed: @escaping () -> Void = {},
+        onCompleted: @escaping (CpRevisitInfo?) -> Void
+    ) {
+        self.cpVisitId = cpVisitId
+        self.initialOutcome = initialOutcome
+        self.cpType = cpType
+        self.jointCtaMode = jointCtaMode
+        self.jointOutcomeSummary = jointOutcomeSummary
+        self.onTerminalClosed = onTerminalClosed
+        self.onCompleted = onCompleted
+    }
 
     @Environment(AuthStore.self) private var authStore
     @Environment(\.dismiss) private var dismiss
@@ -64,9 +85,11 @@ struct CompleteCpVisitSheet: View {
     @State private var isLoadingProjects = false
     @State private var isLoadingStaff = false
     @State private var isSaving = false
+    @State private var hasFixedSiteVisit = false
     @State private var isLockedSvMode = false
     @State private var isDetectingLockedSvMode = false
     @State private var showRejectReasonSheet = false
+    @State private var showCancelReasonSheet = false
     @State private var showPickupMapPin = false
     @State private var errorMessage: String?
 
@@ -93,17 +116,21 @@ struct CompleteCpVisitSheet: View {
 
                 ScrollView {
                     LazyVStack(alignment: .leading, spacing: 14) {
-                        if isLockedSvMode {
+                        if hasFixedSiteVisit && selectedOutcome == nil {
+                            lockedSvDecisionChooser
+                        } else if isLockedSvMode {
                             lockedSvConfirmationBanner
                         } else {
                             outcomeChips
                         }
 
-                        VStack(alignment: .leading, spacing: 14) {
-                            completionFormContent
+                        if selectedOutcome != nil {
+                            VStack(alignment: .leading, spacing: 14) {
+                                completionFormContent
+                            }
+                            .padding(16)
+                            .background(Color(.secondarySystemGroupedBackground), in: RoundedRectangle(cornerRadius: 20, style: .continuous))
                         }
-                        .padding(16)
-                        .background(Color(.secondarySystemGroupedBackground), in: RoundedRectangle(cornerRadius: 20, style: .continuous))
 
                         if selectedOutcome == .other {
                             otherSection
@@ -136,9 +163,9 @@ struct CompleteCpVisitSheet: View {
                 let startingOutcome = CpVisitOutcome(rawValue: normalizedServerValue(initialOutcome))
                 // Nothing pre-selected unless the caller (or locked-SV mode) supplies one.
                 selectedOutcome = startingOutcome
-                if startingOutcome == .siteVisit || initialOutcomeMarksFixedSiteVisit {
-                    isLockedSvMode = true
-                    selectedOutcome = .siteVisit
+                if startingOutcome == .siteVisit || initialOutcomeMarksFixedSiteVisit || isSvCumCp {
+                    hasFixedSiteVisit = true
+                    selectedOutcome = nil
                 }
                 // Restore any in-progress booking BEFORE prefill runs, so the
                 // operator's last manual edits win over the CP-visit prefill
@@ -149,10 +176,29 @@ struct CompleteCpVisitSheet: View {
             }
             .onChange(of: booking) { _, _ in scheduleBookingDraftAutosave() }
             .sheet(isPresented: $showRejectReasonSheet) {
-                CpRejectReasonSheet(
+                CpActionReasonSheet(
+                    title: "Reject SV",
+                    subtitle: "Add the reason for rejecting this fixed site visit.",
+                    fieldLabel: "Rejection reason",
+                    placeholder: "Why is this site visit being rejected?",
+                    submitTitle: "Reject SV",
                     isSaving: isSaving,
                     onSubmit: { reason in
                         await submitLockedRejection(reason: reason)
+                    }
+                )
+                .appLibraryNativeSheet([.medium, .large])
+            }
+            .sheet(isPresented: $showCancelReasonSheet) {
+                CpActionReasonSheet(
+                    title: "Cancel SV",
+                    subtitle: "Cancellation closes the linked CP, site visit, field visit, and task.",
+                    fieldLabel: "Cancellation remarks",
+                    placeholder: "Why is this site visit being cancelled?",
+                    submitTitle: "Cancel SV",
+                    isSaving: isSaving,
+                    onSubmit: { reason in
+                        await submitLockedCancellation(reason: reason)
                     }
                 )
                 .appLibraryNativeSheet([.medium, .large])
@@ -217,10 +263,10 @@ struct CompleteCpVisitSheet: View {
             VStack(alignment: .leading, spacing: 2) {
                 Text(isLockedSvMode ? "Confirm Site Visit" : "Complete CP Visit")
                     .font(.headline)
-                Text(isLockedSvMode ? "Review the visit details before confirming" : "Select the client outcome and enter the details")
+                Text(headerSubtitle)
                     .font(.caption)
                     .foregroundStyle(.secondary)
-                    .lineLimit(1)
+                    .lineLimit(2)
             }
 
             Spacer(minLength: 8)
@@ -284,9 +330,9 @@ struct CompleteCpVisitSheet: View {
     @ViewBuilder
     private var fixedSubmitFooter: some View {
         VStack(spacing: 10) {
-            if isLockedSvMode {
+            if isLockedSvMode && selectedOutcome == .siteVisit {
                 lockedSvFooter
-            } else {
+            } else if selectedOutcome != nil {
                 Button {
                     Task { await submit() }
                 } label: {
@@ -431,38 +477,93 @@ struct CompleteCpVisitSheet: View {
         .background(Color(.secondarySystemGroupedBackground), in: RoundedRectangle(cornerRadius: 18, style: .continuous))
     }
 
-    private var lockedSvFooter: some View {
-        HStack(spacing: 10) {
-            Button {
+    private var headerSubtitle: String {
+        if jointCtaMode == "complete_review", let summary = jointOutcomeSummary?.nilIfBlank {
+            return "BDO submitted: \(summary)"
+        }
+        return isLockedSvMode
+            ? "Review the visit details before confirming"
+            : "Select the client outcome and enter the details"
+    }
+
+    private var lockedSvDecisionChooser: some View {
+        VStack(alignment: .leading, spacing: 12) {
+            Text("What happened with the client?")
+                .font(.headline)
+            Text("Choose an action to continue.")
+                .font(.subheadline)
+                .foregroundStyle(.secondary)
+
+            lockedDecisionButton("Converted as Booking", icon: "checkmark.seal", tint: Color(hex: 0x0B61CA)) {
+                selectedOutcome = .booking
+                isLockedSvMode = false
+                bookingSub = .client
+                bookingStep = .findMobile
+                errorMessage = nil
+            }
+            lockedDecisionButton("Site Visit", icon: "mappin.and.ellipse", tint: Color(hex: 0x0B61CA)) {
+                selectedOutcome = .siteVisit
+                isLockedSvMode = true
+                errorMessage = nil
+            }
+            lockedDecisionButton("Follow-up", icon: "calendar.badge.clock", tint: Color(hex: 0x0B61CA)) {
+                selectedOutcome = .postponed
+                isLockedSvMode = false
+                errorMessage = nil
+            }
+            lockedDecisionButton("Client Not Interested", icon: "nosign", tint: Color(hex: 0x0B61CA)) {
+                selectedOutcome = .notInterested
+                isLockedSvMode = false
+                errorMessage = nil
+            }
+            lockedDecisionButton("Reject SV", icon: "xmark.circle", tint: Color(hex: 0xB42318)) {
                 errorMessage = nil
                 showRejectReasonSheet = true
-            } label: {
-                Label("Reject", systemImage: "xmark")
+            }
+            lockedDecisionButton("Cancel SV", icon: "xmark.bin", tint: Color(hex: 0xB42318)) {
+                errorMessage = nil
+                showCancelReasonSheet = true
+            }
+        }
+        .padding(18)
+        .background(Color(.secondarySystemGroupedBackground), in: RoundedRectangle(cornerRadius: 18, style: .continuous))
+    }
+
+    private func lockedDecisionButton(
+        _ title: String,
+        icon: String,
+        tint: Color,
+        action: @escaping () -> Void
+    ) -> some View {
+        Button(action: action) {
+            Label(title, systemImage: icon)
+                .font(.headline)
+                .frame(maxWidth: .infinity)
+                .frame(minHeight: 48)
+        }
+        .buttonStyle(.borderedProminent)
+        .controlSize(.large)
+        .tint(tint)
+        .disabled(isSaving)
+    }
+
+    private var lockedSvFooter: some View {
+        Button {
+            Task { await submit() }
+        } label: {
+            if isSaving {
+                ProgressView()
+                    .frame(maxWidth: .infinity)
+            } else {
+                Label("Confirm Site Visit", systemImage: "checkmark")
                     .font(.headline)
                     .frame(maxWidth: .infinity)
             }
-            .buttonStyle(.bordered)
-            .controlSize(.large)
-            .tint(Color(hex: 0xB42318))
-            .disabled(isSaving)
-
-            Button {
-                Task { await submit() }
-            } label: {
-                if isSaving {
-                    ProgressView()
-                        .frame(maxWidth: .infinity)
-                } else {
-                    Label("Confirm", systemImage: "checkmark")
-                        .font(.headline)
-                        .frame(maxWidth: .infinity)
-                }
-            }
-            .buttonStyle(.borderedProminent)
-            .controlSize(.large)
-            .tint(Color(hex: 0x2DAE12))
-            .disabled(isSaving)
         }
+        .buttonStyle(.borderedProminent)
+        .controlSize(.large)
+        .tint(Color(hex: 0x2DAE12))
+        .disabled(isSaving)
     }
 
     private func resetOutcomeToBookingFindClient() {
@@ -973,11 +1074,11 @@ struct CompleteCpVisitSheet: View {
 
     private var cancelSection: some View {
         VStack(alignment: .leading, spacing: 10) {
-            Text("This cancels the CP visit. Add a short reason if you have one.")
+            Text("This cancels the CP visit. Cancellation remarks are required.")
                 .font(.caption)
                 .foregroundStyle(.secondary)
             sectionLabel("Reason")
-            fieldEditor("Reason for cancelling (optional)", text: $cancelReason, minLines: 3)
+            fieldEditor("Reason for cancelling", text: $cancelReason, minLines: 3)
         }
         .padding(.top, 4)
     }
@@ -1018,9 +1119,10 @@ struct CompleteCpVisitSheet: View {
         switch selectedOutcome {
         case .booking:
             if bookingStep == .findMobile { return "Next" }
+            if bookingSub == .staff, let jointFinalTitle { return jointFinalTitle }
             return bookingSub == .staff ? "Create \(booking.saveAs.title) Booking" : "Next"
         case .siteVisit, .postponed, .notInterested, .other, .referral:
-            return "Save"
+            return jointFinalTitle ?? "Save"
         case .cancel:
             return "Cancel Visit"
         case nil:
@@ -1229,8 +1331,7 @@ struct CompleteCpVisitSheet: View {
 
     @MainActor
     private func applyLockedSvMode(visit: CpVisitDetail, proposed: ProposedSiteVisit?) {
-        isLockedSvMode = true
-        selectedOutcome = .siteVisit
+        hasFixedSiteVisit = true
         errorMessage = nil
 
         if let projectId = proposed?.projectId?.nilIfBlank {
@@ -1429,6 +1530,10 @@ struct CompleteCpVisitSheet: View {
             errorMessage = "Please add remarks to explain this outcome"
             return
         }
+        if selectedOutcome == .cancel && cancelReason.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
+            errorMessage = "Cancellation remarks are required"
+            return
+        }
         let confirmsExistingLockedSiteVisit = isLockedSvMode && cpVisitDetail?.convertedSiteVisitId?.nilIfBlank != nil
         if selectedOutcome == .siteVisit && selectedProject == nil && !confirmsExistingLockedSiteVisit {
             errorMessage = "Please select a project"
@@ -1481,9 +1586,9 @@ struct CompleteCpVisitSheet: View {
                 try await MarketingConvexAPIService.cancelCpVisit(
                     token: token,
                     id: cpVisitId,
-                    reason: cancelReason.trimmingCharacters(in: .whitespacesAndNewlines).nilIfBlank
+                    reason: cancelReason.trimmingCharacters(in: .whitespacesAndNewlines)
                 )
-                onCompleted(nil)
+                onTerminalClosed()
                 dismiss()
                 return
             }
@@ -1625,10 +1730,45 @@ struct CompleteCpVisitSheet: View {
                 )
             )
             showRejectReasonSheet = false
-            onCompleted(nil)
+            onTerminalClosed()
             dismiss()
         } catch {
             errorMessage = userFacingCompletionError(error)
+        }
+    }
+
+    private func submitLockedCancellation(reason: String) async {
+        let trimmed = reason.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !trimmed.isEmpty else {
+            errorMessage = "Cancellation remarks are required"
+            return
+        }
+        guard let token = authStore.currentSession?.token else {
+            errorMessage = "Not signed in"
+            return
+        }
+
+        isSaving = true
+        defer { isSaving = false }
+        do {
+            try await MarketingConvexAPIService.cancelCpVisit(
+                token: token,
+                id: cpVisitId,
+                reason: trimmed
+            )
+            showCancelReasonSheet = false
+            onTerminalClosed()
+            dismiss()
+        } catch {
+            errorMessage = userFacingCompletionError(error)
+        }
+    }
+
+    private var jointFinalTitle: String? {
+        switch jointCtaMode {
+        case "send_review": return "Send Review"
+        case "complete_review": return "Complete"
+        default: return nil
         }
     }
 
@@ -2269,7 +2409,12 @@ private struct CpVisitorDraft: Identifiable, Hashable {
     var isVeg = true
 }
 
-private struct CpRejectReasonSheet: View {
+private struct CpActionReasonSheet: View {
+    let title: String
+    let subtitle: String
+    let fieldLabel: String
+    let placeholder: String
+    let submitTitle: String
     let isSaving: Bool
     let onSubmit: (String) async -> Void
 
@@ -2281,21 +2426,19 @@ private struct CpRejectReasonSheet: View {
         ScrollView {
             VStack(alignment: .leading, spacing: 18) {
                 VStack(alignment: .leading, spacing: 4) {
-                    Text("Rejection Case")
+                    Text(title)
                         .font(.system(size: 17, weight: .semibold))
                         .foregroundStyle(.primary)
-                    Text("Rejection Scenario Will Happen")
+                    Text(subtitle)
                         .font(.system(size: 13))
                         .foregroundStyle(.secondary)
                 }
 
-                lockedOutcomeTabs
-
                 VStack(alignment: .leading, spacing: 8) {
-                    Text("Rejection Reason")
+                    Text(fieldLabel)
                         .font(.system(size: 13, weight: .medium))
                         .foregroundStyle(.primary)
-                    TextField("Tell Valid Reason For Rejection", text: $reason, axis: .vertical)
+                    TextField(placeholder, text: $reason, axis: .vertical)
                         .font(.system(size: 13))
                         .lineLimit(3...6)
                         .padding(14)
@@ -2311,7 +2454,7 @@ private struct CpRejectReasonSheet: View {
                 Button {
                     let trimmed = reason.trimmingCharacters(in: .whitespacesAndNewlines)
                     guard !trimmed.isEmpty else {
-                        errorMessage = "Please share a reason for the rejection"
+                        errorMessage = "Remarks are required"
                         return
                     }
                     errorMessage = nil
@@ -2321,7 +2464,7 @@ private struct CpRejectReasonSheet: View {
                         ProgressView()
                             .frame(maxWidth: .infinity)
                     } else {
-                        Text("Submit Now")
+                        Text(submitTitle)
                             .font(.system(size: 14, weight: .semibold))
                             .frame(maxWidth: .infinity)
                     }
@@ -2337,25 +2480,6 @@ private struct CpRejectReasonSheet: View {
         }
         .background(Color.appSurface)
         .appCompactSheetCTAContainer()
-    }
-
-    private var lockedOutcomeTabs: some View {
-        // Referral is exclusive to new_client_cp; locked-SV confirmation never
-        // shows it, so keep the canonical preview set here.
-        let lockedTabs = CpVisitOutcome.allCases.filter { $0 != .referral && $0 != .cancel }
-        return HStack(spacing: 0) {
-            ForEach(Array(lockedTabs.enumerated()), id: \.element.id) { index, outcome in
-                OutcomeTabView(outcome: outcome, isSelected: outcome == .siteVisit)
-                    .frame(maxWidth: .infinity)
-                    .opacity(outcome == .siteVisit ? 1 : 0.55)
-
-                if index < lockedTabs.count - 1 {
-                    Rectangle()
-                        .fill(Color.appSeparator)
-                        .frame(width: 1, height: 28)
-                }
-            }
-        }
     }
 }
 

@@ -100,6 +100,9 @@ struct TripNavigationView: View {
     @State private var otpLng: Double = 0
 
     @State private var errorMessage: String?
+    @State private var jointWorkflow: JointCpWorkflow?
+    @State private var isJointMutationInProgress = false
+    @State private var autoOpenedJointReviewRevision: Int64?
 
     private let geoAPI = GeoTrackAPIService.shared
     private let directionsClient = GeoTrackDirectionsClient()
@@ -173,6 +176,10 @@ struct TripNavigationView: View {
     private var canShowLiveRoute: Bool {
         guard let distance = currentDistanceMeters else { return false }
         return distance <= 300_000
+    }
+
+    private var isJointCpWorkflow: Bool {
+        cpType?.normalizedCpMarker == "joint_cp" || jointWorkflow != nil
     }
 
     var body: some View {
@@ -286,11 +293,18 @@ struct TripNavigationView: View {
             if let cpVisitId = clientPlaceVisitId {
                 CompleteCpVisitSheet(
                     cpVisitId: cpVisitId,
-                    initialOutcome: cpOutcome,
+                    initialOutcome: jointWorkflow?.outcome ?? cpOutcome,
                     cpType: cpType,
+                    jointCtaMode: jointWorkflow?.actorRole == "outcome_owner"
+                        ? "send_review"
+                        : (jointWorkflow?.actorRole == "reviewer" ? "complete_review" : nil),
+                    jointOutcomeSummary: jointWorkflow?.outcomeSummary,
+                    onTerminalClosed: {
+                        finishAfterAtomicCpTerminalOutcome()
+                    },
                     onCompleted: { revisit in
                         pendingCpRevisit = revisit
-                        Task { await completeVisitAfterCpOutcome() }
+                        Task { await handleCpOutcomeSaved() }
                     }
                 )
                 .environment(authStore)
@@ -409,6 +423,13 @@ struct TripNavigationView: View {
             initializeTripState()
             updateMapForKnownDestination()
             await refreshRouteIfPossible(force: true)
+        }
+        .task(id: clientPlaceVisitId) {
+            guard isJointCpWorkflow else { return }
+            while !Task.isCancelled {
+                await refreshJointWorkflow()
+                try? await Task.sleep(for: .seconds(5))
+            }
         }
         .onChange(of: capturedImage) { _, image in
             guard let image else { return }
@@ -695,7 +716,7 @@ struct TripNavigationView: View {
     private var actionButtons: some View {
         VStack(spacing: 10) {
             if hasActiveVisit {
-                if tripProgressStage == .complete {
+                if tripProgressStage == .complete && (!isJointCpWorkflow || jointWorkflow?.state == "completed") {
                     HStack {
                         Image(systemName: "checkmark.circle.fill")
                         Text("Trip Completed")
@@ -705,6 +726,8 @@ struct TripNavigationView: View {
                     .frame(height: 48)
                     .foregroundStyle(.secondary)
                     .background(Color.appFieldBackground, in: Capsule())
+                } else if let workflow = jointWorkflow {
+                    jointWorkflowAction(workflow)
                 } else if isFleetDriverMode && !isCpVisit && fleetDriverPhase == "on_site" {
                     Button {
                         Task { await markFleetDriverPickedFromSite() }
@@ -808,6 +831,65 @@ struct TripNavigationView: View {
         }
         .padding(.horizontal, 16)
         .padding(.top, 2)
+    }
+
+    @ViewBuilder
+    private func jointWorkflowAction(_ workflow: JointCpWorkflow) -> some View {
+        let canEnterOutcome = workflow.actorRole == "outcome_owner" && workflow.canSubmitOutcome == true
+        let canReview = workflow.actorRole == "reviewer" && workflow.canReview == true
+        if canEnterOutcome || canReview {
+            Button {
+                showCpCompletionSheet = true
+            } label: {
+                HStack {
+                    if isJointMutationInProgress { ProgressView().tint(.white) }
+                    Image(systemName: canReview ? "doc.text.magnifyingglass" : "square.and.arrow.up")
+                    Text(canReview ? "Review outcome" : "Enter outcome")
+                        .font(.system(size: 14, weight: .semibold))
+                }
+                .frame(maxWidth: .infinity)
+                .frame(height: 48)
+            }
+            .buttonStyle(.borderedProminent)
+            .buttonBorderShape(.capsule)
+            .tint(Color(hex: 0x1BCA0B))
+            .disabled(isJointMutationInProgress)
+        } else if workflow.actorRole == "outcome_owner" && workflow.canRequestOtp == true {
+            SwipeToConfirmTripButton(
+                title: primaryActionTitle,
+                busyTitle: arrivalStatusText ?? "Checking both staff locations...",
+                isBusy: arrivalInProgress,
+                resetToken: arrivalSwipeResetToken
+            ) {
+                onArrivalSwipeConfirmed()
+            }
+            .disabled(arrivalInProgress)
+        } else {
+            HStack(spacing: 9) {
+                ProgressView().controlSize(.small)
+                Text(jointWaitingMessage(workflow))
+                    .font(.system(size: 13, weight: .semibold))
+                    .multilineTextAlignment(.center)
+            }
+            .foregroundStyle(.secondary)
+            .frame(maxWidth: .infinity)
+            .frame(minHeight: 50)
+            .padding(.horizontal, 12)
+            .background(Color.appFieldBackground, in: RoundedRectangle(cornerRadius: 8))
+        }
+    }
+
+    private func jointWaitingMessage(_ workflow: JointCpWorkflow) -> String {
+        if workflow.state == "completed" {
+            return "Outcome reviewed by \(workflow.reviewedByTemplateName ?? workflow.reviewedByName ?? "reviewer")"
+        }
+        if workflow.actorRole == "reviewer" {
+            return "Waiting for \(workflow.outcomeOwnerName ?? "BDO") outcome"
+        }
+        if workflow.actorRole == "outcome_owner" {
+            return "Complete OTP and photo while both partners are within 50 metres"
+        }
+        return "Waiting for Joint CP workflow update"
     }
 
     // MARK: - Visit lifecycle
@@ -1058,6 +1140,10 @@ struct TripNavigationView: View {
             Task { await markFleetDriverOnSite() }
             return
         }
+        if isJointCpWorkflow {
+            Task { await preflightJointCpArrival() }
+            return
+        }
         if isCpVisit {
             checkReachingAndAskClientSeen()
             return
@@ -1187,6 +1273,79 @@ struct TripNavigationView: View {
         cpNoPathPhotoCapture = true
         capturedImage = nil
         showCamera = true
+    }
+
+    @MainActor
+    private func refreshJointWorkflow() async {
+        guard isJointCpWorkflow,
+              let token = authStore.currentSession?.token,
+              let cpId = clientPlaceVisitId
+        else { return }
+        do {
+            let workflow = try await MarketingConvexAPIService.getJointCpWorkflow(token: token, id: cpId)
+            jointWorkflow = workflow
+            if workflow.state == "completed" {
+                statusLine = "Complete"
+            } else if workflow.actorRole == "reviewer",
+                      workflow.canReview == true,
+                      let revision = workflow.outcomeRevision,
+                      autoOpenedJointReviewRevision != revision {
+                autoOpenedJointReviewRevision = revision
+                showCpCompletionSheet = true
+            }
+        } catch {
+            // Additive endpoint: preserve the live trip on mixed deployments.
+        }
+    }
+
+    @MainActor
+    private func preflightJointCpArrival() async {
+        guard let token = authStore.currentSession?.token,
+              let cpId = clientPlaceVisitId,
+              let fieldVisitId = resolvedVisitId
+        else {
+            arrivalInProgress = false
+            errorMessage = "Joint CP visit information is missing"
+            resetArrivalSwipe()
+            return
+        }
+        if let workflow = jointWorkflow, workflow.canRequestOtp != true {
+            arrivalInProgress = false
+            errorMessage = jointWaitingMessage(workflow)
+            resetArrivalSwipe()
+            return
+        }
+        arrivalStatusText = "Checking both staff locations..."
+        do {
+            let location = try await locationManager.freshPreciseLocation()
+            let workflow = try await MarketingConvexAPIService.preflightJointCpArrival(
+                token: token,
+                request: JointCpLocationRequest(
+                    id: cpId,
+                    fieldVisitId: fieldVisitId,
+                    lat: location.coordinate.latitude,
+                    lng: location.coordinate.longitude,
+                    accuracyMeters: location.horizontalAccuracy >= 0 ? location.horizontalAccuracy : nil,
+                    capturedAt: Int64(Date().timeIntervalSince1970 * 1_000)
+                )
+            )
+            jointWorkflow = workflow
+            guard workflow.isWithinCompletionRadius == true else {
+                let measured = workflow.separationMeters.map { String(format: "%.0f m", $0) }
+                throw TripError.message(
+                    measured.map {
+                        "Joint CP completion is blocked. Both staff must be within 50 metres. Current separation: \($0)."
+                    } ?? "Both Joint CP staff need a fresh location within 50 metres."
+                )
+            }
+            arrivalStatusText = nil
+            checkReachingAndAskClientSeen()
+        } catch {
+            arrivalInProgress = false
+            arrivalStatusText = nil
+            errorMessage = error.localizedDescription
+            resetArrivalSwipe()
+        }
     }
 
     private func requestArrivalOtpThenOpenCamera() async {
@@ -1416,6 +1575,101 @@ struct TripNavigationView: View {
     private func completeVisitAfterSiteVisitOutcome() async {
         guard let id = resolvedVisitId else { return }
         await completeVisitUsingCorrectFlow(visitId: id)
+    }
+
+    @MainActor
+    private func handleCpOutcomeSaved() async {
+        guard isJointCpWorkflow, let workflow = jointWorkflow else {
+            await completeVisitAfterCpOutcome()
+            return
+        }
+        if workflow.actorRole == "outcome_owner" {
+            await submitJointCpForReview()
+        } else if workflow.actorRole == "reviewer" {
+            await completeJointCpReview()
+        } else {
+            errorMessage = "The backend did not assign your Joint CP workflow role"
+        }
+    }
+
+    @MainActor
+    private func submitJointCpForReview() async {
+        guard !isJointMutationInProgress,
+              let token = authStore.currentSession?.token,
+              let cpId = clientPlaceVisitId,
+              let fieldVisitId = resolvedVisitId
+        else { return }
+        isJointMutationInProgress = true
+        arrivalStatusText = "Sending outcome for review..."
+        defer {
+            isJointMutationInProgress = false
+            arrivalStatusText = nil
+        }
+        do {
+            let location = try await locationManager.freshPreciseLocation()
+            let updated = try await MarketingConvexAPIService.submitJointCpReview(
+                token: token,
+                request: JointCpSubmitReviewRequest(
+                    id: cpId,
+                    fieldVisitId: fieldVisitId,
+                    lat: location.coordinate.latitude,
+                    lng: location.coordinate.longitude,
+                    accuracyMeters: location.horizontalAccuracy >= 0 ? location.horizontalAccuracy : nil,
+                    capturedAt: Int64(location.timestamp.timeIntervalSince1970 * 1_000),
+                    arrivalPhotoStorageId: pendingStorageId,
+                    expectedOutcomeRevision: jointWorkflow?.outcomeRevision
+                ),
+                idempotencyKey: UUID().uuidString
+            )
+            jointWorkflow = updated
+            statusLine = "Waiting for review"
+            onTripChanged?()
+        } catch {
+            errorMessage = error.localizedDescription
+        }
+    }
+
+    @MainActor
+    private func completeJointCpReview() async {
+        guard !isJointMutationInProgress,
+              let token = authStore.currentSession?.token,
+              let cpId = clientPlaceVisitId,
+              let revision = jointWorkflow?.outcomeRevision
+        else {
+            errorMessage = "Refresh the submitted outcome before completing"
+            return
+        }
+        isJointMutationInProgress = true
+        arrivalStatusText = "Completing Joint CP..."
+        defer {
+            isJointMutationInProgress = false
+            arrivalStatusText = nil
+        }
+        do {
+            let updated = try await MarketingConvexAPIService.completeJointCpReview(
+                token: token,
+                request: JointCpCompleteReviewRequest(id: cpId, expectedOutcomeRevision: revision),
+                idempotencyKey: UUID().uuidString
+            )
+            jointWorkflow = updated
+            visitCompletedSuccessfully = true
+            statusLine = "Complete"
+            onTripChanged?()
+            dismiss()
+        } catch {
+            errorMessage = error.localizedDescription
+        }
+    }
+
+    private func finishAfterAtomicCpTerminalOutcome() {
+        visitCompletedSuccessfully = true
+        arrivalInProgress = false
+        arrivalStatusText = nil
+        onTripChanged?()
+        Task {
+            await GeoTrackBootstrapCoordinator.shared.sync(reason: "cp-terminal-outcome", force: true)
+        }
+        dismiss()
     }
 
     private var cpRevisitDialogTitle: String {

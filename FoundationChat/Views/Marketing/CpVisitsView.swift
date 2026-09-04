@@ -2320,7 +2320,7 @@ private struct CreateCpVisitSheet: View {
         }
         .confirmationDialog("Select CP type", isPresented: $showCpTypePicker, titleVisibility: .visible) {
             ForEach(CpVisitCreateType.allCases.filter {
-                $0 != .jointCp && (!isJointCp || $0 != .newClientCp)
+                $0 != .jointCp
             }) { type in
                 Button(type.title) {
                     Task { await selectCpType(type) }
@@ -2335,13 +2335,17 @@ private struct CreateCpVisitSheet: View {
                 items: staff,
                 selectedId: selectedStaff?.id,
                 searchText: { item in
-                    [item.displayName, item.designation, item.phone].compactMap(\.self).joined(separator: " ")
+                    [item.displayName, item.iamTemplateName, item.designation, item.phone].compactMap(\.self).joined(separator: " ")
                 },
                 rowContent: { item, isSelected in
                     staffSelectionRow(item, isSelected: isSelected)
                 },
                 onSelect: { item in
                     selectedStaff = item
+                    if let partner = selectedJointPartner,
+                       jointTemplateValidationError(primary: item, partner: partner) != nil {
+                        selectedJointPartner = nil
+                    }
                     showStaffPicker = false
                 }
             )
@@ -2351,7 +2355,7 @@ private struct CreateCpVisitSheet: View {
             NativeSearchableSelectionSheet(
                 title: "Select the second staff",
                 prompt: "Search staff",
-                items: staff.filter { $0.id != selectedStaff?.id },
+                items: eligibleJointPartners,
                 selectedId: selectedJointPartner?.id,
                 searchText: { item in
                     [item.displayName, item.designation, item.phone].compactMap(\.self).joined(separator: " ")
@@ -2668,10 +2672,53 @@ private struct CreateCpVisitSheet: View {
         .onChange(of: isJointCp) { _, enabled in
             if !enabled {
                 selectedJointPartner = nil
-            } else if selectedCpType == .newClientCp {
-                selectedCpType = nil
             }
         }
+    }
+
+    /// Template identity is admin-owned and is the only valid way to compare
+    /// Joint CP levels. Displayed designation text is deliberately ignored.
+    private var eligibleJointPartners: [ConvexStaffListItem] {
+        guard let primary = selectedStaff else { return [] }
+        return staff.filter { jointTemplateValidationError(primary: primary, partner: $0) == nil }
+    }
+
+    private func jointTemplateValidationError(
+        primary: ConvexStaffListItem?,
+        partner: ConvexStaffListItem?
+    ) -> String? {
+        guard let primary, let partner else {
+            return "Select both staff for this Joint CP"
+        }
+        guard primary.id != partner.id else {
+            return "Pick two different staff for a Joint CP"
+        }
+        guard let firstTemplate = primary.iamTemplateId?.nilIfBlank,
+              let secondTemplate = partner.iamTemplateId?.nilIfBlank
+        else {
+            return "Both staff need an IAM template before creating a Joint CP"
+        }
+        guard firstTemplate != secondTemplate else {
+            let label = primary.iamTemplateName?.nilIfBlank
+                ?? partner.iamTemplateName?.nilIfBlank
+                ?? "the same IAM template"
+            return "Joint CP partners cannot both use \(label)"
+        }
+        guard let firstLevel = primary.iamTemplateLevel,
+              let secondLevel = partner.iamTemplateLevel else {
+            return "Both IAM templates need a Joint CP level"
+        }
+        guard firstLevel != secondLevel else {
+            return "Joint CP partners cannot be on the same IAM template level"
+        }
+        let roles = Set([
+            primary.jointCpWorkflowRole?.lowercased(),
+            partner.jointCpWorkflowRole?.lowercased()
+        ].compactMap { $0?.nilIfBlank })
+        guard roles == Set(["outcome_owner", "reviewer"]) else {
+            return "Choose one BDO outcome owner and one reviewer from their IAM templates"
+        }
+        return nil
     }
 
     private var referralSourcePicker: some View {
@@ -2839,7 +2886,7 @@ private struct CreateCpVisitSheet: View {
         isLoadingStaff = true
         defer { isLoadingStaff = false }
         do {
-            let allStaff = try await HRConvexAPIService.listAllStaff(token: token)
+            let allStaff = try await HRConvexAPIService.listAllStaff(token: token, status: "active")
             staff = allStaff.filter { ($0.status ?? "active").lowercased() != "inactive" }
             let sessionStaffId = authStore.currentSession?.user.staffId ?? authStore.currentSession?.user._id
             if selectedStaff == nil, let sessionStaffId {
@@ -3102,7 +3149,7 @@ private struct CreateCpVisitSheet: View {
         guard selectedProject != nil else { errorMessage = "Project is required"; return }
         // CP Type drives the whole post-arrival branch in the trip flow, and an
         // untyped CP shows as a bare dash in every list.
-        guard selectedCpType != nil else { errorMessage = "Select the CP type"; return }
+        guard let selectedCpType else { errorMessage = "Select the CP type"; return }
         if isNewClientCpPurpose {
             guard let selectedReferralSource else {
                 errorMessage = "Select Own Referral or Client Referral"
@@ -3122,14 +3169,19 @@ private struct CreateCpVisitSheet: View {
         // A Joint CP is meaningless with one person on it, and the server
         // requires exactly two different active staff.
         if isJointCp {
-            guard let partnerId = selectedJointPartner?.id, !partnerId.isEmpty else {
-                errorMessage = "Select the second staff for this Joint CP"
+            if let validationError = jointTemplateValidationError(
+                primary: selectedStaff,
+                partner: selectedJointPartner
+            ) {
+                errorMessage = validationError
                 return
             }
-            guard partnerId != (selectedStaff?.id ?? "") else {
-                errorMessage = "Pick two different staff for a Joint CP"
-                return
-            }
+        }
+        let jointParticipantIds: [String]?
+        if isJointCp, let primaryId = selectedStaff?.id, let partnerId = selectedJointPartner?.id {
+            jointParticipantIds = [primaryId, partnerId]
+        } else {
+            jointParticipantIds = nil
         }
         guard selectedStaff != nil || !(staffId.isEmpty) else { errorMessage = "Field staff is required"; return }
         guard let lmoStaffId = selectedLmo?.id.nilIfEmpty else {
@@ -3237,8 +3289,8 @@ private struct CreateCpVisitSheet: View {
             lmoStaffId: lmoStaffId,
             scheduledDate: scheduledDate,
             scheduledTime: Self.timeFormatter.string(from: date),
-            cpType: isJointCp ? CpVisitCreateType.jointCp.rawValue : selectedCpType?.rawValue,
-            jointCpCategory: isJointCp ? selectedCpType?.rawValue : nil,
+            cpType: isJointCp ? CpVisitCreateType.jointCp.rawValue : selectedCpType.rawValue,
+            jointCpCategory: isJointCp ? selectedCpType.rawValue : nil,
             referralSourceType: isNewClientCpPurpose ? selectedReferralSource?.rawValue : nil,
             referringClientId: isNewClientCpPurpose && selectedReferralSource == .clientReferral
                 ? selectedReferringClient?.id
@@ -3249,11 +3301,9 @@ private struct CreateCpVisitSheet: View {
             googleMapsLink: mapsLink.trimmingCharacters(in: .whitespacesAndNewlines).nilIfEmpty,
             notes: serializedNotes,
             pincode: normalizedPincode,
-            // Only for a Joint CP; the server ignores it for every other type
-            // and promotes the SENIOR of the two onto the visit.
-            jointStaffIds: isJointCp
-                ? [selectedJointPartner?.id].compactMap(\.self)
-                : nil
+            // The server requires both unique participants and resolves owner
+            // versus reviewer from their effective IAM template snapshots.
+            jointStaffIds: jointParticipantIds
         )
 
         isSubmitting = true
@@ -3269,8 +3319,28 @@ private struct CreateCpVisitSheet: View {
                 request: request,
                 idempotencyKey: createRequestId
             )
-            guard response.id?.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty == false else {
+            guard let createdId = response.resolvedId else {
                 throw MarketingAPIError.server("The server did not return the created CP. Please retry.")
+            }
+            let expectedType = isJointCp ? CpVisitCreateType.jointCp.rawValue : selectedCpType.rawValue
+            let expectedJointCategory = isJointCp ? selectedCpType.rawValue : nil
+            switch await verifyCreatedCpType(
+                token: token,
+                visitId: createdId,
+                expectedType: expectedType,
+                expectedJointCategory: expectedJointCategory,
+                response: response
+            ) {
+            case .confirmed:
+                break
+            case .mismatch:
+                throw MarketingAPIError.server(
+                    "CP was created, but the server did not retain its selected type. Admin repair is required."
+                )
+            case .unavailable:
+                throw MarketingAPIError.server(
+                    "CP was created, but its type could not be confirmed from the server. Refresh before continuing."
+                )
             }
             createRequestId = UUID().uuidString
             createRequestFingerprint = nil
@@ -3281,6 +3351,54 @@ private struct CreateCpVisitSheet: View {
         } catch {
             errorMessage = error.localizedDescription
         }
+    }
+
+    private enum CpTypeVerification {
+        case confirmed
+        case mismatch
+        case unavailable
+    }
+
+    private func verifyCreatedCpType(
+        token: String,
+        visitId: String,
+        expectedType: String,
+        expectedJointCategory: String?,
+        response: CreateCpVisitResponse
+    ) async -> CpTypeVerification {
+        for attempt in 0..<3 {
+            if let visit = try? await MarketingConvexAPIService.getCpVisitDetail(token: token, id: visitId) {
+                return persistedTypeMatches(
+                    cpType: visit.cpType,
+                    jointCpCategory: visit.jointCpCategory,
+                    expectedType: expectedType,
+                    expectedJointCategory: expectedJointCategory
+                ) ? .confirmed : .mismatch
+            }
+            if attempt < 2 {
+                try? await Task.sleep(nanoseconds: UInt64(350_000_000 * (attempt + 1)))
+            }
+        }
+        guard response.cpType?.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty == false else {
+            return .unavailable
+        }
+        return persistedTypeMatches(
+            cpType: response.cpType,
+            jointCpCategory: response.jointCpCategory,
+            expectedType: expectedType,
+            expectedJointCategory: expectedJointCategory
+        ) ? .confirmed : .mismatch
+    }
+
+    private func persistedTypeMatches(
+        cpType: String?,
+        jointCpCategory: String?,
+        expectedType: String,
+        expectedJointCategory: String?
+    ) -> Bool {
+        guard cpType?.trimmingCharacters(in: .whitespacesAndNewlines) == expectedType else { return false }
+        guard expectedType == CpVisitCreateType.jointCp.rawValue else { return true }
+        return jointCpCategory?.trimmingCharacters(in: .whitespacesAndNewlines) == expectedJointCategory
     }
 
     private var isNewClientCpPurpose: Bool {

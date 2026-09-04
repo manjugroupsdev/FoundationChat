@@ -1076,6 +1076,67 @@ enum MarketingConvexAPIService {
         return visit
     }
 
+    static func getJointCpWorkflow(token: String, id: String) async throws -> JointCpWorkflow {
+        let data = try await get(
+            path: "/api/marketing/clientPlaceVisits/joint-workflow",
+            token: token,
+            queryItems: [URLQueryItem(name: "id", value: id)]
+        )
+        let wrapper = try decode(JointCpWorkflowResponse.self, from: data)
+        guard wrapper.success else { throw MarketingAPIError.server(wrapper.error ?? "Failed to load Joint CP workflow") }
+        guard let workflow = wrapper.workflow else { throw MarketingAPIError.server("Joint CP workflow missing") }
+        return workflow
+    }
+
+    static func preflightJointCpArrival(
+        token: String,
+        request: JointCpLocationRequest
+    ) async throws -> JointCpWorkflow {
+        let data = try await post(
+            path: "/api/marketing/clientPlaceVisits/joint-arrival-preflight",
+            token: token,
+            body: request
+        )
+        let wrapper = try decode(JointCpWorkflowResponse.self, from: data)
+        guard wrapper.success else { throw MarketingAPIError.server(wrapper.error ?? "Joint CP location check failed") }
+        guard let workflow = wrapper.workflow else { throw MarketingAPIError.server("Joint CP workflow missing") }
+        return workflow
+    }
+
+    static func submitJointCpReview(
+        token: String,
+        request: JointCpSubmitReviewRequest,
+        idempotencyKey: String
+    ) async throws -> JointCpWorkflow {
+        let data = try await post(
+            path: "/api/marketing/clientPlaceVisits/joint-submit-review",
+            token: token,
+            body: request,
+            headers: ["Idempotency-Key": idempotencyKey]
+        )
+        let wrapper = try decode(JointCpWorkflowResponse.self, from: data)
+        guard wrapper.success else { throw MarketingAPIError.server(wrapper.error ?? "Failed to send outcome for review") }
+        guard let workflow = wrapper.workflow else { throw MarketingAPIError.server("Joint CP workflow missing") }
+        return workflow
+    }
+
+    static func completeJointCpReview(
+        token: String,
+        request: JointCpCompleteReviewRequest,
+        idempotencyKey: String
+    ) async throws -> JointCpWorkflow {
+        let data = try await post(
+            path: "/api/marketing/clientPlaceVisits/joint-complete-review",
+            token: token,
+            body: request,
+            headers: ["Idempotency-Key": idempotencyKey]
+        )
+        let wrapper = try decode(JointCpWorkflowResponse.self, from: data)
+        guard wrapper.success else { throw MarketingAPIError.server(wrapper.error ?? "Failed to complete Joint CP review") }
+        guard let workflow = wrapper.workflow else { throw MarketingAPIError.server("Joint CP workflow missing") }
+        return workflow
+    }
+
     static func getMyMarketingCpVisits(
         token: String,
         fromDate: String? = nil,

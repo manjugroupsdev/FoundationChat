@@ -373,6 +373,12 @@ struct JointCpParticipant: Codable, Sendable {
     let completedAt: Int64?
     let distanceMeters: Double?
     let outOfGeofence: Bool?
+    let templateId: String?
+    let templateName: String?
+    let templateLevel: Int?
+    let workflowRole: String?
+    let routeColor: String?
+    let fieldVisitId: String?
 }
 
 struct JointCpSummary: Codable, Sendable {
@@ -381,6 +387,62 @@ struct JointCpSummary: Codable, Sendable {
     let leadStaffId: String?
     let companionNames: [String]?
     let totalCount: Int?
+    let workflow: JointCpWorkflow?
+}
+
+struct JointCpWorkflowResponse: Codable, Sendable {
+    let success: Bool
+    let workflow: JointCpWorkflow?
+    let error: String?
+    let code: String?
+}
+
+struct JointCpWorkflow: Codable, Sendable {
+    let state: String?
+    let actorRole: String?
+    let outcomeOwnerStaffId: String?
+    let outcomeOwnerName: String?
+    let reviewerStaffId: String?
+    let reviewerName: String?
+    let reviewerTemplateName: String?
+    let canRequestOtp: Bool?
+    let canSubmitOutcome: Bool?
+    let canReview: Bool?
+    let canCompleteReview: Bool?
+    let separationMeters: Double?
+    let isWithinCompletionRadius: Bool?
+    let requiredRadiusMeters: Double?
+    let outcomeRevision: Int64?
+    let outcome: String?
+    let outcomeSummary: String?
+    let reviewedByName: String?
+    let reviewedByTemplateName: String?
+    let completedAt: Int64?
+}
+
+struct JointCpLocationRequest: Encodable, Sendable {
+    let id: String
+    let fieldVisitId: String
+    let lat: Double
+    let lng: Double
+    let accuracyMeters: Double?
+    let capturedAt: Int64
+}
+
+struct JointCpSubmitReviewRequest: Encodable, Sendable {
+    let id: String
+    let fieldVisitId: String
+    let lat: Double
+    let lng: Double
+    let accuracyMeters: Double?
+    let capturedAt: Int64
+    let arrivalPhotoStorageId: String?
+    let expectedOutcomeRevision: Int64?
+}
+
+struct JointCpCompleteReviewRequest: Encodable, Sendable {
+    let id: String
+    let expectedOutcomeRevision: Int64
 }
 
 struct CpVisitProject: Codable, Sendable {

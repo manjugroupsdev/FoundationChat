@@ -486,6 +486,10 @@ struct ConvexStaffListItem: Decodable, Identifiable, Equatable, Sendable, Hashab
     let status: String?
     let employeeId: String?
     let department: String?
+    let iamTemplateId: String?
+    let iamTemplateName: String?
+    let iamTemplateLevel: Int?
+    let jointCpWorkflowRole: String?
     let reportingTo: String?
 
     var id: String { _id }
@@ -501,6 +505,17 @@ struct ConvexStaffListItem: Decodable, Identifiable, Equatable, Sendable, Hashab
         case status
         case employeeId
         case department
+        case iamTemplateId
+        case templateId
+        case permissionTemplateId
+        case iamTemplateName
+        case templateName
+        case permissionTemplateName
+        case iamTemplateLevel
+        case templateLevel
+        case roleLevel
+        case jointCpWorkflowRole
+        case jointCpRole
         case reportingTo
     }
 
@@ -517,6 +532,17 @@ struct ConvexStaffListItem: Decodable, Identifiable, Equatable, Sendable, Hashab
         status = try container.decodeIfPresent(String.self, forKey: .status)
         employeeId = try container.decodeIfPresent(String.self, forKey: .employeeId)
         department = try container.decodeIfPresent(String.self, forKey: .department)
+        iamTemplateId = try container.decodeIfPresent(String.self, forKey: .iamTemplateId)
+            ?? container.decodeIfPresent(String.self, forKey: .templateId)
+            ?? container.decodeIfPresent(String.self, forKey: .permissionTemplateId)
+        iamTemplateName = try container.decodeIfPresent(String.self, forKey: .iamTemplateName)
+            ?? container.decodeIfPresent(String.self, forKey: .templateName)
+            ?? container.decodeIfPresent(String.self, forKey: .permissionTemplateName)
+        iamTemplateLevel = try container.decodeIfPresent(Int.self, forKey: .iamTemplateLevel)
+            ?? container.decodeIfPresent(Int.self, forKey: .templateLevel)
+            ?? container.decodeIfPresent(Int.self, forKey: .roleLevel)
+        jointCpWorkflowRole = try container.decodeIfPresent(String.self, forKey: .jointCpWorkflowRole)
+            ?? container.decodeIfPresent(String.self, forKey: .jointCpRole)
         reportingTo = try container.decodeIfPresent(String.self, forKey: .reportingTo)
     }
 

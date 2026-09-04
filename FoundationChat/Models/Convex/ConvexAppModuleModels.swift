@@ -1582,7 +1582,8 @@ struct CreateCpVisitRequest: Encodable, Sendable {
     let lmoStaffId: String?
     let scheduledDate: String
     let scheduledTime: String?
-    let cpType: String?
+    // Mandatory because type controls both web labelling and mobile completion.
+    let cpType: String
     // Required by the backend when cpType is joint_cp. This records the
     // actual purpose while cpType continues to drive the two-staff workflow.
     var jointCpCategory: String? = nil
@@ -1687,13 +1688,28 @@ struct ReferralClientCandidatesResponse: Decodable, Sendable {
 struct CreateCpVisitResponse: Decodable, Sendable {
     let success: Bool
     let id: String?
+    let visitId: String?
     let fieldVisitId: String?
     let followupId: String?
     let clientPlaceId: String?
     let clientId: String?
     let requestId: String?
     let alreadyCreated: Bool?
+    let cpType: String?
+    let jointCpCategory: String?
     let error: String?
+
+    var resolvedId: String? {
+        if let id {
+            let trimmed = id.trimmingCharacters(in: .whitespacesAndNewlines)
+            if !trimmed.isEmpty { return trimmed }
+        }
+        if let visitId {
+            let trimmed = visitId.trimmingCharacters(in: .whitespacesAndNewlines)
+            if !trimmed.isEmpty { return trimmed }
+        }
+        return nil
+    }
 }
 
 struct MarkClientMetRequest: Encodable, Sendable {
