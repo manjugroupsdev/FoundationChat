@@ -1374,21 +1374,22 @@ enum HRConvexAPIService {
         let error: String?
     }
 
-    /// `POST /api/staff/me/update` — update own profile. Mirrors Android `updateMyProfile`.
+    /// `POST /api/hr/staff/update` — update own profile. Mirrors Android `updateMyProfile`.
     /// Returns the refreshed `AuthUser` snapshot when the server includes one.
     static func updateMyProfile(
         token: String,
+        staffId: String,
         name: String?,
         email: String?,
         phone: String?,
         photoStorageId: String?
     ) async throws -> AuthUser? {
-        var body: [String: Any] = [:]
+        var body: [String: Any] = ["id": staffId]
         if let name { body["name"] = name }
         if let email { body["email"] = email }
         if let phone { body["phone"] = phone }
         if let photoStorageId { body["photo"] = photoStorageId }
-        let data = try await post(path: "/api/staff/me/update", token: token, jsonBody: body)
+        let data = try await post(path: "/api/hr/staff/update", token: token, jsonBody: body)
         let wrapper = try await decode(UpdateMyProfileResponse.self, from: data)
         guard wrapper.success else {
             throw HRConvexAPIError.server(wrapper.error ?? "Failed to update profile")

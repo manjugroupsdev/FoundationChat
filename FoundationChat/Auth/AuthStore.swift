@@ -494,11 +494,24 @@ final class AuthStore {
     photoStorageId: String?
   ) async throws -> AuthUser {
     let t = try requireToken()
+    let sessionUser = currentSession?.user
+    let normalizedStaffId = sessionUser?.staffId?.trimmingCharacters(in: .whitespacesAndNewlines)
+    let fallbackId = sessionUser?._id.trimmingCharacters(in: .whitespacesAndNewlines)
+    guard let staffId = (normalizedStaffId?.isEmpty == false ? normalizedStaffId : nil)
+      ?? (fallbackId?.isEmpty == false ? fallbackId : nil)
+    else {
+      throw AuthStoreError.sessionNotAvailable
+    }
     let serverUser = try await HRConvexAPIService.updateMyProfile(
-      token: t, name: name, email: email, phone: phone, photoStorageId: photoStorageId
+      token: t,
+      staffId: staffId,
+      name: name,
+      email: email,
+      phone: phone,
+      photoStorageId: photoStorageId
     )
 
-    let existing = currentSession?.user
+    let existing = sessionUser
     let merged = AuthUser(
       _id: serverUser?._id ?? existing?._id ?? "",
       staffId: serverUser?.staffId ?? existing?.staffId,
