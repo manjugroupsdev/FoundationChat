@@ -387,7 +387,7 @@ final class AuthStore {
     let center = UNUserNotificationCenter.current()
     center.removeAllDeliveredNotifications()
     center.removeAllPendingNotificationRequests()
-    UIApplication.shared.applicationIconBadgeNumber = 0
+    center.setBadgeCount(0)
   }
 
   func logout() async {

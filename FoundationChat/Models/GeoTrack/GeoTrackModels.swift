@@ -848,6 +848,12 @@ struct GeoTrackCompleteVisitRequest: Encodable, Sendable {
     let followUpDate: String?
     let followUpTime: String?
 
+    enum CodingKeys: String, CodingKey {
+        case visitId, lat, lng, remarks, arrivalPhotoStorageId
+        case clientMet, outcome, postponeReasons, followUpDate, followUpTime
+        case outcomeNotes = "cpOutcomeNotes"
+    }
+
     init(
         visitId: String,
         lat: Double? = nil,

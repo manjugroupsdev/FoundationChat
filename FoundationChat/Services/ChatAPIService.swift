@@ -583,8 +583,21 @@ enum ChatAPIService {
     bundleId: String? = nil
   ) async throws -> String {
     let resolvedBundleId = bundleId ?? Bundle.main.bundleIdentifier ?? "com.manju.chat"
-    var body: [String: Any] = ["token": deviceToken, "platform": platform, "bundleId": resolvedBundleId]
-    if let provider { body["provider"] = provider }
+    let resolvedProvider = provider ?? (platform == "ios_voip" ? "apns_voip" : "apns")
+    let appName = (Bundle.main.object(forInfoDictionaryKey: "CFBundleDisplayName") as? String)
+      ?? (Bundle.main.object(forInfoDictionaryKey: "CFBundleName") as? String)
+      ?? "M-Chat"
+    let device = LoginDeviceInfo.capture()
+    var body: [String: Any] = [
+      "token": deviceToken,
+      "platform": platform,
+      "provider": resolvedProvider,
+      "bundleId": resolvedBundleId,
+      "appId": resolvedBundleId,
+      "appName": appName,
+      "deviceId": device?.deviceId ?? "",
+    ]
+    if let model = device?.model { body["deviceModel"] = model }
     let data = try await post(path: "/api/push/register", token: token, jsonBody: body)
     let wrapper = try await decode(RegisterPushResponse.self, from: data)
     guard wrapper.success else { throw ChatAPIError.unexpected(wrapper.error ?? "Push registration failed") }
