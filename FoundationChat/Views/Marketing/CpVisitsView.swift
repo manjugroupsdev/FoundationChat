@@ -2693,14 +2693,14 @@ private struct CreateCpVisitSheet: View {
         guard primary.id != partner.id else {
             return "Pick two different staff for a Joint CP"
         }
-        guard let firstTemplate = primary.iamTemplateId?.nilIfBlank,
-              let secondTemplate = partner.iamTemplateId?.nilIfBlank
+        guard let firstTemplate = primary.iamTemplateId?.nonBlank,
+              let secondTemplate = partner.iamTemplateId?.nonBlank
         else {
             return "Both staff need an IAM template before creating a Joint CP"
         }
         guard firstTemplate != secondTemplate else {
-            let label = primary.iamTemplateName?.nilIfBlank
-                ?? partner.iamTemplateName?.nilIfBlank
+            let label = primary.iamTemplateName?.nonBlank
+                ?? partner.iamTemplateName?.nonBlank
                 ?? "the same IAM template"
             return "Joint CP partners cannot both use \(label)"
         }
@@ -2714,7 +2714,7 @@ private struct CreateCpVisitSheet: View {
         let roles = Set([
             primary.jointCpWorkflowRole?.lowercased(),
             partner.jointCpWorkflowRole?.lowercased()
-        ].compactMap { $0?.nilIfBlank })
+        ].compactMap { $0?.nonBlank })
         guard roles == Set(["outcome_owner", "reviewer"]) else {
             return "Choose one BDO outcome owner and one reviewer from their IAM templates"
         }
@@ -3230,10 +3230,10 @@ private struct CreateCpVisitSheet: View {
             }
         }
         let effectiveCpPurpose = selectedCpType
-        if effectiveCpPurpose?.requiresConfirmedBooking == true {
+        if effectiveCpPurpose.requiresConfirmedBooking {
             let cachedPhone = bookingGatePhone ?? ""
             if cachedPhone != normalizedPhone || bookingGateCount == 0 {
-                errorMessage = "\(effectiveCpPurpose?.title ?? "This CP type") needs a confirmed booking for this mobile. Re-pick the CP type to verify."
+                errorMessage = "\(effectiveCpPurpose.title) needs a confirmed booking for this mobile. Re-pick the CP type to verify."
                 return
             }
         }
@@ -3321,6 +3321,11 @@ private struct CreateCpVisitSheet: View {
             )
             guard let createdId = response.resolvedId else {
                 throw MarketingAPIError.server("The server did not return the created CP. Please retry.")
+            }
+            guard response.requestId == createRequestId else {
+                throw MarketingAPIError.server(
+                    "The server did not confirm the created CP. Tap Create visit again to resume safely."
+                )
             }
             let expectedType = isJointCp ? CpVisitCreateType.jointCp.rawValue : selectedCpType.rawValue
             let expectedJointCategory = isJointCp ? selectedCpType.rawValue : nil

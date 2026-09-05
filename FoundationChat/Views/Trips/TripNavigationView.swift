@@ -179,7 +179,12 @@ struct TripNavigationView: View {
     }
 
     private var isJointCpWorkflow: Bool {
-        cpType?.normalizedCpMarker == "joint_cp" || jointWorkflow != nil
+        cpType?
+            .trimmingCharacters(in: .whitespacesAndNewlines)
+            .lowercased()
+            .replacingOccurrences(of: "-", with: "_")
+            .replacingOccurrences(of: " ", with: "_") == "joint_cp"
+            || jointWorkflow != nil
     }
 
     var body: some View {
@@ -1326,7 +1331,7 @@ struct TripNavigationView: View {
                     lat: location.coordinate.latitude,
                     lng: location.coordinate.longitude,
                     accuracyMeters: location.horizontalAccuracy >= 0 ? location.horizontalAccuracy : nil,
-                    capturedAt: Int64(Date().timeIntervalSince1970 * 1_000)
+                    capturedAt: Int64(location.timestamp.timeIntervalSince1970 * 1_000)
                 )
             )
             jointWorkflow = workflow
