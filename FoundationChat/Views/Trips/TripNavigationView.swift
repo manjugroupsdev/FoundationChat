@@ -87,6 +87,8 @@ struct TripNavigationView: View {
     @State private var geofenceDistanceText = ""
     @State private var showCpTripCompletedSheet = false
     @State private var pendingCpRevisit: CpRevisitInfo?
+    @State private var pendingCpTripCompletion: CpTripCompletionPayload?
+    @State private var showCpPendingApproval = false
     @State private var showCpRevisitConfirmation = false
     @State private var cpNoPathPhotoCapture = false
     @State private var repairVerifiedArrivalProof = false
@@ -307,6 +309,9 @@ struct TripNavigationView: View {
                     onTerminalClosed: {
                         finishAfterAtomicCpTerminalOutcome()
                     },
+                    onTripCompletion: { payload in
+                        pendingCpTripCompletion = payload
+                    },
                     onCompleted: { revisit in
                         pendingCpRevisit = revisit
                         Task { await handleCpOutcomeSaved() }
@@ -329,6 +334,9 @@ struct TripNavigationView: View {
                     cpVisitId: cpVisitId,
                     arrivalProofStorageId: pendingStorageId,
                     initialCollectionNotCollected: collectionNotCollectedChoice,
+                    onTripCompletion: { payload in
+                        pendingCpTripCompletion = payload
+                    },
                     onCompleted: { replacementProofId, revisit in
                         if let replacementProofId {
                             pendingStorageId = replacementProofId
@@ -392,6 +400,11 @@ struct TripNavigationView: View {
             }
         } message: {
             Text(cpRevisitDialogMessage)
+        }
+        .alert("Waiting for GM approval", isPresented: $showCpPendingApproval) {
+            Button("Done") { dismiss() }
+        } message: {
+            Text("The visit outcome was saved. It will be completed after GM approval.")
         }
         .sheet(isPresented: $showDriverStartTripSheet) {
             DriverOdometerSheet(
@@ -1469,6 +1482,14 @@ struct TripNavigationView: View {
                     arrivalPhotoStorageId: storageId
                 )
             )
+            pendingCpTripCompletion = CpTripCompletionPayload(
+                clientMet: false,
+                outcome: specialCpCompletionKind?.terminalOutcome ?? "other",
+                notes: specialCpCompletionKind?.clientNotSeenNotes ?? "Client not seen",
+                postponeReasons: nil,
+                followUpDate: nil,
+                followUpTime: nil
+            )
             cpNoPathPhotoCapture = false
             if isJointCpWorkflow {
                 arrivalInProgress = false
@@ -1721,13 +1742,25 @@ struct TripNavigationView: View {
             // Arrival location was already freshly verified before OTP. Reuse
             // it here instead of making completion wait for another GPS fix.
             let location = locationManager.currentLocation?.coordinate
-            try await geoAPI.completeVisit(
+            let completion = try await geoAPI.completeVisit(
                 visitId: id,
                 lat: location?.latitude ?? otpLat,
                 lng: location?.longitude ?? otpLng,
                 remarks: "Arrival verified",
-                arrivalPhotoStorageId: pendingStorageId
+                arrivalPhotoStorageId: pendingStorageId,
+                clientMet: pendingCpTripCompletion?.clientMet,
+                outcome: pendingCpTripCompletion?.outcome,
+                outcomeNotes: pendingCpTripCompletion?.notes,
+                postponeReasons: pendingCpTripCompletion?.postponeReasons,
+                followUpDate: pendingCpTripCompletion?.followUpDate,
+                followUpTime: pendingCpTripCompletion?.followUpTime
             )
+            if pendingCpTripCompletion != nil {
+                let confirmed = completion.status?.trimmingCharacters(in: .whitespacesAndNewlines).lowercased()
+                guard ["completed", "pending_gm_approval", "postponed", "cancelled", "canceled"].contains(confirmed ?? "") else {
+                    throw TripError.message("The trip was saved, but the CP outcome state was not confirmed. Refresh before retrying.")
+                }
+            }
 
             visitCompletedSuccessfully = true
             arrivalStatusText = nil
@@ -1737,12 +1770,17 @@ struct TripNavigationView: View {
                 await GeoTrackBootstrapCoordinator.shared.sync(reason: "field-visit-completed", force: true)
             }
 
+            let isPendingApproval = completion.status?
+                .trimmingCharacters(in: .whitespacesAndNewlines)
+                .lowercased() == "pending_gm_approval"
             if pendingCpRevisit != nil {
                 completeWithClientNotSeenSheet = false
                 showCpRevisitConfirmation = true
             } else if completeWithClientNotSeenSheet {
                 completeWithClientNotSeenSheet = false
                 showCpTripCompletedSheet = true
+            } else if isPendingApproval {
+                showCpPendingApproval = true
             } else {
                 dismiss()
             }
@@ -2760,6 +2798,7 @@ private struct SpecialCpCompletionSheet: View {
     let cpVisitId: String
     let arrivalProofStorageId: String?
     let initialCollectionNotCollected: Bool
+    let onTripCompletion: (CpTripCompletionPayload) -> Void
     let onCompleted: (String?, CpRevisitInfo?) -> Void
 
     @State private var cpVisit: CpVisitDetail?
@@ -2792,12 +2831,14 @@ private struct SpecialCpCompletionSheet: View {
         cpVisitId: String,
         arrivalProofStorageId: String?,
         initialCollectionNotCollected: Bool = false,
+        onTripCompletion: @escaping (CpTripCompletionPayload) -> Void,
         onCompleted: @escaping (String?, CpRevisitInfo?) -> Void
     ) {
         self.kind = kind
         self.cpVisitId = cpVisitId
         self.arrivalProofStorageId = arrivalProofStorageId
         self.initialCollectionNotCollected = initialCollectionNotCollected
+        self.onTripCompletion = onTripCompletion
         self.onCompleted = onCompleted
         _collectionNotCollected = State(initialValue: initialCollectionNotCollected)
     }
@@ -3476,6 +3517,16 @@ private struct SpecialCpCompletionSheet: View {
                     postponeReasons: nil,
                     notes: notes.nilIfEmpty,
                     arrivalPhotoStorageId: kind == .giftDistribution ? replacementProofId : nil,
+                    followUpDate: sendFollowUp ? followUpDateValue : nil,
+                    followUpTime: sendFollowUp ? followUpTimeValue : nil
+                )
+            )
+            onTripCompletion(
+                CpTripCompletionPayload(
+                    clientMet: true,
+                    outcome: outcome,
+                    notes: notes.nilIfEmpty,
+                    postponeReasons: nil,
                     followUpDate: sendFollowUp ? followUpDateValue : nil,
                     followUpTime: sendFollowUp ? followUpTimeValue : nil
                 )

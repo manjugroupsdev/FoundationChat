@@ -4,6 +4,15 @@ import UIKit
 
 // MARK: - CompleteCpVisitSheet
 
+struct CpTripCompletionPayload: Sendable {
+    let clientMet: Bool
+    let outcome: String
+    let notes: String?
+    let postponeReasons: [String]?
+    let followUpDate: String?
+    let followUpTime: String?
+}
+
 struct CompleteCpVisitSheet: View {
     let cpVisitId: String
     let initialOutcome: String?
@@ -11,6 +20,7 @@ struct CompleteCpVisitSheet: View {
     let jointCtaMode: String?
     let jointOutcomeSummary: String?
     let onTerminalClosed: () -> Void
+    let onTripCompletion: ((CpTripCompletionPayload) -> Void)?
     let onCompleted: (CpRevisitInfo?) -> Void
 
     init(
@@ -20,6 +30,7 @@ struct CompleteCpVisitSheet: View {
         jointCtaMode: String? = nil,
         jointOutcomeSummary: String? = nil,
         onTerminalClosed: @escaping () -> Void = {},
+        onTripCompletion: ((CpTripCompletionPayload) -> Void)? = nil,
         onCompleted: @escaping (CpRevisitInfo?) -> Void
     ) {
         self.cpVisitId = cpVisitId
@@ -28,6 +39,7 @@ struct CompleteCpVisitSheet: View {
         self.jointCtaMode = jointCtaMode
         self.jointOutcomeSummary = jointOutcomeSummary
         self.onTerminalClosed = onTerminalClosed
+        self.onTripCompletion = onTripCompletion
         self.onCompleted = onCompleted
     }
 
@@ -1607,7 +1619,8 @@ struct CompleteCpVisitSheet: View {
             }
 
             // Reviewing a no-show outcome must not turn it into a met-client visit.
-            if !(jointCtaMode != nil && cpVisitDetail?.clientMet == false) {
+            let completionClientMet = !(jointCtaMode != nil && cpVisitDetail?.clientMet == false)
+            if completionClientMet {
                 try await MarketingConvexAPIService.markClientMet(
                     token: token,
                     request: MarkClientMetRequest(id: cpVisitId, clientMet: true)
@@ -1642,7 +1655,7 @@ struct CompleteCpVisitSheet: View {
                         token: token,
                         request: SetCpVisitOutcomeRequest(
                             id: cpVisitId,
-                            outcome: "interested",
+                            outcome: CpVisitOutcome.siteVisit.rawValue,
                             postponeReasons: nil,
                             notes: "Confirmed by field staff"
                         )
@@ -1695,10 +1708,32 @@ struct CompleteCpVisitSheet: View {
                 )
             }
 
+            onTripCompletion?(
+                CpTripCompletionPayload(
+                    clientMet: completionClientMet,
+                    outcome: selectedOutcome.rawValue,
+                    notes: completionNotes(for: selectedOutcome),
+                    postponeReasons: selectedOutcome == .postponed
+                        ? [postponeReason.trimmingCharacters(in: .whitespacesAndNewlines)]
+                        : nil,
+                    followUpDate: selectedOutcome == .postponed
+                        ? AppModuleFormatters.ymd.string(from: postponeFollowUpDate)
+                        : nil,
+                    followUpTime: nil
+                )
+            )
             onCompleted(revisit)
             dismiss()
         } catch {
             errorMessage = userFacingCompletionError(error)
+        }
+    }
+
+    private func completionNotes(for outcome: CpVisitOutcome) -> String? {
+        switch outcome {
+        case .booking: return "Converted to booking"
+        case .siteVisit: return "Converted to site visit"
+        default: return buildOutcomeNotes(for: outcome)
         }
     }
 

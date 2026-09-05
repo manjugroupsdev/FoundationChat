@@ -685,19 +685,32 @@ final class GeoTrackAPIService {
     }
 
     /// POST /api/geotrack/visit/complete
+    @discardableResult
     func completeVisit(
         visitId: String,
         lat: Double? = nil,
         lng: Double? = nil,
         remarks: String? = nil,
-        arrivalPhotoStorageId: String? = nil
-    ) async throws {
+        arrivalPhotoStorageId: String? = nil,
+        clientMet: Bool? = nil,
+        outcome: String? = nil,
+        outcomeNotes: String? = nil,
+        postponeReasons: [String]? = nil,
+        followUpDate: String? = nil,
+        followUpTime: String? = nil
+    ) async throws -> GeoTrackBaseResponse {
         let body = GeoTrackCompleteVisitRequest(
             visitId: visitId,
             lat: lat,
             lng: lng,
             remarks: remarks,
-            arrivalPhotoStorageId: arrivalPhotoStorageId
+            arrivalPhotoStorageId: arrivalPhotoStorageId,
+            clientMet: clientMet,
+            outcome: outcome,
+            outcomeNotes: outcomeNotes,
+            postponeReasons: postponeReasons,
+            followUpDate: followUpDate,
+            followUpTime: followUpTime
         )
         let request = try makeRequest(path: "/api/geotrack/visit/complete", method: "POST", body: body)
         let result: GeoTrackBaseResponse = try await perform(request)
@@ -705,6 +718,7 @@ final class GeoTrackAPIService {
         guard result.success else {
             throw GeoTrackAPIError.serverError("The server did not complete this visit. Refresh its status before retrying.")
         }
+        return result
     }
 
     // MARK: - Arrival OTP

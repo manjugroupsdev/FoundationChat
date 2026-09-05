@@ -5,6 +5,7 @@ import Foundation
 struct GeoTrackBaseResponse: Decodable, Sendable {
     let success: Bool
     let error: String?
+    let status: String?
 }
 
 // MARK: - Tracking Bootstrap / Device Sync
@@ -840,19 +841,37 @@ struct GeoTrackCompleteVisitRequest: Encodable, Sendable {
     let lng: Double?
     let remarks: String?
     let arrivalPhotoStorageId: String?
+    let clientMet: Bool?
+    let outcome: String?
+    let outcomeNotes: String?
+    let postponeReasons: [String]?
+    let followUpDate: String?
+    let followUpTime: String?
 
     init(
         visitId: String,
         lat: Double? = nil,
         lng: Double? = nil,
         remarks: String? = nil,
-        arrivalPhotoStorageId: String? = nil
+        arrivalPhotoStorageId: String? = nil,
+        clientMet: Bool? = nil,
+        outcome: String? = nil,
+        outcomeNotes: String? = nil,
+        postponeReasons: [String]? = nil,
+        followUpDate: String? = nil,
+        followUpTime: String? = nil
     ) {
         self.visitId = visitId
         self.lat = lat
         self.lng = lng
         self.remarks = remarks
         self.arrivalPhotoStorageId = arrivalPhotoStorageId
+        self.clientMet = clientMet
+        self.outcome = outcome
+        self.outcomeNotes = outcomeNotes
+        self.postponeReasons = postponeReasons
+        self.followUpDate = followUpDate
+        self.followUpTime = followUpTime
     }
 }
 
