@@ -416,10 +416,52 @@ struct JointCpWorkflow: Codable, Sendable {
     let requiredRadiusMeters: Double?
     let outcomeRevision: Int64?
     let outcome: String?
-    let outcomeSummary: String?
+    let outcomeSummary: FlexibleDisplayText?
     let reviewedByName: String?
     let reviewedByTemplateName: String?
     let completedAt: Int64?
+}
+
+struct FlexibleDisplayText: Codable, Sendable {
+    let value: String?
+
+    init(from decoder: Decoder) throws {
+        let single = try decoder.singleValueContainer()
+        if single.decodeNil() {
+            value = nil
+            return
+        }
+        if let string = try? single.decode(String.self) {
+            value = string
+            return
+        }
+
+        let container = try decoder.container(keyedBy: DynamicCodingKey.self)
+        let preferred = ["summary", "text", "label", "outcome", "notes", "value"]
+        for keyName in preferred {
+            guard let key = DynamicCodingKey(stringValue: keyName) else { continue }
+            if let string = try? container.decode(String.self, forKey: key), !string.isEmpty {
+                value = string
+                return
+            }
+        }
+        value = container.allKeys.compactMap { key in
+            (try? container.decode(String.self, forKey: key))?.trimmingCharacters(in: .whitespacesAndNewlines)
+        }.first { !$0.isEmpty }
+    }
+
+    func encode(to encoder: Encoder) throws {
+        var container = encoder.singleValueContainer()
+        if let value { try container.encode(value) } else { try container.encodeNil() }
+    }
+}
+
+private struct DynamicCodingKey: CodingKey {
+    let stringValue: String
+    let intValue: Int? = nil
+
+    init?(stringValue: String) { self.stringValue = stringValue }
+    init?(intValue: Int) { return nil }
 }
 
 struct JointCpLocationRequest: Encodable, Sendable {

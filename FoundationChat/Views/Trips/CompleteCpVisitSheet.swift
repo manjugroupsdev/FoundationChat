@@ -491,7 +491,7 @@ struct CompleteCpVisitSheet: View {
 
     private var headerSubtitle: String {
         if jointCtaMode == "complete_review", let summary = jointOutcomeSummary?.nilIfBlank {
-            return "BDO submitted: \(summary)"
+            return "Outcome owner submitted: \(summary)"
         }
         return isLockedSvMode
             ? "Review the visit details before confirming"
@@ -1620,7 +1620,7 @@ struct CompleteCpVisitSheet: View {
 
             // Reviewing a no-show outcome must not turn it into a met-client visit.
             let completionClientMet = !(jointCtaMode != nil && cpVisitDetail?.clientMet == false)
-            if completionClientMet {
+            if completionClientMet && !isLockedSvMode {
                 try await MarketingConvexAPIService.markClientMet(
                     token: token,
                     request: MarkClientMetRequest(id: cpVisitId, clientMet: true)
@@ -1650,17 +1650,7 @@ struct CompleteCpVisitSheet: View {
                     return
                 }
             } else if selectedOutcome == .siteVisit {
-                if isLockedSvMode, cpVisitDetail?.convertedSiteVisitId?.nilIfBlank != nil {
-                    _ = try await MarketingConvexAPIService.setCpVisitOutcome(
-                        token: token,
-                        request: SetCpVisitOutcomeRequest(
-                            id: cpVisitId,
-                            outcome: CpVisitOutcome.siteVisit.rawValue,
-                            postponeReasons: nil,
-                            notes: "Confirmed by field staff"
-                        )
-                    )
-                } else {
+                if !isLockedSvMode {
                     guard let selectedProject else { return }
                     _ = try await MarketingConvexAPIService.convertCpVisitToSiteVisit(
                         token: token,

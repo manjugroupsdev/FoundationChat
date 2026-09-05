@@ -182,7 +182,15 @@ enum AuthAPIService {
       }
     }
 
-    let (data, response) = try await post(url: url, jsonBody: body)
+    let result: (Data, URLResponse)
+    do {
+      result = try await post(url: url, jsonBody: body)
+    } catch {
+      guard shouldRetryInitialConnection(error) else { throw error }
+      try await Task.sleep(nanoseconds: 450_000_000)
+      result = try await post(url: url, jsonBody: body)
+    }
+    let (data, response) = result
     let decoded = try await BackgroundJSONDecoder.decode(EmployeePasswordLoginResponse.self, from: data)
 
     guard decoded.success, let token = decoded.token, let user = decoded.user else {
@@ -194,6 +202,23 @@ enum AuthAPIService {
 
     let mustChangePassword = decoded.mustChangePassword == true || user.mustChangePassword == true
     return OtpSession(token: token, user: user, mustChangePassword: mustChangePassword)
+  }
+
+  /// Retry only DNS/socket establishment failures that occur before an HTTP
+  /// response. Never retry credentials, server responses, cancellation,
+  /// request timeouts, or a connection lost after the request may have landed.
+  private static func shouldRetryInitialConnection(_ error: Error) -> Bool {
+    var current: NSError? = error as NSError
+    while let candidate = current {
+      if candidate.domain == NSURLErrorDomain {
+        let code = URLError.Code(rawValue: candidate.code)
+        if code == .cannotFindHost || code == .cannotConnectToHost || code == .dnsLookupFailed {
+          return true
+        }
+      }
+      current = candidate.userInfo[NSUnderlyingErrorKey] as? NSError
+    }
+    return false
   }
 
   /// Change the signed-in user's password. Used by the forced password-change

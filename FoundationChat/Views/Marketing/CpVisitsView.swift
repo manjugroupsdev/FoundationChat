@@ -2724,7 +2724,7 @@ private struct CreateCpVisitSheet: View {
             partner.jointCpWorkflowRole?.lowercased()
         ].compactMap { $0?.nonBlank })
         guard roles == Set(["outcome_owner", "reviewer"]) else {
-            return "Choose one BDO outcome owner and one reviewer from their IAM templates"
+            return "Choose one outcome owner and one reviewer from their IAM templates"
         }
         return nil
     }

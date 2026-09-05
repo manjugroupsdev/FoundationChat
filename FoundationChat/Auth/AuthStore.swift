@@ -1423,6 +1423,18 @@ final class AuthStore {
       return
     }
 
+    // The token and auth payload are sufficient to enter the app. IAM/profile
+    // hydration is useful enrichment, but keeping the login screen blocked on
+    // two more network round trips made a healthy login look stuck on weak or
+    // cold connections. Publish signed-in immediately and hydrate in order so
+    // one response cannot overwrite fields written by the other.
+    status = .signedIn
+    Task { [weak self] in
+      await self?.hydrateAuthenticatedSession()
+    }
+  }
+
+  private func hydrateAuthenticatedSession() async {
     await refreshIAMPermissions()
 
     do {
@@ -1439,7 +1451,6 @@ final class AuthStore {
       }
     }
 
-    status = .signedIn
   }
 
   private func applySession(_ session: OtpSession) {

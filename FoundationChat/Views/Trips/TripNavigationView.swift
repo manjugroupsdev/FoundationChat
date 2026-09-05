@@ -305,7 +305,7 @@ struct TripNavigationView: View {
                     jointCtaMode: jointWorkflow?.actorRole == "outcome_owner"
                         ? "send_review"
                         : (jointWorkflow?.actorRole == "reviewer" ? "complete_review" : nil),
-                    jointOutcomeSummary: jointWorkflow?.outcomeSummary,
+                    jointOutcomeSummary: jointWorkflow?.outcomeSummary?.value,
                     onTerminalClosed: {
                         finishAfterAtomicCpTerminalOutcome()
                     },
@@ -902,7 +902,15 @@ struct TripNavigationView: View {
             return "Outcome reviewed by \(workflow.reviewedByTemplateName ?? workflow.reviewedByName ?? "reviewer")"
         }
         if workflow.actorRole == "reviewer" {
-            return "Waiting for \(workflow.outcomeOwnerName ?? "BDO") outcome"
+            let owner = workflow.outcomeOwnerName?.trimmingCharacters(in: .whitespacesAndNewlines)
+            if let owner, !owner.isEmpty {
+                return workflow.canReview
+                    ? "Review \(owner)'s outcome"
+                    : "Waiting for \(owner) to submit the outcome"
+            }
+            return workflow.canReview
+                ? "Review the outcome owner's submission"
+                : "Waiting for the outcome owner to submit"
         }
         if workflow.actorRole == "outcome_owner" {
             return "Complete OTP and photo while both partners are within 50 metres"
