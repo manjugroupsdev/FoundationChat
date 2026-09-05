@@ -287,6 +287,7 @@ struct CpVisitFilterOptionsResponse: Decodable, Sendable {
 
 struct CpVisitDetail: Codable, Identifiable, Sendable {
     let id: String
+    let requestId: String?
     let leadId: String?
     let clientId: String?
     let clientPlaceId: String?
@@ -348,6 +349,7 @@ struct CpVisitDetail: Codable, Identifiable, Sendable {
 
     enum CodingKeys: String, CodingKey {
         case id = "_id"
+        case requestId
         case leadId, clientId, clientPlaceId, origin, telecallerStaffId, assignedStaffId
         case assignedAt, scheduledDate, activityDate, scheduledTime, status, clientMet, clientMetAt
         case clientNoShowReason, outcome, postponeReasons, convertedSiteVisitId

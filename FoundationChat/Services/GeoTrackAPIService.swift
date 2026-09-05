@@ -702,6 +702,9 @@ final class GeoTrackAPIService {
         let request = try makeRequest(path: "/api/geotrack/visit/complete", method: "POST", body: body)
         let result: GeoTrackBaseResponse = try await perform(request)
         if let err = result.error { throw GeoTrackAPIError.serverError(err) }
+        guard result.success else {
+            throw GeoTrackAPIError.serverError("The server did not complete this visit. Refresh its status before retrying.")
+        }
     }
 
     // MARK: - Arrival OTP
@@ -715,8 +718,8 @@ final class GeoTrackAPIService {
         let body = GeoTrackArrivalOtpRequestBody(visitId: visitId, lat: lat, lng: lng)
         let request = try makeRequest(path: "/api/geotrack/visit/arrival-otp/request", method: "POST", body: body)
         let result: GeoTrackArrivalOtpRequestResponse = try await perform(request)
-        if !result.success, let err = result.error {
-            throw GeoTrackAPIError.serverError(err)
+        if !result.success {
+            throw GeoTrackAPIError.serverError(result.error ?? "The server could not send the arrival OTP.")
         }
         return result
     }
@@ -799,6 +802,9 @@ final class GeoTrackAPIService {
         let request = try makeRequest(path: "/api/geotrack/visit/arrival-otp/cancel", method: "POST", body: body)
         let result: GeoTrackBaseResponse = try await perform(request)
         if let err = result.error { throw GeoTrackAPIError.serverError(err) }
+        guard result.success else {
+            throw GeoTrackAPIError.serverError("The server could not cancel the arrival OTP.")
+        }
     }
 
 }

@@ -54,7 +54,7 @@ struct FrontDeskQRScannerView: View {
         .onDisappear {
             lookupTask?.cancel()
         }
-        .sheet(isPresented: $showScanResult, onDismiss: resetScanner) {
+        .sheet(isPresented: $showScanResult, onDismiss: finishScanResultDismissal) {
             Group {
                 if isSiteVisitScan {
                     SiteVisitCounsellingSheet(
@@ -273,10 +273,12 @@ struct FrontDeskQRScannerView: View {
                 return
             }
             do {
-                scannedSiteVisit = try await loadSiteVisitQRWithRetry(
+                let resolved = try await loadSiteVisitQRWithRetry(
                     token: token,
                     siteVisitID: siteVisitID
                 )
+                guard !Task.isCancelled else { return }
+                scannedSiteVisit = resolved
             } catch {
                 guard !Task.isCancelled else { return }
                 scanError = error is SiteVisitQRLookupTimeout
@@ -324,28 +326,33 @@ struct FrontDeskQRScannerView: View {
         }
     }
 
+    @MainActor
     private func startSiteVisitCounselling() async {
-        guard let token = authStore.currentSession?.token, let visit = scannedSiteVisit else { return }
+        guard !isVisitorActionRunning,
+              let token = authStore.currentSession?.token, let visit = scannedSiteVisit else { return }
         isVisitorActionRunning = true
         visitorActionError = nil
+        defer { isVisitorActionRunning = false }
         do {
             try await MarketingConvexAPIService.markSiteVisitOnCounselling(token: token, id: visit.id)
+            openScannedSiteVisitOutcome()
         } catch {
-            // Match Android: show the transition failure but never dead-end the
-            // authorised operator; the outcome screen reloads server truth.
             visitorActionError = error.localizedDescription
         }
-        isVisitorActionRunning = false
-        openScannedSiteVisitOutcome()
     }
 
     private func openScannedSiteVisitOutcome() {
-        guard let id = scannedSiteVisit?.id else { return }
+        guard showScanResult, outcomeSiteVisitID == nil, let id = scannedSiteVisit?.id else { return }
         outcomeSiteVisitID = id
         showScanResult = false
-        Task { @MainActor in
-            try? await Task.sleep(for: .milliseconds(350))
+    }
+
+    private func finishScanResultDismissal() {
+        // Keep the scan locked until the outcome sheet has finished.
+        if outcomeSiteVisitID != nil {
             showSiteVisitOutcome = true
+        } else {
+            resetScanner()
         }
     }
 
@@ -446,6 +453,7 @@ struct FrontDeskQRScannerView: View {
         scannedValue = nil
         invitation = nil
         scannedSiteVisit = nil
+        outcomeSiteVisitID = nil
         isSiteVisitScan = false
         scanError = nil
         visitorActionError = nil
@@ -492,11 +500,11 @@ private struct SiteVisitCounsellingSheet: View {
         ["on_counselling", "picked_from_site", "dropped"].contains(normalizedStatus)
     }
     private var canStart: Bool {
-        ((visit?.canStartCounselling == true) || (canOperateFallback && canStartStatus))
+        (visit?.canStartCounselling ?? (canOperateFallback && canStartStatus))
             && !isOngoing && !isCompleted
     }
     private var canOpenOutcome: Bool {
-        ((visit?.canRecordOutcome == true) || canOperateFallback) && canRecordStatus && !isCompleted
+        (visit?.canRecordOutcome ?? canOperateFallback) && canRecordStatus && !isCompleted
     }
 
     var body: some View {
@@ -583,6 +591,7 @@ private struct SiteVisitCounsellingSheet: View {
                         Button("Scan another QR", action: onScanAnother)
                             .buttonStyle(.bordered)
                             .controlSize(.large)
+                            .disabled(isActionRunning)
                     }
                     .padding(16)
                     .background(.bar)

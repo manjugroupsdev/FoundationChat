@@ -298,7 +298,10 @@ struct BookingCreateView: View {
                 successMessage = nil
                 createdBookingId = nil
                 if shouldDismiss {
-                    if let bookingId { onCreated?(bookingId) }
+                    // Saving a source-linked draft must not complete the visit outcome UI.
+                    let hasVisitSource = sourceContext?.sourceSiteVisitId != nil || sourceContext?.sourceClientPlaceVisitId != nil
+                    let completesSource = !hasVisitSource || booking.saveAs == .confirmed
+                    if completesSource, let bookingId { onCreated?(bookingId) }
                     dismiss()
                 }
             }

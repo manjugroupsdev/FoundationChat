@@ -1275,6 +1275,9 @@ struct TripNavigationView: View {
     }
 
     private func startCpNoPath() {
+        repairVerifiedArrivalProof = false
+        resumeCompletionAfterProofRepair = false
+        showOtpSheet = false
         cpNoPathPhotoCapture = true
         capturedImage = nil
         showCamera = true
@@ -1462,10 +1465,16 @@ struct TripNavigationView: View {
                     id: cpVisitId,
                     outcome: specialCpCompletionKind?.terminalOutcome ?? "other",
                     postponeReasons: nil,
-                    notes: specialCpCompletionKind?.clientNotSeenNotes ?? "Client not seen"
+                    notes: specialCpCompletionKind?.clientNotSeenNotes ?? "Client not seen",
+                    arrivalPhotoStorageId: storageId
                 )
             )
             cpNoPathPhotoCapture = false
+            if isJointCpWorkflow {
+                arrivalInProgress = false
+                await submitJointCpForReview()
+                return
+            }
             completeWithClientNotSeenSheet = true
             await completeVisitUsingCorrectFlow(visitId: id)
         } catch {

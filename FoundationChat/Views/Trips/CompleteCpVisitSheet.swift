@@ -1488,6 +1488,7 @@ struct CompleteCpVisitSheet: View {
     }
 
     private func submit() async {
+        guard !isSaving else { return }
         dismissKeyboard()
         errorMessage = nil
         guard let token = authStore.currentSession?.token else {
@@ -1605,10 +1606,13 @@ struct CompleteCpVisitSheet: View {
                 )
             }
 
-            try await MarketingConvexAPIService.markClientMet(
-                token: token,
-                request: MarkClientMetRequest(id: cpVisitId, clientMet: true)
-            )
+            // Reviewing a no-show outcome must not turn it into a met-client visit.
+            if !(jointCtaMode != nil && cpVisitDetail?.clientMet == false) {
+                try await MarketingConvexAPIService.markClientMet(
+                    token: token,
+                    request: MarkClientMetRequest(id: cpVisitId, clientMet: true)
+                )
+            }
 
             var revisit: CpRevisitInfo?
             if selectedOutcome == .booking {
@@ -1627,6 +1631,11 @@ struct CompleteCpVisitSheet: View {
                 // Booking landed — wipe the local + cloud draft so the next
                 // form open for a different source starts clean.
                 clearBookingDraft()
+                if booking.saveAs == .draft {
+                    // A saved booking draft is not a completed CP outcome.
+                    dismiss()
+                    return
+                }
             } else if selectedOutcome == .siteVisit {
                 if isLockedSvMode, cpVisitDetail?.convertedSiteVisitId?.nilIfBlank != nil {
                     _ = try await MarketingConvexAPIService.setCpVisitOutcome(

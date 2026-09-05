@@ -931,7 +931,9 @@ private struct CpListVisit: Identifiable {
     }
 
     var isPendingOutcomeCpVisit: Bool {
-        normalizedStatus.isCompleted && outcome?.blankToNil == nil
+        CpVisitStatusPolicy.isOutcomePending(
+            cpStatus: detail.status, fieldVisitStatus: detail.fieldVisit?.status, outcome: outcome
+        )
     }
 
     var hasSpecialCompletion: Bool {
@@ -1284,7 +1286,7 @@ private struct CpVisitCard: View {
     private var statusTitle: String {
         if visit.isExpired { return "Expired" }
         if normalizedStatus.isCancelled { return "Cancelled" }
-        if normalizedStatus.isCompleted && visit.outcome?.blankToNil == nil { return "Pending" }
+        if visit.isPendingOutcomeCpVisit { return "Pending" }
         if normalizedStatus.isCompleted { return "Completed" }
         if visit.needsCpDetails { return "Reaching" }
         if normalizedStatus.isInProgress { return normalizedStatus == "arrived" ? "Reaching" : "Enroute" }
@@ -1295,7 +1297,7 @@ private struct CpVisitCard: View {
     private var actionTitle: String {
         if visit.isExpired { return "Expired" }
         if normalizedStatus.isCancelled { return "Cancelled" }
-        if normalizedStatus.isCompleted && visit.outcome?.blankToNil == nil { return "Pending" }
+        if visit.isPendingOutcomeCpVisit { return "Pending" }
         if normalizedStatus.isCompleted { return "Completed" }
         if visit.needsCpDetails { return visit.cpCompletionActionTitle }
         if normalizedStatus == "arrived" { return visit.cpCompletionActionTitle }
@@ -1314,7 +1316,7 @@ private struct CpVisitCard: View {
         if visit.isExpired { return Color(hex: 0xB42318) }
         if normalizedStatus.isCancelled { return Color(hex: 0xB42318) }
         if normalizedStatus.isInProgress { return Color(red: 0.71, green: 0.28, blue: 0.03) }
-        if normalizedStatus.isCompleted && visit.outcome?.blankToNil == nil { return Color(hex: 0xB54708) }
+        if visit.isPendingOutcomeCpVisit { return Color(hex: 0xB54708) }
         if normalizedStatus.isCompleted { return Color(red: 0.09, green: 0.61, blue: 0.18) }
         if visit.isPostponedCpVisit { return textSecondary }
         return Color(red: 0.09, green: 0.61, blue: 0.18)
@@ -1323,7 +1325,7 @@ private struct CpVisitCard: View {
     private var statusBackground: Color {
         if visit.isExpired || normalizedStatus.isCancelled { return Color.red.opacity(0.12) }
         if normalizedStatus.isInProgress { return Color.orange.opacity(0.13) }
-        if normalizedStatus.isCompleted && visit.outcome?.blankToNil == nil { return Color.orange.opacity(0.15) }
+        if visit.isPendingOutcomeCpVisit { return Color.orange.opacity(0.15) }
         if normalizedStatus.isCompleted || visit.isPostponedCpVisit { return Color.secondary.opacity(0.11) }
         return Color.green.opacity(0.12)
     }
@@ -1332,7 +1334,7 @@ private struct CpVisitCard: View {
         if visit.isExpired { return Color(hex: 0x7A0F0A) }
         if normalizedStatus.isCancelled { return Color(hex: 0x7A0F0A) }
         if normalizedStatus.isInProgress { return Color(red: 0.71, green: 0.28, blue: 0.03) }
-        if normalizedStatus.isCompleted && visit.outcome?.blankToNil == nil { return Color(hex: 0xB54708) }
+        if visit.isPendingOutcomeCpVisit { return Color(hex: 0xB54708) }
         if normalizedStatus.isCompleted { return Color(hex: 0x1F7A3F) }
         return .white
     }
@@ -1502,7 +1504,7 @@ private enum CpVisitFilter: String, CaseIterable, Identifiable {
         case .inProgress:
             return status.isInProgress && !status.isCancelled && !status.isCompleted
         case .completed:
-            return status.isCompleted
+            return status.isCompleted && !visit.isPendingOutcomeCpVisit
         case .cancelled:
             return status.isCancelled
         case .pendingGmApproval:
@@ -2077,6 +2079,9 @@ private struct CreateCpVisitSheet: View {
     @State private var selectedLmo: ConvexStaffListItem?
     @State private var leadMatches: [TelecallerLeadSearchData] = []
     @State private var selectedLead: TelecallerLeadSearchData?
+    @State private var autofilledClientValues: [String: String] = [:]
+    @State private var autofilledProjectId: String?
+    @State private var autofilledLmoId: String?
     @State private var existingClientProfile: BookingClientProfile?
     @State private var existingClientPhone: String?
     @State private var showExistingClientWarning = false
@@ -2124,7 +2129,9 @@ private struct CreateCpVisitSheet: View {
                     }
 
                     cpTextField("Client Phone Number *", placeholder: "Enter Client Number", text: $phone, systemImage: "phone", keyboard: .phonePad)
-                        .onChange(of: phone) { _, newValue in
+                        .onChange(of: phone) { oldValue, newValue in
+                            guard AppModuleFormatters.normalizePhone(oldValue) != AppModuleFormatters.normalizePhone(newValue) else { return }
+                            clearPreviousClientAutofill()
                             selectedLead = nil
                             leadMatches = []
                             if AppModuleFormatters.normalizePhone(newValue) != existingClientPhone {
@@ -2303,6 +2310,7 @@ private struct CreateCpVisitSheet: View {
         }
         .background(Color.appScreenBackground.ignoresSafeArea())
         .appCompactSheetCTAContainer()
+        .disabled(isSubmitting)
         .alert("CP Visit", isPresented: Binding(
             get: { errorMessage != nil },
             set: { if !$0 { errorMessage = nil } }
@@ -2908,13 +2916,18 @@ private struct CreateCpVisitSheet: View {
         isSearchingLead = true
         defer { isSearchingLead = false }
         do {
-            leadMatches = try await MarketingConvexAPIService.searchTelecallerLeadsByPhone(token: token, phone: normalizedPhone)
+            let matches = try await MarketingConvexAPIService.searchTelecallerLeadsByPhone(token: token, phone: normalizedPhone)
+            guard !Task.isCancelled, !isSubmitting,
+                  AppModuleFormatters.normalizePhone(phone) == normalizedPhone else { return }
+            leadMatches = matches.filter { AppModuleFormatters.normalizePhone($0.mobileNumber ?? "") == normalizedPhone }
             if leadMatches.count == 1, let lead = leadMatches.first {
                 applyLead(lead)
             } else if leadMatches.isEmpty {
                 errorMessage = "No existing client found. You can create with manual details."
             }
         } catch {
+            guard !Task.isCancelled, !isSubmitting,
+                  AppModuleFormatters.normalizePhone(phone) == normalizedPhone else { return }
             errorMessage = error.localizedDescription
         }
     }
@@ -2946,9 +2959,10 @@ private struct CreateCpVisitSheet: View {
         )
         let matches = (try? await leadSearch) ?? []
         let existingClient = try? await clientSearch
-        guard AppModuleFormatters.normalizePhone(phone) == normalizedPhone else { return }
-        leadMatches = matches
-        if let first = matches.first {
+        guard !Task.isCancelled, !isSubmitting,
+              AppModuleFormatters.normalizePhone(phone) == normalizedPhone else { return }
+        leadMatches = matches.filter { AppModuleFormatters.normalizePhone($0.mobileNumber ?? "") == normalizedPhone }
+        if leadMatches.count == 1, let first = leadMatches.first {
             applyLead(first)
         }
         if let existingClient {
@@ -2983,7 +2997,13 @@ private struct CreateCpVisitSheet: View {
         addressParseStatus = "Splitting address…"
         do {
             let fields = try await MarketingConvexAPIService.parseAddress(token: token, raw: rawAddress)
-            guard addressLine1.trimmingCharacters(in: .whitespacesAndNewlines) == rawAddress else { return }
+            guard !Task.isCancelled, !isSubmitting,
+                  addressLine1.trimmingCharacters(in: .whitespacesAndNewlines) == rawAddress else { return }
+            let tracksClientAutofill = autofilledClientValues["address1"] == rawAddress
+            let before = clientAutofillFields.mapValues { $0.wrappedValue }
+            defer {
+                if tracksClientAutofill { rememberClientAutofill(before: before) }
+            }
             fillIfBlank($doorNo, fields.doorNo)
             fillIfBlank($street, fields.street)
             if let parsedLine1 = fields.addressLine1?.blankToNil, parsedLine1 != rawAddress {
@@ -3012,13 +3032,17 @@ private struct CreateCpVisitSheet: View {
               let owner = eligibleLmoStaff.first(where: { $0.id == ownerId })
         else { return }
         selectedLmo = owner
+        autofilledLmoId = owner.id
     }
 
     private func applyLead(_ lead: TelecallerLeadSearchData) {
+        guard !isSubmitting,
+              AppModuleFormatters.normalizePhone(lead.mobileNumber ?? "") == AppModuleFormatters.normalizePhone(phone) else { return }
+        let before = clientAutofillFields.mapValues { $0.wrappedValue }
+        defer { rememberClientAutofill(before: before) }
         selectedLead = lead
-        fillIfBlank($clientName, lead.displayName)
+        fillIfBlank($clientName, lead.latestAnalysisProfile?.clientName?.blankToNil ?? lead.contactName?.blankToNil)
         prefillLmoFromLead(lead)
-        phone = AppModuleFormatters.normalizePhone(lead.mobileNumber ?? phone)
 
         let analysis = lead.latestAnalysisProfile
         let place = lead.clientPlaceProfile
@@ -3044,14 +3068,18 @@ private struct CreateCpVisitSheet: View {
 
         if selectedProject == nil, let projectId = lead.projectId?.blankToNil {
             selectedProject = projects.first { $0.id == projectId }
+            autofilledProjectId = selectedProject?.id
         }
 
         leadMatches = []
     }
 
     private func applyExistingClient(_ client: BookingClientProfile, phone normalizedPhone: String) {
+        guard AppModuleFormatters.normalizePhone(phone) == normalizedPhone,
+              AppModuleFormatters.normalizePhone(client.mobileNumber ?? normalizedPhone) == normalizedPhone else { return }
+        let before = clientAutofillFields.mapValues { $0.wrappedValue }
+        defer { rememberClientAutofill(before: before) }
         fillIfBlank($clientName, client.clientName)
-        phone = AppModuleFormatters.normalizePhone(client.mobileNumber ?? normalizedPhone)
         fillIfBlank($doorNo, client.doorNo)
         fillIfBlank($street, client.streetName)
         fillIfBlank($addressLine1, client.addressLine1 ?? client.homeAddress ?? client.formattedAddress)
@@ -3064,6 +3092,35 @@ private struct CreateCpVisitSheet: View {
         if longitude.blankToNil == nil, let lng = client.lng { longitude = String(lng) }
         existingClientProfile = client
         existingClientPhone = normalizedPhone
+    }
+
+    private var clientAutofillFields: [String: Binding<String>] {
+        ["name": $clientName, "door": $doorNo, "street": $street,
+         "address1": $addressLine1, "address2": $addressLine2, "city": $city,
+         "state": $state, "pincode": $pincode, "maps": $mapsLink,
+         "latitude": $latitude, "longitude": $longitude]
+    }
+
+    private func rememberClientAutofill(before: [String: String]) {
+        for (key, field) in clientAutofillFields where before[key] != field.wrappedValue {
+            autofilledClientValues[key] = field.wrappedValue
+        }
+    }
+
+    private func clearPreviousClientAutofill() {
+        addressParseTask?.cancel()
+        addressParseStatus = nil
+        lastParsedAddressLine1 = ""
+        for (key, value) in autofilledClientValues {
+            if let field = clientAutofillFields[key], field.wrappedValue == value {
+                field.wrappedValue = ""
+            }
+        }
+        autofilledClientValues = [:]
+        if let id = autofilledProjectId, selectedProject?.id == id { selectedProject = nil }
+        if let id = autofilledLmoId, selectedLmo?.id == id { selectedLmo = nil }
+        autofilledProjectId = nil
+        autofilledLmoId = nil
     }
 
     private var hasCurrentExistingClient: Bool {
@@ -3123,6 +3180,11 @@ private struct CreateCpVisitSheet: View {
 
     @MainActor
     private func submit() async {
+        guard !isSubmitting else { return }
+        leadLookupTask?.cancel()
+        addressParseTask?.cancel()
+        isSubmitting = true
+        defer { isSubmitting = false }
         let normalizedPhone = AppModuleFormatters.normalizePhone(phone)
         // Must be a real mobile: the arrival OTP is sent here, so a landline
         // would make the CP impossible to complete. Matches the server rule so
@@ -3214,7 +3276,7 @@ private struct CreateCpVisitSheet: View {
             return
         }
         guard let token = authStore.currentSession?.token else { return }
-        if isNewClientCpPurpose {
+        if isNewClientCpPurpose && createRequestFingerprint == nil {
             do {
                 if let existing = try await MarketingConvexAPIService.searchClientByPhone(
                     token: token,
@@ -3239,32 +3301,6 @@ private struct CreateCpVisitSheet: View {
         }
 
         let scheduledDate = AppModuleFormatters.ymd.string(from: date)
-        // Immediate native feedback for the selected day. This lookup may be
-        // assignment-scoped for field staff, so the create mutation repeats
-        // the rule authoritatively across every staff member and concurrent
-        // request.
-        if let existingVisits = try? await MarketingConvexAPIService.getMyMarketingCpVisits(
-            token: token,
-            fromDate: scheduledDate,
-            toDate: scheduledDate,
-            scope: "all",
-            limit: 50,
-            search: normalizedPhone
-        ) {
-            let duplicate = existingVisits.contains { visit in
-                let visitPhone = AppModuleFormatters.normalizePhone(
-                    visit.lead?.mobileNumber ?? visit.client?.mobileNumber ?? ""
-                )
-                return visit.scheduledDate == scheduledDate
-                    && visitPhone == normalizedPhone
-                    && visit.status?.lowercased() != "cancelled"
-            }
-            if duplicate {
-                errorMessage = "This client already has a CP visit on \(scheduledDate). Only one CP visit per client is allowed per day. Open the existing visit or choose another date."
-                return
-            }
-        }
-
         var resolvedLatitude = coordinateValue(latitude)
         var resolvedLongitude = coordinateValue(longitude)
         if resolvedLatitude == nil || resolvedLongitude == nil {
@@ -3281,7 +3317,9 @@ private struct CreateCpVisitSheet: View {
         }
 
         let request = CreateCpVisitRequest(
-            leadId: selectedLead?.id,
+            leadId: selectedLead.flatMap {
+                AppModuleFormatters.normalizePhone($0.mobileNumber ?? "") == normalizedPhone ? $0.id : nil
+            },
             projectId: selectedProject?.id,
             clientName: trimmedClientName,
             mobileNumber: normalizedPhone,
@@ -3306,14 +3344,35 @@ private struct CreateCpVisitSheet: View {
             jointStaffIds: jointParticipantIds
         )
 
-        isSubmitting = true
-        defer { isSubmitting = false }
         do {
-            let fingerprint = try JSONEncoder().encode(request).base64EncodedString()
+            let encoder = JSONEncoder()
+            encoder.outputFormatting = [.sortedKeys]
+            let fingerprint = try encoder.encode(request).base64EncodedString()
             if createRequestFingerprint != fingerprint {
                 createRequestId = UUID().uuidString
                 createRequestFingerprint = fingerprint
             }
+            // Replay of this exact request is not a second CP. The server still
+            // enforces uniqueness and idempotency for concurrent creators.
+            if let existingVisits = try? await MarketingConvexAPIService.getMyMarketingCpVisits(
+                token: token, fromDate: scheduledDate, toDate: scheduledDate,
+                scope: "all", limit: 50, search: normalizedPhone
+            ) {
+                let duplicate = existingVisits.contains { visit in
+                    let visitPhone = AppModuleFormatters.normalizePhone(
+                        visit.lead?.mobileNumber ?? visit.client?.mobileNumber ?? ""
+                    )
+                    return visit.scheduledDate == scheduledDate
+                        && visitPhone == normalizedPhone
+                        && visit.status?.lowercased() != "cancelled"
+                        && visit.requestId != createRequestId
+                }
+                if duplicate {
+                    errorMessage = "This client already has a CP visit on \(scheduledDate). Only one CP visit per client is allowed per day. Open the existing visit or choose another date."
+                    return
+                }
+            }
+            try Task.checkCancellation()
             let response = try await MarketingConvexAPIService.createCpVisit(
                 token: token,
                 request: request,
@@ -3371,6 +3430,12 @@ private struct CreateCpVisitSheet: View {
         expectedJointCategory: String?,
         response: CreateCpVisitResponse
     ) async -> CpTypeVerification {
+        if persistedTypeMatches(
+            cpType: response.cpType,
+            jointCpCategory: response.jointCpCategory,
+            expectedType: expectedType,
+            expectedJointCategory: expectedJointCategory
+        ) { return .confirmed }
         for attempt in 0..<3 {
             if let visit = try? await MarketingConvexAPIService.getCpVisitDetail(token: token, id: visitId) {
                 return persistedTypeMatches(

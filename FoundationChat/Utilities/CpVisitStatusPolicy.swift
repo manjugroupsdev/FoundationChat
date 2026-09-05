@@ -31,4 +31,12 @@ enum CpVisitStatusPolicy {
 
         return cp.isEmpty ? "scheduled" : cp
     }
+
+    static func isOutcomePending(cpStatus: String?, fieldVisitStatus: String?, outcome: String?) -> Bool {
+        let cp = cpStatus?.trimmingCharacters(in: .whitespacesAndNewlines).lowercased() ?? ""
+        if terminalStatuses.contains(cp) { return false }
+        if outcome?.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty == false { return false }
+        let trip = fieldVisitStatus?.trimmingCharacters(in: .whitespacesAndNewlines).lowercased() ?? ""
+        return ["completed", "complete", "done", "closed"].contains(trip)
+    }
 }
