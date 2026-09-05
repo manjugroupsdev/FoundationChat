@@ -65,7 +65,7 @@ enum TasksConvexAPIService {
 
     static func getMyTasks(token: String) async throws -> [ConvexTask] {
         let data = try await get(path: "/api/tasks/my", token: token)
-        let wrapper = try JSONDecoder().decode(TasksListResponse.self, from: data)
+        let wrapper = try await BackgroundJSONDecoder.decode(TasksListResponse.self, from: data)
         guard wrapper.success else {
             throw HRConvexAPIError.server(wrapper.error ?? "Failed to load tasks")
         }
@@ -78,7 +78,7 @@ enum TasksConvexAPIService {
             path += "?today=\(urlEncode(today))"
         }
         let data = try await get(path: path, token: token)
-        let wrapper = try JSONDecoder().decode(DailyTaskManagerResponse.self, from: data)
+        let wrapper = try await BackgroundJSONDecoder.decode(DailyTaskManagerResponse.self, from: data)
         guard wrapper.success else {
             throw HRConvexAPIError.server(wrapper.error ?? "Failed to load task manager")
         }
@@ -93,7 +93,7 @@ enum TasksConvexAPIService {
         let safeLimit = min(50, max(1, limit))
         let path = "/api/dailyTasks/listPendingRemindersForStaff?today=\(urlEncode(today))&limit=\(safeLimit)"
         let data = try await get(path: path, token: token)
-        let wrapper = try JSONDecoder().decode(DailyTaskManagerResponse.self, from: data)
+        let wrapper = try await BackgroundJSONDecoder.decode(DailyTaskManagerResponse.self, from: data)
         guard wrapper.success else {
             throw HRConvexAPIError.server(wrapper.error ?? "Failed to load pending task reminders")
         }
@@ -102,7 +102,7 @@ enum TasksConvexAPIService {
 
     static func getMySummary(token: String) async throws -> ConvexTaskSummary {
         let data = try await get(path: "/api/tasks/my/summary", token: token)
-        let wrapper = try JSONDecoder().decode(TaskSummaryResponse.self, from: data)
+        let wrapper = try await BackgroundJSONDecoder.decode(TaskSummaryResponse.self, from: data)
         guard wrapper.success else {
             throw HRConvexAPIError.server(wrapper.error ?? "Failed to load summary")
         }
@@ -122,7 +122,7 @@ enum TasksConvexAPIService {
     static func getTask(token: String, taskId: String) async throws -> ConvexTask {
         let path = "/api/projects/tasks/get?id=\(urlEncode(taskId))"
         let data = try await get(path: path, token: token)
-        let wrapper = try JSONDecoder().decode(TaskGetResponse.self, from: data)
+        let wrapper = try await BackgroundJSONDecoder.decode(TaskGetResponse.self, from: data)
         guard wrapper.success, let task = wrapper.task else {
             throw HRConvexAPIError.server(wrapper.error ?? "Task not found")
         }
@@ -132,7 +132,7 @@ enum TasksConvexAPIService {
     static func getTaskResources(token: String, taskId: String) async throws -> [TaskResourceEntry] {
         let path = "/api/projects/tasks/resources?taskId=\(urlEncode(taskId))"
         let data = try await get(path: path, token: token)
-        let wrapper = try JSONDecoder().decode(TaskResourcesResponse.self, from: data)
+        let wrapper = try await BackgroundJSONDecoder.decode(TaskResourcesResponse.self, from: data)
         guard wrapper.success else {
             throw HRConvexAPIError.server(wrapper.error ?? "Failed to load resources")
         }
@@ -142,7 +142,7 @@ enum TasksConvexAPIService {
     static func getTaskTimeline(token: String, taskId: String) async throws -> [ConvexTaskUpdate] {
         let path = "/api/projects/tasks/updates?taskId=\(urlEncode(taskId))"
         let data = try await get(path: path, token: token)
-        let wrapper = try JSONDecoder().decode(TaskTimelineResponse.self, from: data)
+        let wrapper = try await BackgroundJSONDecoder.decode(TaskTimelineResponse.self, from: data)
         guard wrapper.success else {
             throw HRConvexAPIError.server(wrapper.error ?? "Failed to load timeline")
         }
@@ -162,7 +162,7 @@ enum TasksConvexAPIService {
             body["comment"] = comment
         }
         let data = try await post(path: "/api/projects/tasks/update-progress", token: token, jsonBody: body)
-        let wrapper = try JSONDecoder().decode(TaskActionResponse.self, from: data)
+        let wrapper = try await BackgroundJSONDecoder.decode(TaskActionResponse.self, from: data)
         guard wrapper.success else {
             throw HRConvexAPIError.server(wrapper.error ?? "Failed to update progress")
         }
@@ -174,7 +174,7 @@ enum TasksConvexAPIService {
             "status": status
         ]
         let data = try await post(path: "/api/projects/tasks/update", token: token, jsonBody: body)
-        let wrapper = try JSONDecoder().decode(TaskActionResponse.self, from: data)
+        let wrapper = try await BackgroundJSONDecoder.decode(TaskActionResponse.self, from: data)
         guard wrapper.success else {
             throw HRConvexAPIError.server(wrapper.error ?? "Failed to update task")
         }
@@ -189,7 +189,7 @@ enum TasksConvexAPIService {
             "status": status
         ]
         let data = try await post(path: "/api/dailyTasks/updateStatus", token: token, jsonBody: body)
-        let wrapper = try JSONDecoder().decode(TaskActionResponse.self, from: data)
+        let wrapper = try await BackgroundJSONDecoder.decode(TaskActionResponse.self, from: data)
         guard wrapper.success else {
             throw HRConvexAPIError.server(wrapper.error ?? "Failed to update task")
         }
@@ -209,7 +209,7 @@ enum TasksConvexAPIService {
         if let actualStartDate { body["actualStartDate"] = actualStartDate }
         if let actualEndDate { body["actualEndDate"] = actualEndDate }
         let data = try await post(path: "/api/projects/tasks/update", token: token, jsonBody: body)
-        let wrapper = try JSONDecoder().decode(TaskActionResponse.self, from: data)
+        let wrapper = try await BackgroundJSONDecoder.decode(TaskActionResponse.self, from: data)
         guard wrapper.success else {
             throw HRConvexAPIError.server(wrapper.error ?? "Failed to update task")
         }
@@ -242,7 +242,7 @@ enum TasksConvexAPIService {
             }
         }
         let data = try await post(path: "/api/projects/tasks/add-update", token: token, jsonBody: body)
-        let wrapper = try JSONDecoder().decode(TaskActionResponse.self, from: data)
+        let wrapper = try await BackgroundJSONDecoder.decode(TaskActionResponse.self, from: data)
         guard wrapper.success else {
             throw HRConvexAPIError.server(wrapper.error ?? "Failed to add update")
         }

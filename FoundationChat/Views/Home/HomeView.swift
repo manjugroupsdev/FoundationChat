@@ -32,7 +32,7 @@ struct HomeView: View {
     // loadAttendanceGate (a transient error never flips this false).
     @State private var hasOpenSessionNow = false
     @State private var unreadCount = 0
-    @State private var isLoading = true
+    @State private var isLoading = false
     @State private var isVisitsLoading = false
     @State private var hasCompletedInitialLoad = false
     @State private var loadError: String?
@@ -1605,6 +1605,7 @@ struct HomeView: View {
 
     @MainActor
     private func reload() async {
+        guard !isLoading else { return }
         // Cache-first: paint the last-known attendance + dashboard snapshots
         // synchronously BEFORE the loading flags/network round-trip, so the
         // clocked-in status, times and VP tiles appear instantly on open.
@@ -1737,6 +1738,7 @@ struct HomeView: View {
 
     @MainActor
     private func loadTodayVisits() async {
+        defer { isVisitsLoading = false }
         let formatter = DateFormatter()
         formatter.dateFormat = "yyyy-MM-dd"
         let today = formatter.string(from: Date())

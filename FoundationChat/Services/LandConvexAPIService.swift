@@ -47,7 +47,7 @@ enum LandConvexAPIService {
         if let fromDate, !fromDate.isEmpty { queryItems.append(URLQueryItem(name: "fromDate", value: fromDate)) }
         if let toDate, !toDate.isEmpty { queryItems.append(URLQueryItem(name: "toDate", value: toDate)) }
         let data = try await get(path: "/api/land/inspections/my", token: token, queryItems: queryItems)
-        let wrapper = try decode(InspectionsResponse.self, from: data)
+        let wrapper = try await decode(InspectionsResponse.self, from: data)
         guard wrapper.success else { throw MarketingAPIError.server(wrapper.error ?? "Failed to load inspections") }
         return wrapper.items ?? wrapper.inspections ?? wrapper.properties ?? []
     }
@@ -61,40 +61,40 @@ enum LandConvexAPIService {
             token: token,
             queryItems: [URLQueryItem(name: "propertyId", value: propertyId)]
         )
-        let wrapper = try decode(InspectionDetailResponse.self, from: data)
+        let wrapper = try await decode(InspectionDetailResponse.self, from: data)
         guard wrapper.success else { throw MarketingAPIError.server(wrapper.error ?? "Failed to load inspection") }
         return LandInspectionDetail(report: wrapper.report, competitors: wrapper.competitors)
     }
 
     static func saveInspection(token: String, request: SaveLandInspectionRequest) async throws -> String {
         let data = try await post(path: "/api/land/inspections/save", token: token, body: request)
-        let wrapper = try decode(MutationResponse.self, from: data)
+        let wrapper = try await decode(MutationResponse.self, from: data)
         guard wrapper.success else { throw MarketingAPIError.server(wrapper.error ?? "Failed to save inspection") }
         return wrapper.id ?? ""
     }
 
     static func rescheduleInspection(token: String, request: RescheduleLandInspectionRequest) async throws {
         let data = try await post(path: "/api/land/inspections/reschedule", token: token, body: request)
-        let wrapper = try decode(MutationResponse.self, from: data)
+        let wrapper = try await decode(MutationResponse.self, from: data)
         guard wrapper.success else { throw MarketingAPIError.server(wrapper.error ?? "Failed to reschedule inspection") }
     }
 
     static func acceptInspection(token: String, request: AcceptLandInspectionRequest) async throws {
         let data = try await post(path: "/api/land/inspections/accept", token: token, body: request)
-        let wrapper = try decode(MutationResponse.self, from: data)
+        let wrapper = try await decode(MutationResponse.self, from: data)
         guard wrapper.success else { throw MarketingAPIError.server(wrapper.error ?? "Failed to accept inspection") }
     }
 
     static func listQueries(token: String) async throws -> [LandQueryLog] {
         let data = try await get(path: "/api/land/queries/my", token: token)
-        let wrapper = try decode(QueriesResponse.self, from: data)
+        let wrapper = try await decode(QueriesResponse.self, from: data)
         guard wrapper.success else { throw MarketingAPIError.server(wrapper.error ?? "Failed to load queries") }
         return wrapper.items ?? wrapper.queries ?? wrapper.logs ?? []
     }
 
     static func updateQuery(token: String, request: LandQueryUpdateRequest) async throws {
         let data = try await post(path: "/api/land/queries/update", token: token, body: request)
-        let wrapper = try decode(MutationResponse.self, from: data)
+        let wrapper = try await decode(MutationResponse.self, from: data)
         guard wrapper.success else { throw MarketingAPIError.server(wrapper.error ?? "Failed to update query") }
     }
 
@@ -136,9 +136,9 @@ enum LandConvexAPIService {
         return data
     }
 
-    private static func decode<T: Decodable>(_ type: T.Type, from data: Data) throws -> T {
+    private static func decode<T: Decodable>(_ type: T.Type, from data: Data) async throws -> T {
         do {
-            return try JSONDecoder().decode(type, from: data)
+            return try await BackgroundJSONDecoder.decode(type, from: data)
         } catch {
             throw MarketingAPIError.decoding(error)
         }

@@ -46,7 +46,7 @@ enum MapServiceAPI {
         guard let url = components?.url else { throw URLError(.badURL) }
         let (data, response) = try await URLSession.shared.data(from: url)
         try validate(response)
-        let result = try JSONDecoder().decode(MapServiceSearchResponse.self, from: data)
+        let result = try await BackgroundJSONDecoder.decode(MapServiceSearchResponse.self, from: data)
         if let error = result.error, result.results.isEmpty {
             throw MapServiceError.message(error)
         }
@@ -65,7 +65,7 @@ enum MapServiceAPI {
         guard let url = components?.url else { throw URLError(.badURL) }
         let (data, response) = try await URLSession.shared.data(from: url)
         try validate(response)
-        let result = try JSONDecoder().decode(MapServiceReverseResponse.self, from: data)
+        let result = try await BackgroundJSONDecoder.decode(MapServiceReverseResponse.self, from: data)
         if let error = result.error, result.results.isEmpty {
             throw MapServiceError.message(error)
         }

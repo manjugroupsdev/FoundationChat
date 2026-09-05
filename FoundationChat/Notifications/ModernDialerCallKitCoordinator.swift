@@ -30,7 +30,7 @@ final class ModernDialerCallKitCoordinator: NSObject {
     private var answeredCalls = Set<UUID>()
 
     private override init() {
-        let configuration = CXProviderConfiguration(localizedName: "M-Connect Dialer")
+        let configuration = CXProviderConfiguration(localizedName: "M-Chat Dialer")
         configuration.supportsVideo = false
         configuration.maximumCallsPerCallGroup = 1
         configuration.supportedHandleTypes = [.phoneNumber]

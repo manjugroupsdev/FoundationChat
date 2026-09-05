@@ -928,7 +928,7 @@ private struct AdminFleetAccountView: View {
             }
         }
         .navigationTitle("Account")
-        .confirmationDialog("Log out of M-Connect?", isPresented: $showLogoutConfirmation, titleVisibility: .visible) {
+        .confirmationDialog("Log out of M-Chat?", isPresented: $showLogoutConfirmation, titleVisibility: .visible) {
             Button("Log Out", role: .destructive) {
                 Task { await authStore.logout() }
             }

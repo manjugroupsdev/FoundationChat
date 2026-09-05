@@ -12,7 +12,7 @@ enum DashboardConvexAPIService {
         }
 
         let data = try await get(path: path, token: token)
-        let dashboard = try JSONDecoder().decode(ConvexMobileDashboard.self, from: data)
+        let dashboard = try await BackgroundJSONDecoder.decode(ConvexMobileDashboard.self, from: data)
         guard dashboard.success else {
             throw HRConvexAPIError.server(dashboard.error ?? "Failed to load dashboard")
         }
@@ -35,7 +35,7 @@ enum DashboardConvexAPIService {
         comps.queryItems = items.isEmpty ? nil : items
         let query = comps.percentEncodedQuery.map { "?\($0)" } ?? ""
         let data = try await get(path: "/api/dashboard/calls\(query)", token: token)
-        let resp = try JSONDecoder().decode(DashboardCallsResponse.self, from: data)
+        let resp = try await BackgroundJSONDecoder.decode(DashboardCallsResponse.self, from: data)
         guard resp.success else {
             throw HRConvexAPIError.server(resp.error ?? "Failed to load calls")
         }
@@ -54,7 +54,7 @@ enum DashboardConvexAPIService {
             path += "?date=\(encoded)"
         }
         let data = try await get(path: path, token: token)
-        let resp = try JSONDecoder().decode(DashboardRegistrationsResponse.self, from: data)
+        let resp = try await BackgroundJSONDecoder.decode(DashboardRegistrationsResponse.self, from: data)
         guard resp.success else {
             throw HRConvexAPIError.server(resp.error ?? "Failed to load registrations")
         }

@@ -98,7 +98,7 @@ final class AppUpdateCoordinator {
             request.timeoutInterval = 15
             let (data, response) = try await URLSession.shared.data(for: request)
             guard (response as? HTTPURLResponse)?.statusCode == 200 else { return }
-            guard let latest = try JSONDecoder().decode(LookupResponse.self, from: data).results.first else {
+            guard let latest = try await BackgroundJSONDecoder.decode(LookupResponse.self, from: data).results.first else {
                 return
             }
             guard Self.isNewer(latest.version, than: Self.currentVersion),
@@ -132,7 +132,7 @@ final class AppUpdateCoordinator {
             request.setValue(String(Self.currentBuildNumber), forHTTPHeaderField: "X-App-Build")
             let (data, response) = try await URLSession.shared.data(for: request)
             guard (response as? HTTPURLResponse)?.statusCode == 200 else { return false }
-            let policy = try JSONDecoder().decode(VersionPolicyResponse.self, from: data)
+            let policy = try await BackgroundJSONDecoder.decode(VersionPolicyResponse.self, from: data)
             guard policy.success else { return false }
 
             let candidateVersion = policy.minimumSupportedVersion ?? policy.latestVersion

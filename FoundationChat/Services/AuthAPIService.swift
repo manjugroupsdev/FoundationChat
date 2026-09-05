@@ -79,7 +79,7 @@ enum AuthAPIService {
     let body: [String: String] = ["phone": phone]
 
     let (data, response) = try await post(url: url, body: body)
-    let decoded = try JSONDecoder().decode(SendOTPResponse.self, from: data)
+    let decoded = try await BackgroundJSONDecoder.decode(SendOTPResponse.self, from: data)
 
     guard decoded.success else {
       throw AuthAPIError.server(
@@ -94,7 +94,7 @@ enum AuthAPIService {
   static func sendTravelDeskOTP(phone: String) async throws {
     let url = URL(string: "\(baseURL)/api/travel-desk/auth/send-otp")!
     let (data, response) = try await post(url: url, body: ["phone": phone])
-    let decoded = try JSONDecoder().decode(SendOTPResponse.self, from: data)
+    let decoded = try await BackgroundJSONDecoder.decode(SendOTPResponse.self, from: data)
     guard decoded.success else {
       throw AuthAPIError.server(
         decoded.error ?? decoded.message ?? "Phone number not registered. Contact admin.",
@@ -121,7 +121,7 @@ enum AuthAPIService {
     }
 
     let (data, response) = try await post(url: url, jsonBody: body)
-    let decoded = try JSONDecoder().decode(VerifyOTPResponse.self, from: data)
+    let decoded = try await BackgroundJSONDecoder.decode(VerifyOTPResponse.self, from: data)
 
     guard decoded.success, let token = decoded.token, let user = decoded.user else {
       throw AuthAPIError.server(
@@ -136,7 +136,7 @@ enum AuthAPIService {
   static func verifyTravelDeskOTP(phone: String, otp: String) async throws -> OtpSession {
     let url = URL(string: "\(baseURL)/api/travel-desk/auth/verify-otp")!
     let (data, response) = try await post(url: url, body: ["phone": phone, "otp": otp])
-    let decoded = try JSONDecoder().decode(TravelDeskVerifyOTPResponse.self, from: data)
+    let decoded = try await BackgroundJSONDecoder.decode(TravelDeskVerifyOTPResponse.self, from: data)
     guard decoded.success, let token = decoded.token, let remoteUser = decoded.user else {
       throw AuthAPIError.server(
         decoded.error ?? "Verification failed",
@@ -183,7 +183,7 @@ enum AuthAPIService {
     }
 
     let (data, response) = try await post(url: url, jsonBody: body)
-    let decoded = try JSONDecoder().decode(EmployeePasswordLoginResponse.self, from: data)
+    let decoded = try await BackgroundJSONDecoder.decode(EmployeePasswordLoginResponse.self, from: data)
 
     guard decoded.success, let token = decoded.token, let user = decoded.user else {
       throw AuthAPIError.server(
@@ -218,7 +218,7 @@ enum AuthAPIService {
     if (response as? HTTPURLResponse)?.statusCode == 401 {
       SessionInvalidationBus.emit()
     }
-    let decoded = try JSONDecoder().decode(SimpleResponse.self, from: data)
+    let decoded = try await BackgroundJSONDecoder.decode(SimpleResponse.self, from: data)
     guard decoded.success else {
       throw AuthAPIError.server(
         decoded.error ?? decoded.message ?? "Failed to change password",
@@ -238,7 +238,7 @@ enum AuthAPIService {
     if (response as? HTTPURLResponse)?.statusCode == 401 {
       SessionInvalidationBus.emit()
     }
-    let decoded = try JSONDecoder().decode(ValidateSessionResponse.self, from: data)
+    let decoded = try await BackgroundJSONDecoder.decode(ValidateSessionResponse.self, from: data)
 
     guard decoded.success, let user = decoded.user else {
       throw AuthAPIError.sessionInvalid(decoded.error ?? "Invalid or expired session")
@@ -259,7 +259,7 @@ enum AuthAPIService {
     if (response as? HTTPURLResponse)?.statusCode == 401 {
       SessionInvalidationBus.emit()
     }
-    let decoded = try JSONDecoder().decode(MyIAMPermissionsResponse.self, from: data)
+    let decoded = try await BackgroundJSONDecoder.decode(MyIAMPermissionsResponse.self, from: data)
 
     if decoded.success == false {
       throw AuthAPIError.server(
@@ -304,7 +304,7 @@ enum AuthAPIService {
       "platform": "ios",
     ])
     let (data, response) = try await URLSession.shared.data(for: request)
-    let decoded = try JSONDecoder().decode(SimpleResponse.self, from: data)
+    let decoded = try await BackgroundJSONDecoder.decode(SimpleResponse.self, from: data)
     guard decoded.success else {
       throw AuthAPIError.server(
         decoded.error ?? decoded.message ?? "Push registration failed",

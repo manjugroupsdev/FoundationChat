@@ -126,7 +126,7 @@ enum DailyLogAPIService {
         }
 
         let data = try await post(path: "/api/projects/daily-log/create", token: token, jsonBody: body)
-        let wrapper = try JSONDecoder().decode(DailyLogCreateResponse.self, from: data)
+        let wrapper = try await BackgroundJSONDecoder.decode(DailyLogCreateResponse.self, from: data)
         guard wrapper.success else {
             throw HRConvexAPIError.server(wrapper.error ?? "Failed to save daily log")
         }
@@ -135,7 +135,7 @@ enum DailyLogAPIService {
 
     static func listMyDailyLogs(token: String) async throws -> [DailyLogEntry] {
         let data = try await get(path: "/api/projects/daily-log/mine", token: token)
-        let wrapper = try JSONDecoder().decode(DailyLogListResponse.self, from: data)
+        let wrapper = try await BackgroundJSONDecoder.decode(DailyLogListResponse.self, from: data)
         guard wrapper.success else {
             throw HRConvexAPIError.server(wrapper.error ?? "Failed to load daily logs")
         }
@@ -148,7 +148,7 @@ enum DailyLogAPIService {
             token: token,
             queryItems: [URLQueryItem(name: "projectId", value: projectId)]
         )
-        let wrapper = try JSONDecoder().decode(DailyLogListResponse.self, from: data)
+        let wrapper = try await BackgroundJSONDecoder.decode(DailyLogListResponse.self, from: data)
         guard wrapper.success else {
             throw HRConvexAPIError.server(wrapper.error ?? "Failed to load daily logs")
         }
@@ -185,7 +185,7 @@ enum DailyLogAPIService {
 
     static func listMaterials(token: String) async throws -> [DailyLogMaterialCatalogItem] {
         let data = try await get(path: "/api/materials", token: token)
-        let wrapper = try JSONDecoder().decode(MaterialsResponse.self, from: data)
+        let wrapper = try await BackgroundJSONDecoder.decode(MaterialsResponse.self, from: data)
         guard wrapper.success else {
             throw HRConvexAPIError.server(wrapper.error ?? "Failed to load materials")
         }
@@ -233,7 +233,7 @@ enum DailyLogAPIService {
 
     private static func getMyDprAggregate(token: String) async throws -> ([DprRecipient], [DprReport]) {
         let data = try await get(path: "/api/projects/dpr/mine", token: token)
-        let wrapper = try JSONDecoder().decode(MyDprResponse.self, from: data)
+        let wrapper = try await BackgroundJSONDecoder.decode(MyDprResponse.self, from: data)
         guard wrapper.success else {
             throw HRConvexAPIError.server(wrapper.error ?? "Failed to load DPR")
         }
@@ -246,7 +246,7 @@ enum DailyLogAPIService {
             token: token,
             queryItems: [URLQueryItem(name: "projectId", value: projectId)]
         )
-        let wrapper = try JSONDecoder().decode(DprRecipientsResponse.self, from: data)
+        let wrapper = try await BackgroundJSONDecoder.decode(DprRecipientsResponse.self, from: data)
         guard wrapper.success else {
             throw HRConvexAPIError.server(wrapper.error ?? "Failed to load recipients")
         }
@@ -259,7 +259,7 @@ enum DailyLogAPIService {
             token: token,
             queryItems: [URLQueryItem(name: "projectId", value: projectId)]
         )
-        let wrapper = try JSONDecoder().decode(DprReportsResponse.self, from: data)
+        let wrapper = try await BackgroundJSONDecoder.decode(DprReportsResponse.self, from: data)
         guard wrapper.success else {
             throw HRConvexAPIError.server(wrapper.error ?? "Failed to load DPR history")
         }
@@ -280,7 +280,7 @@ enum DailyLogAPIService {
         ]
         if let staffId, !staffId.isEmpty { body["staffId"] = staffId }
         let data = try await post(path: "/api/projects/dpr/recipients/add", token: token, jsonBody: body)
-        let wrapper = try JSONDecoder().decode(SimpleResponse.self, from: data)
+        let wrapper = try await BackgroundJSONDecoder.decode(SimpleResponse.self, from: data)
         guard wrapper.success else {
             throw HRConvexAPIError.server(wrapper.error ?? "Failed to add recipient")
         }
@@ -292,7 +292,7 @@ enum DailyLogAPIService {
             token: token,
             jsonBody: ["id": id, "isActive": isActive]
         )
-        let wrapper = try JSONDecoder().decode(SimpleResponse.self, from: data)
+        let wrapper = try await BackgroundJSONDecoder.decode(SimpleResponse.self, from: data)
         guard wrapper.success else {
             throw HRConvexAPIError.server(wrapper.error ?? "Failed to update recipient")
         }
@@ -300,7 +300,7 @@ enum DailyLogAPIService {
 
     static func removeDprRecipient(token: String, id: String) async throws {
         let data = try await post(path: "/api/projects/dpr/recipients/remove", token: token, jsonBody: ["id": id])
-        let wrapper = try JSONDecoder().decode(SimpleResponse.self, from: data)
+        let wrapper = try await BackgroundJSONDecoder.decode(SimpleResponse.self, from: data)
         guard wrapper.success else {
             throw HRConvexAPIError.server(wrapper.error ?? "Failed to remove recipient")
         }
@@ -308,7 +308,7 @@ enum DailyLogAPIService {
 
     static func sendDprNow(token: String, projectId: String) async throws -> SendDprResult {
         let data = try await post(path: "/api/projects/dpr/send", token: token, jsonBody: ["projectId": projectId])
-        let wrapper = try JSONDecoder().decode(SendDprResponse.self, from: data)
+        let wrapper = try await BackgroundJSONDecoder.decode(SendDprResponse.self, from: data)
         guard wrapper.success else {
             throw HRConvexAPIError.server(wrapper.error ?? "Failed to send DPR")
         }

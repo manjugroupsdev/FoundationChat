@@ -582,7 +582,7 @@ enum ChatAPIService {
     provider: String? = nil,
     bundleId: String? = nil
   ) async throws -> String {
-    let resolvedBundleId = bundleId ?? Bundle.main.bundleIdentifier ?? "com.manjugroups.mconnect"
+    let resolvedBundleId = bundleId ?? Bundle.main.bundleIdentifier ?? "com.manju.chat"
     var body: [String: Any] = ["token": deviceToken, "platform": platform, "bundleId": resolvedBundleId]
     if let provider { body["provider"] = provider }
     let data = try await post(path: "/api/push/register", token: token, jsonBody: body)

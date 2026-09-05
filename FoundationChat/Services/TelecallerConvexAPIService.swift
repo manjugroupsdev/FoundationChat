@@ -62,7 +62,7 @@ enum TelecallerConvexAPIService {
         let query = items.map { "\($0.name)=\($0.value ?? "")" }.joined(separator: "&")
         let path = "/api/telecaller/leads/my?\(query)"
         let data = try await get(path: path, token: token)
-        let wrapper = try JSONDecoder().decode(LeadsResponse.self, from: data)
+        let wrapper = try await BackgroundJSONDecoder.decode(LeadsResponse.self, from: data)
         if let error = wrapper.error, wrapper.success == false {
             throw TelecallerAPIError.server(error)
         }
@@ -105,7 +105,7 @@ enum TelecallerConvexAPIService {
             )
         )
         let data = try await post(path: "/api/telecaller/leads/update", token: token, body: request)
-        let response = try JSONDecoder().decode(MutationResponse.self, from: data)
+        let response = try await BackgroundJSONDecoder.decode(MutationResponse.self, from: data)
         guard response.success else {
             throw TelecallerAPIError.server(response.error ?? "Lead update failed")
         }
@@ -117,7 +117,7 @@ enum TelecallerConvexAPIService {
     /// whether the authenticated user can use the Modern Dialer softphone.
     static func getMobileDialerConfig(token: String) async throws -> MobileDialerConfig {
         let data = try await get(path: "/api/mobile/dialer/config", token: token)
-        return try JSONDecoder().decode(MobileDialerConfig.self, from: data)
+        return try await BackgroundJSONDecoder.decode(MobileDialerConfig.self, from: data)
     }
 
     static func getMobileDialerCurrentCall(token: String, callId: String? = nil) async throws -> MobileDialerCurrentCall? {
@@ -126,7 +126,7 @@ enum TelecallerConvexAPIService {
             path += "?callId=\(callId)"
         }
         let data = try await get(path: path, token: token)
-        return try JSONDecoder().decode(MobileDialerCurrentCallResponse.self, from: data).call
+        return try await BackgroundJSONDecoder.decode(MobileDialerCurrentCallResponse.self, from: data).call
     }
 
     static func performMobileDialerAction(
@@ -149,7 +149,7 @@ enum TelecallerConvexAPIService {
             body: body,
             headers: ["Idempotency-Key": idempotencyKey.uuidString]
         )
-        return try JSONDecoder().decode(MobileDialerActionResponse.self, from: data)
+        return try await BackgroundJSONDecoder.decode(MobileDialerActionResponse.self, from: data)
     }
 
     static func restartMobileDialerMedia(
@@ -168,7 +168,7 @@ enum TelecallerConvexAPIService {
             ),
             headers: ["Idempotency-Key": idempotencyKey.uuidString]
         )
-        return try JSONDecoder().decode(MobileDialerMediaRestartResponse.self, from: data)
+        return try await BackgroundJSONDecoder.decode(MobileDialerMediaRestartResponse.self, from: data)
     }
 
     static func getMobileDialerMedia(token: String, callId: String) async throws -> MobileDialerMediaResponse {
@@ -176,7 +176,7 @@ enum TelecallerConvexAPIService {
             path: "/api/mobile/dialer/calls/\(callId.urlPathComponent)/media",
             token: token
         )
-        return try JSONDecoder().decode(MobileDialerMediaResponse.self, from: data)
+        return try await BackgroundJSONDecoder.decode(MobileDialerMediaResponse.self, from: data)
     }
 
     // MARK: - HTTP

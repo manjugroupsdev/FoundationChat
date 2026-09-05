@@ -346,7 +346,7 @@ private struct MandatoryAppUpdateView: View {
                 .padding(.top, 10)
 
             Button(action: onUpdate) {
-                Text("Update M-Connect")
+                Text("Update M-Chat")
                     .font(.system(size: 16, weight: .semibold))
                     .foregroundStyle(.white)
                     .frame(maxWidth: .infinity)
@@ -365,8 +365,8 @@ private struct MandatoryAppUpdateView: View {
 
     private var message: String {
         if let version {
-            return "M-Connect version \(version) is ready. Update the app to continue."
+            return "M-Chat version \(version) is ready. Update the app to continue."
         }
-        return "A new M-Connect version is ready. Update the app to continue."
+        return "A new M-Chat version is ready. Update the app to continue."
     }
 }

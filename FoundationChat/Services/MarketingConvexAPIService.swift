@@ -271,7 +271,7 @@ enum MarketingConvexAPIService {
             items.append(URLQueryItem(name: "staffId", value: staffId))
         }
         let data = try await get(path: "/api/hr/loans/my", token: token, queryItems: items)
-        let wrapper = try decode(MyLoansResponse.self, from: data)
+        let wrapper = try await decode(MyLoansResponse.self, from: data)
         guard wrapper.success else { throw MarketingAPIError.server(wrapper.error ?? "Failed to load loans") }
         let active = AppLoanMapper.mapLoanList(wrapper.pending ?? [], status: .pending)
             + AppLoanMapper.mapLoanList(wrapper.active ?? [], status: .active)
@@ -281,7 +281,7 @@ enum MarketingConvexAPIService {
 
     static func getPendingLoanApprovals(token: String) async throws -> [AppLoan] {
         let data = try await get(path: "/api/hr/loans/pending-approvals", token: token)
-        let wrapper = try decode(MyLoansResponse.self, from: data)
+        let wrapper = try await decode(MyLoansResponse.self, from: data)
         guard wrapper.success else { throw MarketingAPIError.server(wrapper.error ?? "Failed to load pending approvals") }
         return AppLoanMapper.mapLoanList(wrapper.pending ?? [], status: .pending)
             + AppLoanMapper.mapLoanList(wrapper.active ?? [], status: .pending)
@@ -294,7 +294,7 @@ enum MarketingConvexAPIService {
             token: token,
             queryItems: [URLQueryItem(name: "id", value: id)]
         )
-        let wrapper = try decode(LoanDetailResponse.self, from: data)
+        let wrapper = try await decode(LoanDetailResponse.self, from: data)
         guard wrapper.success else { throw MarketingAPIError.server(wrapper.error ?? "Failed to load loan") }
         guard let loan = wrapper.loan else { throw MarketingAPIError.server("Loan not found") }
         return AppLoanMapper.fromRemote(loan, mappedStatus: mappedStatus)
@@ -306,7 +306,7 @@ enum MarketingConvexAPIService {
             token: token,
             queryItems: [URLQueryItem(name: "loanId", value: loanId)]
         )
-        let wrapper = try decode(LoanRepaymentsResponse.self, from: data)
+        let wrapper = try await decode(LoanRepaymentsResponse.self, from: data)
         guard wrapper.success else {
             throw MarketingAPIError.server(wrapper.error ?? "Failed to load repayments")
         }
@@ -319,7 +319,7 @@ enum MarketingConvexAPIService {
             token: token,
             queryItems: [URLQueryItem(name: "loanId", value: loanId)]
         )
-        let wrapper = try decode(LoanWorkflowResponse.self, from: data)
+        let wrapper = try await decode(LoanWorkflowResponse.self, from: data)
         guard wrapper.success else { return [] }
         return (wrapper.workflow?.steps ?? [])
             .filter { ($0.stepOrder ?? 0) > 0 }
@@ -362,7 +362,7 @@ enum MarketingConvexAPIService {
             notes: notes
         )
         let data = try await post(path: "/api/hr/loans/apply", token: token, body: request)
-        let wrapper = try decode(LoanMutationResponse.self, from: data)
+        let wrapper = try await decode(LoanMutationResponse.self, from: data)
         guard wrapper.success else { throw MarketingAPIError.server(wrapper.error ?? "Failed to submit loan request") }
         return wrapper.id ?? wrapper.loanId ?? ""
     }
@@ -391,14 +391,14 @@ enum MarketingConvexAPIService {
             notes: nil
         )
         let data = try await post(path: "/api/hr/loans/apply", token: token, body: request)
-        let wrapper = try decode(LoanMutationResponse.self, from: data)
+        let wrapper = try await decode(LoanMutationResponse.self, from: data)
         guard wrapper.success else { throw MarketingAPIError.server(wrapper.error ?? "Failed to submit salary advance") }
         return wrapper.id ?? wrapper.loanId ?? ""
     }
 
     static func cancelLoan(token: String, id: String) async throws {
         let data = try await post(path: "/api/hr/loans/cancel", token: token, body: IdRequest(id: id))
-        let wrapper = try decode(BaseMutationResponse.self, from: data)
+        let wrapper = try await decode(BaseMutationResponse.self, from: data)
         guard wrapper.success else { throw MarketingAPIError.server(wrapper.error ?? "Failed to cancel loan") }
     }
 
@@ -408,13 +408,13 @@ enum MarketingConvexAPIService {
             token: token,
             body: ApproveLoanRequest(id: id, eSignatureId: eSignatureId)
         )
-        let wrapper = try decode(BaseMutationResponse.self, from: data)
+        let wrapper = try await decode(BaseMutationResponse.self, from: data)
         guard wrapper.success else { throw MarketingAPIError.server(wrapper.error ?? "Failed to approve loan") }
     }
 
     static func getDigitalSign(token: String) async throws -> StaffDigitalSign {
         let data = try await get(path: "/api/hr/staff/digital-sign", token: token)
-        let wrapper = try decode(StaffDigitalSign.self, from: data)
+        let wrapper = try await decode(StaffDigitalSign.self, from: data)
         guard wrapper.success else {
             throw MarketingAPIError.server(wrapper.error ?? "Failed to load digital signature")
         }
@@ -427,7 +427,7 @@ enum MarketingConvexAPIService {
             token: token,
             body: DigitalSignRequest(storageId: storageId, fileName: fileName)
         )
-        let wrapper = try decode(StaffDigitalSign.self, from: data)
+        let wrapper = try await decode(StaffDigitalSign.self, from: data)
         guard wrapper.success else {
             throw MarketingAPIError.server(wrapper.error ?? "Failed to save digital signature")
         }
@@ -447,7 +447,7 @@ enum MarketingConvexAPIService {
 
     static func rejectLoan(token: String, id: String, reason: String = "Rejected by approver") async throws {
         let data = try await post(path: "/api/hr/loans/reject", token: token, body: RejectLoanRequest(id: id, reason: reason))
-        let wrapper = try decode(BaseMutationResponse.self, from: data)
+        let wrapper = try await decode(BaseMutationResponse.self, from: data)
         guard wrapper.success else { throw MarketingAPIError.server(wrapper.error ?? "Failed to reject loan") }
     }
 
@@ -475,7 +475,7 @@ enum MarketingConvexAPIService {
             queryItems: [URLQueryItem(name: "id", value: id)],
             cachePolicy: .reloadIgnoringLocalCacheData
         )
-        let wrapper = try decode(MarketingProjectResponse.self, from: data)
+        let wrapper = try await decode(MarketingProjectResponse.self, from: data)
         guard wrapper.success, let project = wrapper.project else {
             throw MarketingAPIError.server(wrapper.error ?? "Failed to load project details")
         }
@@ -503,7 +503,7 @@ enum MarketingConvexAPIService {
                 budget: budget
             )
         )
-        let wrapper = try decode(MarketingProjectResponse.self, from: data)
+        let wrapper = try await decode(MarketingProjectResponse.self, from: data)
         guard wrapper.success, let project = wrapper.project else {
             throw MarketingAPIError.server(wrapper.error ?? "Failed to create project")
         }
@@ -527,7 +527,7 @@ enum MarketingConvexAPIService {
             queryItems: items,
             cachePolicy: .reloadIgnoringLocalCacheData
         )
-        let wrapper = try decode(InventoryUnitsResponse.self, from: data)
+        let wrapper = try await decode(InventoryUnitsResponse.self, from: data)
         guard wrapper.success else { throw MarketingAPIError.server(wrapper.error ?? "Failed to load units") }
         return wrapper.units ?? []
     }
@@ -538,7 +538,7 @@ enum MarketingConvexAPIService {
             token: token,
             queryItems: [URLQueryItem(name: "id", value: id)]
         )
-        let wrapper = try decode(InventoryUnitResponse.self, from: data)
+        let wrapper = try await decode(InventoryUnitResponse.self, from: data)
         guard wrapper.success else { throw MarketingAPIError.server(wrapper.error ?? "Failed to load unit") }
         guard let unit = wrapper.unit else { throw MarketingAPIError.server("Unit not found") }
         return unit
@@ -550,7 +550,7 @@ enum MarketingConvexAPIService {
             token: token,
             body: InventoryUnitIdRequest(id: id)
         )
-        let wrapper = try decode(InventoryUnitResponse.self, from: data)
+        let wrapper = try await decode(InventoryUnitResponse.self, from: data)
         guard wrapper.success else { throw MarketingAPIError.server(wrapper.error ?? "Failed to hold unit") }
         guard let unit = wrapper.unit else { throw MarketingAPIError.server("Updated unit missing") }
         return unit
@@ -562,7 +562,7 @@ enum MarketingConvexAPIService {
             token: token,
             body: InventoryUnitIdRequest(id: id)
         )
-        let wrapper = try decode(InventoryUnitResponse.self, from: data)
+        let wrapper = try await decode(InventoryUnitResponse.self, from: data)
         guard wrapper.success else { throw MarketingAPIError.server(wrapper.error ?? "Failed to release unit") }
         guard let unit = wrapper.unit else { throw MarketingAPIError.server("Updated unit missing") }
         return unit
@@ -574,7 +574,7 @@ enum MarketingConvexAPIService {
             token: token,
             queryItems: [URLQueryItem(name: "projectId", value: projectId)]
         )
-        let wrapper = try decode(InventoryLayoutResponse.self, from: data)
+        let wrapper = try await decode(InventoryLayoutResponse.self, from: data)
         guard wrapper.success else { throw MarketingAPIError.server(wrapper.error ?? "Failed to load layout") }
         return wrapper.units ?? []
     }
@@ -587,7 +587,7 @@ enum MarketingConvexAPIService {
             token: token,
             queryItems: [URLQueryItem(name: "phone", value: phone)]
         )
-        let wrapper = try decode(TelecallerLeadSearchResponse.self, from: data)
+        let wrapper = try await decode(TelecallerLeadSearchResponse.self, from: data)
         guard wrapper.success else { throw MarketingAPIError.server(wrapper.error ?? "Lead search failed") }
         return wrapper.leads ?? []
     }
@@ -598,7 +598,7 @@ enum MarketingConvexAPIService {
             token: token,
             queryItems: [URLQueryItem(name: "phone", value: phone)]
         )
-        let wrapper = try decode(ClientByPhoneResponse.self, from: data)
+        let wrapper = try await decode(ClientByPhoneResponse.self, from: data)
         guard wrapper.success else { throw MarketingAPIError.server(wrapper.error ?? "Client search failed") }
         return wrapper.client
     }
@@ -617,7 +617,7 @@ enum MarketingConvexAPIService {
             token: token,
             queryItems: queryItems
         )
-        let prefill = try decode(BookingPlotPrefill.self, from: data)
+        let prefill = try await decode(BookingPlotPrefill.self, from: data)
         guard prefill.success else {
             throw MarketingAPIError.server(prefill.error ?? "Plot pricing lookup failed")
         }
@@ -634,7 +634,7 @@ enum MarketingConvexAPIService {
             queryItems: [URLQueryItem(name: "mobileNumber", value: mobileNumber)],
             cachePolicy: .reloadIgnoringLocalCacheData
         )
-        let wrapper = try decode(BookingConversionPrefillResponse.self, from: data)
+        let wrapper = try await decode(BookingConversionPrefillResponse.self, from: data)
         guard wrapper.success else {
             throw MarketingAPIError.server(wrapper.error ?? "Previous booking lookup failed")
         }
@@ -651,7 +651,7 @@ enum MarketingConvexAPIService {
             queryItems: [URLQueryItem(name: "mobileNumber", value: mobileNumber)],
             cachePolicy: .reloadIgnoringLocalCacheData
         )
-        let wrapper = try decode(BookingExchangeSourcesResponse.self, from: data)
+        let wrapper = try await decode(BookingExchangeSourcesResponse.self, from: data)
         guard wrapper.success else {
             throw MarketingAPIError.server(wrapper.error ?? "Exchanged property lookup failed")
         }
@@ -666,7 +666,7 @@ enum MarketingConvexAPIService {
             queryItems: [URLQueryItem(name: "pin", value: pincode)],
             cachePolicy: .returnCacheDataElseLoad
         )
-        let responses = try decode([PincodeResponse].self, from: data)
+        let responses = try await decode([PincodeResponse].self, from: data)
         guard let offices = responses.first?.postOffices, !offices.isEmpty else { return nil }
 
         func firstValue(_ keyPath: KeyPath<PincodeOffice, String?>, excludingNA: Bool = false) -> String? {
@@ -694,7 +694,7 @@ enum MarketingConvexAPIService {
 
     static func createBooking(token: String, request: CreateBookingRequest) async throws -> String {
         let data = try await post(path: "/api/bookings", token: token, body: request)
-        let wrapper = try decode(CreateBookingResponse.self, from: data)
+        let wrapper = try await decode(CreateBookingResponse.self, from: data)
         guard wrapper.success else { throw MarketingAPIError.server(wrapper.error ?? "Failed to create booking") }
         return wrapper.id ?? ""
     }
@@ -712,7 +712,7 @@ enum MarketingConvexAPIService {
             queryItems: [URLQueryItem(name: "sourceKey", value: sourceKey)],
             cachePolicy: .reloadIgnoringLocalCacheData
         )
-        let wrapper = try decode(BookingDraftGetResponse.self, from: data)
+        let wrapper = try await decode(BookingDraftGetResponse.self, from: data)
         guard wrapper.success else { throw MarketingAPIError.server(wrapper.error ?? "Failed to load draft") }
         return wrapper.draft
     }
@@ -747,14 +747,14 @@ enum MarketingConvexAPIService {
         if let toDate, !toDate.isEmpty { items.append(URLQueryItem(name: "toDate", value: toDate)) }
         if let pageSize { items.append(URLQueryItem(name: "pageSize", value: String(pageSize))) }
         let data = try await get(path: "/api/marketing/bookings/my", token: token, queryItems: items)
-        let wrapper = try decode(BookingsResponse.self, from: data)
+        let wrapper = try await decode(BookingsResponse.self, from: data)
         guard wrapper.success else { throw MarketingAPIError.server(wrapper.error ?? "Failed to load bookings") }
         return wrapper.bookings ?? []
     }
 
     static func getBooking(token: String, id: String) async throws -> AppBooking {
         let data = try await get(path: "/api/bookings/\(pathComponent(id))", token: token)
-        let wrapper = try decode(BookingResponse.self, from: data)
+        let wrapper = try await decode(BookingResponse.self, from: data)
         guard wrapper.success else { throw MarketingAPIError.server(wrapper.error ?? "Failed to load booking") }
         guard let booking = wrapper.booking else { throw MarketingAPIError.server("Booking not found") }
         return booking
@@ -762,19 +762,19 @@ enum MarketingConvexAPIService {
 
     static func updateBooking(token: String, request: UpdateBookingRequest) async throws {
         let data = try await patch(path: "/api/bookings/\(pathComponent(request.id))", token: token, body: request)
-        let wrapper = try decode(BaseMutationResponse.self, from: data)
+        let wrapper = try await decode(BaseMutationResponse.self, from: data)
         guard wrapper.success else { throw MarketingAPIError.server(wrapper.error ?? "Failed to update booking") }
     }
 
     static func approveBooking(token: String, id: String) async throws {
         let data = try await post(path: "/api/bookings/\(pathComponent(id))/approve", token: token, body: EmptyRequest())
-        let wrapper = try decode(BaseMutationResponse.self, from: data)
+        let wrapper = try await decode(BaseMutationResponse.self, from: data)
         guard wrapper.success else { throw MarketingAPIError.server(wrapper.error ?? "Failed to approve booking") }
     }
 
     static func rejectBooking(token: String, id: String, reason: String) async throws {
         let data = try await post(path: "/api/bookings/\(pathComponent(id))/reject", token: token, body: RejectBookingRequest(reason: reason))
-        let wrapper = try decode(BaseMutationResponse.self, from: data)
+        let wrapper = try await decode(BaseMutationResponse.self, from: data)
         guard wrapper.success else { throw MarketingAPIError.server(wrapper.error ?? "Failed to reject booking") }
     }
 
@@ -790,14 +790,14 @@ enum MarketingConvexAPIService {
             body: request,
             headers: headers
         )
-        let wrapper = try decode(CreateCpVisitResponse.self, from: data)
+        let wrapper = try await decode(CreateCpVisitResponse.self, from: data)
         guard wrapper.success else { throw MarketingAPIError.server(wrapper.error ?? "Failed to create CP visit") }
         return wrapper
     }
 
     static func createSiteVisit(token: String, request: CreateSiteVisitRequest) async throws -> CreateSiteVisitResponse {
         let data = try await post(path: "/api/marketing/siteVisits/create", token: token, body: request)
-        let wrapper = try decode(CreateSiteVisitResponse.self, from: data)
+        let wrapper = try await decode(CreateSiteVisitResponse.self, from: data)
         guard wrapper.success else {
             throw MarketingAPIError.server(wrapper.error ?? "Failed to schedule site visit")
         }
@@ -822,7 +822,7 @@ enum MarketingConvexAPIService {
             token: token,
             queryItems: queryItems
         )
-        let wrapper = try decode(ReferralClientCandidatesResponse.self, from: data)
+        let wrapper = try await decode(ReferralClientCandidatesResponse.self, from: data)
         guard wrapper.success else {
             throw MarketingAPIError.server(wrapper.error ?? "Failed to search clients")
         }
@@ -835,7 +835,7 @@ enum MarketingConvexAPIService {
             token: token,
             body: AddressParseRequest(raw: raw)
         )
-        let wrapper = try decode(AddressParseResponse.self, from: data)
+        let wrapper = try await decode(AddressParseResponse.self, from: data)
         guard wrapper.success else {
             throw MarketingAPIError.server(wrapper.error ?? "Could not split address")
         }
@@ -847,7 +847,7 @@ enum MarketingConvexAPIService {
 
     static func markClientMet(token: String, request: MarkClientMetRequest) async throws {
         let data = try await post(path: "/api/marketing/clientPlaceVisits/markClientMet", token: token, body: request)
-        let wrapper = try decode(BaseMutationResponse.self, from: data)
+        let wrapper = try await decode(BaseMutationResponse.self, from: data)
         guard wrapper.success else { throw MarketingAPIError.server(wrapper.error ?? "Failed to record client met") }
     }
 
@@ -856,7 +856,7 @@ enum MarketingConvexAPIService {
         request: SetCpVisitOutcomeRequest
     ) async throws -> CpRevisitInfo? {
         let data = try await post(path: "/api/marketing/clientPlaceVisits/setOutcome", token: token, body: request)
-        let wrapper = try decode(BaseMutationResponse.self, from: data)
+        let wrapper = try await decode(BaseMutationResponse.self, from: data)
         guard wrapper.success else { throw MarketingAPIError.server(wrapper.error ?? "Failed to set outcome") }
         return wrapper.revisit
     }
@@ -866,7 +866,7 @@ enum MarketingConvexAPIService {
         request: SetCpVisitOutcomeRequest
     ) async throws -> String {
         let data = try await post(path: "/api/marketing/clientPlaceVisits/setOutcome", token: token, body: request)
-        let wrapper = try decode(BaseMutationResponse.self, from: data)
+        let wrapper = try await decode(BaseMutationResponse.self, from: data)
         guard wrapper.success else { throw MarketingAPIError.server(wrapper.error ?? "Failed to reject visit") }
         guard let followUpTaskId = wrapper.followUpTaskId?.trimmingCharacters(in: .whitespacesAndNewlines),
               !followUpTaskId.isEmpty else {
@@ -888,7 +888,7 @@ enum MarketingConvexAPIService {
             body: request,
             headers: ["Idempotency-Key": idempotencyKey]
         )
-        let wrapper = try decode(BaseMutationResponse.self, from: data)
+        let wrapper = try await decode(BaseMutationResponse.self, from: data)
         guard wrapper.success else {
             throw MarketingAPIError.server(wrapper.error ?? "Failed to save referral")
         }
@@ -902,7 +902,7 @@ enum MarketingConvexAPIService {
             token: token,
             body: CancelCpVisitRequest(id: id, reason: reason)
         )
-        let wrapper = try decode(BaseMutationResponse.self, from: data)
+        let wrapper = try await decode(BaseMutationResponse.self, from: data)
         guard wrapper.success else { throw MarketingAPIError.server(wrapper.error ?? "Failed to cancel CP visit") }
     }
 
@@ -915,13 +915,13 @@ enum MarketingConvexAPIService {
             token: token,
             body: CpGeofenceRemarkRequest(id: id, remark: remark)
         )
-        let wrapper = try decode(BaseMutationResponse.self, from: data)
+        let wrapper = try await decode(BaseMutationResponse.self, from: data)
         guard wrapper.success else { throw MarketingAPIError.server(wrapper.error ?? "Failed to save geofence remark") }
     }
 
     static func getPendingCpApprovals(token: String) async throws -> [CpApprovalItem] {
         let data = try await get(path: "/api/marketing/cp-visits/pending-approvals", token: token)
-        let wrapper = try decode(CpApprovalsResponse.self, from: data)
+        let wrapper = try await decode(CpApprovalsResponse.self, from: data)
         guard wrapper.success else { throw MarketingAPIError.server(wrapper.error ?? "Failed to load pending approvals") }
         return wrapper.items ?? []
     }
@@ -932,7 +932,7 @@ enum MarketingConvexAPIService {
             token: token,
             queryItems: [URLQueryItem(name: "id", value: id)]
         )
-        let wrapper = try decode(CpApprovalRouteResponse.self, from: data)
+        let wrapper = try await decode(CpApprovalRouteResponse.self, from: data)
         guard wrapper.success, let route = wrapper.data else {
             throw MarketingAPIError.server(wrapper.error ?? "Failed to load the travelled route")
         }
@@ -941,7 +941,7 @@ enum MarketingConvexAPIService {
 
     static func approveCpCompletion(token: String, id: String) async throws {
         let data = try await post(path: "/api/marketing/cp-visits/approve", token: token, body: IdRequest(id: id))
-        let wrapper = try decode(BaseMutationResponse.self, from: data)
+        let wrapper = try await decode(BaseMutationResponse.self, from: data)
         guard wrapper.success else { throw MarketingAPIError.server(wrapper.error ?? "Failed to approve completion") }
     }
 
@@ -951,13 +951,13 @@ enum MarketingConvexAPIService {
             token: token,
             body: CpApprovalRejectRequest(id: id, remark: remark)
         )
-        let wrapper = try decode(BaseMutationResponse.self, from: data)
+        let wrapper = try await decode(BaseMutationResponse.self, from: data)
         guard wrapper.success else { throw MarketingAPIError.server(wrapper.error ?? "Failed to reject completion") }
     }
 
     static func setSiteVisitOutcome(token: String, request: SetSiteVisitOutcomeRequest) async throws {
         let data = try await post(path: "/api/marketing/siteVisits/setOutcome", token: token, body: request)
-        let wrapper = try decode(BaseMutationResponse.self, from: data)
+        let wrapper = try await decode(BaseMutationResponse.self, from: data)
         guard wrapper.success else { throw MarketingAPIError.server(wrapper.error ?? "Failed to set site visit outcome") }
     }
 
@@ -967,7 +967,7 @@ enum MarketingConvexAPIService {
             token: token,
             body: SiteVisitQRScanRequest(qrData: qrData)
         )
-        let wrapper = try decode(SiteVisitQRScanResponse.self, from: data)
+        let wrapper = try await decode(SiteVisitQRScanResponse.self, from: data)
         guard wrapper.success, let visit = wrapper.visit else {
             throw MarketingAPIError.server(wrapper.error ?? "Unable to validate this SV QR")
         }
@@ -982,7 +982,7 @@ enum MarketingConvexAPIService {
             token: token,
             body: SiteVisitIDRequest(id: id)
         )
-        let wrapper = try decode(BaseMutationResponse.self, from: data)
+        let wrapper = try await decode(BaseMutationResponse.self, from: data)
         guard wrapper.success else {
             throw MarketingAPIError.server(wrapper.error ?? "Couldn't start counselling")
         }
@@ -994,7 +994,7 @@ enum MarketingConvexAPIService {
             token: token,
             body: request
         )
-        let wrapper = try decode(BaseMutationResponse.self, from: data)
+        let wrapper = try await decode(BaseMutationResponse.self, from: data)
         guard wrapper.success else {
             throw MarketingAPIError.server(wrapper.error ?? "Unable to postpone site visit")
         }
@@ -1006,7 +1006,7 @@ enum MarketingConvexAPIService {
             token: token,
             body: request
         )
-        let wrapper = try decode(BaseMutationResponse.self, from: data)
+        let wrapper = try await decode(BaseMutationResponse.self, from: data)
         guard wrapper.success else {
             throw MarketingAPIError.server(wrapper.error ?? "Unable to cancel site visit")
         }
@@ -1034,7 +1034,7 @@ enum MarketingConvexAPIService {
 
     private static func runSiteVisitLifecycle(path: String, token: String, id: String) async throws {
         let data = try await post(path: path, token: token, body: IdRequest(id: id))
-        let wrapper = try decode(BaseMutationResponse.self, from: data)
+        let wrapper = try await decode(BaseMutationResponse.self, from: data)
         guard wrapper.success else { throw MarketingAPIError.server(wrapper.error ?? "Failed to update site visit status") }
     }
 
@@ -1043,7 +1043,7 @@ enum MarketingConvexAPIService {
         request: ConvertCpVisitToSiteVisitRequest
     ) async throws -> ConvertCpVisitToSiteVisitResponse {
         let data = try await post(path: "/api/marketing/clientPlaceVisits/convertToSiteVisit", token: token, body: request)
-        let wrapper = try decode(ConvertCpVisitToSiteVisitResponse.self, from: data)
+        let wrapper = try await decode(ConvertCpVisitToSiteVisitResponse.self, from: data)
         guard wrapper.success else { throw MarketingAPIError.server(wrapper.error ?? "Failed to create site visit") }
         return wrapper
     }
@@ -1057,7 +1057,7 @@ enum MarketingConvexAPIService {
             token: token,
             body: request
         )
-        let wrapper = try decode(ConvertSiteVisitToBookingResponse.self, from: data)
+        let wrapper = try await decode(ConvertSiteVisitToBookingResponse.self, from: data)
         guard wrapper.success else {
             throw MarketingAPIError.server(wrapper.error ?? "Failed to convert site visit to booking")
         }
@@ -1070,7 +1070,7 @@ enum MarketingConvexAPIService {
             token: token,
             queryItems: [URLQueryItem(name: "id", value: id)]
         )
-        let wrapper = try decode(CpVisitDetailResponse.self, from: data)
+        let wrapper = try await decode(CpVisitDetailResponse.self, from: data)
         guard wrapper.success else { throw MarketingAPIError.server(wrapper.error ?? "Failed to load visit detail") }
         guard let visit = wrapper.visit else { throw MarketingAPIError.server("Visit detail missing") }
         return visit
@@ -1082,7 +1082,7 @@ enum MarketingConvexAPIService {
             token: token,
             queryItems: [URLQueryItem(name: "id", value: id)]
         )
-        let wrapper = try decode(JointCpWorkflowResponse.self, from: data)
+        let wrapper = try await decode(JointCpWorkflowResponse.self, from: data)
         guard wrapper.success else { throw MarketingAPIError.server(wrapper.error ?? "Failed to load Joint CP workflow") }
         guard let workflow = wrapper.workflow else { throw MarketingAPIError.server("Joint CP workflow missing") }
         return workflow
@@ -1097,7 +1097,7 @@ enum MarketingConvexAPIService {
             token: token,
             body: request
         )
-        let wrapper = try decode(JointCpWorkflowResponse.self, from: data)
+        let wrapper = try await decode(JointCpWorkflowResponse.self, from: data)
         guard wrapper.success else { throw MarketingAPIError.server(wrapper.error ?? "Joint CP location check failed") }
         guard let workflow = wrapper.workflow else { throw MarketingAPIError.server("Joint CP workflow missing") }
         return workflow
@@ -1114,7 +1114,7 @@ enum MarketingConvexAPIService {
             body: request,
             headers: ["Idempotency-Key": idempotencyKey]
         )
-        let wrapper = try decode(JointCpWorkflowResponse.self, from: data)
+        let wrapper = try await decode(JointCpWorkflowResponse.self, from: data)
         guard wrapper.success else { throw MarketingAPIError.server(wrapper.error ?? "Failed to send outcome for review") }
         guard let workflow = wrapper.workflow else { throw MarketingAPIError.server("Joint CP workflow missing") }
         return workflow
@@ -1131,7 +1131,7 @@ enum MarketingConvexAPIService {
             body: request,
             headers: ["Idempotency-Key": idempotencyKey]
         )
-        let wrapper = try decode(JointCpWorkflowResponse.self, from: data)
+        let wrapper = try await decode(JointCpWorkflowResponse.self, from: data)
         guard wrapper.success else { throw MarketingAPIError.server(wrapper.error ?? "Failed to complete Joint CP review") }
         guard let workflow = wrapper.workflow else { throw MarketingAPIError.server("Joint CP workflow missing") }
         return workflow
@@ -1203,7 +1203,7 @@ enum MarketingConvexAPIService {
         if let cursor, !cursor.isEmpty { items.append(URLQueryItem(name: "cursor", value: cursor)) }
         if let pageSize { items.append(URLQueryItem(name: "pageSize", value: String(pageSize))) }
         let data = try await get(path: "/api/marketing/clientPlaceVisits/my", token: token, queryItems: items)
-        let wrapper = try decode(MyMarketingCpVisitsResponse.self, from: data)
+        let wrapper = try await decode(MyMarketingCpVisitsResponse.self, from: data)
         guard wrapper.success else { throw MarketingAPIError.server(wrapper.error ?? "Failed to load CP visits") }
         return wrapper
     }
@@ -1223,7 +1223,7 @@ enum MarketingConvexAPIService {
             queryItems: items,
             cachePolicy: .reloadIgnoringLocalCacheData
         )
-        let wrapper = try decode(CpVisitFilterOptionsResponse.self, from: data)
+        let wrapper = try await decode(CpVisitFilterOptionsResponse.self, from: data)
         guard wrapper.success else { throw MarketingAPIError.server(wrapper.error ?? "Failed to load CP filters") }
         return wrapper
     }
@@ -1325,9 +1325,9 @@ enum MarketingConvexAPIService {
         return message.isEmpty ? "Request failed" : message
     }
 
-    private static func decode<T: Decodable>(_ type: T.Type, from data: Data) throws -> T {
+    private static func decode<T: Decodable>(_ type: T.Type, from data: Data) async throws -> T {
         do {
-            return try JSONDecoder().decode(type, from: data)
+            return try await BackgroundJSONDecoder.decode(type, from: data)
         } catch {
             throw MarketingAPIError.decoding(error)
         }

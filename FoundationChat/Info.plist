@@ -5,7 +5,7 @@
 	<key>CFBundleDevelopmentRegion</key>
 	<string>$(DEVELOPMENT_LANGUAGE)</string>
 	<key>CFBundleDisplayName</key>
-	<string>M-Connect</string>
+	<string>M-Chat</string>
 	<key>CFBundleExecutable</key>
 	<string>$(EXECUTABLE_NAME)</string>
 	<key>CFBundleIdentifier</key>
@@ -27,17 +27,17 @@
 	<key>LSRequiresIPhoneOS</key>
 	<true/>
 	<key>NSCameraUsageDescription</key>
-	<string>M-Connect uses the camera for attendance photos and document scanning.</string>
+	<string>M-Chat uses the camera for attendance photos and document scanning.</string>
 	<key>NSLocationAlwaysAndWhenInUseUsageDescription</key>
-	<string>M-Connect uses your location for GeoTrack attendance and visit tracking while a tracking session is active.</string>
+	<string>M-Chat uses your location for GeoTrack attendance and visit tracking while a tracking session is active.</string>
 	<key>NSLocationWhenInUseUsageDescription</key>
-	<string>M-Connect uses your location for attendance punch-in, visits, and GeoTrack tracking when required.</string>
+	<string>M-Chat uses your location for attendance punch-in, visits, and GeoTrack tracking when required.</string>
 	<key>NSMicrophoneUsageDescription</key>
-	<string>M-Connect needs microphone access for Modern Dialer calls and voice messages.</string>
+	<string>M-Chat needs microphone access for Modern Dialer calls and voice messages.</string>
 	<key>NSMotionUsageDescription</key>
-	<string>M-Connect uses motion data to improve location tracking accuracy and detect activity during trips.</string>
+	<string>M-Chat uses motion data to improve location tracking accuracy and detect activity during trips.</string>
 	<key>NSPhotoLibraryUsageDescription</key>
-	<string>M-Connect needs photo library access to attach photos when camera is unavailable or gallery is selected.</string>
+	<string>M-Chat needs photo library access to attach photos when camera is unavailable or gallery is selected.</string>
 	<key>UIApplicationSceneManifest</key>
 	<dict>
 		<key>UIApplicationSupportsMultipleScenes</key>

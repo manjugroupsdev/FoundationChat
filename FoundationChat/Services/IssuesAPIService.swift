@@ -28,7 +28,7 @@ enum IssuesAPIService {
 
     static func listMyIssues(token: String) async throws -> [ProjectIssue] {
         let data = try await get(path: "/api/issues/my", token: token)
-        let wrapper = try JSONDecoder().decode(IssuesListResponse.self, from: data)
+        let wrapper = try await BackgroundJSONDecoder.decode(IssuesListResponse.self, from: data)
         guard wrapper.success else {
             throw HRConvexAPIError.server(wrapper.error ?? "Failed to load issues")
         }
@@ -57,7 +57,7 @@ enum IssuesAPIService {
             audioDurationSeconds: audioDurationSeconds
         )
         let data = try await post(path: "/api/projects/issues", token: token, body: request)
-        let wrapper = try JSONDecoder().decode(CreateIssueResponse.self, from: data)
+        let wrapper = try await BackgroundJSONDecoder.decode(CreateIssueResponse.self, from: data)
         guard wrapper.success else {
             throw HRConvexAPIError.server(wrapper.error ?? "Failed to create issue")
         }

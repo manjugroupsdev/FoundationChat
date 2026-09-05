@@ -203,28 +203,28 @@ enum PostSalesConvexAPIService {
             token: token,
             queryItems: [URLQueryItem(name: "mobile", value: mobile)]
         )
-        let wrapper = try decode(CasesByMobileResponse.self, from: data)
+        let wrapper = try await decode(CasesByMobileResponse.self, from: data)
         guard wrapper.success else { throw MarketingAPIError.server(wrapper.error ?? "Failed to load cases") }
         return wrapper.cases ?? []
     }
 
     static func listOpenBookings(token: String) async throws -> [PostSaleCaseSummary] {
         let data = try await get(path: "/api/postsales/cases/list", token: token)
-        let wrapper = try decode(CasesByMobileResponse.self, from: data)
+        let wrapper = try await decode(CasesByMobileResponse.self, from: data)
         guard wrapper.success else { throw MarketingAPIError.server(wrapper.error ?? "Failed to load open cases") }
         return wrapper.cases ?? []
     }
 
     static func listMyCollections(token: String) async throws -> [CustomerCollectionRow] {
         let data = try await get(path: "/api/postsales/collections/my", token: token)
-        let wrapper = try decode(CollectionsResponse.self, from: data)
+        let wrapper = try await decode(CollectionsResponse.self, from: data)
         guard wrapper.success else { throw MarketingAPIError.server(wrapper.error ?? "Failed to load collections") }
         return wrapper.collections ?? []
     }
 
     static func listCollectionsForAccounts(token: String) async throws -> [CustomerCollectionRow] {
         let data = try await get(path: "/api/postsales/collections/for-accounts", token: token)
-        let wrapper = try decode(CollectionsResponse.self, from: data)
+        let wrapper = try await decode(CollectionsResponse.self, from: data)
         guard wrapper.success else { throw MarketingAPIError.server(wrapper.error ?? "Failed to load account collections") }
         return wrapper.collections ?? []
     }
@@ -232,7 +232,7 @@ enum PostSalesConvexAPIService {
     @discardableResult
     static func submitCollection(token: String, request: SubmitCollectionRequest) async throws -> SubmittedCollection {
         let data = try await post(path: "/api/postsales/collections/submit", token: token, body: request)
-        let wrapper = try decode(SubmitCollectionResponse.self, from: data)
+        let wrapper = try await decode(SubmitCollectionResponse.self, from: data)
         guard wrapper.success else { throw MarketingAPIError.server(wrapper.error ?? "Failed to submit collection") }
         return SubmittedCollection(
             reference: wrapper.collectionRefNo ?? wrapper.collectionId ?? "",
@@ -246,7 +246,7 @@ enum PostSalesConvexAPIService {
     @discardableResult
     static func correctCollection(token: String, request: CorrectCollectionRequest) async throws -> CustomerCollectionRow? {
         let data = try await post(path: "/api/postsales/collections/correct", token: token, body: request)
-        let wrapper = try decode(VerifyCollectionResponse.self, from: data)
+        let wrapper = try await decode(VerifyCollectionResponse.self, from: data)
         guard wrapper.success else { throw MarketingAPIError.server(wrapper.error ?? "Failed to correct collection") }
         return wrapper.collection
     }
@@ -257,7 +257,7 @@ enum PostSalesConvexAPIService {
             token: token,
             body: ApproveCollectionRequest(collectionId: collectionId, notes: notes)
         )
-        let wrapper = try decode(VerifyCollectionResponse.self, from: data)
+        let wrapper = try await decode(VerifyCollectionResponse.self, from: data)
         guard wrapper.success else { throw MarketingAPIError.server(wrapper.error ?? "Failed to approve collection") }
         return wrapper.collection
     }
@@ -268,7 +268,7 @@ enum PostSalesConvexAPIService {
             token: token,
             body: RejectCollectionRequest(collectionId: collectionId, remarks: remarks)
         )
-        let wrapper = try decode(VerifyCollectionResponse.self, from: data)
+        let wrapper = try await decode(VerifyCollectionResponse.self, from: data)
         guard wrapper.success else { throw MarketingAPIError.server(wrapper.error ?? "Failed to reject collection") }
         return wrapper.collection
     }
@@ -287,7 +287,7 @@ enum PostSalesConvexAPIService {
 
     static func listLegalStaff(token: String) async throws -> [LegalStaffRow] {
         let data = try await get(path: "/api/postsales/loans/legalStaff", token: token)
-        let wrapper = try decode(LegalStaffListResponse.self, from: data)
+        let wrapper = try await decode(LegalStaffListResponse.self, from: data)
         guard wrapper.success else { throw MarketingAPIError.server(wrapper.error ?? "Failed to load legal staff") }
         return wrapper.staff ?? []
     }
@@ -295,7 +295,7 @@ enum PostSalesConvexAPIService {
     @discardableResult
     static func submitLoanRequest(token: String, request: SubmitLoanDeskRequest) async throws -> LoanCaseRow? {
         let data = try await post(path: "/api/postsales/loans/submit", token: token, body: request)
-        let wrapper = try decode(LoanCaseEnvelope.self, from: data)
+        let wrapper = try await decode(LoanCaseEnvelope.self, from: data)
         guard wrapper.success else { throw MarketingAPIError.server(wrapper.error ?? "Failed to submit loan case") }
         return wrapper.loanCase
     }
@@ -341,7 +341,7 @@ enum PostSalesConvexAPIService {
         request.setValue(requestId, forHTTPHeaderField: "Idempotency-Key")
         request.httpBody = body
         let data = try await perform(request)
-        let wrapper = try decode(UploadLoanDocumentResponse.self, from: data)
+        let wrapper = try await decode(UploadLoanDocumentResponse.self, from: data)
         guard wrapper.success else {
             throw MarketingAPIError.server(wrapper.error ?? "Failed to attach document to loan case")
         }
@@ -353,7 +353,7 @@ enum PostSalesConvexAPIService {
         request: DeleteLoanDocumentRequest
     ) async throws -> DeleteLoanDocumentResponse {
         let data = try await post(path: "/api/postsales/loans/delete-document", token: token, body: request)
-        let wrapper = try decode(DeleteLoanDocumentResponse.self, from: data)
+        let wrapper = try await decode(DeleteLoanDocumentResponse.self, from: data)
         guard wrapper.success else {
             throw MarketingAPIError.server(wrapper.error ?? "Failed to delete document")
         }
@@ -363,7 +363,7 @@ enum PostSalesConvexAPIService {
     @discardableResult
     static func assignLoan(token: String, request: AssignLoanRequest) async throws -> LoanCaseRow? {
         let data = try await post(path: "/api/postsales/loans/assign", token: token, body: request)
-        let wrapper = try decode(LoanCaseEnvelope.self, from: data)
+        let wrapper = try await decode(LoanCaseEnvelope.self, from: data)
         guard wrapper.success else { throw MarketingAPIError.server(wrapper.error ?? "Failed to assign loan") }
         return wrapper.loanCase
     }
@@ -371,7 +371,7 @@ enum PostSalesConvexAPIService {
     @discardableResult
     static func legalAcceptLoan(token: String, loanCaseId: String) async throws -> LoanCaseRow? {
         let data = try await post(path: "/api/postsales/loans/accept", token: token, body: LoanCaseIdBody(loanCaseId: loanCaseId))
-        let wrapper = try decode(LoanCaseEnvelope.self, from: data)
+        let wrapper = try await decode(LoanCaseEnvelope.self, from: data)
         guard wrapper.success else { throw MarketingAPIError.server(wrapper.error ?? "Failed to accept loan") }
         return wrapper.loanCase
     }
@@ -383,14 +383,14 @@ enum PostSalesConvexAPIService {
             token: token,
             body: LegalRejectLoanRequest(loanCaseId: loanCaseId, remarks: remarks)
         )
-        let wrapper = try decode(LoanCaseEnvelope.self, from: data)
+        let wrapper = try await decode(LoanCaseEnvelope.self, from: data)
         guard wrapper.success else { throw MarketingAPIError.server(wrapper.error ?? "Failed to reject loan") }
         return wrapper.loanCase
     }
 
     private static func listLoanDesk(path: String, token: String) async throws -> [LoanCaseRow] {
         let data = try await get(path: path, token: token)
-        let wrapper = try decode(LoanDeskCasesResponse.self, from: data)
+        let wrapper = try await decode(LoanDeskCasesResponse.self, from: data)
         guard wrapper.success else { throw MarketingAPIError.server(wrapper.error ?? "Failed to load loan cases") }
         return wrapper.cases ?? []
     }
@@ -440,9 +440,9 @@ enum PostSalesConvexAPIService {
         return data
     }
 
-    private static func decode<T: Decodable>(_ type: T.Type, from data: Data) throws -> T {
+    private static func decode<T: Decodable>(_ type: T.Type, from data: Data) async throws -> T {
         do {
-            return try JSONDecoder().decode(type, from: data)
+            return try await BackgroundJSONDecoder.decode(type, from: data)
         } catch {
             throw MarketingAPIError.decoding(error)
         }
@@ -490,7 +490,7 @@ enum FleetConvexAPIService {
     static func listDriverTrips(token: String, scope: FleetDispatchScope = .mms) async throws -> [FleetDriverTrip] {
         let path = scope == .agency ? "/api/travel-desk/trips/driver" : "/api/mms-fleet/driver/trips"
         let data = try await get(path: path, token: token)
-        let wrapper = try decode(TripsResponse.self, from: data)
+        let wrapper = try await decode(TripsResponse.self, from: data)
         guard wrapper.success else { throw MarketingAPIError.server(wrapper.error ?? "Failed to load trips") }
         return wrapper.trips ?? []
     }
@@ -548,7 +548,7 @@ enum FleetConvexAPIService {
 
     private static func action<T: Encodable>(path: String, token: String, body: T) async throws -> FleetDriverTrip? {
         let data = try await post(path: path, token: token, body: body)
-        let wrapper = try decode(ActionResponse.self, from: data)
+        let wrapper = try await decode(ActionResponse.self, from: data)
         guard wrapper.success else { throw MarketingAPIError.server(wrapper.error ?? "Trip action failed") }
         return wrapper.trip
     }
@@ -596,9 +596,9 @@ enum FleetConvexAPIService {
         return data
     }
 
-    private static func decode<T: Decodable>(_ type: T.Type, from data: Data) throws -> T {
+    private static func decode<T: Decodable>(_ type: T.Type, from data: Data) async throws -> T {
         do {
-            return try JSONDecoder().decode(type, from: data)
+            return try await BackgroundJSONDecoder.decode(type, from: data)
         } catch {
             throw MarketingAPIError.decoding(error)
         }

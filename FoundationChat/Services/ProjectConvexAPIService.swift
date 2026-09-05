@@ -41,7 +41,7 @@ enum ProjectConvexAPIService {
 
     static func getMyProjects(token: String) async throws -> [ProjectSummary] {
         let data = try await get(path: "/api/projects", token: token)
-        let wrapper = try JSONDecoder().decode(MyProjectsResponse.self, from: data)
+        let wrapper = try await BackgroundJSONDecoder.decode(MyProjectsResponse.self, from: data)
         guard wrapper.success else {
             throw HRConvexAPIError.server(wrapper.error ?? "Failed to load projects")
         }
@@ -54,7 +54,7 @@ enum ProjectConvexAPIService {
             token: token,
             queryItems: [URLQueryItem(name: "id", value: id)]
         )
-        let wrapper = try JSONDecoder().decode(ProjectDetailResponse.self, from: data)
+        let wrapper = try await BackgroundJSONDecoder.decode(ProjectDetailResponse.self, from: data)
         guard wrapper.success, let project = wrapper.project else {
             throw HRConvexAPIError.server(wrapper.error ?? "Failed to load project")
         }
@@ -74,7 +74,7 @@ enum ProjectConvexAPIService {
         if let category, !category.isEmpty { queryItems.append(URLQueryItem(name: "category", value: category)) }
 
         let data = try await get(path: "/api/projects/expenses", token: token, queryItems: queryItems)
-        let wrapper = try JSONDecoder().decode(ProjectExpensesResponse.self, from: data)
+        let wrapper = try await BackgroundJSONDecoder.decode(ProjectExpensesResponse.self, from: data)
         guard wrapper.success else {
             throw HRConvexAPIError.server(wrapper.error ?? "Failed to load expenses")
         }
@@ -87,7 +87,7 @@ enum ProjectConvexAPIService {
             token: token,
             queryItems: [URLQueryItem(name: "id", value: id)]
         )
-        let wrapper = try JSONDecoder().decode(ProjectExpenseResponse.self, from: data)
+        let wrapper = try await BackgroundJSONDecoder.decode(ProjectExpenseResponse.self, from: data)
         guard wrapper.success, let expense = wrapper.expense else {
             throw HRConvexAPIError.server(wrapper.error ?? "Failed to load expense")
         }
@@ -118,7 +118,7 @@ enum ProjectConvexAPIService {
         if let receipts, !receipts.isEmpty { body["receipts"] = receiptPayload(receipts) }
 
         let data = try await post(path: "/api/projects/expenses/create", token: token, jsonBody: body)
-        let wrapper = try JSONDecoder().decode(ProjectExpenseMutationResponse.self, from: data)
+        let wrapper = try await BackgroundJSONDecoder.decode(ProjectExpenseMutationResponse.self, from: data)
         guard wrapper.success, let id = wrapper.id else {
             throw HRConvexAPIError.server(wrapper.error ?? "Failed to create expense")
         }
@@ -144,7 +144,7 @@ enum ProjectConvexAPIService {
         if let receipts { body["receipts"] = receiptPayload(receipts) }
 
         let data = try await post(path: "/api/projects/expenses/update", token: token, jsonBody: body)
-        let wrapper = try JSONDecoder().decode(ProjectExpenseMutationResponse.self, from: data)
+        let wrapper = try await BackgroundJSONDecoder.decode(ProjectExpenseMutationResponse.self, from: data)
         guard wrapper.success else {
             throw HRConvexAPIError.server(wrapper.error ?? "Failed to update expense")
         }
@@ -156,7 +156,7 @@ enum ProjectConvexAPIService {
             token: token,
             jsonBody: ["id": id, "paid": paid]
         )
-        let wrapper = try JSONDecoder().decode(ProjectExpenseMutationResponse.self, from: data)
+        let wrapper = try await BackgroundJSONDecoder.decode(ProjectExpenseMutationResponse.self, from: data)
         guard wrapper.success else {
             throw HRConvexAPIError.server(wrapper.error ?? "Failed to update paid status")
         }

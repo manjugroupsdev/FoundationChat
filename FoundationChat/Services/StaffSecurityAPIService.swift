@@ -201,7 +201,7 @@ enum StaffSecurityAPIService {
             let message = (try? JSONDecoder().decode(ActionResponse.self, from: data).error)
             throw StaffSecurityAPIError.server(message ?? "Request failed (\(statusCode))")
         }
-        return try JSONDecoder().decode(T.self, from: data)
+        return try await BackgroundJSONDecoder.decode(T.self, from: data)
     }
 
     private static func encoded(_ value: String) throws -> String {
