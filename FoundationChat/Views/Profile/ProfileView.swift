@@ -167,9 +167,15 @@ struct ProfileView: View {
     let version = Bundle.main.infoDictionary?["CFBundleShortVersionString"] as? String
     let build = Bundle.main.infoDictionary?["CFBundleVersion"] as? String
     if let version, !version.isEmpty {
-      return build?.isEmpty == false ? "v.\(version)" : "v.\(version)"
+      if let build, !build.isEmpty {
+        return "v\(version) (\(build))"
+      }
+      return "v\(version)"
     }
-    return build?.isEmpty == false ? "v.\(build!)" : "v.1.0"
+    if let build, !build.isEmpty {
+      return "Build \(build)"
+    }
+    return "Unknown"
   }
 }
 

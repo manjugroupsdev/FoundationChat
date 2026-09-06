@@ -1847,7 +1847,12 @@ private struct FleetPortalSettingsView: View {
 
     private var appVersion: String {
         let version = Bundle.main.infoDictionary?["CFBundleShortVersionString"] as? String
-        return "v.\(version?.nonBlank ?? "1.0")"
+        let build = Bundle.main.infoDictionary?["CFBundleVersion"] as? String
+        let displayVersion = version?.nonBlank ?? "1.0"
+        if let displayBuild = build?.nonBlank {
+            return "v\(displayVersion) (\(displayBuild))"
+        }
+        return "v\(displayVersion)"
     }
 }
 

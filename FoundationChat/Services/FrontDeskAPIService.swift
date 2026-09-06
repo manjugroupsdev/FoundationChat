@@ -168,7 +168,7 @@ enum FrontDeskAPIService {
         let (data, response) = try await URLSession.shared.data(for: request)
         guard let http = response as? HTTPURLResponse else { return data }
         if http.statusCode == 401 {
-            SessionInvalidationBus.emit(for: request)
+            SessionInvalidationBus.emit(for: request, responseData: data)
             throw FrontDeskAPIError.unauthorized
         }
         guard (200..<300).contains(http.statusCode) else {

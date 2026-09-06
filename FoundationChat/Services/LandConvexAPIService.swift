@@ -122,7 +122,7 @@ enum LandConvexAPIService {
         let (data, response) = try await URLSession.shared.data(for: request)
         if let http = response as? HTTPURLResponse {
             if http.statusCode == 401 {
-                SessionInvalidationBus.emit(for: request)
+                SessionInvalidationBus.emit(for: request, responseData: data)
                 throw MarketingAPIError.unauthorized
             }
             if http.statusCode >= 400 {

@@ -241,7 +241,7 @@ enum AuthAPIService {
 
     let (data, response) = try await URLSession.shared.data(for: request)
     if (response as? HTTPURLResponse)?.statusCode == 401 {
-      SessionInvalidationBus.emit(for: request)
+      SessionInvalidationBus.emit(for: request, responseData: data)
     }
     let decoded = try await BackgroundJSONDecoder.decode(SimpleResponse.self, from: data)
     guard decoded.success else {
@@ -262,7 +262,7 @@ enum AuthAPIService {
     let (data, response) = try await URLSession.shared.data(for: request)
     let statusCode = (response as? HTTPURLResponse)?.statusCode ?? 0
     if statusCode == 401 {
-      SessionInvalidationBus.emit(for: request)
+      SessionInvalidationBus.emit(for: request, responseData: data)
       let decoded = try? await BackgroundJSONDecoder.decode(ValidateSessionResponse.self, from: data)
       throw AuthAPIError.sessionInvalid(decoded?.error ?? "Invalid or expired session")
     }
@@ -289,7 +289,7 @@ enum AuthAPIService {
 
     let (data, response) = try await URLSession.shared.data(for: request)
     if (response as? HTTPURLResponse)?.statusCode == 401 {
-      SessionInvalidationBus.emit(for: request)
+      SessionInvalidationBus.emit(for: request, responseData: data)
     }
     let decoded = try await BackgroundJSONDecoder.decode(MyIAMPermissionsResponse.self, from: data)
 
