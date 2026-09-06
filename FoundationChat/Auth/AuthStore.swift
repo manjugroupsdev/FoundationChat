@@ -180,11 +180,21 @@ final class AuthStore {
       )
       await finalizeAuthenticatedSession(refreshed)
     } catch {
-      try? tokenStore.clear()
-      markInstallSeen()
-      currentSession = nil
-      viewer = nil
-      status = .signedOut
+      if let authError = error as? AuthAPIError,
+         case .sessionInvalid(let message) = authError {
+        expireSession(message: message)
+      } else if currentSession != nil {
+        // DNS, timeout, server and decoding failures do not prove that the
+        // saved MMS token is invalid. Keep the cache-first session and let
+        // normal foreground requests retry instead of logging the user out.
+        status = .signedIn
+      } else {
+        // The stored Keychain payload itself could not be loaded/decoded.
+        try? tokenStore.clear()
+        markInstallSeen()
+        viewer = nil
+        status = .signedOut
+      }
     }
   }
 

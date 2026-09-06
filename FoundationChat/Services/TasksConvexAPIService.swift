@@ -272,7 +272,7 @@ enum TasksConvexAPIService {
         request.httpMethod = "GET"
         request.setValue("Bearer \(token)", forHTTPHeaderField: "Authorization")
         let (data, response) = try await URLSession.shared.data(for: request)
-        try checkHTTPError(data: data, response: response)
+        try checkHTTPError(data: data, response: response, request: request)
         return data
     }
 
@@ -284,14 +284,14 @@ enum TasksConvexAPIService {
         request.setValue("application/json", forHTTPHeaderField: "Content-Type")
         request.httpBody = try JSONSerialization.data(withJSONObject: jsonBody)
         let (data, response) = try await URLSession.shared.data(for: request)
-        try checkHTTPError(data: data, response: response)
+        try checkHTTPError(data: data, response: response, request: request)
         return data
     }
 
-    private static func checkHTTPError(data: Data, response: URLResponse) throws {
+    private static func checkHTTPError(data: Data, response: URLResponse, request: URLRequest) throws {
         guard let http = response as? HTTPURLResponse else { return }
         if http.statusCode == 401 {
-            SessionInvalidationBus.emit()
+            SessionInvalidationBus.emit(for: request)
             if let json = try? JSONSerialization.jsonObject(with: data) as? [String: Any],
                let error = json["error"] as? String {
                 throw HRConvexAPIError.unauthorized(error)

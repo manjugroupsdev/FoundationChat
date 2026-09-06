@@ -58,8 +58,9 @@ struct AuthRootView: View {
             #if DEBUG
             guard authStore.currentSession?.token != "FCQA_STUB_TOKEN" else { return }
             #endif
-            let message = notification.object as? String ?? "Session expired. Please sign in again."
-            authStore.expireSession(message: message)
+            guard let event = notification.object as? SessionInvalidationBus.Event,
+                  event.matches(currentToken: authStore.currentSession?.token) else { return }
+            authStore.expireSession(message: event.reason)
         }
         .onReceive(NotificationCenter.default.publisher(for: .didReceiveGeoTrackSyncPush)) { notification in
             guard authStore.status == .signedIn, !authStore.passwordChangeRequired else { return }

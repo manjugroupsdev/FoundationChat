@@ -102,7 +102,7 @@ enum PostSalesStorageService {
         let (data, response) = try await URLSession.shared.data(for: request)
         if let http = response as? HTTPURLResponse {
             if http.statusCode == 401 {
-                SessionInvalidationBus.emit()
+                SessionInvalidationBus.emit(for: request)
                 throw MarketingAPIError.unauthorized
             }
             guard (200..<300).contains(http.statusCode) else {
@@ -419,7 +419,7 @@ enum PostSalesConvexAPIService {
         let (data, response) = try await URLSession.shared.data(for: request)
         if let http = response as? HTTPURLResponse {
             if http.statusCode == 401 {
-                SessionInvalidationBus.emit()
+                SessionInvalidationBus.emit(for: request)
                 throw MarketingAPIError.unauthorized
             }
             guard (200..<300).contains(http.statusCode) else {
@@ -575,7 +575,7 @@ enum FleetConvexAPIService {
         let (data, response) = try await URLSession.shared.data(for: request)
         if let http = response as? HTTPURLResponse {
             if http.statusCode == 401 {
-                SessionInvalidationBus.emit()
+                SessionInvalidationBus.emit(for: request)
                 throw MarketingAPIError.unauthorized
             }
             guard (200..<300).contains(http.statusCode) else {

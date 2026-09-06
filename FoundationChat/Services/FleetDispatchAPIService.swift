@@ -703,7 +703,7 @@ enum FleetDispatchAPIService {
         let (data, response) = try await URLSession.shared.data(for: request)
         guard let http = response as? HTTPURLResponse else { return data }
         if http.statusCode == 401 {
-            SessionInvalidationBus.emit()
+            SessionInvalidationBus.emit(for: request)
             throw FleetDispatchAPIError.unauthorized
         }
         guard (200..<300).contains(http.statusCode) else {

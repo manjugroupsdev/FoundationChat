@@ -145,7 +145,7 @@ final class GeoTrackAPIService {
         let isAuthenticatedMMSRequest = request.value(forHTTPHeaderField: "Authorization") != nil
             && request.url?.host?.caseInsensitiveCompare(authorityHost ?? "") == .orderedSame
         if http.statusCode == 401 && isAuthenticatedMMSRequest {
-            SessionInvalidationBus.emit()
+            SessionInvalidationBus.emit(for: request)
         }
         guard (200..<300).contains(http.statusCode) else {
             if let envelope = try? JSONDecoder().decode(ErrorEnvelope.self, from: data),
