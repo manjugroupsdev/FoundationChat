@@ -435,24 +435,61 @@ struct FlexibleDisplayText: Codable, Sendable {
             value = string
             return
         }
+        if let boolean = try? single.decode(Bool.self) {
+            value = String(boolean)
+            return
+        }
+        if let integer = try? single.decode(Int64.self) {
+            value = String(integer)
+            return
+        }
+        if let number = try? single.decode(Double.self) {
+            value = String(number)
+            return
+        }
 
-        let container = try decoder.container(keyedBy: DynamicCodingKey.self)
+        guard let container = try? decoder.container(keyedBy: DynamicCodingKey.self) else {
+            value = nil
+            return
+        }
         let preferred = ["summary", "text", "label", "outcome", "notes", "value"]
         for keyName in preferred {
             guard let key = DynamicCodingKey(stringValue: keyName) else { continue }
-            if let string = try? container.decode(String.self, forKey: key), !string.isEmpty {
-                value = string
+            if let displayValue = Self.displayValue(in: container, forKey: key), !displayValue.isEmpty {
+                value = displayValue
                 return
             }
         }
-        value = container.allKeys.compactMap { key in
-            (try? container.decode(String.self, forKey: key))?.trimmingCharacters(in: .whitespacesAndNewlines)
-        }.first { !$0.isEmpty }
+        let values = container.allKeys.compactMap { Self.displayValue(in: container, forKey: $0) }
+            .filter { !$0.isEmpty }
+        let combined = values.reduce(into: [String]()) { result, item in
+            if !result.contains(item) { result.append(item) }
+        }.joined(separator: " • ")
+        value = combined.isEmpty ? nil : combined
     }
 
     func encode(to encoder: Encoder) throws {
         var container = encoder.singleValueContainer()
         if let value { try container.encode(value) } else { try container.encodeNil() }
+    }
+
+    private static func displayValue(
+        in container: KeyedDecodingContainer<DynamicCodingKey>,
+        forKey key: DynamicCodingKey
+    ) -> String? {
+        if let string = try? container.decode(String.self, forKey: key) {
+            return string.trimmingCharacters(in: .whitespacesAndNewlines)
+        }
+        if let boolean = try? container.decode(Bool.self, forKey: key) {
+            return String(boolean)
+        }
+        if let integer = try? container.decode(Int64.self, forKey: key) {
+            return String(integer)
+        }
+        if let number = try? container.decode(Double.self, forKey: key) {
+            return String(number)
+        }
+        return nil
     }
 }
 

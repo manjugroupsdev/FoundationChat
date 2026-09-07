@@ -904,11 +904,11 @@ struct TripNavigationView: View {
         if workflow.actorRole == "reviewer" {
             let owner = workflow.outcomeOwnerName?.trimmingCharacters(in: .whitespacesAndNewlines)
             if let owner, !owner.isEmpty {
-                return workflow.canReview
+                return workflow.canReview == true
                     ? "Review \(owner)'s outcome"
                     : "Waiting for \(owner) to submit the outcome"
             }
-            return workflow.canReview
+            return workflow.canReview == true
                 ? "Review the outcome owner's submission"
                 : "Waiting for the outcome owner to submit"
         }
