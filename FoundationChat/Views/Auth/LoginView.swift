@@ -77,7 +77,11 @@ struct LoginView: View {
     // MARK: - Bottom Sheet
 
     private func sheetHeight(_ geo: GeometryProxy) -> CGFloat {
-        step == .phone ? geo.size.height * 0.60 : geo.size.height * 0.62
+        switch step {
+        case .phone: return geo.size.height * 0.60
+        case .otp: return geo.size.height * 0.62
+        case .employee: return geo.size.height * 0.70
+        }
     }
 
     private func bottomSheet(geo: GeometryProxy) -> some View {
@@ -324,6 +328,12 @@ struct LoginView: View {
             .buttonStyle(.plain)
             .frame(maxWidth: .infinity)
         }
+        .onChange(of: employeeId) { _, _ in
+            authStore.clearError()
+        }
+        .onChange(of: employeePassword) { _, _ in
+            authStore.clearError()
+        }
     }
 
     private var employeeTextField: some View {
@@ -486,6 +496,7 @@ struct LoginView: View {
             // Change phone (back)
             Button {
                 withAnimation(.spring(response: 0.35)) {
+                    authStore.clearError()
                     step = .phone
                     otpDigits = Array(repeating: "", count: 6)
                 }

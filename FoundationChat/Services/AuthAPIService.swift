@@ -12,6 +12,8 @@ enum AuthAPIService {
     let success: Bool
     let message: String?
     let error: String?
+    let code: String?
+    let boundAccountName: String?
   }
 
   private struct VerifyOTPResponse: Decodable {
@@ -19,6 +21,10 @@ enum AuthAPIService {
     let token: String?
     let user: AuthUser?
     let error: String?
+    let code: String?
+    let recoveryToken: String?
+    let recoveryExpiresInSeconds: Int?
+    let boundAccountName: String?
   }
 
   private struct TravelDeskAuthUser: Decodable {
@@ -42,6 +48,32 @@ enum AuthAPIService {
     let mustChangePassword: Bool?
     let error: String?
     let message: String?
+    let code: String?
+    let boundAccountName: String?
+  }
+
+  private struct DeviceRecoveryRequestResponse: Decodable {
+    struct Delivery: Decodable {
+      let channel: String?
+      let maskedDestination: String?
+    }
+    let success: Bool
+    let challengeId: String?
+    let expiresInSeconds: Int?
+    let delivery: Delivery?
+    let error: String?
+    let code: String?
+  }
+
+  private struct DeviceRecoveryConfirmResponse: Decodable {
+    let success: Bool
+    let recovered: Bool?
+    let bindingStatus: String?
+    let token: String?
+    let user: AuthUser?
+    let mustChangePassword: Bool?
+    let error: String?
+    let code: String?
   }
 
   private struct SimpleResponse: Decodable {
@@ -76,12 +108,25 @@ enum AuthAPIService {
   /// Send an OTP to the given 10-digit phone number.
   static func sendOTP(phone: String) async throws {
     let url = URL(string: "\(baseURL)/api/auth/send-otp")!
-    let body: [String: Any] = ["phone": phone]
+    var body: [String: Any] = ["phone": phone, "deviceType": "mobile"]
+    if let device = LoginDeviceInfo.capture() {
+      body["deviceId"] = device.deviceId
+      body["devicePlatform"] = device.platform
+      body["deviceModel"] = device.model
+    }
 
     let (data, response) = try await postWithInitialConnectionRetry(url: url, jsonBody: body)
     let decoded = try await BackgroundJSONDecoder.decode(SendOTPResponse.self, from: data)
 
     guard decoded.success else {
+      if decoded.code == "DEVICE_BOUND_TO_ANOTHER_ACCOUNT" {
+        let owner = decoded.boundAccountName?.trimmingCharacters(in: .whitespacesAndNewlines)
+        throw AuthAPIError.deviceLinkedToAnotherAccount(
+          owner.flatMap { $0.isEmpty ? nil : $0 }.map {
+            "This phone is already linked to \($0). Sign in with that account or contact admin."
+          } ?? "This phone is already linked to another staff account. Sign in with that account or contact admin."
+        )
+      }
       throw AuthAPIError.server(
         decoded.error ?? decoded.message ?? "Failed to send OTP",
         statusCode: (response as? HTTPURLResponse)?.statusCode ?? 0
@@ -109,12 +154,13 @@ enum AuthAPIService {
   /// Verify the OTP and return the session (token + user).
   static func verifyOTP(phone: String, otp: String) async throws -> OtpSession {
     let url = URL(string: "\(baseURL)/api/auth/verify-otp")!
-    var body: [String: Any] = ["phone": phone, "otp": otp]
+    var body: [String: Any] = ["phone": phone, "otp": otp, "deviceType": "mobile"]
+    let device = LoginDeviceInfo.capture()
 
     // Device-binding telemetry: lets the backend lock a staff account to one
     // mobile device. All fields are optional — when `deviceId` can't be read
     // we send none and the backend treats their absence as a grace path.
-    if let device = LoginDeviceInfo.capture() {
+    if let device {
       body["deviceId"] = device.deviceId
       body["devicePlatform"] = device.platform
       body["deviceModel"] = device.model
@@ -127,6 +173,27 @@ enum AuthAPIService {
     let decoded = try await BackgroundJSONDecoder.decode(VerifyOTPResponse.self, from: data)
 
     guard decoded.success, let token = decoded.token, let user = decoded.user else {
+      if decoded.code == "DEVICE_BOUND_TO_ANOTHER_ACCOUNT" {
+        throw AuthAPIError.deviceLinkedToAnotherAccount(
+          decoded.error ?? "This phone is already linked to another staff account."
+        )
+      }
+      if isDeviceBoundResponse(code: decoded.code, message: decoded.error) {
+        if let recoveryToken = decoded.recoveryToken?.recoveryNonBlank,
+           let device {
+          throw AuthAPIError.otpDeviceRecoveryRequired(
+            OtpDeviceRecoveryChallenge(
+              recoveryToken: recoveryToken,
+              expiresInSeconds: decoded.recoveryExpiresInSeconds ?? 300,
+              device: device
+            ),
+            "Your OTP is verified. Please verify this phone to continue."
+          )
+        }
+        throw AuthAPIError.deviceBound(
+          "\(decoded.error ?? "We could not match this installation to the registered device.") Use Employee ID sign-in and verify this device."
+        )
+      }
       throw AuthAPIError.server(
         decoded.error ?? "Verification failed",
         statusCode: (response as? HTTPURLResponse)?.statusCode ?? 0
@@ -175,7 +242,11 @@ enum AuthAPIService {
   /// `POST /api/auth/login-with-employee-id`.
   static func loginWithEmployeeId(employeeId: String, password: String) async throws -> OtpSession {
     let url = URL(string: "\(baseURL)/api/auth/login-with-employee-id")!
-    var body: [String: Any] = ["employeeId": employeeId, "password": password]
+    var body: [String: Any] = [
+      "employeeId": employeeId,
+      "password": password,
+      "deviceType": "mobile",
+    ]
 
     // Device-binding telemetry: the password login is locked to the same device
     // as the OTP login. Omitted when a device id can't be read (grace path).
@@ -192,12 +263,122 @@ enum AuthAPIService {
     let decoded = try await BackgroundJSONDecoder.decode(EmployeePasswordLoginResponse.self, from: data)
 
     guard decoded.success, let token = decoded.token, let user = decoded.user else {
+      if decoded.code == "DEVICE_BOUND_TO_ANOTHER_ACCOUNT" {
+        throw AuthAPIError.deviceLinkedToAnotherAccount(
+          decoded.error ?? "This phone is already linked to another staff account."
+        )
+      }
+      if isDeviceBoundResponse(
+        code: decoded.code,
+        message: decoded.error ?? decoded.message
+      ) {
+        throw AuthAPIError.deviceBound(
+          "Please verify this phone using the OTP sent to your registered number."
+        )
+      }
       throw AuthAPIError.server(
         decoded.error ?? decoded.message ?? "Login failed",
         statusCode: (response as? HTTPURLResponse)?.statusCode ?? 0
       )
     }
 
+    let mustChangePassword = decoded.mustChangePassword == true || user.mustChangePassword == true
+    return OtpSession(token: token, user: user, mustChangePassword: mustChangePassword)
+  }
+
+  static func requestDeviceRecovery(
+    employeeId: String,
+    password: String
+  ) async throws -> DeviceRecoveryChallenge {
+    guard let device = LoginDeviceInfo.capture() else {
+      throw AuthAPIError.server(
+        "This device could not be verified. Ask admin to reset your mobile device lock.",
+        statusCode: 0
+      )
+    }
+    let url = URL(string: "\(baseURL)/api/auth/device-binding/recovery/request")!
+    let (data, response) = try await post(
+      url: url,
+      jsonBody: [
+        "employeeId": employeeId,
+        "password": password,
+        "deviceId": device.deviceId,
+        "devicePlatform": device.platform,
+        "deviceModel": device.model,
+      ]
+    )
+    let decoded = try await BackgroundJSONDecoder.decode(DeviceRecoveryRequestResponse.self, from: data)
+    guard decoded.success, let challengeId = decoded.challengeId?.recoveryNonBlank else {
+      throw AuthAPIError.server(
+        decoded.error ?? "Device recovery could not be started. Please try again.",
+        statusCode: (response as? HTTPURLResponse)?.statusCode ?? 0
+      )
+    }
+    return DeviceRecoveryChallenge(
+      id: challengeId,
+      maskedDestination: decoded.delivery?.maskedDestination,
+      expiresInSeconds: decoded.expiresInSeconds ?? 300
+    )
+  }
+
+  static func confirmDeviceRecovery(
+    challengeId: String,
+    otp: String
+  ) async throws -> OtpSession {
+    guard let device = LoginDeviceInfo.capture() else {
+      throw AuthAPIError.server(
+        "This device could not be verified. Ask admin to reset your mobile device lock.",
+        statusCode: 0
+      )
+    }
+    let url = URL(string: "\(baseURL)/api/auth/device-binding/recovery/confirm")!
+    let (data, response) = try await post(
+      url: url,
+      jsonBody: [
+        "challengeId": challengeId,
+        "otp": otp,
+        "deviceId": device.deviceId,
+        "devicePlatform": device.platform,
+        "deviceModel": device.model,
+      ]
+    )
+    let decoded = try await BackgroundJSONDecoder.decode(DeviceRecoveryConfirmResponse.self, from: data)
+    guard decoded.success,
+          decoded.recovered == true,
+          let token = decoded.token?.recoveryNonBlank,
+          let user = decoded.user else {
+      throw AuthAPIError.server(
+        decoded.error ?? "Recovery verification failed. Please try again.",
+        statusCode: (response as? HTTPURLResponse)?.statusCode ?? 0
+      )
+    }
+    let mustChangePassword = decoded.mustChangePassword == true || user.mustChangePassword == true
+    return OtpSession(token: token, user: user, mustChangePassword: mustChangePassword)
+  }
+
+  static func confirmVerifiedOtpDeviceRecovery(
+    challenge: OtpDeviceRecoveryChallenge
+  ) async throws -> OtpSession {
+    let url = URL(string: "\(baseURL)/api/auth/device-binding/recovery/confirm-verified-otp")!
+    let (data, response) = try await post(
+      url: url,
+      jsonBody: [
+        "recoveryToken": challenge.recoveryToken,
+        "deviceId": challenge.device.deviceId,
+        "devicePlatform": challenge.device.platform,
+        "deviceModel": challenge.device.model,
+      ]
+    )
+    let decoded = try await BackgroundJSONDecoder.decode(DeviceRecoveryConfirmResponse.self, from: data)
+    guard decoded.success,
+          decoded.recovered == true,
+          let token = decoded.token?.recoveryNonBlank,
+          let user = decoded.user else {
+      throw AuthAPIError.server(
+        decoded.error ?? "Device recovery failed. Please retry login.",
+        statusCode: (response as? HTTPURLResponse)?.statusCode ?? 0
+      )
+    }
     let mustChangePassword = decoded.mustChangePassword == true || user.mustChangePassword == true
     return OtpSession(token: token, user: user, mustChangePassword: mustChangePassword)
   }
@@ -369,13 +550,20 @@ enum AuthAPIService {
       return try await post(url: url, jsonBody: jsonBody)
     }
   }
+
+  private static func isDeviceBoundResponse(code: String?, message: String?) -> Bool {
+    if code == "DEVICE_BOUND_TO_OTHER_DEVICE" { return true }
+    let normalized = message?.trimmingCharacters(in: .whitespacesAndNewlines).lowercased() ?? ""
+    return normalized.hasPrefix("this account is already locked to another device")
+      || normalized.hasPrefix("this account is bound to another device")
+  }
 }
 
 // MARK: - Device-binding telemetry
 
 /// Snapshot of the current device used to bind a staff account to a single
 /// phone on OTP login. Mirrors the Android + backend `verify-otp` device fields.
-struct LoginDeviceInfo {
+struct LoginDeviceInfo: Sendable, Equatable {
   let deviceId: String
   let platform: String
   let model: String
@@ -471,11 +659,36 @@ struct LoginDeviceInfo {
 enum AuthAPIError: LocalizedError {
   case server(String, statusCode: Int)
   case sessionInvalid(String)
+  case deviceBound(String)
+  case otpDeviceRecoveryRequired(OtpDeviceRecoveryChallenge, String)
+  case deviceLinkedToAnotherAccount(String)
 
   var errorDescription: String? {
     switch self {
     case .server(let msg, _): return msg
     case .sessionInvalid(let msg): return msg
+    case .deviceBound(let msg): return msg
+    case .otpDeviceRecoveryRequired(_, let msg): return msg
+    case .deviceLinkedToAnotherAccount(let msg): return msg
     }
+  }
+}
+
+struct DeviceRecoveryChallenge: Sendable, Equatable {
+  let id: String
+  let maskedDestination: String?
+  let expiresInSeconds: Int
+}
+
+struct OtpDeviceRecoveryChallenge: Sendable, Equatable {
+  let recoveryToken: String
+  let expiresInSeconds: Int
+  let device: LoginDeviceInfo
+}
+
+private extension String {
+  var recoveryNonBlank: String? {
+    let value = trimmingCharacters(in: .whitespacesAndNewlines)
+    return value.isEmpty ? nil : value
   }
 }

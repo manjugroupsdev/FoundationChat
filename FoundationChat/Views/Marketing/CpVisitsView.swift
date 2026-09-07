@@ -2207,6 +2207,7 @@ private struct CreateCpVisitSheet: View {
                     projectPicker
                     if isJointCp {
                         jointPartnerPicker
+                        jointRoleAssignment
                     }
                     cpDatePicker
 
@@ -2363,15 +2364,26 @@ private struct CreateCpVisitSheet: View {
             NativeSearchableSelectionSheet(
                 title: "Select the second staff",
                 prompt: "Search staff",
-                items: eligibleJointPartners,
+                items: staff,
                 selectedId: selectedJointPartner?.id,
                 searchText: { item in
-                    [item.displayName, item.designation, item.phone].compactMap(\.self).joined(separator: " ")
+                    [
+                        item.displayName,
+                        item.iamTemplateName,
+                        item.iamTemplateLevel.map { String($0) },
+                        item.designation,
+                        item.phone
+                    ].compactMap(\.self).joined(separator: " ")
                 },
                 rowContent: { item, isSelected in
                     staffSelectionRow(item, isSelected: isSelected)
                 },
                 onSelect: { item in
+                    if let validation = jointTemplateValidationError(primary: selectedStaff, partner: item) {
+                        showJointPartnerPicker = false
+                        DispatchQueue.main.async { errorMessage = validation }
+                        return
+                    }
                     selectedJointPartner = item
                     showJointPartnerPicker = false
                 }
@@ -2529,9 +2541,9 @@ private struct CreateCpVisitSheet: View {
         }
     }
 
-    /// Second participant, shown only for a Joint CP. Excludes whoever is
-    /// already the field staff — the same person twice is not a joint visit and
-    /// the server requires two different active staff.
+    /// Second participant, shown only for a Joint CP. Invalid selections stay
+    /// visible so equal-level, missing-level, and same-staff cases can explain
+    /// exactly why the server will reject them.
     private var jointPartnerPicker: some View {
         pickerShell(title: "Joint CP Partner *", icon: "person.2") {
             Button {
@@ -2541,6 +2553,26 @@ private struct CreateCpVisitSheet: View {
             }
             .buttonStyle(.plain)
             .disabled(isLoadingStaff || staff.isEmpty)
+        }
+    }
+
+    @ViewBuilder
+    private var jointRoleAssignment: some View {
+        if let assignment = jointTemplateAssignment {
+            VStack(alignment: .leading, spacing: 5) {
+                Text("Outcome & OTP: \(assignment.outcomeOwner.displayName)")
+                Text("Remarks, review & complete: \(assignment.reviewer.displayName)")
+            }
+            .font(.system(size: 11, weight: .medium))
+            .foregroundStyle(.secondary)
+            .frame(maxWidth: .infinity, alignment: .leading)
+            .padding(.horizontal, 14)
+        } else {
+            Text("Select staff at different IAM levels to assign the Joint CP workflow.")
+                .font(.system(size: 11, weight: .medium))
+                .foregroundStyle(.secondary)
+                .frame(maxWidth: .infinity, alignment: .leading)
+                .padding(.horizontal, 14)
         }
     }
 
@@ -2684,11 +2716,18 @@ private struct CreateCpVisitSheet: View {
         }
     }
 
-    /// Template identity is admin-owned and is the only valid way to compare
-    /// Joint CP levels. Displayed designation text is deliberately ignored.
-    private var eligibleJointPartners: [ConvexStaffListItem] {
-        guard let primary = selectedStaff else { return [] }
-        return staff.filter { jointTemplateValidationError(primary: primary, partner: $0) == nil }
+    private var jointTemplateAssignment: (
+        outcomeOwner: ConvexStaffListItem,
+        reviewer: ConvexStaffListItem
+    )? {
+        guard let primary = selectedStaff,
+              let partner = selectedJointPartner,
+              jointTemplateValidationError(primary: primary, partner: partner) == nil,
+              let primaryLevel = primary.iamTemplateLevel,
+              let partnerLevel = partner.iamTemplateLevel else { return nil }
+        return primaryLevel < partnerLevel
+            ? (primary, partner)
+            : (partner, primary)
     }
 
     private func jointTemplateValidationError(
@@ -2701,30 +2740,12 @@ private struct CreateCpVisitSheet: View {
         guard primary.id != partner.id else {
             return "Pick two different staff for a Joint CP"
         }
-        guard let firstTemplate = primary.iamTemplateId?.nonBlank,
-              let secondTemplate = partner.iamTemplateId?.nonBlank
-        else {
-            return "Both staff need an IAM template before creating a Joint CP"
-        }
-        guard firstTemplate != secondTemplate else {
-            let label = primary.iamTemplateName?.nonBlank
-                ?? partner.iamTemplateName?.nonBlank
-                ?? "the same IAM template"
-            return "Joint CP partners cannot both use \(label)"
-        }
         guard let firstLevel = primary.iamTemplateLevel,
               let secondLevel = partner.iamTemplateLevel else {
-            return "Both IAM templates need a Joint CP level"
+            return "Joint CP level is missing for one of these staff. Ask admin to update the IAM template"
         }
         guard firstLevel != secondLevel else {
-            return "Joint CP partners cannot be on the same IAM template level"
-        }
-        let roles = Set([
-            primary.jointCpWorkflowRole?.lowercased(),
-            partner.jointCpWorkflowRole?.lowercased()
-        ].compactMap { $0?.nonBlank })
-        guard roles == Set(["outcome_owner", "reviewer"]) else {
-            return "Choose one outcome owner and one reviewer from their IAM templates"
+            return "Both staff have the same designation level. Select one higher-level and one lower-level staff member"
         }
         return nil
     }

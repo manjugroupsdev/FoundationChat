@@ -274,7 +274,12 @@ struct ProfileEditView: View {
           guard let token = authStore.currentSession?.token else {
             throw AuthStoreError.sessionNotAvailable
           }
-          newPhotoStorageId = try await HRConvexAPIService.uploadPhoto(token: token, imageData: pendingPhotoData)
+          newPhotoStorageId = try await HRConvexAPIService.uploadPhoto(
+            token: token,
+            imageData: pendingPhotoData,
+            fileName: "profile-photo.jpg",
+            purpose: .staffDocument
+          )
         }
         _ = try await authStore.updateProfile(
           name: trimmedName,

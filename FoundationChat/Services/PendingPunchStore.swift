@@ -300,7 +300,12 @@ actor PendingPunchSyncCoordinator {
                 var storageId: String?
                 if let path = punch.photoPath,
                    let data = try? Data(contentsOf: URL(fileURLWithPath: path)) {
-                    storageId = try? await HRConvexAPIService.uploadPhoto(token: token, imageData: data)
+                    storageId = try? await HRConvexAPIService.uploadPhoto(
+                        token: token,
+                        imageData: data,
+                        fileName: "attendance-photo.jpg",
+                        purpose: .attendancePhoto
+                    )
                 }
 
                 if punch.isPunchIn {

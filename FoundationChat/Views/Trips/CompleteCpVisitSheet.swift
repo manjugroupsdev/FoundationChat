@@ -1801,7 +1801,7 @@ struct CompleteCpVisitSheet: View {
     private var jointFinalTitle: String? {
         switch jointCtaMode {
         case "send_review": return "Send Review"
-        case "complete_review": return "Complete"
+        case "complete_review": return "Review & continue"
         default: return nil
         }
     }

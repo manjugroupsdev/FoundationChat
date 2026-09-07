@@ -524,6 +524,7 @@ struct JointCpSubmitReviewRequest: Encodable, Sendable {
 struct JointCpCompleteReviewRequest: Encodable, Sendable {
     let id: String
     let expectedOutcomeRevision: Int64
+    let reviewerRemark: String
 }
 
 struct CpVisitProject: Codable, Sendable {

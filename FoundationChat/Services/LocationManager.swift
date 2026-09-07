@@ -8,6 +8,7 @@ import UIKit
 final class LocationTracker: NSObject {
     private let locationManager = CLLocationManager()
     private var uploadTask: Task<Void, Never>?
+    private var attendanceBoundaryTask: Task<Void, Never>?
 
     private static let batchSize = 200
     // Drain up to this many batches per upload cycle so a long offline period
@@ -21,6 +22,7 @@ final class LocationTracker: NSObject {
     private static let backgroundDistanceFilter: CLLocationDistance = 100
     private static let minimumPointInterval: TimeInterval = 10
     private var lastRecordedDate: Date?
+    private var verifiedAttendanceDay: String?
 
     private let persistence: GeoTrackPersistence
     private let geoAPI: GeoTrackAPIService
@@ -119,7 +121,15 @@ final class LocationTracker: NSObject {
 
         isTracking = true
         tripStartTime = Date()
+        verifiedAttendanceDay = Self.indiaDayKey()
         previousAuthStatus = status
+        heartbeat.shouldSend = { [weak self] in
+            self?.isInsideVerifiedAttendanceDay == true
+        }
+        heartbeat.onSendBlocked = { [weak self] in
+            Task { await self?.stopAndFinalize() }
+        }
+        scheduleAttendanceDayBoundaryStop()
 
         // Start tamper monitoring, heartbeat loop, and activity recognition
         tamperMonitor.start(currentAuthStatus: status)
@@ -223,6 +233,9 @@ final class LocationTracker: NSObject {
         }
         uploadTask?.cancel()
         uploadTask = nil
+        attendanceBoundaryTask?.cancel()
+        attendanceBoundaryTask = nil
+        verifiedAttendanceDay = nil
         NotificationCenter.default.removeObserver(self)
     }
 
@@ -244,14 +257,54 @@ final class LocationTracker: NSObject {
             while !Task.isCancelled {
                 try? await Task.sleep(for: .seconds(Self.uploadInterval))
                 guard !Task.isCancelled else { break }
+                guard self?.isInsideVerifiedAttendanceDay == true else {
+                    await self?.stopAndFinalize()
+                    break
+                }
                 await self?.flushWaypoints()
             }
         }
     }
 
+    private var isInsideVerifiedAttendanceDay: Bool {
+        guard let verifiedAttendanceDay else { return false }
+        return Self.indiaDayKey() == verifiedAttendanceDay
+    }
+
+    private func scheduleAttendanceDayBoundaryStop() {
+        attendanceBoundaryTask?.cancel()
+        let delay = Self.secondsUntilNextIndiaDay()
+        attendanceBoundaryTask = Task { [weak self] in
+            try? await Task.sleep(for: .seconds(delay))
+            guard !Task.isCancelled else { return }
+            await self?.stopAndFinalize()
+        }
+    }
+
+    private static func indiaDayKey(at date: Date = Date()) -> String {
+        let formatter = DateFormatter()
+        formatter.calendar = Calendar(identifier: .gregorian)
+        formatter.locale = Locale(identifier: "en_US_POSIX")
+        formatter.timeZone = TimeZone(identifier: "Asia/Kolkata")
+        formatter.dateFormat = "yyyy-MM-dd"
+        return formatter.string(from: date)
+    }
+
+    private static func secondsUntilNextIndiaDay(from date: Date = Date()) -> TimeInterval {
+        var calendar = Calendar(identifier: .gregorian)
+        calendar.timeZone = TimeZone(identifier: "Asia/Kolkata")!
+        let start = calendar.startOfDay(for: date)
+        let next = calendar.date(byAdding: .day, value: 1, to: start)!
+        return max(0.001, next.timeIntervalSince(date))
+    }
+
     private func addLocationPoint(_ location: CLLocation) {
         lastLocation = location
         guard isTracking else { return }
+        guard isInsideVerifiedAttendanceDay else {
+            Task { await stopAndFinalize() }
+            return
+        }
 
         if let lastDate = lastRecordedDate,
            location.timestamp.timeIntervalSince(lastDate) < Self.minimumPointInterval {

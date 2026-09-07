@@ -1254,56 +1254,8 @@ enum HRConvexAPIService {
 
     // MARK: - Storage (file upload)
 
-    private struct GenerateUploadURLResponse: Decodable, Sendable {
-        let success: Bool; let uploadUrl: String?; let error: String?
-    }
-
-    private struct UploadFileResponse: Decodable, Sendable {
-        let storageId: String
-    }
-
     private struct GetFileURLResponse: Decodable, Sendable {
         let success: Bool; let url: String?; let error: String?
-    }
-
-    /// Generate a one-time upload URL for a file.
-    static func generateUploadURL(token: String) async throws -> String {
-        let data = try await post(path: "/api/storage/generate-upload-url", token: token, jsonBody: [:])
-        let wrapper = try await decode(GenerateUploadURLResponse.self, from: data)
-        guard wrapper.success, let url = wrapper.uploadUrl else {
-            throw HRConvexAPIError.server(wrapper.error ?? "Failed to generate upload URL")
-        }
-        return url
-    }
-
-    /// Upload raw file data to the upload URL and return the storage ID.
-    static func uploadFile(uploadURL: String, data fileData: Data, contentType: String = "image/jpeg") async throws -> String {
-        guard let url = URL(string: uploadURL) else { throw HRConvexAPIError.badURL }
-        var request = URLRequest(url: url)
-        request.httpMethod = "POST"
-        request.setValue(contentType, forHTTPHeaderField: "Content-Type")
-        request.setValue(String(fileData.count), forHTTPHeaderField: "Content-Length")
-        request.timeoutInterval = 180
-        request.httpBody = fileData
-        let configuration = URLSessionConfiguration.ephemeral
-        configuration.timeoutIntervalForRequest = 180
-        configuration.timeoutIntervalForResource = 300
-        let session = URLSession(configuration: configuration)
-        let (data, response) = try await session.data(for: request)
-        guard let http = response as? HTTPURLResponse else {
-            throw HRConvexAPIError.server("File upload failed")
-        }
-        guard (200..<300).contains(http.statusCode) else {
-            let responseText = String(data: data, encoding: .utf8)?
-                .trimmingCharacters(in: .whitespacesAndNewlines)
-                .prefix(180)
-            if let responseText, !responseText.isEmpty {
-                throw HRConvexAPIError.server("File upload failed (\(http.statusCode)): \(responseText)")
-            }
-            throw HRConvexAPIError.server("File upload failed (\(http.statusCode))")
-        }
-        let wrapper = try JSONDecoder().decode(UploadFileResponse.self, from: data)
-        return wrapper.storageId
     }
 
     /// Get a download URL for a stored file.
@@ -1317,12 +1269,38 @@ enum HRConvexAPIService {
     }
 
     /// Convenience: upload a photo and return its storage ID.
-    static func uploadPhoto(token: String, imageData: Data) async throws -> String {
+    static func uploadPhoto(
+        token: String,
+        imageData: Data,
+        fileName: String = "mobile-photo.jpg",
+        purpose: MobileStoragePurpose = .mobileGeneric
+    ) async throws -> String {
         let uploadData = await Task.detached(priority: .userInitiated) {
             optimizedImageData(imageData)
         }.value
-        let uploadURL = try await generateUploadURL(token: token)
-        return try await uploadFile(uploadURL: uploadURL, data: uploadData)
+        return try await MobileStorageService.upload(
+            token: token,
+            data: uploadData,
+            fileName: fileName,
+            contentType: "image/jpeg",
+            purpose: purpose
+        )
+    }
+
+    static func uploadData(
+        token: String,
+        data: Data,
+        fileName: String,
+        contentType: String,
+        purpose: MobileStoragePurpose = .mobileGeneric
+    ) async throws -> String {
+        try await MobileStorageService.upload(
+            token: token,
+            data: data,
+            fileName: fileName,
+            contentType: contentType,
+            purpose: purpose
+        )
     }
 
     /// Android parity for `ImageCompressor`: avoid pushing multi-megabyte

@@ -2059,7 +2059,9 @@ private struct CollectionSubmitSheet: View {
             let storageId = try await PostSalesStorageService.uploadData(
                 token: token,
                 data: data,
-                mimeType: "image/jpeg"
+                mimeType: "image/jpeg",
+                fileName: "collection-proof.jpg",
+                purpose: .mobileGeneric
             )
             proofFile = PostSalesUploadedFile(
                 storageId: storageId,

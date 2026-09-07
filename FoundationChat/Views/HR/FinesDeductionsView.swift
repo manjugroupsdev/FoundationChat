@@ -611,7 +611,12 @@ private struct CreateFineDeductionSheet: View {
         do {
             var photoId: String?
             if let selectedPhotoData {
-                photoId = try await HRConvexAPIService.uploadPhoto(token: token, imageData: selectedPhotoData)
+                photoId = try await HRConvexAPIService.uploadPhoto(
+                    token: token,
+                    imageData: selectedPhotoData,
+                    fileName: "fine-proof.jpg",
+                    purpose: .staffDocument
+                )
             }
             _ = try await HRConvexAPIService.createFine(
                 token: token,

@@ -140,8 +140,12 @@ struct PostComposerView: View {
         do {
             var imageStorageIds: [String] = []
             for imageData in selectedImageData {
-                let uploadURL = try await authStore.generateAttachmentUploadURL()
-                let storageId = try await authStore.uploadAttachmentData(imageData, uploadURL: uploadURL, mimeType: "image/jpeg")
+                let storageId = try await authStore.uploadAttachmentData(
+                    imageData,
+                    mimeType: "image/jpeg",
+                    fileName: "post-image.jpg",
+                    purpose: .projectMedia
+                )
                 imageStorageIds.append(storageId)
             }
 

@@ -832,7 +832,9 @@ private struct LoanSignatureApprovalSheet: View {
             let storageId = try await PostSalesStorageService.uploadData(
                 token: token,
                 data: signatureData,
-                mimeType: "image/png"
+                mimeType: "image/png",
+                fileName: "signature.png",
+                purpose: .staffDocument
             )
             try? await MarketingConvexAPIService.saveDigitalSign(
                 token: token,

@@ -282,11 +282,11 @@ struct FilesTabView: View {
     defer { isUploading = false }
 
     do {
-      let uploadURL = try await authStore.generateAttachmentUploadURL()
       let storageId = try await authStore.uploadAttachmentData(
         pendingUpload.data,
-        uploadURL: uploadURL,
-        mimeType: pendingUpload.mimeType
+        mimeType: pendingUpload.mimeType,
+        fileName: pendingUpload.fileName,
+        purpose: .staffDocument
       )
 
       _ = try await authStore.savePrivateFile(

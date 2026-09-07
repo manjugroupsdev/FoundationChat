@@ -9,16 +9,6 @@ struct PostSalesUploadedFile: Codable, Sendable, Equatable {
 }
 
 enum PostSalesStorageService {
-    private struct GenerateUploadURLResponse: Decodable {
-        let success: Bool
-        let uploadUrl: String?
-        let error: String?
-    }
-
-    private struct UploadFileResponse: Decodable {
-        let storageId: String
-    }
-
     private struct GetFileURLResponse: Decodable {
         let success: Bool
         let url: String?
@@ -32,7 +22,13 @@ enum PostSalesStorageService {
         }
         let data = try Data(contentsOf: fileURL)
         let mimeType = UTType(filenameExtension: fileURL.pathExtension)?.preferredMIMEType ?? "application/octet-stream"
-        let storageId = try await uploadData(token: token, data: data, mimeType: mimeType)
+        let storageId = try await uploadData(
+            token: token,
+            data: data,
+            mimeType: mimeType,
+            fileName: fileURL.lastPathComponent,
+            purpose: .staffDocument
+        )
         return PostSalesUploadedFile(
             storageId: storageId,
             fileName: fileURL.lastPathComponent,
@@ -41,19 +37,20 @@ enum PostSalesStorageService {
         )
     }
 
-    static func uploadData(token: String, data: Data, mimeType: String = "image/jpeg") async throws -> String {
-        let uploadURL = try await generateUploadURL(token: token)
-        guard let url = URL(string: uploadURL) else { throw MarketingAPIError.badURL }
-        var request = URLRequest(url: url)
-        request.httpMethod = "POST"
-        request.setValue(mimeType, forHTTPHeaderField: "Content-Type")
-        request.httpBody = data
-        let (responseData, response) = try await URLSession.shared.data(for: request)
-        guard let http = response as? HTTPURLResponse, (200..<300).contains(http.statusCode) else {
-            throw MarketingAPIError.server("File upload failed")
-        }
-        let wrapper = try JSONDecoder().decode(UploadFileResponse.self, from: responseData)
-        return wrapper.storageId
+    static func uploadData(
+        token: String,
+        data: Data,
+        mimeType: String = "image/jpeg",
+        fileName: String = "mobile-upload.bin",
+        purpose: MobileStoragePurpose = .staffDocument
+    ) async throws -> String {
+        try await MobileStorageService.upload(
+            token: token,
+            data: data,
+            fileName: fileName,
+            contentType: mimeType,
+            purpose: purpose
+        )
     }
 
     static func getFileURL(token: String, storageId: String) async throws -> URL {
@@ -67,15 +64,6 @@ enum PostSalesStorageService {
             throw MarketingAPIError.server(wrapper.error ?? "Failed to load file preview")
         }
         return url
-    }
-
-    private static func generateUploadURL(token: String) async throws -> String {
-        let data = try await post(path: "/api/storage/generate-upload-url", token: token, body: EmptyBody())
-        let wrapper = try JSONDecoder().decode(GenerateUploadURLResponse.self, from: data)
-        guard wrapper.success, let uploadUrl = wrapper.uploadUrl else {
-            throw MarketingAPIError.server(wrapper.error ?? "Failed to prepare upload")
-        }
-        return uploadUrl
     }
 
     private static func get(path: String, token: String, queryItems: [URLQueryItem]) async throws -> Data {

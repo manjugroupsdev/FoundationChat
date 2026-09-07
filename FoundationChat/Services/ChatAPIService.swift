@@ -19,12 +19,6 @@ enum ChatAPIService {
     let error: String?
   }
 
-  private struct StorageUploadResponse: Decodable, Sendable {
-    let success: Bool
-    let storageId: String?
-    let error: String?
-  }
-
   // MARK: - Staff Directory
 
   struct StaffMember: Decodable, Sendable {
@@ -392,30 +386,13 @@ enum ChatAPIService {
     guard !fileData.isEmpty else {
       throw ChatAPIError.unexpected("The selected attachment is empty")
     }
-    guard let url = URL(string: "\(baseURL)/api/storage/upload") else {
-      throw ChatAPIError.badURL
-    }
-
-    var request = URLRequest(url: url)
-    request.httpMethod = "POST"
-    request.timeoutInterval = 90
-    request.setValue("Bearer \(token)", forHTTPHeaderField: "Authorization")
-    request.setValue(mimeType, forHTTPHeaderField: "Content-Type")
-
-    let configuration = URLSessionConfiguration.ephemeral
-    configuration.timeoutIntervalForRequest = 90
-    configuration.timeoutIntervalForResource = 180
-    let session = URLSession(configuration: configuration)
-    let (responseData, response) = try await session.upload(for: request, from: fileData)
-    try checkHTTPError(data: responseData, response: response, request: request)
-
-    let wrapper = try await decode(StorageUploadResponse.self, from: responseData)
-    guard wrapper.success, let storageId = wrapper.storageId, !storageId.isEmpty else {
-      throw ChatAPIError.unexpected(
-        wrapper.error ?? "The attachment upload did not return a storage ID"
-      )
-    }
-    return storageId
+    return try await MobileStorageService.upload(
+      token: token,
+      data: fileData,
+      fileName: "chat-attachment-\(UUID().uuidString.lowercased())",
+      contentType: mimeType,
+      purpose: .chatAttachment
+    )
   }
 
   static func editMessage(token: String, messageId: String, body: String) async throws {
@@ -727,7 +704,10 @@ enum ChatAPIService {
   }
 
   private struct RegisterPushResponse: Decodable, Sendable {
-    let success: Bool; let deviceTokenId: String?; let error: String?
+    let success: Bool
+    let deviceTokenId: String?
+    let bindingStatus: String?
+    let error: String?
   }
   private struct PollMessagesResponse: Decodable, Sendable {
     let success: Bool; let count: Int?; let messages: [ConvexChatMessage]?; let error: String?

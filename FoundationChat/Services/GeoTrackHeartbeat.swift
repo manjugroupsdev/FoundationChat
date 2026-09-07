@@ -50,6 +50,12 @@ final class GeoTrackHeartbeat {
     /// in production so device-reboot detection stays current.
     var onSuccess: () -> Void
 
+    /// Local privacy boundary checked immediately before every send. The
+    /// LocationTracker binds this to the India attendance day verified at
+    /// startup so a heartbeat cannot race the midnight stop task.
+    var shouldSend: () -> Bool = { true }
+    var onSendBlocked: () -> Void = {}
+
     /// Heartbeat interval. Use a short value in tests.
     let interval: TimeInterval
 
@@ -165,6 +171,11 @@ final class GeoTrackHeartbeat {
     }
 
     private func ping() async {
+        guard shouldSend() else {
+            stop()
+            onSendBlocked()
+            return
+        }
         let batteryPct  = batteryProvider()
         let appVersion  = appVersionProvider()
         await replayPendingHeartbeats()

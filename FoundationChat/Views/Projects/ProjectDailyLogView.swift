@@ -1231,8 +1231,13 @@ private struct CreateDailyLogSheet: View {
         do {
             var attachments: [DailyLogAttachment] = []
             for item in media {
-                let uploadURL = try await HRConvexAPIService.generateUploadURL(token: token)
-                let storageId = try await HRConvexAPIService.uploadFile(uploadURL: uploadURL, data: item.data, contentType: item.contentType)
+                let storageId = try await HRConvexAPIService.uploadData(
+                    token: token,
+                    data: item.data,
+                    fileName: item.name,
+                    contentType: item.contentType,
+                    purpose: .projectMedia
+                )
                 attachments.append(DailyLogAttachment(storageId: storageId, url: nil, type: item.type, name: item.name))
             }
 

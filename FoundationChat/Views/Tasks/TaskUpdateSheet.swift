@@ -536,7 +536,12 @@ struct TaskUpdateSheet: View {
 
         var uploaded: [TaskUpdateImage] = []
         for (index, data) in selectedPhotoData.enumerated() {
-            let storageId = try await HRConvexAPIService.uploadPhoto(token: token, imageData: data)
+            let storageId = try await HRConvexAPIService.uploadPhoto(
+                token: token,
+                imageData: data,
+                fileName: "task-update.jpg",
+                purpose: .projectMedia
+            )
             uploaded.append(TaskUpdateImage(storageId: storageId, url: nil, name: "task_update_\(index + 1).jpg"))
         }
         return uploaded

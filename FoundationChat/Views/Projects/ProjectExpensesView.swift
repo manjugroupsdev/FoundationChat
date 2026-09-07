@@ -1187,7 +1187,12 @@ private struct ExpenseCreationSheet: View {
 
         var receipts: [ExpenseReceipt] = []
         for (index, data) in selectedPhotoData.enumerated() {
-            let storageId = try await HRConvexAPIService.uploadPhoto(token: token, imageData: data)
+            let storageId = try await HRConvexAPIService.uploadPhoto(
+                token: token,
+                imageData: data,
+                fileName: "expense-receipt.jpg",
+                purpose: .projectMedia
+            )
             receipts.append(ExpenseReceipt(storageId: storageId, url: nil, name: "expense_receipt_\(index + 1).jpg"))
         }
         return receipts

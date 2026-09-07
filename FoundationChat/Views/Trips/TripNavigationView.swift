@@ -105,6 +105,7 @@ struct TripNavigationView: View {
     @State private var jointWorkflow: JointCpWorkflow?
     @State private var isJointMutationInProgress = false
     @State private var autoOpenedJointReviewRevision: Int64?
+    @State private var showJointReviewerRemarks = false
 
     private let geoAPI = GeoTrackAPIService.shared
     private let directionsClient = GeoTrackDirectionsClient()
@@ -319,6 +320,16 @@ struct TripNavigationView: View {
                 )
                 .environment(authStore)
             }
+        }
+        .sheet(isPresented: $showJointReviewerRemarks) {
+            JointCpReviewerRemarksSheet(
+                outcomeSummary: jointWorkflow?.outcomeSummary?.value,
+                isSubmitting: isJointMutationInProgress
+            ) { remarks in
+                showJointReviewerRemarks = false
+                Task { await completeJointCpReview(reviewerRemarks: remarks) }
+            }
+            .appLibraryNativeSheet([.medium])
         }
         .sheet(item: $activeSpecialCpCompletion, onDismiss: {
             collectionNotCollectedChoice = false
@@ -883,12 +894,16 @@ struct TripNavigationView: View {
             }
             .disabled(arrivalInProgress)
         } else {
-            HStack(spacing: 9) {
-                ProgressView().controlSize(.small)
-                Text(jointWaitingMessage(workflow))
-                    .font(.system(size: 13, weight: .semibold))
-                    .multilineTextAlignment(.center)
+            VStack(spacing: 5) {
+                Text("Outcome & OTP: \(workflow.outcomeOwnerName?.nilIfBlank ?? "Lower-level staff")")
+                Text("Remarks, review & complete: \(workflow.reviewerName?.nilIfBlank ?? "Higher-level staff")")
+                HStack(spacing: 9) {
+                    ProgressView().controlSize(.small)
+                    Text(jointWaitingMessage(workflow))
+                }
             }
+            .font(.system(size: 13, weight: .semibold))
+            .multilineTextAlignment(.center)
             .foregroundStyle(.secondary)
             .frame(maxWidth: .infinity)
             .frame(minHeight: 50)
@@ -1629,7 +1644,8 @@ struct TripNavigationView: View {
         if workflow.actorRole == "outcome_owner" {
             await submitJointCpForReview()
         } else if workflow.actorRole == "reviewer" {
-            await completeJointCpReview()
+            try? await Task.sleep(for: .milliseconds(250))
+            showJointReviewerRemarks = true
         } else {
             errorMessage = "The backend did not assign your Joint CP workflow role"
         }
@@ -1673,7 +1689,12 @@ struct TripNavigationView: View {
     }
 
     @MainActor
-    private func completeJointCpReview() async {
+    private func completeJointCpReview(reviewerRemarks: String) async {
+        let trimmedRemarks = reviewerRemarks.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !trimmedRemarks.isEmpty else {
+            errorMessage = "Review remarks are required"
+            return
+        }
         guard !isJointMutationInProgress,
               let token = authStore.currentSession?.token,
               let cpId = clientPlaceVisitId,
@@ -1691,9 +1712,16 @@ struct TripNavigationView: View {
         do {
             let updated = try await MarketingConvexAPIService.completeJointCpReview(
                 token: token,
-                request: JointCpCompleteReviewRequest(id: cpId, expectedOutcomeRevision: revision),
+                request: JointCpCompleteReviewRequest(
+                    id: cpId,
+                    expectedOutcomeRevision: revision,
+                    reviewerRemark: trimmedRemarks
+                ),
                 idempotencyKey: UUID().uuidString
             )
+            guard updated.state == "completed" else {
+                throw MarketingAPIError.server("The server did not confirm completion for both Joint CP staff")
+            }
             jointWorkflow = updated
             visitCompletedSuccessfully = true
             statusLine = "Complete"
@@ -2699,6 +2727,90 @@ private struct CpClientSeenSheet: View {
         }
         .frame(maxWidth: .infinity)
         .background(Color(.systemBackground))
+    }
+}
+
+private struct JointCpReviewerRemarksSheet: View {
+    let outcomeSummary: String?
+    let isSubmitting: Bool
+    let onComplete: (String) -> Void
+
+    @Environment(\.dismiss) private var dismiss
+    @State private var remarks = ""
+    @State private var showRequiredError = false
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 16) {
+            HStack {
+                VStack(alignment: .leading, spacing: 4) {
+                    Text("Complete Joint CP")
+                        .font(.title3.weight(.semibold))
+                    Text("Your review completes the trip for both staff.")
+                        .font(.subheadline)
+                        .foregroundStyle(.secondary)
+                }
+                Spacer()
+                Button { dismiss() } label: {
+                    Image(systemName: "xmark")
+                        .frame(width: 32, height: 32)
+                }
+                .buttonStyle(.plain)
+                .accessibilityLabel("Close")
+            }
+
+            if let outcome = outcomeSummary?.nilIfBlank {
+                VStack(alignment: .leading, spacing: 5) {
+                    Text("Submitted outcome")
+                        .font(.caption.weight(.semibold))
+                        .foregroundStyle(.secondary)
+                    Text(outcome)
+                        .font(.subheadline.weight(.medium))
+                }
+                .padding(12)
+                .frame(maxWidth: .infinity, alignment: .leading)
+                .background(Color.appFieldBackground, in: RoundedRectangle(cornerRadius: 8))
+            }
+
+            Text("Review remarks *")
+                .font(.subheadline.weight(.semibold))
+            TextEditor(text: $remarks)
+                .frame(minHeight: 90)
+                .padding(8)
+                .background(Color.appFieldBackground, in: RoundedRectangle(cornerRadius: 8))
+                .overlay(
+                    RoundedRectangle(cornerRadius: 8)
+                        .stroke(showRequiredError ? Color.red : Color.appSeparator, lineWidth: 1)
+                )
+            if showRequiredError {
+                Text("Review remarks are required")
+                    .font(.caption.weight(.medium))
+                    .foregroundStyle(.red)
+            }
+
+            Button {
+                let value = remarks.trimmingCharacters(in: .whitespacesAndNewlines)
+                guard !value.isEmpty else {
+                    showRequiredError = true
+                    return
+                }
+                onComplete(value)
+            } label: {
+                HStack {
+                    if isSubmitting { ProgressView().tint(.white) }
+                    Text("Complete Joint CP")
+                        .font(.headline)
+                }
+                .frame(maxWidth: .infinity)
+                .frame(height: 50)
+            }
+            .buttonStyle(.borderedProminent)
+            .buttonBorderShape(.capsule)
+            .tint(Color(hex: 0x1BCA0B))
+            .disabled(isSubmitting)
+        }
+        .padding(20)
+        .background(Color.appSurface)
+        .presentationDragIndicator(.visible)
     }
 }
 

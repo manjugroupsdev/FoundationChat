@@ -334,7 +334,10 @@ struct PunchFlowView: View {
                     throw HRConvexAPIError.server("Failed to encode selfie")
                 }
                 let photoStorageId = try await HRConvexAPIService.uploadPhoto(
-                    token: token, imageData: jpegData
+                    token: token,
+                    imageData: jpegData,
+                    fileName: "attendance-photo.jpg",
+                    purpose: .attendancePhoto
                 )
 
                 statusText = mode == .punchIn ? "Clocking in..." : "Clocking out..."

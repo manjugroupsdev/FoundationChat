@@ -54,6 +54,9 @@ final class AuthStore {
   private(set) var isAuthenticating = false
   private(set) var isRequestingOTP = false
   private(set) var isEmployeeLoginInProgress = false
+  private(set) var isDeviceRecoveryAvailable = false
+  private(set) var isDeviceRecoveryInProgress = false
+  private(set) var otpDeviceRecoveryChallenge: OtpDeviceRecoveryChallenge?
   private(set) var isChangingPassword = false
   private(set) var lastKnownAPNSToken: String?
   private(set) var registeredAPNSToken: String?
@@ -80,6 +83,8 @@ final class AuthStore {
 
   func clearError() {
     errorMessage = nil
+    isDeviceRecoveryAvailable = false
+    otpDeviceRecoveryChallenge = nil
   }
 
   // MARK: - Private
@@ -205,6 +210,7 @@ final class AuthStore {
 
     isRequestingOTP = true
     errorMessage = nil
+    otpDeviceRecoveryChallenge = nil
     pendingOTPUsesTravelDesk = false
     defer { isRequestingOTP = false }
 
@@ -237,6 +243,7 @@ final class AuthStore {
 
     isAuthenticating = true
     errorMessage = nil
+    otpDeviceRecoveryChallenge = nil
     defer { isAuthenticating = false }
 
     do {
@@ -247,6 +254,9 @@ final class AuthStore {
       }
       await finalizeAuthenticatedSession(session)
       pendingOTPUsesTravelDesk = false
+    } catch AuthAPIError.otpDeviceRecoveryRequired {
+      otpDeviceRecoveryChallenge = nil
+      errorMessage = "This account is linked to another device. Contact admin to change the registered device."
     } catch {
       errorMessage = Self.authErrorMessage(error)
     }
@@ -264,6 +274,7 @@ final class AuthStore {
     }
 
     isEmployeeLoginInProgress = true
+    isDeviceRecoveryAvailable = false
     errorMessage = nil
     defer { isEmployeeLoginInProgress = false }
 
@@ -273,6 +284,72 @@ final class AuthStore {
         password: password
       )
       pendingPasswordChangeCredential = session.mustChangePassword ? password : nil
+      await finalizeAuthenticatedSession(session)
+    } catch {
+      if case AuthAPIError.deviceBound(_) = error {
+        isDeviceRecoveryAvailable = false
+        errorMessage = "This account is linked to another device. Contact admin to change the registered device."
+      } else {
+        errorMessage = Self.authErrorMessage(error)
+      }
+    }
+  }
+
+  func beginDeviceRecovery(employeeId: String, password: String) async -> DeviceRecoveryChallenge? {
+    let trimmedEmployeeId = employeeId.trimmingCharacters(in: .whitespacesAndNewlines)
+    guard isDeviceRecoveryAvailable, !trimmedEmployeeId.isEmpty, !password.isEmpty else {
+      return nil
+    }
+    isDeviceRecoveryInProgress = true
+    errorMessage = nil
+    defer { isDeviceRecoveryInProgress = false }
+    do {
+      return try await AuthAPIService.requestDeviceRecovery(
+        employeeId: trimmedEmployeeId,
+        password: password
+      )
+    } catch {
+      errorMessage = Self.authErrorMessage(error)
+      return nil
+    }
+  }
+
+  func confirmDeviceRecovery(
+    challengeId: String,
+    otp: String,
+    verifiedPassword: String
+  ) async {
+    let code = otp.trimmingCharacters(in: .whitespacesAndNewlines)
+    guard code.count == 6, code.allSatisfy(\.isNumber) else {
+      errorMessage = "Enter the 6-digit OTP."
+      return
+    }
+    isDeviceRecoveryInProgress = true
+    errorMessage = nil
+    defer { isDeviceRecoveryInProgress = false }
+    do {
+      let session = try await AuthAPIService.confirmDeviceRecovery(
+        challengeId: challengeId,
+        otp: code
+      )
+      isDeviceRecoveryAvailable = false
+      pendingPasswordChangeCredential = session.mustChangePassword ? verifiedPassword : nil
+      await finalizeAuthenticatedSession(session)
+    } catch {
+      errorMessage = Self.authErrorMessage(error)
+    }
+  }
+
+  func confirmVerifiedOtpDeviceRecovery() async {
+    guard let challenge = otpDeviceRecoveryChallenge else { return }
+    isAuthenticating = true
+    errorMessage = nil
+    defer { isAuthenticating = false }
+    do {
+      let session = try await AuthAPIService.confirmVerifiedOtpDeviceRecovery(
+        challenge: challenge
+      )
+      otpDeviceRecoveryChallenge = nil
       await finalizeAuthenticatedSession(session)
     } catch {
       errorMessage = Self.authErrorMessage(error)
@@ -811,8 +888,12 @@ final class AuthStore {
   }
 
   func uploadChannelAvatar(channelID: String, imageData: Data, mimeType: String = "image/jpeg") async throws {
-    let uploadURL = try await generateAttachmentUploadURL()
-    let storageId = try await uploadAttachmentData(imageData, uploadURL: uploadURL, mimeType: mimeType)
+    let storageId = try await uploadAttachmentData(
+      imageData,
+      mimeType: mimeType,
+      fileName: "channel-avatar.jpg",
+      purpose: .chatAttachment
+    )
     try await updateChannel(channelID: channelID, avatarStorageId: storageId)
   }
 
@@ -1107,20 +1188,19 @@ final class AuthStore {
     return try await ChatAPIService.getMessage(token: t, messageId: messageId)
   }
 
-  func generateAttachmentUploadURL() async throws -> URL {
+  func uploadAttachmentData(
+    _ data: Data,
+    mimeType: String,
+    fileName: String = "mobile-upload.bin",
+    purpose: MobileStoragePurpose = .mobileGeneric
+  ) async throws -> String {
     let t = try requireToken()
-    let urlString = try await HRConvexAPIService.generateUploadURL(token: t)
-    guard let url = URL(string: urlString) else {
-      throw AuthStoreError.invalidUploadURL
-    }
-    return url
-  }
-
-  func uploadAttachmentData(_ data: Data, uploadURL: URL, mimeType: String) async throws -> String {
-    try await HRConvexAPIService.uploadFile(
-      uploadURL: uploadURL.absoluteString,
+    return try await HRConvexAPIService.uploadData(
+      token: t,
       data: data,
-      contentType: mimeType
+      fileName: fileName,
+      contentType: mimeType,
+      purpose: purpose
     )
   }
 

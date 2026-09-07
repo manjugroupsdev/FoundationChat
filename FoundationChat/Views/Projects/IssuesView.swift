@@ -687,11 +687,11 @@ private struct CreateIssueSheet: View {
             var audioFileSize: Int?
             var audioDuration: Int?
             if let recordedAudioData, !recordedAudioData.isEmpty {
-                let uploadURL = try await authStore.generateAttachmentUploadURL()
                 audioStorageId = try await authStore.uploadAttachmentData(
                     recordedAudioData,
-                    uploadURL: uploadURL,
-                    mimeType: "audio/mp4"
+                    mimeType: "audio/mp4",
+                    fileName: "voice.m4a",
+                    purpose: .projectMedia
                 )
                 audioFileSize = recordedAudioData.count
                 audioDuration = audioDurationSeconds
