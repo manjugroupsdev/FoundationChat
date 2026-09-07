@@ -72,7 +72,7 @@ struct FoundationChatApp: App {
                     .opacity(0)
                     .allowsHitTesting(false)
             }
-            .overlay {
+            .overlay(alignment: .top) {
                 if appUpdateCoordinator.mustShowUpdate {
                     MandatoryAppUpdateView(
                         version: appUpdateCoordinator.requiredVersion,
@@ -326,47 +326,48 @@ private struct MandatoryAppUpdateView: View {
     let onUpdate: () -> Void
 
     var body: some View {
-        VStack(spacing: 0) {
-            Spacer()
-
+        HStack(spacing: 10) {
             Image(systemName: "arrow.down.app.fill")
-                .font(.system(size: 54, weight: .semibold))
+                .font(.system(size: 22, weight: .semibold))
                 .foregroundStyle(Color(hex: 0x0B61CA))
 
-            Text("Update required")
-                .font(.system(size: 26, weight: .bold))
-                .foregroundStyle(.primary)
-                .padding(.top, 22)
+            VStack(alignment: .leading, spacing: 2) {
+                Text("Update available")
+                    .font(.system(size: 13, weight: .semibold))
+                    .foregroundStyle(.primary)
 
-            Text(message)
-                .font(.system(size: 15, weight: .regular))
-                .foregroundStyle(.secondary)
-                .multilineTextAlignment(.center)
-                .padding(.horizontal, 34)
-                .padding(.top, 10)
+                Text(message)
+                    .font(.system(size: 11, weight: .regular))
+                    .foregroundStyle(.secondary)
+                    .lineLimit(1)
+            }
+            .frame(maxWidth: .infinity, alignment: .leading)
 
             Button(action: onUpdate) {
-                Text("Update M-Chat")
-                    .font(.system(size: 16, weight: .semibold))
-                    .foregroundStyle(.white)
-                    .frame(maxWidth: .infinity)
-                    .frame(height: 52)
-                    .background(Color(hex: 0x0B61CA), in: RoundedRectangle(cornerRadius: 8))
+                Text("Open Store")
+                    .font(.system(size: 12, weight: .semibold))
+                    .foregroundStyle(Color(hex: 0x0B61CA))
+                    .frame(minWidth: 74, minHeight: 40)
             }
             .buttonStyle(.plain)
-            .padding(.horizontal, 28)
-            .padding(.top, 28)
-
-            Spacer()
         }
-        .frame(maxWidth: .infinity, maxHeight: .infinity)
-        .background(Color.appScreenBackground.ignoresSafeArea())
+        .padding(.horizontal, 12)
+        .padding(.vertical, 9)
+        .frame(maxWidth: 520)
+        .background(Color.appSurface, in: RoundedRectangle(cornerRadius: 8, style: .continuous))
+        .overlay {
+            RoundedRectangle(cornerRadius: 8, style: .continuous)
+                .stroke(Color.appSeparator, lineWidth: 1)
+        }
+        .shadow(color: Color.black.opacity(0.10), radius: 8, y: 3)
+        .padding(.horizontal, 12)
+        .padding(.top, 8)
     }
 
     private var message: String {
         if let version {
-            return "M-Chat version \(version) is ready. Update the app to continue."
+            return "MConnect \(version) is ready"
         }
-        return "A new M-Chat version is ready. Update the app to continue."
+        return "A new MConnect version is ready"
     }
 }

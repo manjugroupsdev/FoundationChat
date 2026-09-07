@@ -43,8 +43,7 @@ final class AppUpdateCoordinator {
     private var lastStoreCheck: Date?
 
     var mustShowUpdate: Bool {
-        let newerBuild = requiredBuild.map { $0 > Self.currentBuildNumber } == true
-        return newerBuild && isOperationallySafe
+        hasNewerVersion && isOperationallySafe
     }
 
     private init(defaults: UserDefaults = .standard) {
@@ -61,8 +60,7 @@ final class AppUpdateCoordinator {
             }
         }
 
-        let newerBuild = requiredBuild.map { $0 > Self.currentBuildNumber } == true
-        guard newerBuild else {
+        guard hasNewerVersion else {
             clearKnownUpdate()
             isOperationallySafe = false
             return
@@ -168,7 +166,9 @@ final class AppUpdateCoordinator {
             return
         }
         let build = (defaults.object(forKey: DefaultsKey.requiredBuild) as? NSNumber)?.intValue
-        guard build.map({ $0 > Self.currentBuildNumber }) == true else {
+        let newerBuild = build.map { $0 > Self.currentBuildNumber } == true
+        let newerMarketingVersion = Self.isNewer(version, than: Self.currentVersion)
+        guard newerBuild || newerMarketingVersion else {
             clearKnownUpdate()
             return
         }
@@ -210,6 +210,11 @@ final class AppUpdateCoordinator {
 
     private static func isNewer(_ candidate: String, than installed: String) -> Bool {
         candidate.compare(installed, options: .numeric) == .orderedDescending
+    }
+
+    private var hasNewerVersion: Bool {
+        requiredBuild.map { $0 > Self.currentBuildNumber } == true ||
+            requiredVersion.map { Self.isNewer($0, than: Self.currentVersion) } == true
     }
 
     private static let storeCheckInterval: TimeInterval = 15 * 60
