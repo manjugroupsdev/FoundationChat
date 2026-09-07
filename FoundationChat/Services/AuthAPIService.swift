@@ -76,9 +76,9 @@ enum AuthAPIService {
   /// Send an OTP to the given 10-digit phone number.
   static func sendOTP(phone: String) async throws {
     let url = URL(string: "\(baseURL)/api/auth/send-otp")!
-    let body: [String: String] = ["phone": phone]
+    let body: [String: Any] = ["phone": phone]
 
-    let (data, response) = try await post(url: url, body: body)
+    let (data, response) = try await postWithInitialConnectionRetry(url: url, jsonBody: body)
     let decoded = try await BackgroundJSONDecoder.decode(SendOTPResponse.self, from: data)
 
     guard decoded.success else {
@@ -93,7 +93,10 @@ enum AuthAPIService {
   /// to this route only after the staff endpoint reports an unknown phone.
   static func sendTravelDeskOTP(phone: String) async throws {
     let url = URL(string: "\(baseURL)/api/travel-desk/auth/send-otp")!
-    let (data, response) = try await post(url: url, body: ["phone": phone])
+    let (data, response) = try await postWithInitialConnectionRetry(
+      url: url,
+      jsonBody: ["phone": phone]
+    )
     let decoded = try await BackgroundJSONDecoder.decode(SendOTPResponse.self, from: data)
     guard decoded.success else {
       throw AuthAPIError.server(
@@ -120,7 +123,7 @@ enum AuthAPIService {
       }
     }
 
-    let (data, response) = try await post(url: url, jsonBody: body)
+    let (data, response) = try await postWithInitialConnectionRetry(url: url, jsonBody: body)
     let decoded = try await BackgroundJSONDecoder.decode(VerifyOTPResponse.self, from: data)
 
     guard decoded.success, let token = decoded.token, let user = decoded.user else {
@@ -135,7 +138,10 @@ enum AuthAPIService {
 
   static func verifyTravelDeskOTP(phone: String, otp: String) async throws -> OtpSession {
     let url = URL(string: "\(baseURL)/api/travel-desk/auth/verify-otp")!
-    let (data, response) = try await post(url: url, body: ["phone": phone, "otp": otp])
+    let (data, response) = try await postWithInitialConnectionRetry(
+      url: url,
+      jsonBody: ["phone": phone, "otp": otp]
+    )
     let decoded = try await BackgroundJSONDecoder.decode(TravelDeskVerifyOTPResponse.self, from: data)
     guard decoded.success, let token = decoded.token, let remoteUser = decoded.user else {
       throw AuthAPIError.server(
@@ -182,15 +188,7 @@ enum AuthAPIService {
       }
     }
 
-    let result: (Data, URLResponse)
-    do {
-      result = try await post(url: url, jsonBody: body)
-    } catch {
-      guard shouldRetryInitialConnection(error) else { throw error }
-      try await Task.sleep(nanoseconds: 450_000_000)
-      result = try await post(url: url, jsonBody: body)
-    }
-    let (data, response) = result
+    let (data, response) = try await postWithInitialConnectionRetry(url: url, jsonBody: body)
     let decoded = try await BackgroundJSONDecoder.decode(EmployeePasswordLoginResponse.self, from: data)
 
     guard decoded.success, let token = decoded.token, let user = decoded.user else {
@@ -357,6 +355,19 @@ enum AuthAPIService {
     request.setValue("application/json", forHTTPHeaderField: "Content-Type")
     request.httpBody = try JSONSerialization.data(withJSONObject: jsonBody)
     return try await URLSession.shared.data(for: request)
+  }
+
+  private static func postWithInitialConnectionRetry(
+    url: URL,
+    jsonBody: [String: Any]
+  ) async throws -> (Data, URLResponse) {
+    do {
+      return try await post(url: url, jsonBody: jsonBody)
+    } catch {
+      guard shouldRetryInitialConnection(error) else { throw error }
+      try await Task.sleep(nanoseconds: 450_000_000)
+      return try await post(url: url, jsonBody: jsonBody)
+    }
   }
 }
 
