@@ -245,7 +245,7 @@ struct CpVisitsView: View {
 
     private func tripDestination(for visit: CpListVisit) -> some View {
         TripNavigationView(
-            visitId: visit.id,
+            visitId: visit.fieldVisitId ?? visit.id,
             placeName: visit.placeName ?? visit.leadName ?? "CP Visit",
             placeAddress: visit.placeAddress,
             destination: coordinate(for: visit),
@@ -436,9 +436,12 @@ struct CpVisitsView: View {
         let effectiveTo = advancedFilter.toDate ?? advancedFilter.fromDate
         let toDate = effectiveTo.map { AppModuleFormatters.ymd.string(from: $0) }
         let query = (searchOverride ?? searchText).trimmingCharacters(in: .whitespacesAndNewlines)
+        let currentStaffIds = authenticatedStaffIds
         let cacheKey = cpCacheKey(fromDate: fromDate, toDate: toDate, search: query)
         if visits.isEmpty, let cached = LocalCache.get(cacheKey, as: [CpVisitDetail].self) {
-            visits = cached.compactMap(CpListVisit.init(detail:)).sorted(by: CpListVisit.androidOrder)
+            visits = cached
+                .compactMap { CpListVisit(detail: $0, currentStaffIds: currentStaffIds) }
+                .sorted(by: CpListVisit.androidOrder)
         }
 
         isLoading = visits.isEmpty
@@ -476,7 +479,7 @@ struct CpVisitsView: View {
                 || !(page.directReportIds ?? []).isEmpty
             let scoped = scopedCpVisits(page)
             visits = scoped
-                .compactMap(CpListVisit.init(detail:))
+                .compactMap { CpListVisit(detail: $0, currentStaffIds: currentStaffIds) }
                 .sorted(by: CpListVisit.androidOrder)
             nextCursor = page.nextCursor
             hasMoreServerVisits = page.hasMore == true && page.nextCursor?.isEmpty == false
@@ -548,6 +551,11 @@ struct CpVisitsView: View {
         return "marketing.cp-visits.\(listScope.rawValue).\(staffId).\(range).\(query).\(facets)"
     }
 
+    private var authenticatedStaffIds: Set<String> {
+        let user = authStore.currentSession?.user
+        return Set([user?.staffId, user?._id].compactMap { $0?.blankToNil })
+    }
+
     @MainActor
     private func scheduleServerSearch(_ rawValue: String) {
         searchTask?.cancel()
@@ -615,7 +623,10 @@ struct CpVisitsView: View {
                 pageSize: 200
             )
             guard generation == loadGeneration else { return }
-            let incoming = scopedCpVisits(page).compactMap(CpListVisit.init(detail:))
+            let currentStaffIds = authenticatedStaffIds
+            let incoming = scopedCpVisits(page).compactMap {
+                CpListVisit(detail: $0, currentStaffIds: currentStaffIds)
+            }
             var byID = Dictionary(uniqueKeysWithValues: visits.map { ($0.id, $0) })
             incoming.forEach { byID[$0.id] = $0 }
             visits = Array(byID.values).sorted(by: CpListVisit.androidOrder)
@@ -816,25 +827,31 @@ private struct CpListVisit: Identifiable {
     let cpType: String?
     let detail: CpVisitDetail
 
-    init?(detail: CpVisitDetail) {
+    init?(detail: CpVisitDetail, currentStaffIds: Set<String>) {
         guard detail.id.blankToNil != nil, detail.scheduledDate?.blankToNil != nil else { return nil }
+        let actorParticipant = CpVisitStatusPolicy.actorParticipant(
+            in: detail.joint,
+            currentStaffIds: currentStaffIds
+        )
         self.id = detail.id
-        self.fieldVisitId = detail.fieldVisitId
+        self.fieldVisitId = actorParticipant?.fieldVisitId?.blankToNil
+            ?? detail.fieldVisitId?.blankToNil
+            ?? detail.fieldVisit?.id?.blankToNil
         self.clientPlaceVisitId = detail.id
         self.clientPlaceId = detail.clientPlaceId
         self.scheduledStartTime = detail.scheduledTime
         self.scheduledEndTime = nil
-        let resolvedStatus = CpVisitStatusPolicy.resolve(
+        let resolvedStatus = CpVisitStatusPolicy.resolveForActor(
             cpStatus: detail.status,
-            fieldVisitStatus: detail.fieldVisit?.status
+            fieldVisitStatus: detail.fieldVisit?.status,
+            serverEffectiveStatus: detail.effectiveStatus,
+            joint: detail.joint,
+            currentStaffIds: currentStaffIds
         )
         self.status = resolvedStatus
-        let isCompleted = ["completed", "complete", "done", "closed"].contains(
-            resolvedStatus.trimmingCharacters(in: .whitespacesAndNewlines).lowercased()
-        )
-        self.scheduledDate = isCompleted
-            ? detail.activityDate?.blankToNil ?? detail.scheduledDate
-            : detail.scheduledDate
+        // Completion credit remains on the assigned date even when staff finish
+        // the visit on an earlier or later calendar day.
+        self.scheduledDate = detail.scheduledDate
         let manualClientName = detail.lead?.manualProfile?.clientName?.cpClientName
         let masterClientName = detail.client?.clientName?.cpClientName
         let leadContactName = detail.lead?.contactName?.cpClientName
@@ -932,7 +949,7 @@ private struct CpListVisit: Identifiable {
 
     var isPendingOutcomeCpVisit: Bool {
         CpVisitStatusPolicy.isOutcomePending(
-            cpStatus: detail.status, fieldVisitStatus: detail.fieldVisit?.status, outcome: outcome
+            cpStatus: status, fieldVisitStatus: nil, outcome: outcome
         )
     }
 
@@ -3260,12 +3277,15 @@ private struct CreateCpVisitSheet: View {
                 return
             }
         }
-        let jointParticipantIds: [String]?
-        if isJointCp, let primaryId = selectedStaff?.id, let partnerId = selectedJointPartner?.id {
-            jointParticipantIds = [primaryId, partnerId]
-        } else {
-            jointParticipantIds = nil
+        let jointAssignment = isJointCp ? jointTemplateAssignment : nil
+        if isJointCp, jointAssignment == nil {
+            errorMessage = "Joint CP level assignment could not be resolved. Refresh staff and try again"
+            return
         }
+        let jointParticipantIds = jointAssignment.map {
+            [$0.outcomeOwner.id, $0.reviewer.id]
+        }
+        let resolvedAssignedStaffId = jointAssignment?.outcomeOwner.id ?? staffId
         guard selectedStaff != nil || !(staffId.isEmpty) else { errorMessage = "Field staff is required"; return }
         guard let lmoStaffId = selectedLmo?.id.nilIfEmpty else {
             errorMessage = "Select the LMO, Channel Partner, or BDO"
@@ -3344,7 +3364,9 @@ private struct CreateCpVisitSheet: View {
             projectId: selectedProject?.id,
             clientName: trimmedClientName,
             mobileNumber: normalizedPhone,
-            assignedStaffId: staffId,
+            // Keep the compatibility owner aligned with the lower-level
+            // outcome owner even when staff were selected in reverse order.
+            assignedStaffId: resolvedAssignedStaffId,
             lmoStaffId: lmoStaffId,
             scheduledDate: scheduledDate,
             scheduledTime: Self.timeFormatter.string(from: date),

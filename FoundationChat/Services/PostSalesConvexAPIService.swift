@@ -9,12 +9,6 @@ struct PostSalesUploadedFile: Codable, Sendable, Equatable {
 }
 
 enum PostSalesStorageService {
-    private struct GetFileURLResponse: Decodable {
-        let success: Bool
-        let url: String?
-        let error: String?
-    }
-
     static func uploadFile(token: String, fileURL: URL) async throws -> PostSalesUploadedFile {
         let access = fileURL.startAccessingSecurityScopedResource()
         defer {
@@ -53,15 +47,9 @@ enum PostSalesStorageService {
         )
     }
 
-    static func getFileURL(token: String, storageId: String) async throws -> URL {
-        let data = try await get(
-            path: "/api/storage/get-url",
-            token: token,
-            queryItems: [URLQueryItem(name: "storageId", value: storageId)]
-        )
-        let wrapper = try JSONDecoder().decode(GetFileURLResponse.self, from: data)
-        guard wrapper.success, let urlString = wrapper.url, let url = URL(string: urlString) else {
-            throw MarketingAPIError.server(wrapper.error ?? "Failed to load file preview")
+    static func getFileURL(token _: String, storageId: String) async throws -> URL {
+        guard let url = MobileStorageService.fileURL(storageId: storageId) else {
+            throw MarketingAPIError.badURL
         }
         return url
     }

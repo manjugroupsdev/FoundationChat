@@ -299,6 +299,7 @@ struct CpVisitDetail: Codable, Identifiable, Sendable {
     let activityDate: String?
     let scheduledTime: String?
     let status: String?
+    let effectiveStatus: String?
     let clientMet: Bool?
     let clientMetAt: Int64?
     let clientNoShowReason: String?
@@ -351,7 +352,7 @@ struct CpVisitDetail: Codable, Identifiable, Sendable {
         case id = "_id"
         case requestId
         case leadId, clientId, clientPlaceId, origin, telecallerStaffId, assignedStaffId
-        case assignedAt, scheduledDate, activityDate, scheduledTime, status, clientMet, clientMetAt
+        case assignedAt, scheduledDate, activityDate, scheduledTime, status, effectiveStatus, clientMet, clientMetAt
         case clientNoShowReason, outcome, postponeReasons, convertedSiteVisitId
         case convertedBookingId, fieldVisitId, notes, completedAt, completedOffline, cancelledAt
         case expectedAttendeeCount, foodPreferences, vehiclePreference, driverName, driverPhone
@@ -381,6 +382,11 @@ struct JointCpParticipant: Codable, Sendable {
     let workflowRole: String?
     let routeColor: String?
     let fieldVisitId: String?
+    let readyAt: Int64?
+    let readyLat: Double?
+    let readyLng: Double?
+    let readyAccuracyMeters: Double?
+    let readyFieldVisitId: String?
 }
 
 struct JointCpSummary: Codable, Sendable {
@@ -394,7 +400,9 @@ struct JointCpSummary: Codable, Sendable {
 
 struct JointCpWorkflowResponse: Codable, Sendable {
     let success: Bool
+    let visit: CpVisitDetail?
     let workflow: JointCpWorkflow?
+    let creditedStaffIds: [String]?
     let error: String?
     let code: String?
 }
@@ -411,15 +419,28 @@ struct JointCpWorkflow: Codable, Sendable {
     let canSubmitOutcome: Bool?
     let canReview: Bool?
     let canCompleteReview: Bool?
+    let actorReady: Bool?
     let separationMeters: Double?
     let isWithinCompletionRadius: Bool?
     let requiredRadiusMeters: Double?
     let outcomeRevision: Int64?
     let outcome: String?
     let outcomeSummary: FlexibleDisplayText?
+    let reviewerRemark: String?
+    let creditedStaffIds: [String]?
     let reviewedByName: String?
     let reviewedByTemplateName: String?
     let completedAt: Int64?
+}
+
+struct CpCompletedCountResponse: Codable, Sendable {
+    let success: Bool
+    let date: String?
+    let staffId: String?
+    let completedCount: Int?
+    let visitIds: [String]?
+    let error: String?
+    let code: String?
 }
 
 struct FlexibleDisplayText: Codable, Sendable {

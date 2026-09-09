@@ -1944,12 +1944,7 @@ private struct DailyLogAttachmentThumb: View {
     }
 
     private var resolvedURL: URL? {
-        if let url = attachment.url?.nonBlank, let resolved = URL(string: url) {
-            return resolved
-        }
-        var components = URLComponents(string: "\(AppConfig.baseURL)/api/storage/serve")
-        components?.queryItems = [URLQueryItem(name: "storageId", value: attachment.storageId)]
-        return components?.url
+        MobileStorageService.resolveFileURL(attachment.url?.nonBlank ?? attachment.storageId)
     }
 }
 

@@ -70,6 +70,68 @@ enum MobileStorageService {
     case unavailable
   }
 
+  /// Stable read URL for both external and legacy storage IDs. URLSession and
+  /// SwiftUI image loaders follow the server's short-lived redirect by default.
+  static func resolveFileURL(_ value: String?) -> URL? {
+    guard let raw = value?.trimmingCharacters(in: .whitespacesAndNewlines),
+          !raw.isEmpty,
+          raw != "null",
+          raw != "undefined" else { return nil }
+
+    if let absolute = URL(string: raw), absolute.scheme != nil {
+      if let storageId = storageId(fromKnownRoute: absolute) {
+        return fileURL(storageId: storageId)
+      }
+      return absolute
+    }
+
+    if raw.hasPrefix("/"),
+       let base = URL(string: AppConfig.storageBaseURL),
+       let absolute = URL(string: raw, relativeTo: base)?.absoluteURL {
+      if let storageId = storageId(fromKnownRoute: absolute) {
+        return fileURL(storageId: storageId)
+      }
+      return absolute
+    }
+
+    return fileURL(storageId: raw)
+  }
+
+  static func fileURL(storageId: String) -> URL? {
+    let cleanId = storageId.trimmingCharacters(in: .whitespacesAndNewlines)
+    guard !cleanId.isEmpty, let base = URL(string: AppConfig.storageBaseURL) else { return nil }
+    return base
+      .appendingPathComponent("api", isDirectory: true)
+      .appendingPathComponent("storage", isDirectory: true)
+      .appendingPathComponent("files", isDirectory: true)
+      .appendingPathComponent(cleanId, isDirectory: false)
+  }
+
+  private static func storageId(fromKnownRoute url: URL) -> String? {
+    let components = URLComponents(url: url, resolvingAgainstBaseURL: false)
+    if let storageId = components?.queryItems?
+      .first(where: { $0.name == "storageId" })?.value?.storageNonBlank {
+      return storageId
+    }
+
+    let segments = url.pathComponents.filter { $0 != "/" }
+    if segments.count >= 4,
+       segments[0] == "api",
+       segments[1] == "storage",
+       segments[2] == "files" {
+      return segments.dropFirst(3).joined(separator: "/").storageNonBlank
+    }
+
+    if segments.count == 3,
+       segments[0] == "api",
+       segments[1] == "storage",
+       url.host?.localizedCaseInsensitiveContains("convex") == true {
+      return segments[2].storageNonBlank
+    }
+
+    return nil
+  }
+
   static func upload(
     token: String,
     data: Data,

@@ -18,7 +18,14 @@ enum CpVisitStatusPolicy {
         "pending_gm_approval"
     ]
 
-    static func resolve(cpStatus: String?, fieldVisitStatus: String?) -> String {
+    static func resolve(
+        cpStatus: String?,
+        fieldVisitStatus: String?,
+        serverEffectiveStatus: String? = nil
+    ) -> String {
+        let server = serverEffectiveStatus?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
+        if !server.isEmpty { return server }
+
         let cp = cpStatus?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
         if terminalStatuses.contains(cp.lowercased()) {
             return cp
@@ -30,6 +37,44 @@ enum CpVisitStatusPolicy {
         }
 
         return cp.isEmpty ? "scheduled" : cp
+    }
+
+    static func actorParticipant(
+        in joint: JointCpSummary?,
+        currentStaffIds: Set<String>
+    ) -> JointCpParticipant? {
+        guard !currentStaffIds.isEmpty else { return nil }
+        return joint?.participants?.first { participant in
+            guard let staffId = participant.staffId?
+                .trimmingCharacters(in: .whitespacesAndNewlines),
+                !staffId.isEmpty
+            else { return false }
+            return currentStaffIds.contains(staffId)
+        }
+    }
+
+    static func resolveForActor(
+        cpStatus: String?,
+        fieldVisitStatus: String?,
+        serverEffectiveStatus: String?,
+        joint: JointCpSummary?,
+        currentStaffIds: Set<String>
+    ) -> String {
+        let parentStatus = resolve(
+            cpStatus: cpStatus,
+            fieldVisitStatus: fieldVisitStatus,
+            serverEffectiveStatus: serverEffectiveStatus
+        )
+        if terminalStatuses.contains(parentStatus.lowercased()) {
+            return parentStatus
+        }
+        let participantStatus = actorParticipant(in: joint, currentStaffIds: currentStaffIds)?
+            .status?
+            .trimmingCharacters(in: .whitespacesAndNewlines)
+        if let participantStatus, !participantStatus.isEmpty {
+            return participantStatus
+        }
+        return parentStatus
     }
 
     static func isOutcomePending(cpStatus: String?, fieldVisitStatus: String?, outcome: String?) -> Bool {

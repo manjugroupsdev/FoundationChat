@@ -571,6 +571,7 @@ private extension FleetDriverTrip {
 
         return GeoTrackTodayVisit(
             id: id,
+            fieldVisitId: nil,
             clientPlaceId: project?.id?.nonBlank ?? id,
             scheduledDate: scheduled,
             status: status,

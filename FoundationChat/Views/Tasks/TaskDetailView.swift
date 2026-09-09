@@ -679,21 +679,10 @@ private struct TaskTimelineImageThumbnail: View {
         isResolving = true
         defer { isResolving = false }
 
-        if let raw = image.url?.taskNilIfBlank {
-            if raw.hasPrefix("http://") || raw.hasPrefix("https://"), let url = URL(string: raw) {
-                resolvedURL = url
-                return
-            }
-
-            if raw.hasPrefix("/"), let url = URL(string: AppConfig.baseURL.trimmingCharacters(in: CharacterSet(charactersIn: "/")) + raw) {
-                resolvedURL = url
-                return
-            }
-
-            if let signedURL = try? await authStore.resolveStorageURL(storageId: raw) {
-                resolvedURL = signedURL
-                return
-            }
+        if let raw = image.url?.taskNilIfBlank,
+           let url = MobileStorageService.resolveFileURL(raw) {
+            resolvedURL = url
+            return
         }
 
         guard let storageId = image.storageId.taskNilIfBlank else {
@@ -701,14 +690,7 @@ private struct TaskTimelineImageThumbnail: View {
             return
         }
 
-        if let signedURL = try? await authStore.resolveStorageURL(storageId: storageId) {
-            resolvedURL = signedURL
-            return
-        }
-
-        var components = URLComponents(string: "\(AppConfig.baseURL)/api/storage/serve")
-        components?.queryItems = [URLQueryItem(name: "storageId", value: storageId)]
-        resolvedURL = components?.url
+        resolvedURL = MobileStorageService.fileURL(storageId: storageId)
     }
 }
 

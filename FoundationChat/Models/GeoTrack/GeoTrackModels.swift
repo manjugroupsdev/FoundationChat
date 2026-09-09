@@ -574,6 +574,7 @@ struct GeoTrackAssignedPlacesResponse: Decodable, Sendable {
 
 struct GeoTrackTodayVisit: Codable, Sendable {
     let id: String
+    let fieldVisitId: String?
     let clientPlaceId: String
     let scheduledDate: String
     let status: String
@@ -599,7 +600,7 @@ struct GeoTrackTodayVisit: Codable, Sendable {
 
     enum CodingKeys: String, CodingKey {
         case id = "_id"
-        case clientPlaceId, scheduledDate, status, mobileStatus, reachingRadiusMeters
+        case fieldVisitId, clientPlaceId, scheduledDate, status, mobileStatus, reachingRadiusMeters
         case placeName, placeAddress, placeType, placeLat, placeLng
         case tripType, clientPlaceVisitId, leadName, leadPhone, cpVisit
         case scheduledStartTime, scheduledEndTime
@@ -635,9 +636,11 @@ struct GeoTrackCPVisitDetail: Decodable, Sendable {
     let leadId: String?
     let clientId: String?
     let clientPlaceId: String?
+    let fieldVisitId: String?
     let scheduledDate: String?
     let scheduledTime: String?
     let status: String?
+    let effectiveStatus: String?
     let clientMet: Bool?
     let clientMetAt: Double?
     let clientNoShowReason: String?
@@ -654,13 +657,14 @@ struct GeoTrackCPVisitDetail: Decodable, Sendable {
     let client: GeoTrackCPVisitClient?
     let clientPlace: GeoTrackCPVisitPlace?
     let fieldVisit: GeoTrackCPVisitFieldVisit?
+    let joint: JointCpSummary?
 
     enum CodingKeys: String, CodingKey {
         case id = "_id"
-        case leadId, clientId, clientPlaceId, scheduledDate, scheduledTime, status
+        case leadId, clientId, clientPlaceId, fieldVisitId, scheduledDate, scheduledTime, status, effectiveStatus
         case clientMet, clientMetAt, clientNoShowReason, outcome, postponeReasons
         case cpType, expectedAttendeeCount, foodPreferences, vehiclePreference, createdAt
-        case proposedSiteVisit, attendees, lead, client, clientPlace, fieldVisit
+        case proposedSiteVisit, attendees, lead, client, clientPlace, fieldVisit, joint
     }
 }
 

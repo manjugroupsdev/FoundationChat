@@ -163,7 +163,7 @@ struct HomeView: View {
             .toolbar(.hidden, for: .navigationBar)
             .navigationDestination(item: $visitToOpen) { visit in
                 TripNavigationView(
-                    visitId: visit.id,
+                    visitId: visit.fieldVisitId ?? visit.id,
                     placeId: nil,
                     placeName: visit.displayName,
                     placeAddress: visit.placeAddress,
@@ -1821,12 +1821,14 @@ struct HomeView: View {
         cpVisits: [GeoTrackCPVisitDetail],
         driverTrips: [FleetDriverTrip]
     ) -> [GeoTrackTodayVisit] {
+        let user = authStore.currentSession?.user
+        let currentStaffIds = Set([user?.staffId, user?._id].compactMap { $0?.nilIfBlank })
         let legacyCPIds = Set(legacyVisits.compactMap { $0.clientPlaceVisitId?.nilIfBlank })
         let cpExtras = cpVisits.compactMap { detail -> GeoTrackTodayVisit? in
             guard let id = detail.id?.nilIfBlank, !legacyCPIds.contains(id) else { return nil }
             let status = detail.status?.lowercased() ?? ""
             guard status != "cancelled", status != "completed" else { return nil }
-            return detail.toTodayVisitOrNil()
+            return detail.toTodayVisitOrNil(currentStaffIds: currentStaffIds)
         }
         let existingIds = Set((legacyVisits + cpExtras).map(\.id))
         let driverExtras = driverTrips
@@ -3321,14 +3323,21 @@ private extension GeoTrackTodayVisit {
 }
 
 private extension GeoTrackCPVisitDetail {
-    func toTodayVisitOrNil() -> GeoTrackTodayVisit? {
+    func toTodayVisitOrNil(currentStaffIds: Set<String>) -> GeoTrackTodayVisit? {
         guard let cpId = id?.nilIfBlank,
               let scheduled = scheduledDate?.nilIfBlank
         else { return nil }
 
-        let effectiveStatus = CpVisitStatusPolicy.resolve(
+        let actorParticipant = CpVisitStatusPolicy.actorParticipant(
+            in: joint,
+            currentStaffIds: currentStaffIds
+        )
+        let effectiveStatus = CpVisitStatusPolicy.resolveForActor(
             cpStatus: status,
-            fieldVisitStatus: fieldVisit?.status
+            fieldVisitStatus: fieldVisit?.status,
+            serverEffectiveStatus: self.effectiveStatus,
+            joint: joint,
+            currentStaffIds: currentStaffIds
         )
         let category = isSVCumCP ? "sv_cum_cp" : "direct_cp"
         let typedContact = lead?.contactName?.nilIfBlank
@@ -3343,6 +3352,9 @@ private extension GeoTrackCPVisitDetail {
 
         return GeoTrackTodayVisit(
             id: cpId,
+            fieldVisitId: actorParticipant?.fieldVisitId?.nilIfBlank
+                ?? fieldVisitId?.nilIfBlank
+                ?? fieldVisit?.id?.nilIfBlank,
             clientPlaceId: clientPlaceId?.nilIfBlank ?? cpId,
             scheduledDate: scheduled,
             status: effectiveStatus,
@@ -3413,6 +3425,7 @@ private extension FleetDriverTrip {
 
         return GeoTrackTodayVisit(
             id: id,
+            fieldVisitId: nil,
             clientPlaceId: project?.id?.nilIfBlank ?? id,
             scheduledDate: scheduled,
             status: status,

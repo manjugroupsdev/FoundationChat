@@ -670,9 +670,7 @@ final class AuthStore {
 
   /// Resolve a Convex storage id (e.g. profile photo) to a download URL.
   func resolveStorageURL(storageId: String) async throws -> URL? {
-    let t = try requireToken()
-    let urlString = try await HRConvexAPIService.getFileURL(token: t, storageId: storageId)
-    return URL(string: urlString)
+    MobileStorageService.resolveFileURL(storageId)
   }
 
   /// Resolve profile photos returned either as a full URL or as a bare Convex
@@ -681,18 +679,7 @@ final class AuthStore {
     guard let raw = value?.trimmingCharacters(in: .whitespacesAndNewlines), !raw.isEmpty else {
       return nil
     }
-    if raw.hasPrefix("http://") || raw.hasPrefix("https://") {
-      return URL(string: raw)
-    }
-    if raw.hasPrefix("/") {
-      return URL(string: AppConfig.baseURL.trimmingCharacters(in: CharacterSet(charactersIn: "/")) + raw)
-    }
-    if let signedURL = try? await resolveStorageURL(storageId: raw) {
-      return signedURL
-    }
-    var components = URLComponents(string: "\(AppConfig.baseURL)/api/storage/serve")
-    components?.queryItems = [URLQueryItem(name: "storageId", value: raw)]
-    return components?.url
+    return MobileStorageService.resolveFileURL(raw)
   }
 
   private func mergeProfilePhotoUpdate(

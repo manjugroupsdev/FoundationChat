@@ -1254,18 +1254,12 @@ enum HRConvexAPIService {
 
     // MARK: - Storage (file upload)
 
-    private struct GetFileURLResponse: Decodable, Sendable {
-        let success: Bool; let url: String?; let error: String?
-    }
-
     /// Get a download URL for a stored file.
-    static func getFileURL(token: String, storageId: String) async throws -> String {
-        let data = try await get(path: "/api/storage/get-url?storageId=\(storageId)", token: token)
-        let wrapper = try await decode(GetFileURLResponse.self, from: data)
-        guard wrapper.success, let url = wrapper.url else {
-            throw HRConvexAPIError.server(wrapper.error ?? "Failed to get file URL")
+    static func getFileURL(token _: String, storageId: String) async throws -> String {
+        guard let url = MobileStorageService.fileURL(storageId: storageId) else {
+            throw HRConvexAPIError.badURL
         }
-        return url
+        return url.absoluteString
     }
 
     /// Convenience: upload a photo and return its storage ID.

@@ -435,10 +435,8 @@ enum MarketingConvexAPIService {
 
     static func digitalSignPreviewURL(_ signature: StaffDigitalSign) -> URL? {
         if let storageId = signature.storageId?.trimmingCharacters(in: .whitespacesAndNewlines),
-           !storageId.isEmpty,
-           var components = URLComponents(string: "\(baseURL)/api/storage/serve") {
-            components.queryItems = [URLQueryItem(name: "storageId", value: storageId)]
-            return components.url
+           !storageId.isEmpty {
+            return MobileStorageService.fileURL(storageId: storageId)
         }
         guard let rawURL = signature.url?.trimmingCharacters(in: .whitespacesAndNewlines),
               !rawURL.isEmpty else { return nil }
@@ -1103,6 +1101,21 @@ enum MarketingConvexAPIService {
         return workflow
     }
 
+    static func markJointCpParticipantReady(
+        token: String,
+        request: JointCpLocationRequest
+    ) async throws -> JointCpWorkflow {
+        let data = try await post(
+            path: "/api/marketing/clientPlaceVisits/joint-participant-ready",
+            token: token,
+            body: request
+        )
+        let wrapper = try await decode(JointCpWorkflowResponse.self, from: data)
+        guard wrapper.success else { throw MarketingAPIError.server(wrapper.error ?? "Joint CP proximity check failed") }
+        guard let workflow = wrapper.workflow else { throw MarketingAPIError.server("Joint CP workflow missing") }
+        return workflow
+    }
+
     static func submitJointCpReview(
         token: String,
         request: JointCpSubmitReviewRequest,
@@ -1134,7 +1147,31 @@ enum MarketingConvexAPIService {
         let wrapper = try await decode(JointCpWorkflowResponse.self, from: data)
         guard wrapper.success else { throw MarketingAPIError.server(wrapper.error ?? "Failed to complete Joint CP review") }
         guard let workflow = wrapper.workflow else { throw MarketingAPIError.server("Joint CP workflow missing") }
+        let expectedCredits = Set([workflow.outcomeOwnerStaffId, workflow.reviewerStaffId].compactMap { $0 })
+        if let credits = wrapper.creditedStaffIds ?? workflow.creditedStaffIds,
+           !Set(credits).isSuperset(of: expectedCredits) {
+            throw MarketingAPIError.server("Joint CP completed without crediting both participants")
+        }
         return workflow
+    }
+
+    static func getCompletedCpCount(
+        token: String,
+        date: String,
+        staffId: String? = nil
+    ) async throws -> CpCompletedCountResponse {
+        var queryItems = [URLQueryItem(name: "date", value: date)]
+        if let staffId, !staffId.isEmpty {
+            queryItems.append(URLQueryItem(name: "staffId", value: staffId))
+        }
+        let data = try await get(
+            path: "/api/marketing/clientPlaceVisits/completed-count",
+            token: token,
+            queryItems: queryItems
+        )
+        let wrapper = try await decode(CpCompletedCountResponse.self, from: data)
+        guard wrapper.success else { throw MarketingAPIError.server(wrapper.error ?? "Failed to load completed CP count") }
+        return wrapper
     }
 
     static func getMyMarketingCpVisits(
