@@ -2856,7 +2856,12 @@ struct BookingCreateView: View {
                 errorMessage = "Could not read selected image."
                 return
             }
-            let storageId = try await HRConvexAPIService.uploadPhoto(token: token, imageData: data)
+            let storageId = try await HRConvexAPIService.uploadPhoto(
+                token: token,
+                imageData: data,
+                fileName: "client-photo.jpg",
+                purpose: .staffDocument
+            )
             booking.clientImageStorageId = storageId
             booking.clientImageFileName = "client-photo.jpg"
         } catch {

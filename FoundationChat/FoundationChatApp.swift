@@ -366,8 +366,8 @@ private struct MandatoryAppUpdateView: View {
 
     private var message: String {
         if let version {
-            return "MConnect \(version) is ready"
+            return "M-Chat \(version) is ready"
         }
-        return "A new MConnect version is ready"
+        return "A new M-Chat version is ready"
     }
 }
