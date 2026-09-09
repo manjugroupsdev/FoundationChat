@@ -1794,7 +1794,8 @@ struct TripNavigationView: View {
         }
         guard !isJointMutationInProgress,
               let token = authStore.currentSession?.token,
-              let cpId = clientPlaceVisitId
+              let cpId = clientPlaceVisitId,
+              let fieldVisitId = resolvedVisitId
         else {
             errorMessage = "Refresh the submitted outcome before completing"
             return
@@ -1806,9 +1807,23 @@ struct TripNavigationView: View {
             arrivalStatusText = nil
         }
         do {
-            let latest = try await MarketingConvexAPIService.getJointCpWorkflow(token: token, id: cpId)
+            // Refresh the reviewer's position at the final action instead of
+            // reusing the readiness point captured before OTP and outcome entry.
+            let location = try await locationManager.freshPreciseLocation()
+            let latest = try await MarketingConvexAPIService.markJointCpParticipantReady(
+                token: token,
+                request: JointCpLocationRequest(
+                    id: cpId,
+                    fieldVisitId: fieldVisitId,
+                    lat: location.coordinate.latitude,
+                    lng: location.coordinate.longitude,
+                    accuracyMeters: location.horizontalAccuracy >= 0 ? location.horizontalAccuracy : nil,
+                    capturedAt: Int64(location.timestamp.timeIntervalSince1970 * 1_000)
+                )
+            )
             guard verifiedJointActorRole(latest) == "reviewer",
                   latest.actorReady != false,
+                  latest.isWithinCompletionRadius == true,
                   latest.canCompleteReview == true,
                   let revision = latest.outcomeRevision else {
                 throw MarketingAPIError.server("The submitted outcome is not ready for review completion")

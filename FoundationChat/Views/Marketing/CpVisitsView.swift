@@ -3407,26 +3407,9 @@ private struct CreateCpVisitSheet: View {
                 createRequestId = UUID().uuidString
                 createRequestFingerprint = fingerprint
             }
-            // Replay of this exact request is not a second CP. The server still
-            // enforces uniqueness and idempotency for concurrent creators.
-            if let existingVisits = try? await MarketingConvexAPIService.getMyMarketingCpVisits(
-                token: token, fromDate: scheduledDate, toDate: scheduledDate,
-                scope: "all", limit: 50, search: normalizedPhone
-            ) {
-                let duplicate = existingVisits.contains { visit in
-                    let visitPhone = AppModuleFormatters.normalizePhone(
-                        visit.lead?.mobileNumber ?? visit.client?.mobileNumber ?? ""
-                    )
-                    return visit.scheduledDate == scheduledDate
-                        && visitPhone == normalizedPhone
-                        && visit.status?.lowercased() != "cancelled"
-                        && visit.requestId != createRequestId
-                }
-                if duplicate {
-                    errorMessage = "This client already has a CP visit on \(scheduledDate). Only one CP visit per client is allowed per day. Open the existing visit or choose another date."
-                    return
-                }
-            }
+            // Replay of this exact request is not a second CP. The create
+            // mutation enforces same-day uniqueness atomically, so avoid a
+            // redundant list request that adds a full gateway delay first.
             try Task.checkCancellation()
             let response = try await MarketingConvexAPIService.createCpVisit(
                 token: token,
