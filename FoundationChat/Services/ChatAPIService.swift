@@ -754,7 +754,7 @@ enum ChatAPIService {
     request.httpMethod = "GET"
     request.setValue("Bearer \(token)", forHTTPHeaderField: "Authorization")
     let (data, response) = try await URLSession.shared.data(for: request)
-    try checkHTTPError(data: data, response: response, request: request)
+    try checkHTTPError(data: data, response: response)
     return data
   }
 
@@ -766,7 +766,7 @@ enum ChatAPIService {
     request.setValue("application/json", forHTTPHeaderField: "Content-Type")
     request.httpBody = try JSONSerialization.data(withJSONObject: jsonBody)
     let (data, response) = try await URLSession.shared.data(for: request)
-    try checkHTTPError(data: data, response: response, request: request)
+    try checkHTTPError(data: data, response: response)
     return data
   }
 
@@ -774,10 +774,13 @@ enum ChatAPIService {
     try await BackgroundJSONDecoder.decode(type, from: data)
   }
 
-  private static func checkHTTPError(data: Data, response: URLResponse, request: URLRequest) throws {
+  private static func checkHTTPError(data: Data, response: URLResponse) throws {
     guard let http = response as? HTTPURLResponse else { return }
     if http.statusCode == 401 {
-      SessionInvalidationBus.emit(for: request, responseData: data)
+      // Chat, notifications, and push registration are secondary services.
+      // Their 401 responses are operation-specific and must not clear a
+      // freshly issued MMS session, even though they currently share the
+      // same api-mfpl hostname as the authoritative auth API.
       // Try to extract error message
       if let json = try? JSONSerialization.jsonObject(with: data) as? [String: Any],
          let error = json["error"] as? String {

@@ -32,10 +32,22 @@ enum SessionInvalidationBus {
         guard let requestHost = request.url?.host,
               let authorityHost = URL(string: AppConfig.baseURL)?.host,
               requestHost.caseInsensitiveCompare(authorityHost) == .orderedSame else { return }
+        guard !isSecondaryServicePath(request.url?.path) else { return }
         guard let header = request.value(forHTTPHeaderField: "Authorization"),
               let token = bearerToken(from: header) else { return }
         guard isTerminalSessionRejection(path: request.url?.path, responseData: responseData) else { return }
         emit(failedToken: token)
+    }
+
+    private static func isSecondaryServicePath(_ path: String?) -> Bool {
+        guard let normalized = path?
+            .trimmingCharacters(in: CharacterSet(charactersIn: "/"))
+            .lowercased(),
+              !normalized.isEmpty else { return false }
+        let secondaryPrefixes = ["api/chat", "api/push", "api/notifications"]
+        return secondaryPrefixes.contains { prefix in
+            normalized == prefix || normalized.hasPrefix("\(prefix)/")
+        }
     }
 
     private static func isTerminalSessionRejection(path: String?, responseData: Data?) -> Bool {

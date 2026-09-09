@@ -1417,6 +1417,14 @@ enum MarketingConvexAPIService {
         let message = actionable.components(separatedBy: .newlines)
             .first?
             .trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
+        if message.localizedCaseInsensitiveContains("TEMPLATE_LEVEL_REQUIRED")
+            || message.localizedCaseInsensitiveContains("designation level is missing") {
+            return "Joint CP designation hierarchy is incomplete. Ask admin to map both staff designations and set different numeric levels."
+        }
+        if message.localizedCaseInsensitiveContains("SAME_TEMPLATE_LEVEL_NOT_ALLOWED")
+            || message.localizedCaseInsensitiveContains("different designation levels") {
+            return "Both staff have the same designation level. Select one higher-level and one lower-level staff member."
+        }
         return message.isEmpty ? "Request failed" : message
     }
 
@@ -1433,6 +1441,10 @@ enum MarketingConvexAPIService {
         case "PARTNER_TOO_FAR":
             let radius = Int((response.requiredRadiusMeters ?? 100).rounded())
             return "Both Joint CP staff must be within \(radius) metres to continue."
+        case "TEMPLATE_LEVEL_REQUIRED":
+            return "Joint CP designation hierarchy is incomplete. Ask admin to map both staff designations and set different numeric levels."
+        case "SAME_TEMPLATE_LEVEL_NOT_ALLOWED":
+            return "Both staff have the same designation level. Select one higher-level and one lower-level staff member."
         default:
             return friendlyServerMessage(response.error ?? "Request failed")
         }
