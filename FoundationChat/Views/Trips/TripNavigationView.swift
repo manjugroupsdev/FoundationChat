@@ -49,6 +49,11 @@ struct TripNavigationView: View {
     @State private var resolvedVisitId: String?
     @State private var visitStarted = false
     @State private var statusLine: String = "Starting…"
+    @State private var reconciledStatus: String?
+    @State private var reconciledCpClientMet: Bool?
+    @State private var reconciledCpOutcome: String?
+    @State private var verifiedArrivalCoordinate: CLLocationCoordinate2D?
+    @State private var serverOutcomePendingFinalClose = false
     @State private var isLoadingStart = false
     @State private var startError: String?
 
@@ -161,6 +166,9 @@ struct TripNavigationView: View {
         self.requiresOpenAttendance = requiresOpenAttendance
         self.onTripChanged = onTripChanged
         _resolvedJointSummary = State(initialValue: jointSummary)
+        _reconciledStatus = State(initialValue: initialStatus)
+        _reconciledCpClientMet = State(initialValue: cpClientMet)
+        _reconciledCpOutcome = State(initialValue: cpOutcome)
     }
 
     private var currentLocation: CLLocationCoordinate2D? {
@@ -455,6 +463,9 @@ struct TripNavigationView: View {
             initializeTripState()
             updateMapForKnownDestination()
             await refreshRouteIfPossible(force: true)
+        }
+        .task(id: clientPlaceVisitId) {
+            await reconcileCpVisitState()
         }
         .task(id: clientPlaceVisitId) {
             guard isJointCpWorkflow else { return }
@@ -758,6 +769,21 @@ struct TripNavigationView: View {
                     .frame(height: 48)
                     .foregroundStyle(.secondary)
                     .background(Color.appFieldBackground, in: Capsule())
+                } else if isCpVisit && serverOutcomePendingFinalClose {
+                    Button {
+                        if let id = resolvedVisitId {
+                            Task { await completeVisitUsingCorrectFlow(visitId: id) }
+                        }
+                    } label: {
+                        Label("Finish saved visit", systemImage: "checkmark.circle.fill")
+                            .font(.system(size: 14, weight: .semibold))
+                            .frame(maxWidth: .infinity)
+                            .frame(height: 48)
+                    }
+                    .buttonStyle(.borderedProminent)
+                    .buttonBorderShape(.capsule)
+                    .tint(Color(hex: 0x1BCA0B))
+                    .disabled(arrivalInProgress)
                 } else if let workflow = jointWorkflow {
                     jointWorkflowAction(workflow)
                 } else if isFleetDriverMode && !isCpVisit && fleetDriverPhase == "on_site" {
@@ -870,7 +896,11 @@ struct TripNavigationView: View {
         let actorRole = verifiedJointActorRole(workflow)
         let canEnterOutcome = actorRole == "outcome_owner" && workflow.canSubmitOutcome == true
         let canReview = actorRole == "reviewer" && workflow.canReview == true
-        if actorRole == "reviewer" && workflow.actorReady == false {
+        let jointState = workflow.state?
+            .trimmingCharacters(in: .whitespacesAndNewlines)
+            .lowercased()
+            .replacingOccurrences(of: "-", with: "_")
+        if jointReviewerNeedsReadiness(workflow, actorRole: actorRole) {
             SwipeToConfirmTripButton(
                 title: "Swipe to confirm proximity",
                 busyTitle: arrivalStatusText ?? "Checking both staff locations...",
@@ -897,7 +927,10 @@ struct TripNavigationView: View {
             .buttonBorderShape(.capsule)
             .tint(Color(hex: 0x1BCA0B))
             .disabled(isJointMutationInProgress)
-        } else if actorRole == "outcome_owner" && workflow.canRequestOtp == true {
+        } else if actorRole == "outcome_owner"
+                    && jointState != "pending_review"
+                    && jointState != "reviewing"
+                    && jointState != "completed" {
             SwipeToConfirmTripButton(
                 title: primaryActionTitle,
                 busyTitle: arrivalStatusText ?? "Checking both staff locations...",
@@ -931,9 +964,10 @@ struct TripNavigationView: View {
             return "Outcome reviewed by \(workflow.reviewedByTemplateName ?? workflow.reviewedByName ?? "reviewer")"
         }
         let actorRole = verifiedJointActorRole(workflow)
+        let radius = jointRadiusMetres(workflow)
         if actorRole == "reviewer" {
-            if workflow.actorReady == false {
-                return "Swipe after both partners are within 50 metres"
+            if jointReviewerNeedsReadiness(workflow, actorRole: actorRole) {
+                return "Swipe after both partners are within \(radius) metres"
             }
             let owner = workflow.outcomeOwnerName?.trimmingCharacters(in: .whitespacesAndNewlines)
             if let owner, !owner.isEmpty {
@@ -946,12 +980,35 @@ struct TripNavigationView: View {
                 : "Waiting for the outcome owner to submit"
         }
         if actorRole == "outcome_owner" {
-            return "Complete OTP and photo while both partners are within 50 metres"
+            return "Complete OTP and photo while both partners are within \(radius) metres"
         }
         if workflow.outcomeOwnerStaffId != nil || workflow.reviewerStaffId != nil {
             return "Joint CP role assignment is out of sync. Refresh this visit or ask admin to repair it"
         }
         return "Waiting for Joint CP workflow update"
+    }
+
+    private func jointRadiusMetres(_ workflow: JointCpWorkflow?) -> Int {
+        guard let value = workflow?.requiredRadiusMeters,
+              value.isFinite,
+              value > 0 else { return 100 }
+        return max(1, Int(value.rounded()))
+    }
+
+    private func jointReviewerNeedsReadiness(
+        _ workflow: JointCpWorkflow,
+        actorRole: String?
+    ) -> Bool {
+        let state = workflow.state?
+            .trimmingCharacters(in: .whitespacesAndNewlines)
+            .lowercased()
+            .replacingOccurrences(of: "-", with: "_")
+        return actorRole == "reviewer"
+            && workflow.actorReady != true
+            && workflow.canReview != true
+            && state != "pending_review"
+            && state != "reviewing"
+            && state != "completed"
     }
 
     private var verifiedJointCtaMode: String? {
@@ -1037,6 +1094,95 @@ struct TripNavigationView: View {
         ].contains(normalizedStatus)
         statusLine = visitStarted ? "In progress" : "Start"
         isLoadingStart = false
+    }
+
+    @MainActor
+    private func reconcileCpVisitState() async {
+        guard let cpId = clientPlaceVisitId,
+              let token = authStore.currentSession?.token,
+              let detail = try? await MarketingConvexAPIService.getCpVisitDetail(token: token, id: cpId)
+        else { return }
+
+        resolvedJointSummary = detail.joint ?? resolvedJointSummary
+        let actorStaffId = authStore.currentSession?.user.staffId?.nilIfBlank
+            ?? authStore.currentSession?.user._id.nilIfBlank
+        if let participantVisitId = detail.joint?.participants?
+            .first(where: { $0.staffId?.nilIfBlank == actorStaffId })?
+            .fieldVisitId?.nilIfBlank {
+            resolvedVisitId = participantVisitId
+        } else if let fieldVisitId = detail.fieldVisitId?.nilIfBlank
+            ?? detail.fieldVisit?.id?.nilIfBlank {
+            resolvedVisitId = fieldVisitId
+        }
+
+        reconciledCpClientMet = detail.clientMet ?? reconciledCpClientMet
+        let persistedOutcome = detail.outcome?.nilIfBlank
+            ?? (detail.convertedSiteVisitId?.nilIfBlank == nil ? nil : "converted_to_site_visit")
+            ?? (detail.convertedBookingId?.nilIfBlank == nil ? nil : "converted_to_booking")
+        reconciledCpOutcome = persistedOutcome ?? reconciledCpOutcome
+
+        if let proof = detail.arrivalProof, proof.otpVerifiedAt != nil {
+            pendingStorageId = proof.photoStorageId?.nilIfBlank ?? pendingStorageId
+            if let lat = proof.gpsLat, let lng = proof.gpsLng {
+                verifiedArrivalCoordinate = CLLocationCoordinate2D(latitude: lat, longitude: lng)
+                otpLat = lat
+                otpLng = lng
+            }
+        }
+
+        let status = resolvedCpStatus(detail, actorStaffId: actorStaffId)
+        reconciledStatus = status
+        let normalized = status.trimmingCharacters(in: .whitespacesAndNewlines).lowercased()
+        let terminal = [
+            "completed", "complete", "done", "closed", "cancelled", "canceled",
+            "postponed", "pending_gm_approval"
+        ].contains(normalized)
+        serverOutcomePendingFinalClose = persistedOutcome != nil && !terminal
+        if ["completed", "complete", "done", "closed"].contains(normalized) {
+            visitStarted = true
+            visitCompletedSuccessfully = true
+            serverOutcomePendingFinalClose = false
+            statusLine = "Complete"
+        } else if ["arrived", "arrival_verified", "arrival-verified", "on_site", "on-site"].contains(normalized) {
+            visitStarted = true
+            statusLine = "On Site"
+        } else if ["in-progress", "in_progress", "ongoing", "started", "active"].contains(normalized) {
+            visitStarted = true
+            statusLine = "In progress"
+        }
+    }
+
+    private func resolvedCpStatus(_ detail: CpVisitDetail, actorStaffId: String?) -> String {
+        let terminalStatuses: Set<String> = [
+            "completed", "complete", "done", "closed", "cancelled", "canceled",
+            "postponed", "pending_gm_approval"
+        ]
+        let cp = detail.status?.nilIfBlank ?? ""
+        let server = detail.effectiveStatus?.nilIfBlank ?? ""
+        if terminalStatuses.contains(cp.lowercased()) { return cp }
+        if terminalStatuses.contains(server.lowercased()) { return server }
+        if detail.completedAt != nil || detail.fieldVisit?.completedAt != nil { return "completed" }
+
+        let actorStatus = detail.joint?.participants?
+            .first(where: { $0.staffId?.nilIfBlank == actorStaffId })?
+            .status?.nilIfBlank
+        let candidates = actorStatus.map { [$0, server, cp] }
+            ?? [detail.fieldVisit?.status?.nilIfBlank ?? "", server, cp]
+        let best = candidates.filter { !$0.isEmpty }
+            .max { cpStatusRank($0) < cpStatusRank($1) }
+            ?? "scheduled"
+        if detail.arrivalProof?.otpVerifiedAt != nil && cpStatusRank(best) < 3 { return "arrived" }
+        return best
+    }
+
+    private func cpStatusRank(_ value: String) -> Int {
+        switch value.lowercased().replacingOccurrences(of: "-", with: "_") {
+        case "completed", "complete", "done", "closed": return 4
+        case "arrived", "arrival_verified", "on_site": return 3
+        case "in_progress", "ongoing", "started", "active", "enroute", "en_route": return 2
+        case "scheduled", "assigned", "pending", "in_progress_cp": return 1
+        default: return 0
+        }
     }
 
     private func ensureVisitStarted(startProof: DriverOdometerProof) async {
@@ -1347,7 +1493,7 @@ struct TripNavigationView: View {
                 .distance(from: CLLocation(latitude: dest.latitude, longitude: dest.longitude))
                 await refreshRouteIfPossible(force: true)
                 let distance = distanceMeters ?? directDistance
-                if distance > 500 {
+                if distance > 300 {
                     arrivalStatusText = nil
                     geofenceDistanceText = formatDistance(distance)
                     geofenceReason = ""
@@ -1365,18 +1511,41 @@ struct TripNavigationView: View {
         }
     }
 
-    /// Beyond-geofence completion: best-effort stash the staff's reason on the visit
-    /// (so the approving GM sees why they completed away from the client), then run
-    /// the normal client-seen → photo → OTP flow.
+    /// Persist the approval reason before starting photo/OTP. Letting these writes
+    /// race can leave the visit at `arrived` when completion reaches the backend
+    /// before its required out-of-geofence reason.
     private func proceedAfterGeofenceReason() {
         let reason = geofenceReason.trimmingCharacters(in: .whitespacesAndNewlines)
-        if let token = authStore.currentSession?.token,
-           let cpId = clientPlaceVisitId ?? resolvedVisitId,
-           !reason.isEmpty {
-            Task { try? await MarketingConvexAPIService.setCpGeofenceRemark(token: token, id: cpId, remark: reason) }
+        guard !reason.isEmpty else {
+            arrivalInProgress = false
+            errorMessage = "Add a reason before completing away from the client"
+            resetArrivalSwipe()
+            return
         }
-        arrivalStatusText = nil
-        showCpClientSeenSheet = true
+        guard let token = authStore.currentSession?.token,
+              let cpId = clientPlaceVisitId ?? resolvedVisitId else {
+            arrivalInProgress = false
+            errorMessage = "Visit information is missing. Refresh and retry."
+            resetArrivalSwipe()
+            return
+        }
+        arrivalStatusText = "Saving completion reason..."
+        Task {
+            do {
+                try await MarketingConvexAPIService.setCpGeofenceRemark(
+                    token: token,
+                    id: cpId,
+                    remark: reason
+                )
+                arrivalStatusText = nil
+                showCpClientSeenSheet = true
+            } catch {
+                arrivalInProgress = false
+                arrivalStatusText = nil
+                errorMessage = error.localizedDescription
+                resetArrivalSwipe()
+            }
+        }
     }
 
     private func startCpYesPath() {
@@ -1435,7 +1604,7 @@ struct TripNavigationView: View {
             return
         }
         if let workflow = jointWorkflow,
-           (verifiedJointActorRole(workflow) != "outcome_owner" || workflow.canRequestOtp != true) {
+           verifiedJointActorRole(workflow) != "outcome_owner" {
             arrivalInProgress = false
             errorMessage = jointWaitingMessage(workflow)
             resetArrivalSwipe()
@@ -1457,11 +1626,12 @@ struct TripNavigationView: View {
             )
             jointWorkflow = workflow
             guard workflow.isWithinCompletionRadius == true else {
+                let radius = jointRadiusMetres(workflow)
                 let measured = workflow.separationMeters.map { String(format: "%.0f m", $0) }
                 throw TripError.message(
                     measured.map {
-                        "Joint CP completion is blocked. Both staff must be within 50 metres. Current separation: \($0)."
-                    } ?? "Both Joint CP staff need a fresh location within 50 metres."
+                        "Joint CP completion is blocked. Both staff must be within \(radius) metres. Current separation: \($0)."
+                    } ?? "Both Joint CP staff need a fresh location within \(radius) metres."
                 )
             }
             arrivalStatusText = nil
@@ -1923,13 +2093,17 @@ struct TripNavigationView: View {
     /// Arrival photo and OTP are already recorded in their dedicated fields;
     /// there is no vehicle odometer step for CP staff.
     private func completeFieldVisit(visitId id: String) async {
+        let hasPersistedCpOutcome = isCpVisit && (
+            pendingCpTripCompletion != nil || reconciledCpOutcome?.nilIfBlank != nil
+        )
+        if hasPersistedCpOutcome { serverOutcomePendingFinalClose = true }
         arrivalStatusText = "Completing visit…"
         do {
             let token = try requireToken()
             geoAPI.tokenProvider = { token }
             // Arrival location was already freshly verified before OTP. Reuse
             // it here instead of making completion wait for another GPS fix.
-            let location = locationManager.currentLocation?.coordinate
+            let location = verifiedArrivalCoordinate ?? locationManager.currentLocation?.coordinate
             let completion = try await geoAPI.completeVisit(
                 visitId: id,
                 lat: location?.latitude ?? otpLat,
@@ -1945,12 +2119,16 @@ struct TripNavigationView: View {
             )
             if pendingCpTripCompletion != nil {
                 let confirmed = completion.status?.trimmingCharacters(in: .whitespacesAndNewlines).lowercased()
-                guard ["completed", "pending_gm_approval", "postponed", "cancelled", "canceled"].contains(confirmed ?? "") else {
+                // Current/legacy handlers confirm the field-visit write with
+                // success + fieldVisitId and omit status. That is a valid
+                // committed response, matching Android's compatibility rule.
+                guard confirmed == nil || ["completed", "pending_gm_approval", "postponed", "cancelled", "canceled"].contains(confirmed ?? "") else {
                     throw TripError.message("The trip was saved, but the CP outcome state was not confirmed. Refresh before retrying.")
                 }
             }
 
             visitCompletedSuccessfully = true
+            serverOutcomePendingFinalClose = false
             arrivalStatusText = nil
             arrivalInProgress = false
             onTripChanged?()
@@ -1974,6 +2152,7 @@ struct TripNavigationView: View {
             }
         } catch {
             arrivalStatusText = nil
+            if hasPersistedCpOutcome { serverOutcomePendingFinalClose = true }
             let message = Self.cleanServerMessage(error.localizedDescription)
             // The server requires an arrival photo proof and this session has
             // none to attach: `pendingStorageId` is in-memory only, so it is
@@ -2169,7 +2348,7 @@ struct TripNavigationView: View {
 
     private var shouldCollectCpOutcome: Bool {
         guard let clientPlaceVisitId, !clientPlaceVisitId.isEmpty else { return false }
-        guard cpClientMet != true || (cpOutcome ?? "").isEmpty else { return false }
+        guard reconciledCpClientMet != true || (reconciledCpOutcome ?? "").isEmpty else { return false }
         return true
     }
 
@@ -2249,6 +2428,9 @@ struct TripNavigationView: View {
 
         routeInfo = await directionsClient.fetchDriving(origin: current, destination: dest)
         updateMapBounds(currentCoord: current)
+        routeWarning = routeInfo == nil
+            ? "Road route is temporarily unavailable. Try again shortly."
+            : nil
     }
 
     private var statusBadge: String {
@@ -2282,7 +2464,7 @@ struct TripNavigationView: View {
     }
 
     private var normalizedInitialStatus: String {
-        (initialStatus ?? "")
+        (reconciledStatus ?? initialStatus ?? "")
             .trimmingCharacters(in: .whitespacesAndNewlines)
             .lowercased()
     }
@@ -2376,9 +2558,10 @@ struct TripNavigationView: View {
                 )
             )
             guard verifiedJointActorRole(workflow) == "reviewer",
-                  workflow.actorReady == true,
+                  workflow.actorReady != false,
                   workflow.isWithinCompletionRadius == true else {
-                throw TripError.message("Both Joint CP staff must be within 50 metres to continue")
+                let radius = jointRadiusMetres(workflow)
+                throw TripError.message("Both Joint CP staff must be within \(radius) metres to continue")
             }
             jointWorkflow = workflow
             arrivalInProgress = false

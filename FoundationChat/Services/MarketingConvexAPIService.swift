@@ -23,6 +23,9 @@ enum MarketingConvexAPIService {
         let error: String?
         let fieldErrors: [String: String]?
         let correlationId: String?
+        let requiredRadiusMeters: Double?
+        let maximumAccuracyMeters: Double?
+        let maximumLocationAgeMs: Int64?
     }
 
     // MARK: - Response wrappers
@@ -1390,7 +1393,7 @@ enum MarketingConvexAPIService {
                    normalized.code != nil || normalized.error != nil {
                     throw MarketingAPIError.structuredServer(
                         code: normalized.code,
-                        message: friendlyServerMessage(normalized.error ?? "Request failed"),
+                        message: friendlyStructuredServerMessage(normalized),
                         fieldErrors: normalized.fieldErrors,
                         correlationId: normalized.correlationId
                     )
@@ -1415,6 +1418,24 @@ enum MarketingConvexAPIService {
             .first?
             .trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
         return message.isEmpty ? "Request failed" : message
+    }
+
+    private static func friendlyStructuredServerMessage(
+        _ response: NormalizedAPIErrorResponse
+    ) -> String {
+        switch response.code?.trimmingCharacters(in: .whitespacesAndNewlines).uppercased() {
+        case "PARTNER_LOCATION_STALE":
+            let ageSeconds = max(1, (response.maximumLocationAgeMs ?? 60_000) / 1_000)
+            return "Partner location is older than \(ageSeconds) seconds. Keep both phones on this visit and try again."
+        case "LOCATION_ACCURACY_LOW":
+            let accuracy = Int((response.maximumAccuracyMeters ?? 30).rounded())
+            return "GPS accuracy is too low. Turn on precise location, move to an open area, and retry with \(accuracy) metres accuracy or better."
+        case "PARTNER_TOO_FAR":
+            let radius = Int((response.requiredRadiusMeters ?? 100).rounded())
+            return "Both Joint CP staff must be within \(radius) metres to continue."
+        default:
+            return friendlyServerMessage(response.error ?? "Request failed")
+        }
     }
 
     private static func decode<T: Decodable>(_ type: T.Type, from data: Data) async throws -> T {

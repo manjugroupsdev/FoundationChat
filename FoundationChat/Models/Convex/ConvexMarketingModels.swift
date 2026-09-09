@@ -403,8 +403,12 @@ struct JointCpWorkflowResponse: Codable, Sendable {
     let visit: CpVisitDetail?
     let workflow: JointCpWorkflow?
     let creditedStaffIds: [String]?
+    let alreadyCompleted: Bool?
     let error: String?
     let code: String?
+    let requiredRadiusMeters: Double?
+    let maximumAccuracyMeters: Double?
+    let maximumLocationAgeMs: Int64?
 }
 
 struct JointCpWorkflow: Codable, Sendable {
