@@ -513,7 +513,7 @@ struct ConvexStaffListItem: Decodable, Identifiable, Equatable, Sendable, Hashab
         case permissionTemplateName
         case iamTemplateLevel
         case templateLevel
-        case roleLevel
+        case designationLevel
         case jointCpWorkflowRole
         case jointCpRole
         case reportingTo
@@ -540,7 +540,7 @@ struct ConvexStaffListItem: Decodable, Identifiable, Equatable, Sendable, Hashab
             ?? container.decodeIfPresent(String.self, forKey: .permissionTemplateName)
         iamTemplateLevel = try container.decodeIfPresent(Int.self, forKey: .iamTemplateLevel)
             ?? container.decodeIfPresent(Int.self, forKey: .templateLevel)
-            ?? container.decodeIfPresent(Int.self, forKey: .roleLevel)
+            ?? container.decodeIfPresent(Int.self, forKey: .designationLevel)
         jointCpWorkflowRole = try container.decodeIfPresent(String.self, forKey: .jointCpWorkflowRole)
             ?? container.decodeIfPresent(String.self, forKey: .jointCpRole)
         reportingTo = try container.decodeIfPresent(String.self, forKey: .reportingTo)
