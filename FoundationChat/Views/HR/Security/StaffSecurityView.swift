@@ -20,6 +20,13 @@ struct StaffSecurityView: View {
     @State private var selectedStaff: ConvexStaffListItem?
     @State private var selectedLogin: ActiveStaffLogin?
     @State private var pendingLogout: ActiveStaffLogin?
+    @State private var selectedForDeviceReset: Set<String> = []
+    @State private var selectedAllScopeIDs: Set<String> = []
+    @State private var selectedAllQuery: String?
+    @State private var isSelectingAll = false
+    @State private var isBulkResetting = false
+    @State private var showBulkResetConfirmation = false
+    @State private var bulkResetMessage: String?
     @State private var reloadID = UUID()
 
     private var isSuperAdmin: Bool {
@@ -129,6 +136,11 @@ struct StaffSecurityView: View {
                 mode = first
                 return
             }
+            if mode != .deviceReset {
+                selectedForDeviceReset.removeAll()
+                selectedAllScopeIDs.removeAll()
+                selectedAllQuery = nil
+            }
             hasActiveStaffSearch = false
             searchText = ""
             await reload(force: false)
@@ -179,6 +191,26 @@ struct StaffSecurityView: View {
         } message: {
             Text("This ends every active session for \(pendingLogout?.name ?? "this staff member").")
         }
+        .confirmationDialog(
+            "Reset devices for \(selectedForDeviceReset.count) staff?",
+            isPresented: $showBulkResetConfirmation,
+            titleVisibility: .visible
+        ) {
+            Button("Reset devices", role: .destructive) {
+                Task { await resetSelectedDevices() }
+            }
+            Button("Cancel", role: .cancel) {}
+        } message: {
+            Text("This clears their device locks and signs out active mobile sessions.")
+        }
+        .alert("Device reset complete", isPresented: Binding(
+            get: { bulkResetMessage != nil },
+            set: { if !$0 { bulkResetMessage = nil } }
+        )) {
+            Button("OK") { bulkResetMessage = nil }
+        } message: {
+            Text(bulkResetMessage ?? "")
+        }
         .alert("Security", isPresented: Binding(
             get: { errorMessage != nil },
             set: { if !$0 { errorMessage = nil } }
@@ -195,45 +227,111 @@ struct StaffSecurityView: View {
             ContentUnavailableView.search(text: searchText)
         } else {
             Section("Staff") {
-                ForEach(visibleStaff) { row in
-                    let isSelf = isCurrentStaff(row)
-                    Button {
-                        guard !isSelf else { return }
-                        selectedStaff = row
-                    } label: {
-                        HStack(spacing: 12) {
-                            StaffSecurityAvatar(name: row.displayName, photo: row.photo)
-                            VStack(alignment: .leading, spacing: 3) {
-                                Text(row.displayName).font(.headline).foregroundStyle(.primary)
-                                Text([row.employeeId, row.designation, row.department]
-                                    .compactMap { $0?.securityNonBlank }
-                                    .joined(separator: " · "))
-                                    .font(.caption)
-                                    .foregroundStyle(.secondary)
-                                    .lineLimit(2)
-                            }
-                            Spacer()
-                            if isSelf {
-                                Text("You")
-                                    .font(.caption.weight(.semibold))
-                                    .foregroundStyle(.secondary)
-                            } else {
-                                Image(systemName: "chevron.right")
-                                    .font(.caption.weight(.semibold))
-                                    .foregroundStyle(.tertiary)
+                if mode == .deviceReset {
+                    Toggle(isOn: Binding(
+                        get: {
+                            selectedAllQuery == normalizedSecuritySearch
+                                && !selectedAllScopeIDs.isEmpty
+                                && selectedAllScopeIDs.isSubset(of: selectedForDeviceReset)
+                        },
+                        set: { selected in
+                            if selected {
+                                Task { await selectAllMatchingStaff() }
+                            } else if selectedAllQuery == normalizedSecuritySearch {
+                                selectedForDeviceReset.subtract(selectedAllScopeIDs)
+                                selectedAllScopeIDs.removeAll()
+                                selectedAllQuery = nil
                             }
                         }
+                    )) {
+                        HStack(spacing: 8) {
+                            Text(isSelectingAll ? "Selecting matching staff..." : "Select all matching staff")
+                            if isSelectingAll { ProgressView().controlSize(.small) }
+                        }
                     }
-                    .buttonStyle(.plain)
-                    .disabled(isSelf)
-                    .opacity(isSelf ? 0.55 : 1)
+                    .disabled(isSelectingAll || isBulkResetting)
+                }
+
+                ForEach(visibleStaff) { row in
+                    let isSelf = isCurrentStaff(row)
+                    HStack(spacing: 12) {
+                        Button {
+                            guard !isSelf else { return }
+                            selectedStaff = row
+                        } label: {
+                            HStack(spacing: 12) {
+                                StaffSecurityAvatar(name: row.displayName, photo: row.photo)
+                                VStack(alignment: .leading, spacing: 3) {
+                                    Text(row.displayName).font(.headline).foregroundStyle(.primary)
+                                    Text([row.employeeId, row.designation, row.department]
+                                        .compactMap { $0?.securityNonBlank }
+                                        .joined(separator: " · "))
+                                        .font(.caption)
+                                        .foregroundStyle(.secondary)
+                                        .lineLimit(2)
+                                }
+                                Spacer()
+                                if isSelf {
+                                    Text("You")
+                                        .font(.caption.weight(.semibold))
+                                        .foregroundStyle(.secondary)
+                                } else if mode != .deviceReset {
+                                    Image(systemName: "chevron.right")
+                                        .font(.caption.weight(.semibold))
+                                        .foregroundStyle(.tertiary)
+                                }
+                            }
+                        }
+                        .buttonStyle(.plain)
+                        .disabled(isSelf)
+                        .opacity(isSelf ? 0.55 : 1)
+
+                        if mode == .deviceReset, !isSelf {
+                            Button {
+                                if selectedForDeviceReset.contains(row._id) {
+                                    selectedForDeviceReset.remove(row._id)
+                                } else {
+                                    selectedForDeviceReset.insert(row._id)
+                                }
+                            } label: {
+                                Image(systemName: selectedForDeviceReset.contains(row._id)
+                                    ? "checkmark.circle.fill"
+                                    : "circle")
+                                    .font(.title3)
+                            }
+                            .buttonStyle(.plain)
+                            .disabled(isBulkResetting)
+                        }
+                    }
                     .onAppear {
                         if row.id == visibleStaff.last?.id {
                             Task { await loadNextStaffPage() }
                         }
                     }
                 }
+            }
 
+            if mode == .deviceReset, !selectedForDeviceReset.isEmpty {
+                Section {
+                    HStack {
+                        Text("\(selectedForDeviceReset.count) staff selected")
+                            .font(.subheadline.weight(.semibold))
+                        Spacer()
+                        if isBulkResetting {
+                            ProgressView()
+                        } else {
+                            Button("Reset devices", role: .destructive) {
+                                showBulkResetConfirmation = true
+                            }
+                        }
+                    }
+                    Button("Clear selection") {
+                        selectedForDeviceReset.removeAll()
+                        selectedAllScopeIDs.removeAll()
+                        selectedAllQuery = nil
+                    }
+                    .disabled(isBulkResetting)
+                }
             }
         }
 
@@ -307,6 +405,10 @@ struct StaffSecurityView: View {
 
     private var currentRowsAreEmpty: Bool {
         mode == .staffLogin ? logins.isEmpty : staff.isEmpty
+    }
+
+    private var normalizedSecuritySearch: String {
+        searchText.trimmingCharacters(in: .whitespacesAndNewlines)
     }
 
     @MainActor
@@ -453,6 +555,56 @@ struct StaffSecurityView: View {
         guard let token = authStore.currentSession?.token else { return }
         do {
             try await StaffSecurityAPIService.logoutEverywhere(token: token, staffId: staffId)
+            await reload(force: true)
+        } catch {
+            errorMessage = error.localizedDescription
+        }
+    }
+
+    @MainActor
+    private func selectAllMatchingStaff() async {
+        guard let token = authStore.currentSession?.token, !isSelectingAll else { return }
+        isSelectingAll = true
+        defer { isSelectingAll = false }
+        let query = normalizedSecuritySearch
+        do {
+            let result = try await StaffSecurityAPIService.selectableStaffIDs(
+                token: token,
+                query: query
+            )
+            guard mode == .deviceReset, query == normalizedSecuritySearch else { return }
+            let selectable = Set(result.ids.prefix(2_000)).subtracting(currentStaffIDs)
+            guard !selectable.isEmpty else {
+                errorMessage = "No selectable staff match the current search."
+                return
+            }
+            selectedAllScopeIDs = selectable
+            selectedAllQuery = query
+            selectedForDeviceReset.formUnion(selectable)
+            if result.total > selectable.count {
+                errorMessage = "Selected \(selectable.count) of \(result.total) staff. Narrow the search to select the rest."
+            }
+        } catch {
+            errorMessage = error.localizedDescription
+        }
+    }
+
+    @MainActor
+    private func resetSelectedDevices() async {
+        guard let token = authStore.currentSession?.token,
+              !selectedForDeviceReset.isEmpty,
+              !isBulkResetting else { return }
+        isBulkResetting = true
+        defer { isBulkResetting = false }
+        do {
+            let result = try await StaffSecurityAPIService.resetDevicesBulk(
+                token: token,
+                staffIds: selectedForDeviceReset.sorted()
+            )
+            selectedForDeviceReset.removeAll()
+            selectedAllScopeIDs.removeAll()
+            selectedAllQuery = nil
+            bulkResetMessage = "Reset device locks for \(result.selectedStaffCount) staff. Signed out \(result.mobileSessionsSignedOut) mobile sessions."
             await reload(force: true)
         } catch {
             errorMessage = error.localizedDescription

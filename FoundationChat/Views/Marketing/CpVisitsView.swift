@@ -256,6 +256,7 @@ struct CpVisitsView: View {
             cpOutcome: visit.outcome,
             cpVisitCategory: visit.visitCategory,
             cpType: visit.cpType,
+            jointSummary: visit.detail.joint,
             lmoName: visit.lmoName,
             fieldStaffName: visit.fieldStaffName,
             deadline: visit.deadlineText,
@@ -851,7 +852,7 @@ private struct CpListVisit: Identifiable {
         self.status = resolvedStatus
         let activityDate = detail.activityDate?.blankToNil
             ?? actorParticipant?.startedAt.map(Self.localDateString)
-        let isCompleted = resolvedStatus.map { $0.normalizedMarker.isCompleted } == true
+        let isCompleted = resolvedStatus.normalizedMarker.isCompleted
         self.scheduledDate = isCompleted
             ? (activityDate ?? detail.scheduledDate)
             : detail.scheduledDate

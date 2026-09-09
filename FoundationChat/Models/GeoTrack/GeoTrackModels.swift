@@ -358,6 +358,13 @@ struct GeoTrackStaffInfo: Decodable, Sendable {
     }
 }
 
+struct GeoTrackConsentRecord: Decodable, Sendable {
+    let staffId: String?
+    let consented: Bool
+    let consentedAt: Double?
+    let appVersion: String?
+}
+
 struct GeoTrackEmployeeDetail: Decodable, Sendable {
     let staff: GeoTrackStaffInfo
     let liveStatus: GeoTrackLiveStatusEntry?

@@ -33,6 +33,7 @@ struct TripNavigationView: View {
     let cpOutcome: String?
     let cpVisitCategory: String?
     let cpType: String?
+    let jointSummary: JointCpSummary?
     let lmoName: String?
     /// Who the visit is ASSIGNED to. A manager opening someone else's trip
     /// had no way to tell whose it was — the card showed the client and the
@@ -103,6 +104,7 @@ struct TripNavigationView: View {
 
     @State private var errorMessage: String?
     @State private var jointWorkflow: JointCpWorkflow?
+    @State private var resolvedJointSummary: JointCpSummary?
     @State private var isJointMutationInProgress = false
     @State private var autoOpenedJointReviewRevision: Int64?
     @State private var showJointReviewerRemarks = false
@@ -126,6 +128,7 @@ struct TripNavigationView: View {
         cpOutcome: String? = nil,
         cpVisitCategory: String? = nil,
         cpType: String? = nil,
+        jointSummary: JointCpSummary? = nil,
         lmoName: String? = nil,
         fieldStaffName: String? = nil,
         deadline: String? = nil,
@@ -149,6 +152,7 @@ struct TripNavigationView: View {
         self.cpOutcome = cpOutcome
         self.cpVisitCategory = cpVisitCategory
         self.cpType = cpType
+        self.jointSummary = jointSummary
         self.lmoName = lmoName
         self.fieldStaffName = fieldStaffName
         self.deadline = deadline
@@ -156,6 +160,7 @@ struct TripNavigationView: View {
         self.usesAgencyFleetDriverAPI = usesAgencyFleetDriverAPI
         self.requiresOpenAttendance = requiresOpenAttendance
         self.onTripChanged = onTripChanged
+        _resolvedJointSummary = State(initialValue: jointSummary)
     }
 
     private var currentLocation: CLLocationCoordinate2D? {
@@ -961,9 +966,10 @@ struct TripNavigationView: View {
     private func verifiedJointActorRole(_ workflow: JointCpWorkflow) -> String? {
         let user = authStore.currentSession?.user
         let actorIds = Set([user?.staffId, user?._id].compactMap { $0?.nilIfBlank })
+        let participantIDs = resolvedJointParticipantIDs(workflow)
         guard !actorIds.isEmpty,
-              let ownerId = workflow.outcomeOwnerStaffId?.nilIfBlank,
-              let reviewerId = workflow.reviewerStaffId?.nilIfBlank,
+              let ownerId = participantIDs.owner,
+              let reviewerId = participantIDs.reviewer,
               ownerId != reviewerId else { return nil }
 
         let expectedRole: String?
@@ -979,6 +985,22 @@ struct TripNavigationView: View {
         let declaredRole = workflow.actorRole?.nilIfBlank?.lowercased()
         guard declaredRole == nil || declaredRole == expectedRole else { return nil }
         return expectedRole
+    }
+
+    private func resolvedJointParticipantIDs(
+        _ workflow: JointCpWorkflow
+    ) -> (owner: String?, reviewer: String?) {
+        let participants = resolvedJointSummary?.participants ?? []
+        let owner = workflow.outcomeOwnerStaffId?.nilIfBlank
+            ?? participants.first(where: { $0.workflowRole?.nilIfBlank?.lowercased() == "outcome_owner" })?
+                .staffId?.nilIfBlank
+            ?? resolvedJointSummary?.leadStaffId?.nilIfBlank
+            ?? participants.first(where: { $0.isPrimary == true })?.staffId?.nilIfBlank
+        let reviewer = workflow.reviewerStaffId?.nilIfBlank
+            ?? participants.first(where: { $0.workflowRole?.nilIfBlank?.lowercased() == "reviewer" })?
+                .staffId?.nilIfBlank
+            ?? participants.first(where: { $0.staffId?.nilIfBlank != owner })?.staffId?.nilIfBlank
+        return (owner, reviewer)
     }
 
     // MARK: - Visit lifecycle
@@ -1380,6 +1402,11 @@ struct TripNavigationView: View {
         else { return }
         do {
             let workflow = try await MarketingConvexAPIService.getJointCpWorkflow(token: token, id: cpId)
+            if (workflow.outcomeOwnerStaffId?.nilIfBlank == nil
+                    || workflow.reviewerStaffId?.nilIfBlank == nil),
+               let detail = try? await MarketingConvexAPIService.getCpVisitDetail(token: token, id: cpId) {
+                resolvedJointSummary = detail.joint
+            }
             jointWorkflow = workflow
             if workflow.state == "completed" {
                 statusLine = "Complete"
@@ -1805,10 +1832,11 @@ struct TripNavigationView: View {
             onTripChanged?()
             dismiss()
         } catch {
-            let expectedCredits = Set(
-                [jointWorkflow?.outcomeOwnerStaffId, jointWorkflow?.reviewerStaffId]
-                    .compactMap { $0?.nilIfBlank }
-            )
+            let expectedCreditIDs: [String] = jointWorkflow.map { workflow in
+                    let ids = resolvedJointParticipantIDs(workflow)
+                    return [ids.owner, ids.reviewer].compactMap { $0 }
+                } ?? []
+            let expectedCredits = Set(expectedCreditIDs)
             if let confirmed = try? await MarketingConvexAPIService.getJointCpWorkflow(token: token, id: cpId),
                jointCompletionWasConfirmed(confirmed, expectedCredits: expectedCredits) {
                 jointWorkflow = confirmed

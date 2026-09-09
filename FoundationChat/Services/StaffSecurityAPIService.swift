@@ -58,6 +58,13 @@ struct ActiveStaffSession: Decodable, Identifiable, Sendable {
     var id: String { deviceKey }
 }
 
+struct BulkDeviceResetResult: Decodable, Sendable {
+    let selectedStaffCount: Int
+    let staffWithBindings: Int
+    let bindingsCleared: Int
+    let mobileSessionsSignedOut: Int
+}
+
 enum StaffSecurityAPIService {
     private static let baseURL = AppConfig.baseURL
 
@@ -87,6 +94,22 @@ enum StaffSecurityAPIService {
 
     private struct ActionResponse: Decodable {
         let success: Bool
+        let error: String?
+    }
+
+    private struct SelectableStaffIDsResponse: Decodable {
+        let success: Bool
+        let total: Int
+        let staffIds: [String]
+        let error: String?
+    }
+
+    private struct BulkDeviceResetResponse: Decodable {
+        let success: Bool
+        let selectedStaffCount: Int?
+        let staffWithBindings: Int?
+        let bindingsCleared: Int?
+        let mobileSessionsSignedOut: Int?
         let error: String?
     }
 
@@ -131,6 +154,45 @@ enum StaffSecurityAPIService {
 
     static func resetDevice(token: String, staffId: String) async throws {
         try await action(path: "/api/hr/staff/device-reset", token: token, body: ["staffId": staffId])
+    }
+
+    static func selectableStaffIDs(
+        token: String,
+        designation: String? = nil,
+        department: String? = nil,
+        query: String? = nil
+    ) async throws -> (ids: [String], total: Int) {
+        let response: SelectableStaffIDsResponse = try await request(
+            path: "/api/hr/staff/selectable-ids",
+            token: token,
+            queryItems: [
+                URLQueryItem(name: "designation", value: designation?.staffSecurityNonBlank),
+                URLQueryItem(name: "department", value: department?.staffSecurityNonBlank),
+                URLQueryItem(name: "query", value: query?.staffSecurityNonBlank)
+            ]
+        )
+        guard response.success else {
+            throw StaffSecurityAPIError.server(response.error ?? "Unable to select matching staff")
+        }
+        return (response.staffIds, response.total)
+    }
+
+    static func resetDevicesBulk(token: String, staffIds: [String]) async throws -> BulkDeviceResetResult {
+        let response: BulkDeviceResetResponse = try await request(
+            path: "/api/hr/staff/device-reset/bulk",
+            token: token,
+            method: "POST",
+            body: ["staffIds": staffIds]
+        )
+        guard response.success else {
+            throw StaffSecurityAPIError.server(response.error ?? "Unable to reset selected devices")
+        }
+        return BulkDeviceResetResult(
+            selectedStaffCount: response.selectedStaffCount ?? staffIds.count,
+            staffWithBindings: response.staffWithBindings ?? 0,
+            bindingsCleared: response.bindingsCleared ?? 0,
+            mobileSessionsSignedOut: response.mobileSessionsSignedOut ?? 0
+        )
     }
 
     static func forceMobileLogout(token: String, staffId: String) async throws {
@@ -183,9 +245,17 @@ enum StaffSecurityAPIService {
         path: String,
         token: String,
         method: String = "GET",
-        body: [String: Any]? = nil
+        body: [String: Any]? = nil,
+        queryItems: [URLQueryItem] = []
     ) async throws -> T {
-        guard let url = URL(string: baseURL + path) else { throw StaffSecurityAPIError.badURL }
+        guard var components = URLComponents(string: baseURL + path) else {
+            throw StaffSecurityAPIError.badURL
+        }
+        let populatedQueryItems = queryItems.filter { $0.value != nil }
+        if !populatedQueryItems.isEmpty {
+            components.queryItems = (components.queryItems ?? []) + populatedQueryItems
+        }
+        guard let url = components.url else { throw StaffSecurityAPIError.badURL }
         var request = URLRequest(url: url)
         request.httpMethod = method
         request.setValue("Bearer \(token)", forHTTPHeaderField: "Authorization")
@@ -221,5 +291,12 @@ enum StaffSecurityAPIError: LocalizedError {
         case .badURL: return "Invalid security request."
         case .server(let message): return message
         }
+    }
+}
+
+private extension String {
+    var staffSecurityNonBlank: String? {
+        let trimmed = trimmingCharacters(in: .whitespacesAndNewlines)
+        return trimmed.isEmpty ? nil : trimmed
     }
 }
