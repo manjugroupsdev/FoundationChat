@@ -66,7 +66,7 @@ final class LocationTracker: NSObject {
         locationManager.pausesLocationUpdatesAutomatically = true
         locationManager.activityType = .automotiveNavigation
 
-        // Wire the Convex session token from Keychain into the shared API service
+        // Reuse the authoritative MMS login bearer for direct GeoTrack auth.
         self.geoAPI.tokenProvider = {
             try? KeychainTokenStore().load()?.token
         }
@@ -77,15 +77,22 @@ final class LocationTracker: NSObject {
 
     // MARK: - Trip Lifecycle
 
-    /// Starts a Convex geotrack session and begins tamper monitoring.
+    /// Starts a direct GeoTrack session and begins tamper monitoring.
     /// `purpose` and `remarks` are retained for call-site compatibility.
     func startTrip(purpose: String = "", remarks: String = "") async throws {
         guard !isTracking else { return }
+        guard let token = geoAPI.tokenProvider?(),
+              await AttendanceTrackingGate.hasOpenSessionNow(token: token) == true else {
+            throw NSError(
+                domain: "LocationTracker", code: 5,
+                userInfo: [NSLocalizedDescriptionKey: "Clock in before starting tracking."]
+            )
+        }
         try await beginTracking(shouldStartServerSession: true)
     }
 
     /// Resumes local GPS capture for a server-backed active session returned
-    /// by `/api/tracking/bootstrap`, without creating a second backend session.
+    /// by `/api/tracking/sessions/current`, without creating a second session.
     func resumeServerBackedTracking() async throws {
         guard !isTracking else { return }
         try await beginTracking(shouldStartServerSession: false)
@@ -116,7 +123,8 @@ final class LocationTracker: NSObject {
         if shouldStartServerSession {
             // Keep collecting into the durable local queue during an outage;
             // the direct start command is persisted and replayed unchanged.
-            try? await geoAPI.startTracking(lat: lat, lng: lng)
+            let directSession = try await geoAPI.startTracking(lat: lat, lng: lng)
+            GeoTrackBootstrapCoordinator.shared.applyRecoveredSessionId(directSession.sessionId)
         }
 
         isTracking = true
@@ -171,8 +179,11 @@ final class LocationTracker: NSObject {
         }
         await flushWaypoints()
         // A failed direct stop is persisted by GeoTrackAPIService and retried
-        // on the next bootstrap without keeping iOS location updates alive.
-        try? await geoAPI.stopTracking()
+        // during the next direct-session recovery without keeping iOS location updates alive.
+        if let sessionId = GeoTrackBootstrapCoordinator.shared.activeSessionId,
+           (try? await geoAPI.stopTracking(sessionId: sessionId)) != nil {
+            GeoTrackBootstrapCoordinator.shared.clearActiveSessionIfMatching(sessionId)
+        }
         stopTracking()
         return GPSSessionEndResult(totalWaypoints: nil, totalDistanceKm: nil, totalDuration: nil)
     }
@@ -213,8 +224,10 @@ final class LocationTracker: NSObject {
         }
 
         await flushWaypoints()
-        if notifyServer {
-            try? await geoAPI.stopTracking()
+        if notifyServer, let sessionId = GeoTrackBootstrapCoordinator.shared.activeSessionId {
+            if (try? await geoAPI.stopTracking(sessionId: sessionId)) != nil {
+                GeoTrackBootstrapCoordinator.shared.clearActiveSessionIfMatching(sessionId)
+            }
         }
         stopTracking()
     }
@@ -310,7 +323,7 @@ final class LocationTracker: NSObject {
            location.timestamp.timeIntervalSince(lastDate) < Self.minimumPointInterval {
             return
         }
-        // Matches Convex backend validation: reject accuracy > 100 m
+        // Matches direct GeoTrack validation: reject accuracy > 100 m
         guard location.horizontalAccuracy >= 0, location.horizontalAccuracy <= 100 else { return }
 
         lastRecordedDate = location.timestamp

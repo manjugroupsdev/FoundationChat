@@ -262,7 +262,8 @@ enum AuthAPIService {
       role: isAgencyStaff ? "agency_staff" : "external_fleet_driver",
       designation: isAgencyStaff ? "External Fleet Staff" : "External Fleet Driver",
       department: "Fleet",
-      status: "active"
+      status: "active",
+      geoTrackingEnabled: false
     )
     return OtpSession(token: token, user: user)
   }

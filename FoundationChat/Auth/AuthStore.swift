@@ -458,7 +458,8 @@ final class AuthStore {
         department: existing.department,
         status: existing.status,
         photo: existing.photo,
-        mustChangePassword: existing.mustChangePassword
+        mustChangePassword: existing.mustChangePassword,
+        geoTrackingEnabled: existing.geoTrackingEnabled
       )
       let refreshed = OtpSession(token: t, user: updated, mustChangePassword: currentSession?.mustChangePassword == true)
       applySession(refreshed)
@@ -487,6 +488,7 @@ final class AuthStore {
 
   func logout() async {
     await GeoTrackBootstrapCoordinator.shared.stopForSessionEnd()
+    userDefaults.removeObject(forKey: "geotrack.trackingEnabled")
     // Unregister push token before logging out
     if currentSession?.user.isExternalFleetPrincipal != true,
        let t = token, let deviceToken = lastKnownAPNSToken {
@@ -524,6 +526,7 @@ final class AuthStore {
 
   func expireSession(message: String = "Session expired. Please sign in again.") {
     Task { await GeoTrackBootstrapCoordinator.shared.stopForSessionEnd() }
+    userDefaults.removeObject(forKey: "geotrack.trackingEnabled")
     try? tokenStore.clear()
     // Wipe cache-first snapshots so the next user starts clean (Android parity).
     LocalCache.clearAll()
@@ -621,7 +624,8 @@ final class AuthStore {
       designation: serverUser?.designation ?? existing?.designation,
       department: serverUser?.department ?? existing?.department,
       status: serverUser?.status ?? existing?.status,
-      photo: serverUser?.photo ?? photoStorageId ?? existing?.photo
+      photo: serverUser?.photo ?? photoStorageId ?? existing?.photo,
+      geoTrackingEnabled: serverUser?.geoTrackingEnabled ?? existing?.geoTrackingEnabled
     )
 
     let refreshed = OtpSession(token: t, user: merged, mustChangePassword: currentSession?.mustChangePassword == true)
@@ -654,7 +658,8 @@ final class AuthStore {
       designation: staff.designation ?? existing?.designation,
       department: staff.department ?? existing?.department,
       status: staff.status ?? existing?.status,
-      photo: staff.photo
+      photo: staff.photo,
+      geoTrackingEnabled: existing?.geoTrackingEnabled
     )
     let refreshed = OtpSession(token: t, user: refreshedUser, mustChangePassword: currentSession?.mustChangePassword == true)
     applySession(refreshed)
@@ -711,7 +716,8 @@ final class AuthStore {
       designation: serverUser?.designation ?? existing?.designation,
       department: serverUser?.department ?? existing?.department,
       status: serverUser?.status ?? existing?.status,
-      photo: forceClearPhoto ? nil : (serverUser?.photo ?? fallbackPhoto ?? existing?.photo)
+      photo: forceClearPhoto ? nil : (serverUser?.photo ?? fallbackPhoto ?? existing?.photo),
+      geoTrackingEnabled: serverUser?.geoTrackingEnabled ?? existing?.geoTrackingEnabled
     )
     let refreshed = OtpSession(token: t, user: merged, mustChangePassword: currentSession?.mustChangePassword == true)
     applySession(refreshed)
@@ -1553,6 +1559,9 @@ final class AuthStore {
     GeoTrackAPIService.shared.tokenProvider = { [weak self] in
       self?.currentSession?.token
     }
+    if let trackingEnabled = user.geoTrackingEnabled {
+      userDefaults.set(trackingEnabled, forKey: "geotrack.trackingEnabled")
+    }
   }
 
   private static func extractDigits(_ input: String) -> String {
@@ -1619,7 +1628,8 @@ final class AuthStore {
       designation: "QA Automation",
       department: "QA",
       status: "active",
-      photo: nil
+      photo: nil,
+      geoTrackingEnabled: false
     )
     return OtpSession(token: "FCQA_STUB_TOKEN", user: user)
   }

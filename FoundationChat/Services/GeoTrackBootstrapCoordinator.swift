@@ -1,8 +1,5 @@
-import CoreLocation
-import CoreMotion
 import SwiftUI
 import UIKit
-import UserNotifications
 
 @MainActor
 @Observable
@@ -14,8 +11,6 @@ final class GeoTrackBootstrapCoordinator {
         static let activeSessionId = "geotrack.activeTrackingSessionId"
         static let shouldTrackNow = "geotrack.shouldTrackNow"
         static let trackingEnabled = "geotrack.trackingEnabled"
-        static let consentGiven = "geotrack.consent.given"
-        static let consentDeclined = "geotrack.consent.declined"
     }
 
     private let geoAPI: GeoTrackAPIService
@@ -24,7 +19,6 @@ final class GeoTrackBootstrapCoordinator {
     private var lastSyncDate: Date?
     private var isSyncing = false
 
-    private(set) var lastBootstrap: TrackingBootstrapData?
     private(set) var lastError: String?
     private(set) var shouldPresentConsent = false
     private(set) var shouldPresentPermissionHelp = false
@@ -49,8 +43,17 @@ final class GeoTrackBootstrapCoordinator {
         self.userDefaults = .standard
     }
 
-    func sync(reason: String, force: Bool = false) async {
+    func sync(
+        reason: String,
+        force: Bool = false,
+        contextId: String? = nil,
+        occurredAt: Int64? = nil,
+        lat: Double? = nil,
+        lng: Double? = nil
+    ) async {
         guard !isSyncing else { return }
+        // The default replay only permits a queued end. Queued starts wait
+        // until the attendance gate below explicitly allows them.
         await geoAPI.retryPendingTrackingControl()
         if !force, let lastSyncDate, Date().timeIntervalSince(lastSyncDate) < 30 {
             return
@@ -62,16 +65,69 @@ final class GeoTrackBootstrapCoordinator {
             lastSyncDate = Date()
         }
 
+        let attendanceOpen = await currentAttendanceOpenState()
+        if attendanceOpen == false {
+            await geoAPI.retryPendingTrackingControl(discardStart: true)
+            await endDirectSession(
+                reason: "attendance_session_closed",
+                endedAt: occurredAt,
+                lat: lat,
+                lng: lng
+            )
+            return
+        }
+        if attendanceOpen == nil {
+            // An attendance outage is not proof of a new or closed shift.
+            // Preserve only a tracker already verified in this process.
+            return
+        }
+
+        if userDefaults.object(forKey: DefaultsKey.trackingEnabled) != nil,
+           !userDefaults.bool(forKey: DefaultsKey.trackingEnabled) {
+            await endDirectSession(reason: "tracking_not_enabled")
+            return
+        }
+
+        await geoAPI.retryPendingTrackingControl(allowStart: true)
+        let startCommandStillPending = geoAPI.hasPendingTrackingStart
+
+        let consent = GeoTrackConsentManager.shared
+        if consent.needsConsent {
+            shouldPresentConsent = true
+            userDefaults.set(false, forKey: DefaultsKey.shouldTrackNow)
+            await tracker?.stopAndFinalize(notifyServer: false)
+            return
+        }
+        guard consent.hasConsented else {
+            shouldPresentConsent = false
+            userDefaults.set(false, forKey: DefaultsKey.shouldTrackNow)
+            await tracker?.stopAndFinalize(notifyServer: false)
+            return
+        }
+
         do {
-            let syncResponse = try await geoAPI.syncTrackingDevice(await makeDeviceSyncRequest())
-            let bootstrap: TrackingBootstrapData?
-            if let responseBootstrap = syncResponse.bootstrap {
-                bootstrap = responseBootstrap
+            // A failed current-session read must never be interpreted as
+            // "there is no session"; only an acknowledged nil starts one.
+            let current = try await geoAPI.currentTrackingSession()
+            let directSession: GeoTrackDirectSessionData
+            if let current, current.state?.lowercased() == "active" {
+                directSession = current
+                geoAPI.clearPendingTrackingStart()
+            } else if startCommandStillPending {
+                throw GeoTrackAPIError.serverError("Tracking start is waiting for network recovery.")
             } else {
-                bootstrap = try await geoAPI.trackingBootstrap(deviceId: deviceId)
+                directSession = try await geoAPI.startTracking(
+                    contextId: contextId,
+                    startedAt: occurredAt,
+                    lat: lat,
+                    lng: lng
+                )
             }
-            let attendanceOpen = await currentAttendanceOpenState()
-            try await apply(bootstrap: bootstrap, attendanceOpen: attendanceOpen)
+            applyRecoveredSessionId(directSession.sessionId)
+            shouldPresentConsent = false
+            let tracker = tracker ?? LocationTracker()
+            self.tracker = tracker
+            try await tracker.resumeServerBackedTracking()
             lastError = nil
             shouldPresentPermissionHelp = false
         } catch {
@@ -95,123 +151,67 @@ final class GeoTrackBootstrapCoordinator {
         shouldPresentPermissionHelp = false
     }
 
-    func stopForSessionEnd() async {
+    func stopForSessionEnd(reason: String = "user_logout") async {
         shouldPresentConsent = false
         shouldPresentPermissionHelp = false
         lastError = nil
-        lastBootstrap = nil
-        userDefaults.set(false, forKey: DefaultsKey.shouldTrackNow)
-        userDefaults.set(false, forKey: DefaultsKey.trackingEnabled)
+        await endDirectSession(reason: reason)
+    }
+
+    func applyRecoveredSessionId(_ sessionId: String) {
+        guard !sessionId.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else { return }
+        userDefaults.set(sessionId, forKey: DefaultsKey.activeSessionId)
+        userDefaults.set(true, forKey: DefaultsKey.shouldTrackNow)
+    }
+
+    func clearActiveSessionIfMatching(_ sessionId: String?) {
+        guard sessionId == nil || activeSessionId == sessionId else { return }
         userDefaults.removeObject(forKey: DefaultsKey.activeSessionId)
+        userDefaults.set(false, forKey: DefaultsKey.shouldTrackNow)
+    }
+
+    private func endDirectSession(
+        reason: String,
+        endedAt: Int64? = nil,
+        lat: Double? = nil,
+        lng: Double? = nil
+    ) async {
         await tracker?.stopAndFinalize(notifyServer: false)
         tracker = nil
-    }
+        userDefaults.set(false, forKey: DefaultsKey.shouldTrackNow)
 
-    private func apply(bootstrap: TrackingBootstrapData?, attendanceOpen: Bool?) async throws {
-        lastBootstrap = bootstrap
-        userDefaults.set(bootstrap?.activeSession?.id, forKey: DefaultsKey.activeSessionId)
-        userDefaults.set(
-            bootstrap?.assignment?.attendance != nil || bootstrap?.assignment?.siteVisit != nil,
-            forKey: DefaultsKey.trackingEnabled
-        )
-        syncConsentFlags(from: bootstrap)
-
-        // A cold launch must fail closed: stale shouldTrack/session defaults
-        // from yesterday cannot start location, heartbeat, or tamper monitoring
-        // before today's first punch. Only a tracker already verified and
-        // running in this process may survive a temporary attendance outage.
-        let previousShouldTrack = userDefaults.bool(forKey: DefaultsKey.shouldTrackNow)
-        let attendanceActive = attendanceOpen
-            ?? (tracker?.isTracking == true && previousShouldTrack)
-        let shouldTrack = attendanceActive && bootstrap?.shouldTrack == true
-        userDefaults.set(shouldTrack, forKey: DefaultsKey.shouldTrackNow)
-
-        if bootstrap?.shouldPromptConsent == true {
-            shouldPresentConsent = true
-            await tracker?.stopAndFinalize()
+        var sessionId = activeSessionId
+        if sessionId == nil {
+            do {
+                sessionId = try await geoAPI.currentTrackingSession()?.sessionId
+            } catch {
+                lastError = error.localizedDescription
+            }
+        }
+        guard let sessionId else {
+            clearActiveSessionIfMatching(nil)
             return
         }
-
-        shouldPresentConsent = false
-
-        guard shouldTrack,
-              bootstrap?.activeSession?.id?.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty == false
-        else {
-            await tracker?.stopAndFinalize()
-            return
-        }
-
-        let tracker = tracker ?? LocationTracker()
-        self.tracker = tracker
-        try await tracker.resumeServerBackedTracking()
-    }
-
-    private func syncConsentFlags(from bootstrap: TrackingBootstrapData?) {
-        switch bootstrap?.consent?.status {
-        case "granted":
-            userDefaults.set(true, forKey: DefaultsKey.consentGiven)
-            userDefaults.set(false, forKey: DefaultsKey.consentDeclined)
-        case "declined", "revoked":
-            userDefaults.set(false, forKey: DefaultsKey.consentGiven)
-            userDefaults.set(true, forKey: DefaultsKey.consentDeclined)
-        default:
-            break
+        do {
+            _ = try await geoAPI.stopTracking(
+                sessionId: sessionId,
+                endedAt: endedAt,
+                lat: lat,
+                lng: lng,
+                reason: reason
+            )
+            clearActiveSessionIfMatching(sessionId)
+        } catch {
+            // GeoTrackAPIService retains the exact end body/idempotency key.
+            // Keep the session id until that command is acknowledged.
+            lastError = error.localizedDescription
         }
     }
 
-    /// Live, source-agnostic clock-in gate bounded to the punch-in → punch-out
-    /// window (matches Android `AttendanceTrackingGate.hasOpenSessionNow`).
-    ///  - `true`  → a session is open right now; track.
-    ///  - `false` → clocked out / never punched in; stop.
-    ///  - `nil`   → couldn't determine (outage). Callers must NOT stop on nil.
+    /// MMS remains the source of truth only for whether attendance is open.
     private func currentAttendanceOpenState() async -> Bool? {
         guard let token = geoAPI.tokenProvider?() else { return nil }
         return await AttendanceTrackingGate.hasOpenSessionNow(token: token)
-    }
-
-    private func makeDeviceSyncRequest() async -> TrackingDeviceSyncRequest {
-        TrackingDeviceSyncRequest(
-            deviceId: deviceId,
-            appVersion: appVersionString(),
-            pushToken: PushTokenCache.lastKnownToken,
-            notificationPermission: await hasNotificationPermission(),
-            fineLocationPermission: hasWhenInUseOrAlwaysLocationPermission,
-            backgroundLocationPermission: hasAlwaysLocationPermission,
-            activityRecognitionPermission: hasActivityRecognitionPermission,
-            model: UIDevice.current.model
-        )
-    }
-
-    private var hasWhenInUseOrAlwaysLocationPermission: Bool {
-        switch CLLocationManager().authorizationStatus {
-        case .authorizedAlways, .authorizedWhenInUse:
-            return true
-        default:
-            return false
-        }
-    }
-
-    private var hasAlwaysLocationPermission: Bool {
-        CLLocationManager().authorizationStatus == .authorizedAlways
-    }
-
-    private var hasActivityRecognitionPermission: Bool {
-        switch CMMotionActivityManager.authorizationStatus() {
-        case .authorized:
-            return true
-        default:
-            return false
-        }
-    }
-
-    private func hasNotificationPermission() async -> Bool {
-        let settings = await UNUserNotificationCenter.current().notificationSettings()
-        return settings.authorizationStatus == .authorized || settings.authorizationStatus == .provisional
-    }
-
-    private func appVersionString() -> String {
-        let version = Bundle.main.infoDictionary?["CFBundleShortVersionString"] as? String ?? "1.0"
-        return "\(version)-ios"
     }
 
     private func isPermissionError(_ error: any Error) -> Bool {

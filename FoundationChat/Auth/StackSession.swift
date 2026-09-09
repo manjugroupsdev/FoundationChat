@@ -17,6 +17,7 @@ struct AuthUser: Codable, Sendable, Equatable {
   let status: String?
   let photo: String?
   let mustChangePassword: Bool?
+  let geoTrackingEnabled: Bool?
 
   init(
     _id: String,
@@ -33,7 +34,8 @@ struct AuthUser: Codable, Sendable, Equatable {
     department: String? = nil,
     status: String? = nil,
     photo: String? = nil,
-    mustChangePassword: Bool? = nil
+    mustChangePassword: Bool? = nil,
+    geoTrackingEnabled: Bool? = nil
   ) {
     self._id = _id
     self.staffId = staffId
@@ -50,6 +52,7 @@ struct AuthUser: Codable, Sendable, Equatable {
     self.status = status
     self.photo = photo
     self.mustChangePassword = mustChangePassword
+    self.geoTrackingEnabled = geoTrackingEnabled
   }
 
   private enum DecodingKeys: String, CodingKey {
@@ -69,6 +72,7 @@ struct AuthUser: Codable, Sendable, Equatable {
     case status
     case photo
     case mustChangePassword
+    case geoTrackingEnabled
   }
 
   init(from decoder: Decoder) throws {
@@ -93,6 +97,7 @@ struct AuthUser: Codable, Sendable, Equatable {
     status = container.authString(forKey: .status)
     photo = container.authString(forKey: .photo)
     mustChangePassword = container.authBool(forKey: .mustChangePassword)
+    geoTrackingEnabled = container.authBool(forKey: .geoTrackingEnabled)
   }
 }
 

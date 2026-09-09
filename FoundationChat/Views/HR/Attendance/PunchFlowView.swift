@@ -342,9 +342,10 @@ struct PunchFlowView: View {
 
                 statusText = mode == .punchIn ? "Clocking in..." : "Clocking out..."
 
+                let attendanceId: String?
                 switch mode {
                 case .punchIn:
-                    _ = try await HRConvexAPIService.punchIn(
+                    attendanceId = try await HRConvexAPIService.punchIn(
                         token: token,
                         latitude: loc.coordinate.latitude,
                         longitude: loc.coordinate.longitude,
@@ -355,6 +356,7 @@ struct PunchFlowView: View {
                         clientPunchTime: clientPunchTime
                     )
                 case .punchOut:
+                    attendanceId = nil
                     try await HRConvexAPIService.punchOut(
                         token: token,
                         latitude: loc.coordinate.latitude,
@@ -369,7 +371,11 @@ struct PunchFlowView: View {
                 statusText = mode == .punchIn ? "Starting tracking..." : "Stopping tracking..."
                 await GeoTrackBootstrapCoordinator.shared.sync(
                     reason: mode == .punchIn ? "attendance-punch-in" : "attendance-punch-out",
-                    force: true
+                    force: true,
+                    contextId: attendanceId,
+                    occurredAt: Int64(tapTime.timeIntervalSince1970 * 1_000),
+                    lat: loc.coordinate.latitude,
+                    lng: loc.coordinate.longitude
                 )
                 await loadCurrentAttendanceStatus()
                 didQueueOffline = false

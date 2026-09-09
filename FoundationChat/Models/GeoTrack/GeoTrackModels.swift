@@ -8,96 +8,6 @@ struct GeoTrackBaseResponse: Decodable, Sendable {
     let status: String?
 }
 
-// MARK: - Tracking Bootstrap / Device Sync
-
-struct TrackingDeviceSyncRequest: Encodable, Sendable {
-    let deviceId: String
-    let platform: String
-    let appVersion: String
-    let pushToken: String?
-    let notificationPermission: Bool
-    let fineLocationPermission: Bool
-    let backgroundLocationPermission: Bool
-    let activityRecognitionPermission: Bool
-    let batteryOptimizationIgnored: Bool?
-    let manufacturer: String?
-    let model: String?
-
-    init(
-        deviceId: String,
-        platform: String = "ios",
-        appVersion: String,
-        pushToken: String? = nil,
-        notificationPermission: Bool,
-        fineLocationPermission: Bool,
-        backgroundLocationPermission: Bool,
-        activityRecognitionPermission: Bool,
-        batteryOptimizationIgnored: Bool? = nil,
-        manufacturer: String? = "Apple",
-        model: String? = nil
-    ) {
-        self.deviceId = deviceId
-        self.platform = platform
-        self.appVersion = appVersion
-        self.pushToken = pushToken
-        self.notificationPermission = notificationPermission
-        self.fineLocationPermission = fineLocationPermission
-        self.backgroundLocationPermission = backgroundLocationPermission
-        self.activityRecognitionPermission = activityRecognitionPermission
-        self.batteryOptimizationIgnored = batteryOptimizationIgnored
-        self.manufacturer = manufacturer
-        self.model = model
-    }
-}
-
-struct TrackingBootstrapResponse: Decodable, Sendable {
-    let success: Bool
-    let data: TrackingBootstrapData?
-    let error: String?
-}
-
-struct TrackingDeviceSyncResponse: Decodable, Sendable {
-    let success: Bool
-    let device: TrackingDevice?
-    let bootstrap: TrackingBootstrapData?
-    let error: String?
-}
-
-struct TrackingConsentRecord: Decodable, Sendable {
-    let staffId: String?
-    let consentVersionKey: String?
-    let policyKey: String?
-    let status: String?
-    let appVersion: String?
-    let actedAt: Int64?
-    let source: String?
-}
-
-struct TrackingAssignmentInfo: Decodable, Sendable {
-    let policyKey: String?
-    let scopeType: String?
-}
-
-struct TrackingAssignments: Decodable, Sendable {
-    let attendance: TrackingAssignmentInfo?
-    let siteVisit: TrackingAssignmentInfo?
-}
-
-struct TrackingPolicy: Decodable, Sendable {
-    let key: String?
-    let label: String?
-    let consentVersionKey: String?
-    let requiresConsent: Bool?
-    let requiresFineLocation: Bool?
-    let requiresBackgroundLocation: Bool?
-    let requiresActivityRecognition: Bool?
-    let requiresNotificationPermission: Bool?
-    let samplingMovingSeconds: Int?
-    let samplingStationarySeconds: Int?
-    let routeOptimizationEnabled: Bool?
-    let routeDeviationThresholdMeters: Int?
-}
-
 struct TrackingSession: Decodable, Sendable {
     let id: String?
     let staffId: String?
@@ -122,51 +32,9 @@ struct TrackingSession: Decodable, Sendable {
     }
 }
 
-struct TrackingDevice: Decodable, Sendable {
-    let id: String?
-    let staffId: String?
-    let deviceId: String
-    let platform: String?
-    let appVersion: String?
-    let pushToken: String?
-    let notificationPermission: Bool?
-    let fineLocationPermission: Bool?
-    let backgroundLocationPermission: Bool?
-    let activityRecognitionPermission: Bool?
-    let status: String?
-    let lastSyncedAt: Int64?
-
-    enum CodingKeys: String, CodingKey {
-        case id = "_id"
-        case staffId, deviceId, platform, appVersion, pushToken,
-             notificationPermission, fineLocationPermission,
-             backgroundLocationPermission, activityRecognitionPermission,
-             status, lastSyncedAt
-    }
-}
-
-struct ConsentVersionInfo: Decodable, Sendable {
-    let key: String
-    let title: String?
-    let body: String?
-    let locale: String?
-}
-
-struct TrackingBootstrapData: Decodable, Sendable {
-    let staffId: String
-    let assignment: TrackingAssignments?
-    let consentVersion: ConsentVersionInfo?
-    let consent: TrackingConsentRecord?
-    let activeSession: TrackingSession?
-    let currentPolicy: TrackingPolicy?
-    let device: TrackingDevice?
-    let shouldTrack: Bool
-    let shouldPromptConsent: Bool
-}
-
 // MARK: - Location Point (push-batch)
 
-/// Matches the Convex locationPointValidator exactly.
+/// Matches the direct GeoTrack location-point contract.
 struct GeoTrackLocationPoint: Encodable, Sendable {
     let pointId: String?
     let deviceSequence: Int64?
@@ -240,21 +108,48 @@ struct GeoTrackPushBatchResponse: Decodable, Sendable {
     let tamperDetected: Bool?
 }
 
-// MARK: - Start Tracking
+// MARK: - Direct Tracking Session
 
-struct GeoTrackStartRequest: Encodable, Sendable {
+struct GeoTrackSessionStartRequest: Codable, Sendable {
+    let deviceId: String
+    let contextType: String
+    let contextId: String?
+    let source: String
+    let trigger: String
+    let startedAt: Int64
     let lat: Double?
     let lng: Double?
-
-    init(lat: Double? = nil, lng: Double? = nil) {
-        self.lat = lat
-        self.lng = lng
-    }
+    let batteryPct: Int?
 }
 
-// MARK: - Stop Tracking (no body needed, response is GeoTrackBaseResponse)
+struct GeoTrackSessionEndRequest: Codable, Sendable {
+    let sessionId: String
+    let endedAt: Int64
+    let lat: Double?
+    let lng: Double?
+    let reason: String
+}
 
-struct EmptyGeoTrackRequest: Encodable, Sendable {}
+struct GeoTrackDirectSessionResponse: Decodable, Sendable {
+    let success: Bool
+    let data: GeoTrackDirectSessionData?
+    let error: String?
+}
+
+struct GeoTrackDirectSessionData: Decodable, Sendable {
+    let sessionId: String
+    let staffId: String?
+    let policyKey: String?
+    let contextType: String?
+    let state: String?
+    let deviceId: String?
+    let startedAt: String?
+    let lastLat: Double?
+    let lastLng: Double?
+    let batteryPct: Int?
+    let trackingLive: Bool?
+    let endedAt: String?
+}
 
 // MARK: - Heartbeat
 
@@ -268,6 +163,13 @@ struct GeoTrackHeartbeatRequest: Encodable, Sendable {
     let recordedAt: Int64
     let airplaneMode: Bool?
     let locationEnabled: Bool?
+    let lat: Double?
+    let lng: Double?
+    let networkAvailable: Bool?
+    let permissionState: String?
+    let movementMode: String?
+    let trackingActive: Bool?
+    let backgroundRestricted: Bool?
 }
 
 // MARK: - Tamper
@@ -331,37 +233,6 @@ struct GeoTrackTamperFeedResponse: Decodable, Sendable {
     let success: Bool
     let error: String?
     let data: [GeoTrackTamperEvent]?
-}
-
-// MARK: - Consent
-
-struct GeoTrackConsentRequest: Encodable, Sendable {
-    let consented: Bool
-    let appVersion: String
-    let policyKey: String
-    let status: String
-    let deviceId: String
-
-    init(consented: Bool = true, appVersion: String, deviceId: String) {
-        self.consented = consented
-        self.appVersion = appVersion
-        self.policyKey = "attendance_field"
-        self.status = consented ? "granted" : "declined"
-        self.deviceId = deviceId
-    }
-}
-
-struct GeoTrackConsentRecord: Decodable, Sendable {
-    let staffId: String?
-    let consented: Bool
-    let consentedAt: Double?
-    let appVersion: String?
-}
-
-struct GeoTrackConsentStatusResponse: Decodable, Sendable {
-    let success: Bool
-    let error: String?
-    let data: GeoTrackConsentRecord?
 }
 
 // MARK: - Timeline

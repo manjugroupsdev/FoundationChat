@@ -308,8 +308,9 @@ actor PendingPunchSyncCoordinator {
                     )
                 }
 
+                let attendanceId: String?
                 if punch.isPunchIn {
-                    _ = try await HRConvexAPIService.punchIn(
+                    attendanceId = try await HRConvexAPIService.punchIn(
                         token: token,
                         latitude: punch.latitude,
                         longitude: punch.longitude,
@@ -320,6 +321,7 @@ actor PendingPunchSyncCoordinator {
                         clientPunchTime: punch.clientPunchTime
                     )
                 } else {
+                    attendanceId = nil
                     try await HRConvexAPIService.punchOut(
                         token: token,
                         latitude: punch.latitude,
@@ -331,6 +333,14 @@ actor PendingPunchSyncCoordinator {
                         clientPunchTime: punch.clientPunchTime
                     )
                 }
+                await GeoTrackBootstrapCoordinator.shared.sync(
+                    reason: punch.isPunchIn ? "offline-attendance-punch-in" : "offline-attendance-punch-out",
+                    force: true,
+                    contextId: attendanceId,
+                    occurredAt: punch.createdAt,
+                    lat: punch.latitude,
+                    lng: punch.longitude
+                )
                 // Landed — drop the row and its selfie file.
                 await PendingPunchStore.shared.delete(id: punch.id)
             } catch is HRConvexAPIError {

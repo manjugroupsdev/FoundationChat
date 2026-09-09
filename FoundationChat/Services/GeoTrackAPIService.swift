@@ -52,8 +52,8 @@ final class GeoTrackAPIService {
     private struct PendingControl: Codable {
         let action: String
         let requestId: String
-        let lat: Double?
-        let lng: Double?
+        let start: GeoTrackSessionStartRequest?
+        let end: GeoTrackSessionEndRequest?
     }
 
     private struct ErrorEnvelope: Decodable {
@@ -114,8 +114,13 @@ final class GeoTrackAPIService {
         return request
     }
 
-    private func makeGETRequest(path: String, queryItems: [URLQueryItem] = []) throws -> URLRequest {
-        var components = URLComponents(string: baseURL + path)
+    private func makeGETRequest(
+        path: String,
+        queryItems: [URLQueryItem] = [],
+        directGeoTrack: Bool = false
+    ) throws -> URLRequest {
+        let host = directGeoTrack ? trackingBaseURL : baseURL
+        var components = URLComponents(string: host + path)
         if !queryItems.isEmpty {
             components?.queryItems = queryItems
         }
@@ -127,7 +132,11 @@ final class GeoTrackAPIService {
         request.httpMethod = "GET"
         request.setValue("application/json", forHTTPHeaderField: "Content-Type")
 
-        if let token = tokenProvider?() {
+        let token = tokenProvider?()
+        if directGeoTrack && token?.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty != false {
+            throw GeoTrackAPIError.noToken
+        }
+        if let token {
             request.setValue("Bearer \(token)", forHTTPHeaderField: "Authorization")
         }
 
@@ -163,28 +172,6 @@ final class GeoTrackAPIService {
         }
     }
 
-    // MARK: - Tracking Bootstrap / Device Sync
-
-    /// GET /api/tracking/bootstrap?deviceId=...
-    func trackingBootstrap(deviceId: String? = nil) async throws -> TrackingBootstrapData? {
-        var query: [URLQueryItem] = []
-        if let deviceId, !deviceId.isEmpty {
-            query.append(URLQueryItem(name: "deviceId", value: deviceId))
-        }
-        let request = try makeGETRequest(path: "/api/tracking/bootstrap", queryItems: query)
-        let result: TrackingBootstrapResponse = try await perform(request)
-        if let err = result.error { throw GeoTrackAPIError.serverError(err) }
-        return result.data
-    }
-
-    /// POST /api/tracking/device/sync
-    func syncTrackingDevice(_ body: TrackingDeviceSyncRequest) async throws -> TrackingDeviceSyncResponse {
-        let request = try makeRequest(path: "/api/tracking/device/sync", method: "POST", body: body)
-        let result: TrackingDeviceSyncResponse = try await perform(request)
-        if let err = result.error { throw GeoTrackAPIError.serverError(err) }
-        return result
-    }
-
     // MARK: - Location Tracking
 
     /// POST /api/tracking/location/batch. The session is captured with each
@@ -216,72 +203,136 @@ final class GeoTrackAPIService {
         return result
     }
 
-    /// POST /api/geotrack/start
-    func startTracking(lat: Double? = nil, lng: Double? = nil) async throws {
-        let body = GeoTrackStartRequest(lat: lat, lng: lng)
-        let requestId = "tracking-start-\(GeoTrackBootstrapCoordinator.shared.deviceId)-\(GeoTrackBootstrapCoordinator.shared.activeSessionId ?? "current")"
-        savePendingControl(PendingControl(action: "start", requestId: requestId, lat: lat, lng: lng))
+    /// POST /api/tracking/sessions/start
+    func startTracking(
+        contextId: String? = nil,
+        startedAt: Int64? = nil,
+        lat: Double? = nil,
+        lng: Double? = nil,
+        batteryPct: Int? = nil
+    ) async throws -> GeoTrackDirectSessionData {
+        let coordinator = GeoTrackBootstrapCoordinator.shared
+        let timestamp = startedAt ?? Int64(Date().timeIntervalSince1970 * 1_000)
+        let body = GeoTrackSessionStartRequest(
+            deviceId: coordinator.deviceId,
+            contextType: "attendance",
+            contextId: contextId,
+            source: "mconnect",
+            trigger: "attendance_punch_in",
+            startedAt: timestamp,
+            lat: lat,
+            lng: lng,
+            batteryPct: batteryPct
+        )
+        let requestId = "tracking-start-\(coordinator.deviceId)-\(contextId ?? String(timestamp))"
+        savePendingControl(PendingControl(action: "start", requestId: requestId, start: body, end: nil))
         let request = try makeRequest(
-            path: "/api/geotrack/start",
+            path: "/api/tracking/sessions/start",
             method: "POST",
             body: body,
             directGeoTrack: true,
             idempotencyKey: requestId
         )
-        let result: GeoTrackBaseResponse = try await perform(request)
-        guard result.success else {
+        let result: GeoTrackDirectSessionResponse = try await perform(request)
+        guard result.success, let session = result.data, !session.sessionId.isEmpty else {
             throw GeoTrackAPIError.serverError(result.error ?? "GeoTrack start failed")
         }
         clearPendingControl(requestId: requestId)
+        return session
     }
 
-    /// POST /api/geotrack/stop
-    func stopTracking() async throws {
-        let requestId = "tracking-stop-\(GeoTrackBootstrapCoordinator.shared.deviceId)-\(GeoTrackBootstrapCoordinator.shared.activeSessionId ?? "current")"
-        savePendingControl(PendingControl(action: "stop", requestId: requestId, lat: nil, lng: nil))
+    /// GET /api/tracking/sessions/current
+    func currentTrackingSession() async throws -> GeoTrackDirectSessionData? {
+        let request = try makeGETRequest(
+            path: "/api/tracking/sessions/current",
+            directGeoTrack: true
+        )
+        let result: GeoTrackDirectSessionResponse = try await perform(request)
+        guard result.success else {
+            throw GeoTrackAPIError.serverError(result.error ?? "GeoTrack session recovery failed")
+        }
+        return result.data
+    }
+
+    /// POST /api/tracking/sessions/end
+    func stopTracking(
+        sessionId: String,
+        endedAt: Int64? = nil,
+        lat: Double? = nil,
+        lng: Double? = nil,
+        reason: String = "attendance_punch_out"
+    ) async throws -> GeoTrackDirectSessionData? {
+        let body = GeoTrackSessionEndRequest(
+            sessionId: sessionId,
+            endedAt: endedAt ?? Int64(Date().timeIntervalSince1970 * 1_000),
+            lat: lat,
+            lng: lng,
+            reason: reason
+        )
+        let requestId = "tracking-end-\(sessionId)"
+        savePendingControl(PendingControl(action: "end", requestId: requestId, start: nil, end: body))
         let request = try makeRequest(
-            path: "/api/geotrack/stop",
+            path: "/api/tracking/sessions/end",
             method: "POST",
-            body: EmptyGeoTrackRequest(),
+            body: body,
             directGeoTrack: true,
             idempotencyKey: requestId
         )
-        let result: GeoTrackBaseResponse = try await perform(request)
+        let result: GeoTrackDirectSessionResponse = try await perform(request)
         guard result.success else {
             throw GeoTrackAPIError.serverError(result.error ?? "GeoTrack stop failed")
         }
         clearPendingControl(requestId: requestId)
+        return result.data
     }
 
     /// Replays a failed start/stop with its original body and idempotency key.
-    func retryPendingTrackingControl() async {
+    func retryPendingTrackingControl(
+        allowStart: Bool = false,
+        discardStart: Bool = false
+    ) async {
         guard let data = UserDefaults.standard.data(forKey: pendingControlKey),
               let pending = try? JSONDecoder().decode(PendingControl.self, from: data) else { return }
-        do {
-            let path = pending.action == "stop" ? "/api/geotrack/stop" : "/api/geotrack/start"
-            let request: URLRequest
-            if pending.action == "stop" {
-                request = try makeRequest(
-                    path: path,
-                    method: "POST",
-                    body: EmptyGeoTrackRequest(),
-                    directGeoTrack: true,
-                    idempotencyKey: pending.requestId
-                )
-            } else {
-                request = try makeRequest(
-                    path: path,
-                    method: "POST",
-                    body: GeoTrackStartRequest(lat: pending.lat, lng: pending.lng),
-                    directGeoTrack: true,
-                    idempotencyKey: pending.requestId
-                )
+        if let startedAt = pending.start?.startedAt,
+           Self.indiaDayKey(milliseconds: startedAt) != Self.indiaDayKey() {
+            clearPendingControl(requestId: pending.requestId)
+            return
+        }
+        if pending.action != "end" && !allowStart {
+            if discardStart {
+                clearPendingControl(requestId: pending.requestId)
             }
-            let result: GeoTrackBaseResponse = try await perform(request)
+            return
+        }
+        do {
+            let body: any Encodable
+            let path: String
+            if pending.action == "end", let end = pending.end {
+                path = "/api/tracking/sessions/end"
+                body = end
+            } else if let start = pending.start {
+                path = "/api/tracking/sessions/start"
+                body = start
+            } else {
+                return
+            }
+            let request = try makeRequest(
+                path: path,
+                method: "POST",
+                body: body,
+                directGeoTrack: true,
+                idempotencyKey: pending.requestId
+            )
+            let result: GeoTrackDirectSessionResponse = try await perform(request)
             guard result.success, result.error == nil else { return }
+            if pending.action == "end" {
+                GeoTrackBootstrapCoordinator.shared.clearActiveSessionIfMatching(pending.end?.sessionId)
+            } else if let sessionId = result.data?.sessionId {
+                GeoTrackBootstrapCoordinator.shared.applyRecoveredSessionId(sessionId)
+            }
             clearPendingControl(requestId: pending.requestId)
         } catch {
-            // Keep the exact command for the next reconnect/bootstrap.
+            // Keep the exact command for the next direct-session recovery.
         }
     }
 
@@ -295,6 +346,30 @@ final class GeoTrackAPIService {
               let pending = try? JSONDecoder().decode(PendingControl.self, from: data),
               pending.requestId == requestId else { return }
         UserDefaults.standard.removeObject(forKey: pendingControlKey)
+    }
+
+    var hasPendingTrackingStart: Bool {
+        guard let data = UserDefaults.standard.data(forKey: pendingControlKey),
+              let pending = try? JSONDecoder().decode(PendingControl.self, from: data) else {
+            return false
+        }
+        return pending.action == "start"
+    }
+
+    func clearPendingTrackingStart() {
+        guard hasPendingTrackingStart else { return }
+        UserDefaults.standard.removeObject(forKey: pendingControlKey)
+    }
+
+    private static func indiaDayKey(
+        milliseconds: Int64 = Int64(Date().timeIntervalSince1970 * 1_000)
+    ) -> String {
+        let formatter = DateFormatter()
+        formatter.calendar = Calendar(identifier: .gregorian)
+        formatter.locale = Locale(identifier: "en_US_POSIX")
+        formatter.timeZone = TimeZone(identifier: "Asia/Kolkata")
+        formatter.dateFormat = "yyyy-MM-dd"
+        return formatter.string(from: Date(timeIntervalSince1970: Double(milliseconds) / 1_000))
     }
 
     // MARK: - Heartbeat
@@ -341,7 +416,14 @@ final class GeoTrackAPIService {
             airplaneMode: nil,
             // This one IS knowable, and was being sent as nil — so every gap on
             // an iPhone reached the backend with no device state to explain it.
-            locationEnabled: Self.locationServicesUsable()
+            locationEnabled: Self.locationServicesUsable(),
+            lat: nil,
+            lng: nil,
+            networkAvailable: nil,
+            permissionState: Self.locationServicesUsable() ? "granted" : "location_missing",
+            movementMode: nil,
+            trackingActive: (sessionId ?? coordinator.activeSessionId) != nil,
+            backgroundRestricted: nil
         )
         let request = try makeRequest(
             path: "/api/tracking/heartbeat",
@@ -358,8 +440,7 @@ final class GeoTrackAPIService {
 
     // MARK: - Tamper
 
-    /// Sends supported device-state events directly; MMS-only legacy event
-    /// types keep their existing endpoint so the direct API does not reject them.
+    /// Every tracking/tamper event goes to the direct GeoTrack service.
     func reportTamper(
         eventType: GeoTrackTamperEventType,
         metadata: [String: String] = [:],
@@ -371,30 +452,26 @@ final class GeoTrackAPIService {
         let requestId = metadata["_requestId"]
             ?? "tamper-\(GeoTrackBootstrapCoordinator.shared.deviceId)-\(eventType.rawValue)-\(timestamp)"
         let publicMetadata = metadata.filter { !$0.key.hasPrefix("_") }
-        let directEventType: String?
+        let directEventType: String
         switch eventType {
         case .permissionDowngrade:
             directEventType = "PERMISSION_MISSING"
-        case .teleportation, .appForceKilled:
-            directEventType = nil
         default:
             directEventType = eventType.rawValue
         }
         let body = GeoTrackTamperReportRequest(
             sessionId: metadata["_sessionId"] ?? GeoTrackBootstrapCoordinator.shared.activeSessionId,
-            eventType: directEventType ?? eventType.rawValue,
+            eventType: directEventType,
             metadata: publicMetadata,
             detectedAt: timestamp,
             requestId: requestId
         )
         let request = try makeRequest(
-            path: directEventType == nil
-                ? "/api/geotrack/tamper/report"
-                : "/api/tracking/tamper-events",
+            path: "/api/tracking/tamper-events",
             method: "POST",
             body: body,
-            directGeoTrack: directEventType != nil,
-            idempotencyKey: directEventType == nil ? nil : requestId
+            directGeoTrack: true,
+            idempotencyKey: requestId
         )
         let result: GeoTrackBaseResponse = try await perform(request)
         guard result.success else {
@@ -402,37 +479,16 @@ final class GeoTrackAPIService {
         }
     }
 
-    /// GET /api/geotrack/tamper/feed?limit=...
+    /// GET /api/tracking/tamper-events?limit=...
     func tamperFeed(limit: Int = 50) async throws -> [GeoTrackTamperEvent] {
         let request = try makeGETRequest(
-            path: "/api/geotrack/tamper/feed",
-            queryItems: [URLQueryItem(name: "limit", value: "\(limit)")]
+            path: "/api/tracking/tamper-events",
+            queryItems: [URLQueryItem(name: "limit", value: "\(limit)")],
+            directGeoTrack: true
         )
         let result: GeoTrackTamperFeedResponse = try await perform(request)
         if let err = result.error { throw GeoTrackAPIError.serverError(err) }
         return result.data ?? []
-    }
-
-    // MARK: - Consent
-
-    /// POST /api/tracking/consent
-    func recordConsent(consented: Bool = true, appVersion: String) async throws {
-        let body = GeoTrackConsentRequest(
-            consented: consented,
-            appVersion: appVersion,
-            deviceId: GeoTrackBootstrapCoordinator.shared.deviceId
-        )
-        let request = try makeRequest(path: "/api/tracking/consent", method: "POST", body: body)
-        let result: GeoTrackBaseResponse = try await perform(request)
-        if let err = result.error { throw GeoTrackAPIError.serverError(err) }
-    }
-
-    /// GET /api/geotrack/consent/status
-    func consentStatus() async throws -> GeoTrackConsentRecord? {
-        let request = try makeGETRequest(path: "/api/geotrack/consent/status")
-        let result: GeoTrackConsentStatusResponse = try await perform(request)
-        if let err = result.error { throw GeoTrackAPIError.serverError(err) }
-        return result.data
     }
 
     // MARK: - Timeline & Live Status
@@ -448,7 +504,11 @@ final class GeoTrackAPIService {
             URLQueryItem(name: "dayEnd", value: "\(dayEnd)"),
         ]
         if let staffId { items.append(URLQueryItem(name: "staffId", value: staffId)) }
-        let request = try makeGETRequest(path: "/api/geotrack/timeline", queryItems: items)
+        let request = try makeGETRequest(
+            path: "/api/geotrack/timeline",
+            queryItems: items,
+            directGeoTrack: true
+        )
         let result: GeoTrackTimelineResponse = try await perform(request)
         if let err = result.error { throw GeoTrackAPIError.serverError(err) }
         return result.data ?? []
@@ -467,15 +527,19 @@ final class GeoTrackAPIService {
         ]
         if let staffId { items.append(URLQueryItem(name: "staffId", value: staffId)) }
         if let minStopMinutes { items.append(URLQueryItem(name: "minStopMinutes", value: "\(minStopMinutes)")) }
-        let request = try makeGETRequest(path: "/api/geotrack/session-route", queryItems: items)
+        let request = try makeGETRequest(
+            path: "/api/geotrack/session-route",
+            queryItems: items,
+            directGeoTrack: true
+        )
         let result: GeoTrackSessionRouteResponse = try await perform(request)
         if let err = result.error { throw GeoTrackAPIError.serverError(err) }
         return result.data
     }
 
-    /// GET /api/geotrack/live-status
+    /// GET /api/tracking/live
     func liveStatus() async throws -> [GeoTrackLiveStatusEntry] {
-        let request = try makeGETRequest(path: "/api/geotrack/live-status")
+        let request = try makeGETRequest(path: "/api/tracking/live", directGeoTrack: true)
         let result: GeoTrackLiveStatusResponse = try await perform(request)
         if let err = result.error { throw GeoTrackAPIError.serverError(err) }
         return result.data ?? []
@@ -485,7 +549,11 @@ final class GeoTrackAPIService {
     func employeeDetail(staffId: String? = nil) async throws -> GeoTrackEmployeeDetail? {
         var items: [URLQueryItem] = []
         if let staffId { items.append(URLQueryItem(name: "staffId", value: staffId)) }
-        let request = try makeGETRequest(path: "/api/geotrack/employee-detail", queryItems: items)
+        let request = try makeGETRequest(
+            path: "/api/geotrack/employee-detail",
+            queryItems: items,
+            directGeoTrack: true
+        )
         let result: GeoTrackEmployeeDetailResponse = try await perform(request)
         if let err = result.error { throw GeoTrackAPIError.serverError(err) }
         return result.data
@@ -493,18 +561,22 @@ final class GeoTrackAPIService {
 
     // MARK: - Trips & Stats
 
-    /// GET /api/geotrack/trips?staffId=...&startDate=...&endDate=...
+    /// GET /api/tracking/trips?staffId=...&from=...&to=...
     func trips(
         staffId: String? = nil,
         startDate: Int64,
         endDate: Int64
     ) async throws -> [GeoTrackTrip] {
         var items: [URLQueryItem] = [
-            URLQueryItem(name: "startDate", value: "\(startDate)"),
-            URLQueryItem(name: "endDate", value: "\(endDate)"),
+            URLQueryItem(name: "from", value: "\(startDate)"),
+            URLQueryItem(name: "to", value: "\(endDate)"),
         ]
         if let staffId { items.append(URLQueryItem(name: "staffId", value: staffId)) }
-        let request = try makeGETRequest(path: "/api/geotrack/trips", queryItems: items)
+        let request = try makeGETRequest(
+            path: "/api/tracking/trips",
+            queryItems: items,
+            directGeoTrack: true
+        )
         let result: GeoTrackTripsResponse = try await perform(request)
         if let err = result.error { throw GeoTrackAPIError.serverError(err) }
         return result.data ?? []
@@ -521,7 +593,11 @@ final class GeoTrackAPIService {
             URLQueryItem(name: "endDate", value: "\(endDate)"),
         ]
         if let staffId { items.append(URLQueryItem(name: "staffId", value: staffId)) }
-        let request = try makeGETRequest(path: "/api/geotrack/stats", queryItems: items)
+        let request = try makeGETRequest(
+            path: "/api/geotrack/stats",
+            queryItems: items,
+            directGeoTrack: true
+        )
         let result: GeoTrackStatsResponse = try await perform(request)
         if let err = result.error { throw GeoTrackAPIError.serverError(err) }
         return result.data
@@ -575,7 +651,8 @@ final class GeoTrackAPIService {
         guard !trimmed.isEmpty else { return [] }
         let request = try makeGETRequest(
             path: "/api/tracking/places/search",
-            queryItems: [URLQueryItem(name: "q", value: trimmed)]
+            queryItems: [URLQueryItem(name: "q", value: trimmed)],
+            directGeoTrack: true
         )
         let result: GeoTrackPlaceSearchResponse = try await perform(request)
         if let err = result.error { throw GeoTrackAPIError.serverError(err) }
@@ -595,7 +672,12 @@ final class GeoTrackAPIService {
             destLat: destLat,
             destLng: destLng
         )
-        let request = try makeRequest(path: "/api/geotrack/route", method: "POST", body: body)
+        let request = try makeRequest(
+            path: "/api/geotrack/route",
+            method: "POST",
+            body: body,
+            directGeoTrack: true
+        )
         let result: GeoTrackRouteResponse = try await perform(request)
         if !result.success, let err = result.error { throw GeoTrackAPIError.serverError(err) }
         return result
@@ -608,7 +690,12 @@ final class GeoTrackAPIService {
             throw GeoTrackAPIError.serverError("Address is empty")
         }
         let body = GeoTrackGeocodeAddressRequest(address: trimmed)
-        let request = try makeRequest(path: "/api/geotrack/geocode-address", method: "POST", body: body)
+        let request = try makeRequest(
+            path: "/api/geotrack/geocode-address",
+            method: "POST",
+            body: body,
+            directGeoTrack: true
+        )
         let result: GeoTrackGeocodeAddressResponse = try await perform(request)
         if !result.success, let err = result.error { throw GeoTrackAPIError.serverError(err) }
         return result

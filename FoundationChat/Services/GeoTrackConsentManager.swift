@@ -5,8 +5,8 @@ import Foundation
 /// Manages user consent for GPS time tracking.
 ///
 /// Mirrors Android's SessionManager geoConsentGiven / geoConsentDeclined flags.
-/// Consent is stored locally in UserDefaults and recorded server-side via the
-/// Convex /api/geotrack/consent endpoint.
+/// Consent is stored locally. Tracking transport never writes consent or
+/// bootstrap state to the MMS business host.
 @MainActor
 @Observable
 final class GeoTrackConsentManager {
@@ -20,7 +20,6 @@ final class GeoTrackConsentManager {
 
     // MARK: - Dependencies
 
-    private let geoAPI: GeoTrackAPIService
     private let userDefaults: UserDefaults
 
     // MARK: - Observable state
@@ -42,10 +41,8 @@ final class GeoTrackConsentManager {
     // MARK: - Init
 
     init(
-        geoAPI: GeoTrackAPIService? = nil,
         userDefaults: UserDefaults = .standard
     ) {
-        self.geoAPI = geoAPI ?? GeoTrackAPIService.shared
         self.userDefaults = userDefaults
         self.hasConsented = userDefaults.bool(forKey: Self.consentGivenKey)
         self.hasDeclined  = userDefaults.bool(forKey: Self.consentDeclinedKey)
@@ -53,8 +50,7 @@ final class GeoTrackConsentManager {
 
     // MARK: - Actions
 
-    /// Records consent = true locally and on the server.
-    /// The local flag is set immediately; server failure is swallowed (retry on next app launch).
+    /// Records consent locally before requesting platform permissions.
     func giveConsent() async {
         userDefaults.set(true,  forKey: Self.consentGivenKey)
         userDefaults.set(false, forKey: Self.consentDeclinedKey)
@@ -64,12 +60,9 @@ final class GeoTrackConsentManager {
         isRecording = true
         defer { isRecording = false }
 
-        let appVersion = appVersionString()
-        try? await geoAPI.recordConsent(consented: true, appVersion: appVersion)
     }
 
-    /// Records the decline locally and server-side with the same policy/device
-    /// context as Android. Network failure remains non-blocking.
+    /// Records the decline locally with the same behavior as Android.
     func declineConsent() async {
         userDefaults.set(false, forKey: Self.consentGivenKey)
         userDefaults.set(true,  forKey: Self.consentDeclinedKey)
@@ -78,7 +71,6 @@ final class GeoTrackConsentManager {
 
         isRecording = true
         defer { isRecording = false }
-        try? await geoAPI.recordConsent(consented: false, appVersion: appVersionString())
     }
 
     /// Clears stored consent so the user is prompted again.
@@ -89,10 +81,4 @@ final class GeoTrackConsentManager {
         hasDeclined  = false
     }
 
-    // MARK: - Helpers
-
-    private func appVersionString() -> String {
-        let v = Bundle.main.infoDictionary?["CFBundleShortVersionString"] as? String ?? "1.0"
-        return "\(v)-ios"
-    }
 }
