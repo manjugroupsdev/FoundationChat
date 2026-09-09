@@ -1954,7 +1954,7 @@ private struct SiteVisitOverviewSheet: View {
     }
 
     private var isVisitClosed: Bool {
-        if isFleetOutcomePending { return false }
+        if isOutcomeRecoveryPending { return false }
         return siteVisitOutcome?.nilIfBlank != nil
             || siteVisitConvertedBookingID?.nilIfBlank != nil
             || siteVisitCancelledAt != nil
@@ -2089,7 +2089,7 @@ private struct SiteVisitOverviewSheet: View {
 
     private var isOutcomeEnabled: Bool {
         guard !isVisitClosed else { return false }
-        return isFleetOutcomePending || [
+        return isOutcomeRecoveryPending || [
             "consulting", "on_counselling", "picked_from_site", "dropped",
             "completed", "complete", "done", "closed"
         ].contains(normalizedStatus.normalizedSiteVisitValue)
@@ -2098,6 +2098,14 @@ private struct SiteVisitOverviewSheet: View {
     private var isFleetOutcomePending: Bool {
         (detail?.completedOffline ?? visit.completedOffline) == true
             && siteVisitOutcome?.nilIfBlank == nil
+    }
+
+    private var isOutcomeRecoveryPending: Bool {
+        guard siteVisitOutcome?.nilIfBlank == nil,
+              siteVisitConvertedBookingID?.nilIfBlank == nil,
+              siteVisitCancelledAt == nil else { return false }
+        return isFleetOutcomePending || ["completed", "complete", "done", "closed"]
+            .contains(normalizedStatus.normalizedSiteVisitValue)
     }
 
     private var siteVisitOutcome: String? {

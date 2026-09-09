@@ -1720,6 +1720,7 @@ struct TripNavigationView: View {
               let cpId = clientPlaceVisitId,
               let fieldVisitId = resolvedVisitId
         else { return }
+        let expectedRevision = workflow.outcomeRevision
         isJointMutationInProgress = true
         arrivalStatusText = "Sending outcome for review..."
         defer {
@@ -1746,7 +1747,14 @@ struct TripNavigationView: View {
             statusLine = "Waiting for review"
             onTripChanged?()
         } catch {
-            errorMessage = error.localizedDescription
+            if let confirmed = try? await MarketingConvexAPIService.getJointCpWorkflow(token: token, id: cpId),
+               jointSubmissionWasConfirmed(confirmed, expectedRevision: expectedRevision) {
+                jointWorkflow = confirmed
+                statusLine = confirmed.state == "completed" ? "Complete" : "Waiting for review"
+                onTripChanged?()
+            } else {
+                errorMessage = error.localizedDescription
+            }
         }
     }
 
@@ -1797,8 +1805,40 @@ struct TripNavigationView: View {
             onTripChanged?()
             dismiss()
         } catch {
-            errorMessage = error.localizedDescription
+            let expectedCredits = Set(
+                [jointWorkflow?.outcomeOwnerStaffId, jointWorkflow?.reviewerStaffId]
+                    .compactMap { $0?.nilIfBlank }
+            )
+            if let confirmed = try? await MarketingConvexAPIService.getJointCpWorkflow(token: token, id: cpId),
+               jointCompletionWasConfirmed(confirmed, expectedCredits: expectedCredits) {
+                jointWorkflow = confirmed
+                visitCompletedSuccessfully = true
+                statusLine = "Complete"
+                onTripChanged?()
+                dismiss()
+            } else {
+                errorMessage = error.localizedDescription
+            }
         }
+    }
+
+    private func jointSubmissionWasConfirmed(
+        _ workflow: JointCpWorkflow,
+        expectedRevision: Int64?
+    ) -> Bool {
+        let state = workflow.state?.nilIfBlank?.lowercased().replacingOccurrences(of: "-", with: "_")
+        guard ["pending_review", "reviewing", "completed"].contains(state ?? "") else { return false }
+        guard let expectedRevision else { return true }
+        return workflow.outcomeRevision.map { $0 >= expectedRevision } == true
+    }
+
+    private func jointCompletionWasConfirmed(
+        _ workflow: JointCpWorkflow,
+        expectedCredits: Set<String>
+    ) -> Bool {
+        guard workflow.state?.nilIfBlank?.lowercased() == "completed" else { return false }
+        guard let credits = workflow.creditedStaffIds else { return true }
+        return Set(credits.compactMap { $0.nilIfBlank }).isSuperset(of: expectedCredits)
     }
 
     private func finishAfterAtomicCpTerminalOutcome() {

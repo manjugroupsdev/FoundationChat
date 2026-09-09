@@ -219,6 +219,10 @@ final class AuthStore {
       pendingOTPUsesTravelDesk = false
       return phone
     } catch {
+      if Self.otpRequestMayHaveReachedServer(error) {
+        pendingOTPUsesTravelDesk = false
+        return phone
+      }
       guard Self.isNotRegistered(error) else {
         errorMessage = error.localizedDescription
         throw error
@@ -228,6 +232,10 @@ final class AuthStore {
         pendingOTPUsesTravelDesk = true
         return phone
       } catch {
+        if Self.otpRequestMayHaveReachedServer(error) {
+          pendingOTPUsesTravelDesk = true
+          return phone
+        }
         let neutralError = AuthStoreError.phoneNotRegistered
         errorMessage = neutralError.localizedDescription
         throw neutralError
@@ -1555,6 +1563,18 @@ final class AuthStore {
 
   private static func isNotRegistered(_ error: Error) -> Bool {
     error.localizedDescription.localizedCaseInsensitiveContains("not registered")
+  }
+
+  private static func otpRequestMayHaveReachedServer(_ error: Error) -> Bool {
+    var current: NSError? = error as NSError
+    while let candidate = current {
+      if candidate.domain == NSURLErrorDomain,
+         URLError.Code(rawValue: candidate.code) == .timedOut {
+        return true
+      }
+      current = candidate.userInfo[NSUnderlyingErrorKey] as? NSError
+    }
+    return false
   }
 
   private static func authErrorMessage(_ error: Error) -> String {

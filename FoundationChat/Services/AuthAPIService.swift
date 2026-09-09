@@ -27,7 +27,7 @@ enum AuthAPIService {
   // MARK: - Response types
 
   private struct SendOTPResponse: Decodable {
-    let success: Bool
+    let success: Bool?
     let message: String?
     let error: String?
     let code: String?
@@ -141,7 +141,7 @@ enum AuthAPIService {
     let (data, response) = try await postWithInitialConnectionRetry(url: url, jsonBody: body)
     let decoded = try await BackgroundJSONDecoder.decode(SendOTPResponse.self, from: data)
 
-    guard decoded.success else {
+    guard otpDispatchWasAcknowledged(decoded) else {
       if decoded.code == "DEVICE_BOUND_TO_ANOTHER_ACCOUNT" {
         let owner = decoded.boundAccountName?.trimmingCharacters(in: .whitespacesAndNewlines)
         throw AuthAPIError.deviceLinkedToAnotherAccount(
@@ -166,7 +166,7 @@ enum AuthAPIService {
       jsonBody: ["phone": phone]
     )
     let decoded = try await BackgroundJSONDecoder.decode(SendOTPResponse.self, from: data)
-    guard decoded.success else {
+    guard otpDispatchWasAcknowledged(decoded) else {
       throw AuthAPIError.server(
         decoded.error ?? decoded.message ?? "Phone number not registered. Contact admin.",
         statusCode: (response as? HTTPURLResponse)?.statusCode ?? 0
@@ -610,6 +610,18 @@ enum AuthAPIService {
       guard shouldRetryInitialConnection(error) else { throw error }
       try await Task.sleep(nanoseconds: 450_000_000)
       return try await post(url: url, jsonBody: jsonBody)
+    }
+  }
+
+  private static func otpDispatchWasAcknowledged(_ response: SendOTPResponse) -> Bool {
+    if response.success == true { return true }
+    return [response.message, response.error].compactMap { $0 }.contains { raw in
+      let text = raw.trimmingCharacters(in: .whitespacesAndNewlines).lowercased()
+      let rejected = ["not sent", "failed to send", "unable to send", "could not send"]
+        .contains { text.contains($0) }
+      guard !rejected else { return false }
+      return text.range(of: #"\botp(?: has been| was)? sent\b"#, options: .regularExpression) != nil
+        || text.range(of: #"\bverification code(?: has been| was)? sent\b"#, options: .regularExpression) != nil
     }
   }
 

@@ -849,9 +849,12 @@ private struct CpListVisit: Identifiable {
             currentStaffIds: currentStaffIds
         )
         self.status = resolvedStatus
-        // Completion credit remains on the assigned date even when staff finish
-        // the visit on an earlier or later calendar day.
-        self.scheduledDate = detail.scheduledDate
+        let activityDate = detail.activityDate?.blankToNil
+            ?? actorParticipant?.startedAt.map(Self.localDateString)
+        let isCompleted = resolvedStatus.map { $0.normalizedMarker.isCompleted } == true
+        self.scheduledDate = isCompleted
+            ? (activityDate ?? detail.scheduledDate)
+            : detail.scheduledDate
         let manualClientName = detail.lead?.manualProfile?.clientName?.cpClientName
         let masterClientName = detail.client?.clientName?.cpClientName
         let leadContactName = detail.lead?.contactName?.cpClientName
@@ -906,6 +909,14 @@ private struct CpListVisit: Identifiable {
     }
 
     var tripType: String { "client_place" }
+
+    private static func localDateString(_ milliseconds: Int64) -> String {
+        let formatter = DateFormatter()
+        formatter.locale = Locale(identifier: "en_US_POSIX")
+        formatter.timeZone = .current
+        formatter.dateFormat = "yyyy-MM-dd"
+        return formatter.string(from: Date(timeIntervalSince1970: Double(milliseconds) / 1_000))
+    }
 
     var deadlineText: String? {
         guard let rawDate = scheduledDate?.blankToNil else { return nil }

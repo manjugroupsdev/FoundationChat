@@ -954,9 +954,64 @@ enum MarketingConvexAPIService {
     }
 
     static func setSiteVisitOutcome(token: String, request: SetSiteVisitOutcomeRequest) async throws {
-        let data = try await post(path: "/api/marketing/siteVisits/setOutcome", token: token, body: request)
-        let wrapper = try await decode(BaseMutationResponse.self, from: data)
-        guard wrapper.success else { throw MarketingAPIError.server(wrapper.error ?? "Failed to set site visit outcome") }
+        var mutationFailure: Error?
+        do {
+            let data = try await post(path: "/api/marketing/siteVisits/setOutcome", token: token, body: request)
+            let wrapper = try await decode(BaseMutationResponse.self, from: data)
+            guard wrapper.success else {
+                throw MarketingAPIError.server(wrapper.error ?? "Failed to set site visit outcome")
+            }
+        } catch is CancellationError {
+            throw CancellationError()
+        } catch {
+            if let apiError = error as? MarketingAPIError,
+               case .unauthorized = apiError {
+                throw error
+            }
+            mutationFailure = error
+        }
+
+        var confirmationFailure: Error?
+        for attempt in 0..<3 {
+            do {
+                let detail = try await getCpVisitDetail(token: token, id: request.id)
+                if siteVisitOutcomeWasConfirmed(detail: detail, expectedOutcome: request.outcome) {
+                    return
+                }
+                confirmationFailure = MarketingAPIError.server(
+                    "The outcome was received, but the site visit was not finalized. Refresh the visit and try again."
+                )
+            } catch is CancellationError {
+                throw CancellationError()
+            } catch {
+                confirmationFailure = error
+            }
+            if attempt < 2 {
+                try await Task.sleep(for: .milliseconds(attempt == 0 ? 250 : 750))
+            }
+        }
+        if let mutationFailure { throw mutationFailure }
+        throw confirmationFailure ?? MarketingAPIError.server("Unable to confirm the saved site visit outcome")
+    }
+
+    private static func siteVisitOutcomeWasConfirmed(
+        detail: CpVisitDetail,
+        expectedOutcome: String
+    ) -> Bool {
+        let status = normalizeContractValue(detail.proposedSiteVisit?.status ?? detail.status)
+        let actualOutcome = normalizeContractValue(detail.proposedSiteVisit?.outcome ?? detail.outcome)
+        let expected = normalizeContractValue(expectedOutcome)
+        let outcomeMatches = actualOutcome == expected
+            || (expected == "follow_up" && actualOutcome == "postponed")
+            || (expected == "postponed" && actualOutcome == "follow_up")
+        return outcomeMatches && ["completed", "complete", "done", "closed"].contains(status)
+    }
+
+    private static func normalizeContractValue(_ value: String?) -> String {
+        value?.trimmingCharacters(in: .whitespacesAndNewlines)
+            .lowercased()
+            .replacingOccurrences(of: "-", with: "_")
+            .replacingOccurrences(of: " ", with: "_") ?? ""
     }
 
     static func scanSiteVisitQR(token: String, qrData: String) async throws -> ScannedSiteVisit {
