@@ -51,6 +51,86 @@ struct AuthUser: Codable, Sendable, Equatable {
     self.photo = photo
     self.mustChangePassword = mustChangePassword
   }
+
+  private enum DecodingKeys: String, CodingKey {
+    case _id
+    case id
+    case staffId
+    case employeeId
+    case name
+    case phone
+    case email
+    case role
+    case roleLevel
+    case iamPermissions
+    case isAdmin
+    case designation
+    case department
+    case status
+    case photo
+    case mustChangePassword
+  }
+
+  init(from decoder: Decoder) throws {
+    let container = try decoder.container(keyedBy: DecodingKeys.self)
+    let decodedStaffId = container.authString(forKey: .staffId)
+    let primaryId = container.authString(forKey: ._id)
+      ?? decodedStaffId
+      ?? container.authString(forKey: .id)
+      ?? ""
+    _id = primaryId
+    staffId = decodedStaffId ?? primaryId.nonEmpty
+    employeeId = container.authString(forKey: .employeeId)
+    name = container.authString(forKey: .name)
+    phone = container.authString(forKey: .phone)
+    email = container.authString(forKey: .email)
+    role = container.authString(forKey: .role)
+    roleLevel = container.authInt(forKey: .roleLevel)
+    iamPermissions = try? container.decodeIfPresent([String].self, forKey: .iamPermissions)
+    isAdmin = container.authBool(forKey: .isAdmin)
+    designation = container.authString(forKey: .designation)
+    department = container.authString(forKey: .department)
+    status = container.authString(forKey: .status)
+    photo = container.authString(forKey: .photo)
+    mustChangePassword = container.authBool(forKey: .mustChangePassword)
+  }
+}
+
+private extension KeyedDecodingContainer {
+  func authString(forKey key: Key) -> String? {
+    if let value = try? decodeIfPresent(String.self, forKey: key) {
+      return value.trimmingCharacters(in: .whitespacesAndNewlines).nonEmpty
+    }
+    if let value = try? decodeIfPresent(Int64.self, forKey: key) {
+      return String(value)
+    }
+    if let value = try? decodeIfPresent(Double.self, forKey: key) {
+      return String(value)
+    }
+    if let value = try? decodeIfPresent(Bool.self, forKey: key) {
+      return String(value)
+    }
+    return nil
+  }
+
+  func authInt(forKey key: Key) -> Int? {
+    if let value = try? decodeIfPresent(Int.self, forKey: key) { return value }
+    if let value = try? decodeIfPresent(Double.self, forKey: key) { return Int(value) }
+    return authString(forKey: key).flatMap(Double.init).map(Int.init)
+  }
+
+  func authBool(forKey key: Key) -> Bool? {
+    if let value = try? decodeIfPresent(Bool.self, forKey: key) { return value }
+    switch authString(forKey: key)?.lowercased() {
+    case "true", "1", "yes": return true
+    case "false", "0", "no": return false
+    default: return nil
+    }
+  }
+}
+
+private extension String {
+  var nonEmpty: String? { isEmpty ? nil : self }
 }
 
 extension AuthUser {

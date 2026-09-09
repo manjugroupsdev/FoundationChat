@@ -5,6 +5,24 @@ import Security
 /// Thin HTTP client for the Convex auth endpoints.
 enum AuthAPIService {
   private static let baseURL = AppConfig.baseURL
+  private static let mobileAuthTimeout: TimeInterval = 90
+  private static let mobileEntryPaths: Set<String> = [
+    "/api/auth/send-otp",
+    "/api/auth/verify-otp",
+    "/api/auth/login-with-employee-id",
+    "/api/auth/device-binding/recovery/request",
+    "/api/auth/device-binding/recovery/confirm",
+    "/api/auth/device-binding/recovery/confirm-verified-otp",
+  ]
+
+  private static var appVersion: String {
+    Bundle.main.object(forInfoDictionaryKey: "CFBundleShortVersionString") as? String ?? "0"
+  }
+
+  private static var appBuild: Int {
+    let value = Bundle.main.object(forInfoDictionaryKey: "CFBundleVersion") as? String
+    return value.flatMap(Int.init) ?? 0
+  }
 
   // MARK: - Response types
 
@@ -108,7 +126,12 @@ enum AuthAPIService {
   /// Send an OTP to the given 10-digit phone number.
   static func sendOTP(phone: String) async throws {
     let url = URL(string: "\(baseURL)/api/auth/send-otp")!
-    var body: [String: Any] = ["phone": phone, "deviceType": "mobile"]
+    var body: [String: Any] = [
+      "phone": phone,
+      "deviceType": "mobile",
+      "appVersion": appVersion,
+      "appBuild": appBuild,
+    ]
     if let device = LoginDeviceInfo.capture() {
       body["deviceId"] = device.deviceId
       body["devicePlatform"] = device.platform
@@ -154,7 +177,13 @@ enum AuthAPIService {
   /// Verify the OTP and return the session (token + user).
   static func verifyOTP(phone: String, otp: String) async throws -> OtpSession {
     let url = URL(string: "\(baseURL)/api/auth/verify-otp")!
-    var body: [String: Any] = ["phone": phone, "otp": otp, "deviceType": "mobile"]
+    var body: [String: Any] = [
+      "phone": phone,
+      "otp": otp,
+      "deviceType": "mobile",
+      "appVersion": appVersion,
+      "appBuild": appBuild,
+    ]
     let device = LoginDeviceInfo.capture()
 
     // Device-binding telemetry: lets the backend lock a staff account to one
@@ -246,6 +275,8 @@ enum AuthAPIService {
       "employeeId": employeeId,
       "password": password,
       "deviceType": "mobile",
+      "appVersion": appVersion,
+      "appBuild": appBuild,
     ]
 
     // Device-binding telemetry: the password login is locked to the same device
@@ -260,7 +291,33 @@ enum AuthAPIService {
     }
 
     let (data, response) = try await postWithInitialConnectionRetry(url: url, jsonBody: body)
-    let decoded = try await BackgroundJSONDecoder.decode(EmployeePasswordLoginResponse.self, from: data)
+    let statusCode = (response as? HTTPURLResponse)?.statusCode ?? 0
+    let decoded = try? await BackgroundJSONDecoder.decode(EmployeePasswordLoginResponse.self, from: data)
+    if !(200..<300).contains(statusCode) {
+      if decoded?.code == "DEVICE_BOUND_TO_ANOTHER_ACCOUNT" {
+        throw AuthAPIError.deviceLinkedToAnotherAccount(
+          decoded?.error ?? "This phone is already linked to another staff account."
+        )
+      }
+      if isDeviceBoundResponse(
+        code: decoded?.code,
+        message: decoded?.error ?? decoded?.message
+      ) {
+        throw AuthAPIError.deviceBound(
+          "Please verify this phone using the OTP sent to your registered number."
+        )
+      }
+      throw AuthAPIError.server(
+        decoded?.error ?? decoded?.message ?? authErrorMessage(from: data) ?? "Unable to sign in",
+        statusCode: statusCode
+      )
+    }
+    guard let decoded else {
+      throw AuthAPIError.server(
+        "The sign-in service returned an invalid response. Please retry.",
+        statusCode: statusCode
+      )
+    }
 
     guard decoded.success, let token = decoded.token, let user = decoded.user else {
       if decoded.code == "DEVICE_BOUND_TO_ANOTHER_ACCOUNT" {
@@ -534,6 +591,11 @@ enum AuthAPIService {
     var request = URLRequest(url: url)
     request.httpMethod = "POST"
     request.setValue("application/json", forHTTPHeaderField: "Content-Type")
+    if mobileEntryPaths.contains(url.path) {
+      request.setValue(appVersion, forHTTPHeaderField: "X-App-Version")
+      request.setValue(String(appBuild), forHTTPHeaderField: "X-App-Build")
+      request.timeoutInterval = mobileAuthTimeout
+    }
     request.httpBody = try JSONSerialization.data(withJSONObject: jsonBody)
     return try await URLSession.shared.data(for: request)
   }
@@ -556,6 +618,27 @@ enum AuthAPIService {
     let normalized = message?.trimmingCharacters(in: .whitespacesAndNewlines).lowercased() ?? ""
     return normalized.hasPrefix("this account is already locked to another device")
       || normalized.hasPrefix("this account is bound to another device")
+  }
+
+  private static func authErrorMessage(from data: Data) -> String? {
+    guard let object = try? JSONSerialization.jsonObject(with: data) as? [String: Any] else {
+      return nil
+    }
+    for key in ["error", "message"] {
+      if let message = object[key] as? String,
+         !message.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
+        return message
+      }
+    }
+    if let nested = object["data"] as? [String: Any] {
+      for key in ["error", "message"] {
+        if let message = nested[key] as? String,
+           !message.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
+          return message
+        }
+      }
+    }
+    return nil
   }
 }
 
