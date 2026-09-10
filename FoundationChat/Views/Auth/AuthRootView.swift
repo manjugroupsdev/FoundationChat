@@ -5,6 +5,7 @@ struct AuthRootView: View {
     @Environment(AuthStore.self) private var authStore
     @Environment(\.scenePhase) private var scenePhase
     @State private var geoTrackBootstrap = GeoTrackBootstrapCoordinator.shared
+    @State private var releaseNotice: ReleaseNoticeCampaign?
 
     var body: some View {
         authenticatedContent
@@ -12,7 +13,19 @@ struct AuthRootView: View {
             await authStore.restoreSessionIfNeeded()
             if authStore.status == .signedIn, !authStore.passwordChangeRequired {
                 authStore.requestNotificationPermissions()
+                showReleaseNoticeIfNeeded()
                 await syncGeoTrack(reason: "session-restore", force: true)
+            }
+        }
+        .overlay {
+            if let releaseNotice {
+                ReleaseNoticeView(campaign: releaseNotice) {
+                    ReleaseNoticeStore.markSeen(releaseNotice)
+                    withAnimation(.easeOut(duration: 0.2)) {
+                        self.releaseNotice = nil
+                    }
+                }
+                .zIndex(5_000)
             }
         }
         .sheet(isPresented: Binding(
@@ -70,6 +83,7 @@ struct AuthRootView: View {
         .onChange(of: authStore.status) { _, newStatus in
             if newStatus == .signedIn, !authStore.passwordChangeRequired {
                 authStore.requestNotificationPermissions()
+                showReleaseNoticeIfNeeded()
                 if let existingToken = authStore.lastKnownAPNSToken {
                     Task { await authStore.handleAPNSToken(existingToken) }
                 }
@@ -79,6 +93,7 @@ struct AuthRootView: View {
         .onChange(of: authStore.passwordChangeRequired) { _, required in
             if !required, authStore.status == .signedIn {
                 authStore.requestNotificationPermissions()
+                showReleaseNoticeIfNeeded()
                 if let existingToken = authStore.lastKnownAPNSToken {
                     Task { await authStore.handleAPNSToken(existingToken) }
                 }
@@ -115,6 +130,16 @@ struct AuthRootView: View {
         guard authStore.currentSession?.user.isExternalFleetPrincipal != true,
               authStore.currentSession?.user.isFleetPortalMode != true else { return }
         await geoTrackBootstrap.sync(reason: reason, force: force)
+    }
+
+    private func showReleaseNoticeIfNeeded() {
+        guard authStore.status == .signedIn,
+              !authStore.passwordChangeRequired,
+              let campaign = ReleaseNoticeCampaign.active,
+              ReleaseNoticeStore.shouldShow(campaign) else { return }
+        withAnimation(.easeOut(duration: 0.2)) {
+            releaseNotice = campaign
+        }
     }
 }
 
