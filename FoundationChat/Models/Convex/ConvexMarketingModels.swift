@@ -287,6 +287,7 @@ struct CpVisitFilterOptionsResponse: Decodable, Sendable {
 
 struct CpVisitDetail: Codable, Identifiable, Sendable {
     let id: String
+    let mobileNumberNormalized: String?
     let requestId: String?
     let leadId: String?
     let clientId: String?
@@ -350,6 +351,7 @@ struct CpVisitDetail: Codable, Identifiable, Sendable {
 
     enum CodingKeys: String, CodingKey {
         case id = "_id"
+        case mobileNumberNormalized
         case requestId
         case leadId, clientId, clientPlaceId, origin, telecallerStaffId, assignedStaffId
         case assignedAt, scheduledDate, activityDate, scheduledTime, status, effectiveStatus, clientMet, clientMetAt
@@ -541,8 +543,8 @@ struct JointCpLocationRequest: Encodable, Sendable {
 struct JointCpSubmitReviewRequest: Encodable, Sendable {
     let id: String
     let fieldVisitId: String
-    let lat: Double
-    let lng: Double
+    let lat: Double?
+    let lng: Double?
     let accuracyMeters: Double?
     let capturedAt: Int64
     let arrivalPhotoStorageId: String?

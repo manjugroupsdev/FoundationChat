@@ -30,15 +30,19 @@ struct CpVisitsView: View {
     @State private var showHomeFenceWarning = false
     @State private var isCheckingHomeFence = false
     @State private var searchTask: Task<Void, Never>?
+    @State private var loadedServerSearch: String?
     @State private var nextCursor: String?
     @State private var hasMoreServerVisits = false
     @State private var isLoadingMore = false
 
     private var filteredVisits: [CpListVisit] {
-        visits.filter { visit in
+        let currentServerSearch = Self.cpServerSearchQuery(searchText)
+        let serverAlreadyMatched = !currentServerSearch.isEmpty
+            && loadedServerSearch?.caseInsensitiveCompare(currentServerSearch) == .orderedSame
+        return visits.filter { visit in
             selectedFilter.matches(visit)
                 && matchesAdvancedFilter(visit, state: advancedFilter)
-                && (searchText.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty || visit.matchesCpSearch(searchText))
+                && (currentServerSearch.isEmpty || serverAlreadyMatched || visit.matchesCpSearch(searchText))
         }
     }
 
@@ -85,6 +89,7 @@ struct CpVisitsView: View {
                     cpVisitId: visit.clientPlaceVisitId,
                     initialOutcome: visit.outcome,
                     cpType: visit.cpType,
+                    cpClientPhone: visit.leadPhone,
                     onCompleted: { revisit in
                         selectedOutcomeVisit = nil
                         pendingCpRevisit = revisit
@@ -256,6 +261,7 @@ struct CpVisitsView: View {
             cpOutcome: visit.outcome,
             cpVisitCategory: visit.visitCategory,
             cpType: visit.cpType,
+            clientMobile: visit.leadPhone,
             jointSummary: visit.detail.joint,
             lmoName: visit.lmoName,
             fieldStaffName: visit.fieldStaffName,
@@ -436,7 +442,7 @@ struct CpVisitsView: View {
         let fromDate = advancedFilter.fromDate.map { AppModuleFormatters.ymd.string(from: $0) }
         let effectiveTo = advancedFilter.toDate ?? advancedFilter.fromDate
         let toDate = effectiveTo.map { AppModuleFormatters.ymd.string(from: $0) }
-        let query = (searchOverride ?? searchText).trimmingCharacters(in: .whitespacesAndNewlines)
+        let query = Self.cpServerSearchQuery(searchOverride ?? searchText)
         let currentStaffIds = authenticatedStaffIds
         let cacheKey = cpCacheKey(fromDate: fromDate, toDate: toDate, search: query)
         if visits.isEmpty, let cached = LocalCache.get(cacheKey, as: [CpVisitDetail].self) {
@@ -482,6 +488,7 @@ struct CpVisitsView: View {
             visits = scoped
                 .compactMap { CpListVisit(detail: $0, currentStaffIds: currentStaffIds) }
                 .sorted(by: CpListVisit.androidOrder)
+            loadedServerSearch = query.nilIfEmpty
             nextCursor = page.nextCursor
             hasMoreServerVisits = page.hasMore == true && page.nextCursor?.isEmpty == false
             LocalCache.put(cacheKey, scoped)
@@ -552,6 +559,15 @@ struct CpVisitsView: View {
         return "marketing.cp-visits.\(listScope.rawValue).\(staffId).\(range).\(query).\(facets)"
     }
 
+    private static func cpServerSearchQuery(_ raw: String) -> String {
+        let trimmed = raw.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !trimmed.isEmpty else { return "" }
+        let digits = trimmed.filter(\.isNumber)
+        let compact = trimmed.filter { !$0.isWhitespace && !"+-()".contains($0) }
+        let phoneLike = digits.count >= 3 && compact.allSatisfy(\.isNumber)
+        return phoneLike ? String(digits.suffix(10)) : trimmed
+    }
+
     private var authenticatedStaffIds: Set<String> {
         let user = authStore.currentSession?.user
         return Set([user?.staffId, user?._id].compactMap { $0?.blankToNil })
@@ -614,7 +630,7 @@ struct CpVisitsView: View {
                 toDate: effectiveToDate.map { AppModuleFormatters.ymd.string(from: $0) },
                 scope: listScope.apiValue,
                 limit: 200,
-                search: searchText.nilIfEmpty,
+                search: Self.cpServerSearchQuery(searchText).nilIfEmpty,
                 assignedStaffId: advancedFilter.selected("fieldStaff").first,
                 telecallerStaffId: advancedFilter.selected("telecaller").first,
                 status: selectedFilter.apiValue,
@@ -888,6 +904,7 @@ private struct CpListVisit: Identifiable {
         self.leadPhone = detail.lead?.mobileNumber?.blankToNil
             ?? detail.client?.mobileNumber?.blankToNil
             ?? detail.clientPlace?.contactPhone?.blankToNil
+            ?? detail.mobileNumberNormalized?.blankToNil
         self.lmoName = detail.telecaller?.name?.blankToNil
             ?? detail.telecaller?.staffName?.blankToNil
         let jointNames = ([detail.joint?.leadStaffName] + (detail.joint?.companionNames ?? []))
@@ -1020,6 +1037,11 @@ private struct CpListVisit: Identifiable {
     func matchesCpSearch(_ query: String) -> Bool {
         let needle = query.trimmingCharacters(in: .whitespacesAndNewlines).lowercased()
         guard !needle.isEmpty else { return true }
+        let queryDigits = query.filter(\.isNumber)
+        if !queryDigits.isEmpty,
+           leadPhone?.filter(\.isNumber).contains(queryDigits) == true {
+            return true
+        }
         return [
             placeName,
             leadName,
@@ -2379,11 +2401,14 @@ private struct CreateCpVisitSheet: View {
                     staffSelectionRow(item, isSelected: isSelected)
                 },
                 onSelect: { item in
-                    selectedStaff = item
                     if let partner = selectedJointPartner,
-                       jointTemplateValidationError(primary: item, partner: partner) != nil {
-                        selectedJointPartner = nil
+                       let validation = jointTemplateValidationError(primary: item, partner: partner) {
+                        selectedStaff = nil
+                        showStaffPicker = false
+                        DispatchQueue.main.async { errorMessage = validation }
+                        return
                     }
+                    selectedStaff = item
                     showStaffPicker = false
                 }
             )
@@ -2558,7 +2583,7 @@ private struct CreateCpVisitSheet: View {
     }
 
     private var staffPicker: some View {
-        pickerShell(title: "Field Staff *", icon: "person.badge.key") {
+        pickerShell(title: "Staff *", icon: "person.badge.key") {
             Button {
                 showStaffPicker = true
             } label: {
@@ -2746,6 +2771,20 @@ private struct CreateCpVisitSheet: View {
         }
         guard primary.id != partner.id else {
             return "Pick two different staff for a Joint CP"
+        }
+        let primaryTemplateId = primary.iamTemplateId?
+            .trimmingCharacters(in: .whitespacesAndNewlines)
+        let partnerTemplateId = partner.iamTemplateId?
+            .trimmingCharacters(in: .whitespacesAndNewlines)
+        if let primaryTemplateId, !primaryTemplateId.isEmpty,
+           let partnerTemplateId, !partnerTemplateId.isEmpty,
+           primaryTemplateId.caseInsensitiveCompare(partnerTemplateId) == .orderedSame {
+            return "Both staff use the same IAM template. Select staff from different template levels."
+        }
+        if let primaryLevel = primary.iamTemplateLevel,
+           let partnerLevel = partner.iamTemplateLevel,
+           primaryLevel == partnerLevel {
+            return "Both staff have the same Joint CP template level. Select one lower-level and one higher-level staff member."
         }
         return nil
     }

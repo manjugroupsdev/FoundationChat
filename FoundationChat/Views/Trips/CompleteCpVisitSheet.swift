@@ -17,6 +17,7 @@ struct CompleteCpVisitSheet: View {
     let cpVisitId: String
     let initialOutcome: String?
     let cpType: String?
+    let cpClientPhone: String?
     let jointCtaMode: String?
     let jointOutcomeSummary: String?
     let onTerminalClosed: () -> Void
@@ -27,6 +28,7 @@ struct CompleteCpVisitSheet: View {
         cpVisitId: String,
         initialOutcome: String?,
         cpType: String?,
+        cpClientPhone: String? = nil,
         jointCtaMode: String? = nil,
         jointOutcomeSummary: String? = nil,
         onTerminalClosed: @escaping () -> Void = {},
@@ -36,6 +38,7 @@ struct CompleteCpVisitSheet: View {
         self.cpVisitId = cpVisitId
         self.initialOutcome = initialOutcome
         self.cpType = cpType
+        self.cpClientPhone = cpClientPhone
         self.jointCtaMode = jointCtaMode
         self.jointOutcomeSummary = jointOutcomeSummary
         self.onTerminalClosed = onTerminalClosed
@@ -460,8 +463,7 @@ struct CompleteCpVisitSheet: View {
                         selectedOutcome = outcome
                         errorMessage = nil
                         if outcome == .booking {
-                            bookingSub = .client
-                            bookingStep = .findMobile
+                            prepareBookingOutcome()
                         }
                     } label: {
                         OutcomeTabView(
@@ -509,8 +511,7 @@ struct CompleteCpVisitSheet: View {
             lockedDecisionButton("Converted as Booking", icon: "checkmark.seal", tint: Color(hex: 0x0B61CA)) {
                 selectedOutcome = .booking
                 isLockedSvMode = false
-                bookingSub = .client
-                bookingStep = .findMobile
+                prepareBookingOutcome()
                 errorMessage = nil
             }
             lockedDecisionButton("Site Visit", icon: "mappin.and.ellipse", tint: Color(hex: 0x0B61CA)) {
@@ -584,6 +585,25 @@ struct CompleteCpVisitSheet: View {
         bookingSub = .client
         bookingStep = .findMobile
         errorMessage = nil
+    }
+
+    private func prepareBookingOutcome() {
+        bookingSub = .client
+        let detailPhone = cpVisitDetail?.lead?.mobileNumber?.nilIfBlank
+            ?? cpVisitDetail?.client?.mobileNumber?.nilIfBlank
+            ?? cpVisitDetail?.clientPlace?.contactPhone?.nilIfBlank
+        let normalized = AppModuleFormatters.normalizePhone(
+            bookingClientMobile.nilIfBlank ?? cpClientPhone?.nilIfBlank ?? detailPhone ?? ""
+        )
+        guard normalized.count == 10 else {
+            bookingStep = .findMobile
+            return
+        }
+        bookingClientMobile = normalized
+        if booking.phone.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
+            booking.phone = normalized
+        }
+        bookingStep = .clientForm
     }
 
     private var siteVisitSection: some View {

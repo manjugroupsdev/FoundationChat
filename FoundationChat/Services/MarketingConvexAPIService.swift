@@ -1429,6 +1429,15 @@ enum MarketingConvexAPIService {
         let message = actionable.components(separatedBy: .newlines)
             .first?
             .trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
+        if message.localizedCaseInsensitiveContains("TEMPLATE_REQUIRED")
+            || message.localizedCaseInsensitiveContains("template is missing") {
+            return "Joint CP template is missing for one of these staff. Ask admin to update the IAM template."
+        }
+        if message.localizedCaseInsensitiveContains("SAME_TEMPLATE_NOT_ALLOWED")
+            || (message.localizedCaseInsensitiveContains("same template")
+                && !message.localizedCaseInsensitiveContains("same template level")) {
+            return "Both staff use the same IAM template. Select staff from different template levels."
+        }
         if message.localizedCaseInsensitiveContains("TEMPLATE_LEVEL_REQUIRED")
             || message.localizedCaseInsensitiveContains("designation level is missing") {
             return "Joint CP template level is missing. Ask admin to configure a numeric level for both staff members' effective IAM templates."
@@ -1437,6 +1446,9 @@ enum MarketingConvexAPIService {
             || message.localizedCaseInsensitiveContains("different designation levels") {
             return "Both staff have the same Joint CP template level. Select staff with different template levels."
         }
+        if message.localizedCaseInsensitiveContains("INVALID_JOINT_CP_ROLE_PAIR") {
+            return "The selected IAM templates do not form a valid Joint CP role pair. Ask admin to check the templates."
+        }
         return message.isEmpty ? "Request failed" : message
     }
 
@@ -1444,19 +1456,18 @@ enum MarketingConvexAPIService {
         _ response: NormalizedAPIErrorResponse
     ) -> String {
         switch response.code?.trimmingCharacters(in: .whitespacesAndNewlines).uppercased() {
-        case "PARTNER_LOCATION_STALE":
-            let ageSeconds = max(1, (response.maximumLocationAgeMs ?? 60_000) / 1_000)
-            return "Partner location is older than \(ageSeconds) seconds. Keep both phones on this visit and try again."
-        case "LOCATION_ACCURACY_LOW":
-            let accuracy = Int((response.maximumAccuracyMeters ?? 30).rounded())
-            return "GPS accuracy is too low. Turn on precise location, move to an open area, and retry with \(accuracy) metres accuracy or better."
-        case "PARTNER_TOO_FAR":
-            let radius = Int((response.requiredRadiusMeters ?? 100).rounded())
-            return "Both Joint CP staff must be within \(radius) metres to continue."
+        case "PARTNER_LOCATION_STALE", "LOCATION_ACCURACY_LOW", "PARTNER_TOO_FAR":
+            return "The server still has an outdated Joint CP location restriction. Please contact admin."
+        case "TEMPLATE_REQUIRED":
+            return "Joint CP template is missing for one of these staff. Ask admin to update the IAM template."
+        case "SAME_TEMPLATE_NOT_ALLOWED":
+            return "Both staff use the same IAM template. Select staff from different template levels."
         case "TEMPLATE_LEVEL_REQUIRED":
             return "Joint CP template level is missing. Ask admin to configure a numeric level for both staff members' effective IAM templates."
         case "SAME_TEMPLATE_LEVEL_NOT_ALLOWED":
             return "Both staff have the same Joint CP template level. Select staff with different template levels."
+        case "INVALID_JOINT_CP_ROLE_PAIR":
+            return "The selected IAM templates do not form a valid Joint CP role pair. Ask admin to check the templates."
         default:
             return friendlyServerMessage(response.error ?? "Request failed")
         }
