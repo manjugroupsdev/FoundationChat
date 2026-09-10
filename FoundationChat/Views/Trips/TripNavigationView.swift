@@ -474,6 +474,13 @@ struct TripNavigationView: View {
                 try? await Task.sleep(for: .seconds(5))
             }
         }
+        .task(id: clientPlaceVisitId) {
+            guard isJointCpWorkflow else { return }
+            while !Task.isCancelled {
+                try? await Task.sleep(for: .seconds(20))
+                await refreshJointPresenceIfEligible()
+            }
+        }
         .onChange(of: capturedImage) { _, image in
             guard let image else { return }
             Task {
@@ -1593,6 +1600,46 @@ struct TripNavigationView: View {
     }
 
     @MainActor
+    private func refreshJointPresenceIfEligible() async {
+        guard !isJointMutationInProgress,
+              visitStarted,
+              let workflow = jointWorkflow,
+              let role = verifiedJointActorRole(workflow),
+              let token = authStore.currentSession?.token,
+              let cpId = clientPlaceVisitId,
+              let fieldVisitId = resolvedVisitId
+        else { return }
+        let state = workflow.state?.nilIfBlank?.lowercased().replacingOccurrences(of: "-", with: "_")
+        guard state != "completed", state != "cancelled" else { return }
+        let eligible = role == "outcome_owner"
+            ? (workflow.canRequestOtp == true || workflow.canSubmitOutcome == true)
+            : (workflow.actorReady == true || workflow.canReview == true || workflow.canCompleteReview == true)
+        guard eligible else { return }
+
+        do {
+            let location = try await locationManager.freshPreciseLocation()
+            let request = JointCpLocationRequest(
+                id: cpId,
+                fieldVisitId: fieldVisitId,
+                lat: location.coordinate.latitude,
+                lng: location.coordinate.longitude,
+                accuracyMeters: location.horizontalAccuracy >= 0 ? location.horizontalAccuracy : nil,
+                capturedAt: Int64(location.timestamp.timeIntervalSince1970 * 1_000)
+            )
+            let refreshed: JointCpWorkflow
+            if role == "outcome_owner" {
+                refreshed = try await MarketingConvexAPIService.preflightJointCpArrival(token: token, request: request)
+            } else {
+                refreshed = try await MarketingConvexAPIService.markJointCpParticipantReady(token: token, request: request)
+            }
+            jointWorkflow = refreshed
+        } catch {
+            // Background freshness is best effort; foreground actions still
+            // perform and surface the authoritative proximity check.
+        }
+    }
+
+    @MainActor
     private func preflightJointCpArrival() async {
         guard let token = authStore.currentSession?.token,
               let cpId = clientPlaceVisitId,
@@ -1637,6 +1684,15 @@ struct TripNavigationView: View {
             arrivalStatusText = nil
             checkReachingAndAskClientSeen()
         } catch {
+            if isAmbiguousNetworkTimeout(error),
+               let recovered = try? await MarketingConvexAPIService.getJointCpWorkflow(token: token, id: cpId),
+               verifiedJointActorRole(recovered) == "outcome_owner",
+               recovered.canRequestOtp == true {
+                jointWorkflow = recovered
+                arrivalStatusText = nil
+                checkReachingAndAskClientSeen()
+                return
+            }
             arrivalInProgress = false
             arrivalStatusText = nil
             errorMessage = error.localizedDescription
@@ -1651,9 +1707,11 @@ struct TripNavigationView: View {
             return
         }
         arrivalStatusText = "Checking location..."
+        var requestedLocation: CLLocation?
         do {
             let token = try requireToken()
             let loc = try await locationManager.freshPreciseLocation()
+            requestedLocation = loc
 
             geoAPI.tokenProvider = { token }
             let resp = try await geoAPI.requestArrivalOtp(
@@ -1676,6 +1734,23 @@ struct TripNavigationView: View {
             capturedImage = nil
             showCamera = true
         } catch {
+            if isAmbiguousNetworkTimeout(error), let loc = requestedLocation {
+                // The SMS may already be committed even though its response
+                // missed the client deadline. Continue to the entry flow.
+                otpPhoneMasked = nil
+                otpLat = loc.coordinate.latitude
+                otpLng = loc.coordinate.longitude
+                if specialCpCompletionKind == .giftDistribution {
+                    pendingStorageId = nil
+                    arrivalStatusText = nil
+                    showOtpSheet = true
+                } else {
+                    arrivalStatusText = "Opening camera..."
+                    capturedImage = nil
+                    showCamera = true
+                }
+                return
+            }
             let serverMessage = error.localizedDescription.lowercased()
             if serverMessage.contains("already verified") || serverMessage.contains("finish the outcome") {
                 // Android resumes an interrupted CP at the outcome step rather
@@ -1700,6 +1775,12 @@ struct TripNavigationView: View {
             errorMessage = error.localizedDescription
             resetArrivalSwipe()
         }
+    }
+
+    private func isAmbiguousNetworkTimeout(_ error: Error) -> Bool {
+        let value = error as NSError
+        return (error as? URLError)?.code == .timedOut
+            || (value.domain == NSURLErrorDomain && value.code == URLError.timedOut.rawValue)
     }
 
     private func uploadPhotoThenShowOtp(image: UIImage) async {
@@ -2118,7 +2199,7 @@ struct TripNavigationView: View {
                 followUpTime: pendingCpTripCompletion?.followUpTime
             )
             if pendingCpTripCompletion != nil {
-                let confirmed = completion.status?.trimmingCharacters(in: .whitespacesAndNewlines).lowercased()
+                let confirmed = completion.resolvedCpStatus?.lowercased()
                 // Current/legacy handlers confirm the field-visit write with
                 // success + fieldVisitId and omit status. That is a valid
                 // committed response, matching Android's compatibility rule.
@@ -2136,9 +2217,7 @@ struct TripNavigationView: View {
                 await GeoTrackBootstrapCoordinator.shared.sync(reason: "field-visit-completed", force: true)
             }
 
-            let isPendingApproval = completion.status?
-                .trimmingCharacters(in: .whitespacesAndNewlines)
-                .lowercased() == "pending_gm_approval"
+            let isPendingApproval = completion.resolvedCpStatus?.lowercased() == "pending_gm_approval"
             if pendingCpRevisit != nil {
                 completeWithClientNotSeenSheet = false
                 showCpRevisitConfirmation = true

@@ -2398,9 +2398,8 @@ private struct CreateCpVisitSheet: View {
                 searchText: { item in
                     [
                         item.displayName,
-                        item.iamTemplateName,
-                        item.iamTemplateLevel.map { String($0) },
                         item.designation,
+                        item.department,
                         item.phone
                     ].compactMap(\.self).joined(separator: " ")
                 },
@@ -2587,26 +2586,15 @@ private struct CreateCpVisitSheet: View {
 
     @ViewBuilder
     private var jointRoleAssignment: some View {
-        if let assignment = jointTemplateAssignment {
-            VStack(alignment: .leading, spacing: 5) {
-                Text("Outcome & OTP: \(assignment.outcomeOwner.displayName)")
-                Text("Remarks, review & complete: \(assignment.reviewer.displayName)")
-            }
+        Text(
+            selectedStaff != nil && selectedJointPartner != nil
+                ? "The server will assign OTP/outcome and review/completion from each staff member's effective IAM template."
+                : "Select two staff. Their Joint CP roles are assigned securely after creation."
+        )
             .font(.system(size: 11, weight: .medium))
             .foregroundStyle(.secondary)
             .frame(maxWidth: .infinity, alignment: .leading)
             .padding(.horizontal, 14)
-        } else {
-            Text(
-                selectedStaff != nil && selectedJointPartner != nil
-                    ? "Workflow roles will be confirmed from the staff designation hierarchy when the visit is created."
-                    : "Select staff at different designation levels to assign the Joint CP workflow."
-            )
-                .font(.system(size: 11, weight: .medium))
-                .foregroundStyle(.secondary)
-                .frame(maxWidth: .infinity, alignment: .leading)
-                .padding(.horizontal, 14)
-        }
     }
 
     private var projectPicker: some View {
@@ -2749,20 +2737,6 @@ private struct CreateCpVisitSheet: View {
         }
     }
 
-    private var jointTemplateAssignment: (
-        outcomeOwner: ConvexStaffListItem,
-        reviewer: ConvexStaffListItem
-    )? {
-        guard let primary = selectedStaff,
-              let partner = selectedJointPartner,
-              jointTemplateValidationError(primary: primary, partner: partner) == nil,
-              let primaryLevel = primary.iamTemplateLevel,
-              let partnerLevel = partner.iamTemplateLevel else { return nil }
-        return primaryLevel < partnerLevel
-            ? (primary, partner)
-            : (partner, primary)
-    }
-
     private func jointTemplateValidationError(
         primary: ConvexStaffListItem?,
         partner: ConvexStaffListItem?
@@ -2772,11 +2746,6 @@ private struct CreateCpVisitSheet: View {
         }
         guard primary.id != partner.id else {
             return "Pick two different staff for a Joint CP"
-        }
-        guard let firstLevel = primary.iamTemplateLevel,
-              let secondLevel = partner.iamTemplateLevel else { return nil }
-        guard firstLevel != secondLevel else {
-            return "Both staff have the same designation level. Select one higher-level and one lower-level staff member"
         }
         return nil
     }
@@ -3291,20 +3260,13 @@ private struct CreateCpVisitSheet: View {
                 return
             }
         }
-        let jointAssignment = isJointCp ? jointTemplateAssignment : nil
         let jointParticipantIds: [String]?
-        if isJointCp, let primary = selectedStaff, let partner = selectedJointPartner {
-            if let jointAssignment {
-                jointParticipantIds = [jointAssignment.outcomeOwner.id, jointAssignment.reviewer.id]
-            } else {
-                // The create endpoint resolves owner/reviewer from the
-                // authoritative designation table and rewrites assignedStaffId.
-                jointParticipantIds = [primary.id, partner.id]
-            }
+        if isJointCp, let partner = selectedJointPartner {
+            jointParticipantIds = [partner.id]
         } else {
             jointParticipantIds = nil
         }
-        let resolvedAssignedStaffId = jointAssignment?.outcomeOwner.id ?? staffId
+        let resolvedAssignedStaffId = staffId
         guard selectedStaff != nil || !(staffId.isEmpty) else { errorMessage = "Field staff is required"; return }
         guard let lmoStaffId = selectedLmo?.id.nilIfEmpty else {
             errorMessage = "Select the LMO, Channel Partner, or BDO"
@@ -3383,8 +3345,9 @@ private struct CreateCpVisitSheet: View {
             projectId: selectedProject?.id,
             clientName: trimmedClientName,
             mobileNumber: normalizedPhone,
-            // Keep the compatibility owner aligned with the lower-level
-            // outcome owner even when staff were selected in reverse order.
+            // Selection order carries no authority. The create endpoint resolves
+            // effective IAM templates, snapshots both workflow roles, and rewrites
+            // this compatibility owner for a Joint CP.
             assignedStaffId: resolvedAssignedStaffId,
             lmoStaffId: lmoStaffId,
             scheduledDate: scheduledDate,
@@ -3401,8 +3364,8 @@ private struct CreateCpVisitSheet: View {
             googleMapsLink: mapsLink.trimmingCharacters(in: .whitespacesAndNewlines).nilIfEmpty,
             notes: serializedNotes,
             pincode: normalizedPincode,
-            // The server requires both unique participants and resolves owner
-            // versus reviewer from the authoritative designation hierarchy.
+            // Only the second selection is sent here; assignedStaffId carries
+            // the first. The server resolves and snapshots owner/reviewer roles.
             jointStaffIds: jointParticipantIds
         )
 

@@ -6,6 +6,30 @@ struct GeoTrackBaseResponse: Decodable, Sendable {
     let success: Bool
     let error: String?
     let status: String?
+    let effectiveStatus: String?
+    let outcome: String?
+    let clientPlaceVisitId: String?
+    let fieldVisitId: String?
+    let visit: CpVisitDetail?
+    let fieldVisit: CpVisitFieldVisit?
+    let completionProof: GeoTrackCompletionProof?
+    let alreadyCompleted: Bool?
+
+    var resolvedCpStatus: String? {
+        [effectiveStatus, status, visit?.effectiveStatus, visit?.status]
+            .compactMap { $0?.trimmingCharacters(in: .whitespacesAndNewlines) }
+            .first { !$0.isEmpty }
+    }
+}
+
+struct GeoTrackCompletionProof: Decodable, Sendable {
+    let lat: Double?
+    let lng: Double?
+    let distanceMeters: Double?
+    let travelledDistanceMeters: Double?
+    let remarks: String?
+    let photoStorageId: String?
+    let completedAt: Int64?
 }
 
 struct TrackingSession: Decodable, Sendable {

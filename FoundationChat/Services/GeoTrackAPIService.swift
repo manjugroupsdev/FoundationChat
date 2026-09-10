@@ -48,6 +48,11 @@ final class GeoTrackAPIService {
     private let baseURL: String
     private let trackingBaseURL: String
     private let pendingControlKey = "geotrack.pendingDirectControl"
+    private let slowBusinessPaths: Set<String> = [
+        "/api/geotrack/visit/arrival-otp/request",
+        "/api/geotrack/visit/arrival-otp/verify",
+        "/api/geotrack/visit/complete"
+    ]
 
     private struct PendingControl: Codable {
         let action: String
@@ -93,6 +98,9 @@ final class GeoTrackAPIService {
         }
 
         var request = URLRequest(url: url)
+        if slowBusinessPaths.contains(path) {
+            request.timeoutInterval = 90
+        }
         request.httpMethod = method
         request.setValue("application/json", forHTTPHeaderField: "Content-Type")
         if let idempotencyKey {

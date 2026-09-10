@@ -416,9 +416,12 @@ struct JointCpWorkflow: Codable, Sendable {
     let actorRole: String?
     let outcomeOwnerStaffId: String?
     let outcomeOwnerName: String?
+    let outcomeOwnerTemplateName: String?
+    let outcomeOwnerTemplateLevel: Int?
     let reviewerStaffId: String?
     let reviewerName: String?
     let reviewerTemplateName: String?
+    let reviewerTemplateLevel: Int?
     let canRequestOtp: Bool?
     let canSubmitOutcome: Bool?
     let canReview: Bool?

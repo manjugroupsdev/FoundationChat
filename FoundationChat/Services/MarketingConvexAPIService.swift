@@ -11,6 +11,15 @@ struct StaffDigitalSign: Decodable, Sendable {
 
 enum MarketingConvexAPIService {
     private static let baseURL = AppConfig.baseURL
+    private static let slowMutationPaths: Set<String> = [
+        "/api/marketing/clientPlaceVisits/create",
+        "/api/marketing/clientPlaceVisits/markClientMet",
+        "/api/marketing/clientPlaceVisits/setOutcome",
+        "/api/marketing/clientPlaceVisits/joint-arrival-preflight",
+        "/api/marketing/clientPlaceVisits/joint-participant-ready",
+        "/api/marketing/clientPlaceVisits/joint-submit-review",
+        "/api/marketing/clientPlaceVisits/joint-complete-review"
+    ]
 
     private struct NewClientDuplicateResponse: Decodable {
         let code: String?
@@ -1348,6 +1357,9 @@ enum MarketingConvexAPIService {
     ) async throws -> Data {
         guard let url = URL(string: "\(baseURL)\(path)") else { throw MarketingAPIError.badURL }
         var request = URLRequest(url: url)
+        if slowMutationPaths.contains(path) {
+            request.timeoutInterval = 90
+        }
         request.httpMethod = "POST"
         request.setValue("Bearer \(token)", forHTTPHeaderField: "Authorization")
         request.setValue("application/json", forHTTPHeaderField: "Content-Type")
@@ -1419,11 +1431,11 @@ enum MarketingConvexAPIService {
             .trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
         if message.localizedCaseInsensitiveContains("TEMPLATE_LEVEL_REQUIRED")
             || message.localizedCaseInsensitiveContains("designation level is missing") {
-            return "Joint CP designation hierarchy is incomplete. Ask admin to map both staff designations and set different numeric levels."
+            return "Joint CP template level is missing. Ask admin to configure a numeric level for both staff members' effective IAM templates."
         }
         if message.localizedCaseInsensitiveContains("SAME_TEMPLATE_LEVEL_NOT_ALLOWED")
             || message.localizedCaseInsensitiveContains("different designation levels") {
-            return "Both staff have the same designation level. Select one higher-level and one lower-level staff member."
+            return "Both staff have the same Joint CP template level. Select staff with different template levels."
         }
         return message.isEmpty ? "Request failed" : message
     }
@@ -1442,9 +1454,9 @@ enum MarketingConvexAPIService {
             let radius = Int((response.requiredRadiusMeters ?? 100).rounded())
             return "Both Joint CP staff must be within \(radius) metres to continue."
         case "TEMPLATE_LEVEL_REQUIRED":
-            return "Joint CP designation hierarchy is incomplete. Ask admin to map both staff designations and set different numeric levels."
+            return "Joint CP template level is missing. Ask admin to configure a numeric level for both staff members' effective IAM templates."
         case "SAME_TEMPLATE_LEVEL_NOT_ALLOWED":
-            return "Both staff have the same designation level. Select one higher-level and one lower-level staff member."
+            return "Both staff have the same Joint CP template level. Select staff with different template levels."
         default:
             return friendlyServerMessage(response.error ?? "Request failed")
         }
