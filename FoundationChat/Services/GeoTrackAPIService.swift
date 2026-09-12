@@ -407,6 +407,7 @@ final class GeoTrackAPIService {
         let timestamp = recordedAt ?? Int64(Date().timeIntervalSince1970 * 1_000)
         let resolvedDeviceId = deviceId ?? coordinator.deviceId
         let requestId = "heartbeat-\(resolvedDeviceId)-\(timestamp)"
+        let context = TrackingContextStore.current()
         let body = GeoTrackHeartbeatRequest(
             sessionId: sessionId ?? coordinator.activeSessionId,
             deviceId: resolvedDeviceId,
@@ -431,7 +432,11 @@ final class GeoTrackAPIService {
             permissionState: Self.locationServicesUsable() ? "granted" : "location_missing",
             movementMode: nil,
             trackingActive: (sessionId ?? coordinator.activeSessionId) != nil,
-            backgroundRestricted: nil
+            backgroundRestricted: nil,
+            // Read live: a heartbeat is always sent now, and it is what tells
+            // the backend a trip is still open when the point stream is quiet.
+            contextType: context.contextType,
+            contextId: context.contextId
         )
         let request = try makeRequest(
             path: "/api/tracking/heartbeat",
@@ -858,6 +863,38 @@ final class GeoTrackAPIService {
             throw GeoTrackAPIError.serverError(error)
         }
         return result
+    }
+
+    /// POST /api/marketing/cp-visits/reveal-otp
+    /// The manager's side of the same problem: an AVP/GM reads their own team
+    /// member's live arrival OTP back to them instead of the staff escalating
+    /// to the tech team. Gated INSIDE the Convex mutation by
+    /// `marketing.cpVisits.revealOtp` plus a reporting-hierarchy scope, and
+    /// audited there on both view and copy.
+    ///
+    /// Unlike `requestCpOtpAssist` this deliberately does NOT throw on
+    /// `success == false`: a refusal carries the server's own instruction
+    /// ("Generate OTP first", "already verified") and the caller shows it.
+    func revealCpArrivalOtp(cpVisitId: String) async throws -> CpOtpRevealResponse {
+        let request = try makeRequest(
+            path: "/api/marketing/cp-visits/reveal-otp",
+            method: "POST",
+            body: CpOtpRevealRequest(sourceId: cpVisitId)
+        )
+        return try await perform(request)
+    }
+
+    /// POST /api/marketing/cp-visits/reveal-otp/copied
+    /// Separate audit record, so "who looked" and "who took the code away" stay
+    /// distinguishable. The scope is re-checked server-side: a `fieldVisitId`
+    /// returned by an earlier reveal is not a capability.
+    func recordCpArrivalOtpCopied(fieldVisitId: String) async throws {
+        let request = try makeRequest(
+            path: "/api/marketing/cp-visits/reveal-otp/copied",
+            method: "POST",
+            body: CpOtpRevealCopiedRequest(fieldVisitId: fieldVisitId)
+        )
+        let _: GeoTrackBaseResponse = try await perform(request)
     }
 
     /// POST /api/geotrack/visit/arrival-otp/verify

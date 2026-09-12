@@ -352,6 +352,7 @@ final class LocationTracker: NSObject {
         let speed   = max(0, location.speed)    // CLLocation returns -1 when invalid
         let bearing = max(0, location.course)   // CLLocation returns -1 when invalid
         let altitude: Double? = location.verticalAccuracy >= 0 ? location.altitude : nil
+        let capturedContext = TrackingContextStore.current()
 
         return GeoTrackLocationPoint(
             lat: location.coordinate.latitude,
@@ -372,7 +373,12 @@ final class LocationTracker: NSObject {
             gpsEnabled: authorizationStatus == .authorizedAlways
                 || authorizationStatus == .authorizedWhenInUse,
             airplaneMode: false,      // No public iOS API; NWPathMonitor handles tamper detection
-            recordedAt: Int64(location.timestamp.timeIntervalSince1970 * 1000)
+            recordedAt: Int64(location.timestamp.timeIntervalSince1970 * 1000),
+            // Which trip this point belongs to, decided HERE rather than at
+            // upload: a backlog flushed after the trip ended must keep the trip
+            // it was recorded on.
+            contextType: capturedContext.contextType,
+            contextId: capturedContext.contextId
         )
     }
 
@@ -430,7 +436,12 @@ final class LocationTracker: NSObject {
                             networkType: point.networkType,
                             gpsEnabled: point.gpsEnabled,
                             airplaneMode: point.airplaneMode,
-                            recordedAt: point.recordedAt
+                            recordedAt: point.recordedAt,
+                            // Carried through from the buffered row, NOT
+                            // re-read from the store: this batch may be a
+                            // backlog from a trip that ended hours ago.
+                            contextType: point.contextType,
+                            contextId: point.contextId
                         )
                     }
                     do {

@@ -190,6 +190,7 @@ struct HRDashboardView: View {
                 PunchFlowView(mode: .punchOut) {
                     isOnDuty = false
                     onDutyTripId = ""
+                    TrackingContextStore.end()
                     Task { await reloadAll() }
                 }
             }
@@ -875,6 +876,10 @@ struct HRDashboardView: View {
                 vehicleType: request.vehicleType
             )
             onDutyTripId = tripId
+            // Tag the GeoTrack stream with this trip so its points — and so its
+            // distance — are attributed to the on-duty trip instead of counting
+            // as plain shift time.
+            TrackingContextStore.begin(.onDuty, refId: tripId)
             isOnDuty = true
             showOnDutySheet = false
         } catch {
@@ -896,11 +901,15 @@ struct HRDashboardView: View {
                 longitude: location?.coordinate.longitude
             )
             onDutyTripId = ""
+            TrackingContextStore.end(.onDuty)
             isOnDuty = false
         } catch {
             // Android clears local state even if the network call fails so the
             // user does not get stuck on a stale On Duty pill.
             onDutyTripId = ""
+            // Cleared on the failure path too: leaving the context set would
+            // keep tagging every later point with a trip that is over.
+            TrackingContextStore.end(.onDuty)
             isOnDuty = false
             errorMessage = error.localizedDescription
         }

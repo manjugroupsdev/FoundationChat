@@ -31,6 +31,13 @@ struct CpVisitsView: View {
     @State private var isCheckingHomeFence = false
     @State private var searchTask: Task<Void, Never>?
     @State private var loadedServerSearch: String?
+    /// The viewer's reporting team, exactly as the LAST list response reported
+    /// it. This is the scope an OTP reveal is allowed within, so it is taken
+    /// from the server rather than inferred locally, and it is captured on
+    /// every load regardless of the selected scope — it describes the viewer,
+    /// not the filter. Empty until a response lands, which fails closed.
+    @State private var reportingTeamStaffIds: Set<String> = []
+    @State private var otpRevealTarget: CpListVisit?
     @State private var nextCursor: String?
     @State private var hasMoreServerVisits = false
     @State private var isLoadingMore = false
@@ -98,6 +105,15 @@ struct CpVisitsView: View {
                     }
                 )
                 .environment(authStore)
+            }
+            .sheet(item: $otpRevealTarget) { visit in
+                CpOtpRevealSheet(
+                    cpVisitId: visit.clientPlaceVisitId,
+                    staffName: visit.fieldStaffName,
+                    placeName: visit.placeName ?? visit.leadName
+                )
+                .presentationDetents([.medium])
+                .presentationBackground(Color.appElevatedSurface)
             }
             .alert(
                 pendingCpRevisit?.dialogTitle ?? "Revisit scheduled",
@@ -206,6 +222,61 @@ struct CpVisitsView: View {
 
     @ViewBuilder
     private func visitRow(_ visit: CpListVisit) -> some View {
+        VStack(spacing: 6) {
+            visitRowContent(visit)
+            if canRevealOtp(for: visit) {
+                Button { otpRevealTarget = visit } label: {
+                    Text("Reveal arrival OTP")
+                        .font(.footnote.weight(.medium))
+                        .foregroundStyle(.orange)
+                        .frame(maxWidth: .infinity)
+                        .padding(.vertical, 8)
+                }
+                .buttonStyle(.plain)
+            }
+        }
+    }
+
+    /// "Reveal arrival OTP" — the supported answer to a staff member phoning
+    /// the tech team because the client will not read the code out.
+    ///
+    /// Hidden unless ALL of these hold, so the capability is invisible to
+    /// everyone who does not have it:
+    ///  • the deployment serves the reveal route (see `CpOtpRevealSupport`),
+    ///  • arrival is not already verified and the visit is not closed,
+    ///  • the viewer holds the IAM key with a GM/AVP designation, and
+    ///  • this row's staff is inside the reporting team the SERVER returned.
+    ///
+    /// The server re-checks every one of those; this is about not offering an
+    /// action that would only produce an error.
+    private func canRevealOtp(for visit: CpListVisit) -> Bool {
+        guard CpOtpRevealSupport.isSupported else { return false }
+        guard CpOtpRevealAccess.isRevealableStatus(visit.status) else { return false }
+        let user = authStore.currentSession?.user
+        return CpOtpRevealAccess.canReveal(
+            isSuperAdmin: isSessionSuperAdmin,
+            designation: user?.designation,
+            permissions: authStore.iamPermissions,
+            viewerStaffId: user?.staffId ?? user?._id,
+            // The CP's assigned staff — for a Joint CP this is the outcome
+            // owner, who is the one holding the OTP.
+            targetStaffId: visit.detail.assignedStaffId,
+            reportingTeamStaffIds: reportingTeamStaffIds
+        )
+    }
+
+    /// Mirrors the backend's `staff.isAdmin === true || role === "super-admin"`.
+    private var isSessionSuperAdmin: Bool {
+        if authStore.isAdmin { return true }
+        let role = (authStore.currentSession?.user.role ?? "")
+            .trimmingCharacters(in: .whitespacesAndNewlines)
+            .lowercased()
+            .replacingOccurrences(of: #"[\s_]+"#, with: "-", options: [.regularExpression])
+        return role == "super-admin"
+    }
+
+    @ViewBuilder
+    private func visitRowContent(_ visit: CpListVisit) -> some View {
         if visit.isPendingOutcomeCpVisit && visit.hasSpecialCompletion {
             Button {
                 selectedSpecialOutcomeVisit = visit
@@ -484,6 +555,7 @@ struct CpVisitsView: View {
                 || page.hasDirectReports == true
                 || (page.directReportCount ?? 0) > 0
                 || !(page.directReportIds ?? []).isEmpty
+            reportingTeamStaffIds = Set((page.directReportIds ?? []).filter { !$0.isEmpty })
             let scoped = scopedCpVisits(page)
             visits = scoped
                 .compactMap { CpListVisit(detail: $0, currentStaffIds: currentStaffIds) }

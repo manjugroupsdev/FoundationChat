@@ -1273,6 +1273,10 @@ struct TripNavigationView: View {
 
             driverStartKm = startProof.km
             fleetDriverPhase = "in_progress"
+            // Tag the GeoTrack stream with this trip so its points — and so its
+            // distance — are attributed to the trip rather than to plain shift
+            // time.
+            TrackingContextStore.begin(.fleet, refId: effectiveVisitId)
             visitStarted = true
             statusLine = alreadyInFlight ? "In progress" : "On the way"
             isLoadingStart = false
@@ -1344,6 +1348,7 @@ struct TripNavigationView: View {
                 )
             }
 
+            TrackingContextStore.begin(.cp, refId: effectiveVisitId)
             visitStarted = true
             statusLine = "On the way"
             isLoadingStart = false
@@ -1824,6 +1829,11 @@ struct TripNavigationView: View {
                 remarks: "Arrival verified",
                 arrivalPhotoStorageId: storageId
             )
+            // Trip over -> drop the trip attribution so later points fall back
+            // to plain shift time. AFTER the call, matching Android: a
+            // completion that throws leaves the trip open, and its points
+            // must keep the trip's tag.
+            TrackingContextStore.endTripContext()
             repairVerifiedArrivalProof = false
             arrivalStatusText = nil
             await completeVisitAfterOtp(otp: "")
@@ -2083,6 +2093,11 @@ struct TripNavigationView: View {
                 followUpDate: pendingCpTripCompletion?.followUpDate,
                 followUpTime: pendingCpTripCompletion?.followUpTime
             )
+            // Trip over -> drop the trip attribution so later points fall back
+            // to plain shift time. AFTER the call, matching Android: a
+            // completion that throws leaves the trip open, and its points
+            // must keep the trip's tag.
+            TrackingContextStore.endTripContext()
             if pendingCpTripCompletion != nil {
                 let confirmed = completion.resolvedCpStatus?.lowercased()
                 // Current/legacy handlers confirm the field-visit write with
@@ -2187,6 +2202,7 @@ struct TripNavigationView: View {
                     arrivalPhotoStorageId: pendingStorageId
                 )
             }
+            TrackingContextStore.endTripContext()
             visitCompletedSuccessfully = true
             fleetDriverPhase = "completed"
             arrivalStatusText = nil

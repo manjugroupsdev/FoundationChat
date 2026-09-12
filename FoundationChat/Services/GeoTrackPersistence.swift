@@ -24,6 +24,11 @@ final class PendingLocationPoint: NSManagedObject {
     @NSManaged var airplaneMode: Bool
     @NSManaged var recordedAt: Int64       // Unix epoch milliseconds
     @NSManaged var isSent: Bool
+    // Which trip this point belongs to, stamped at CAPTURE time for the same
+    // reason as sessionId: a backlog flushed hours later must stay attributed
+    // to the trip it happened on, not to whatever is running at upload time.
+    @NSManaged var contextType: String?
+    @NSManaged var contextId: String?
 
     func toGeoTrackPoint() -> GeoTrackLocationPoint {
         GeoTrackLocationPoint(
@@ -40,7 +45,9 @@ final class PendingLocationPoint: NSManagedObject {
             networkType: networkType,
             gpsEnabled: gpsEnabled,
             airplaneMode: airplaneMode,
-            recordedAt: recordedAt
+            recordedAt: recordedAt,
+            contextType: contextType,
+            contextId: contextId
         )
     }
 }
@@ -169,6 +176,8 @@ final class GeoTrackPersistence {
             entity.gpsEnabled = point.gpsEnabled
             entity.airplaneMode = point.airplaneMode
             entity.recordedAt = point.recordedAt
+            entity.contextType = point.contextType
+            entity.contextId = point.contextId
             entity.isSent = false
             try ctx.save()
         }
@@ -367,6 +376,14 @@ final class GeoTrackPersistence {
         if includeTrackingContext {
             pointProperties.insert(attr("sessionId", type: .stringAttributeType, optional: true), at: 1)
             pointProperties.insert(attr("deviceId", type: .stringAttributeType, optional: true), at: 2)
+            // Optional with no default so lightweight migration can add them to
+            // a store that already has sessionId/deviceId; pre-upgrade rows stay
+            // nil and still flush. Grouped under the same flag so
+            // makeModel(includeTrackingContext: false) keeps describing the
+            // ORIGINAL on-disk schema — that model is the migration source, and
+            // adding columns to it would stop it matching any real store.
+            pointProperties.append(attr("contextType", type: .stringAttributeType, optional: true))
+            pointProperties.append(attr("contextId", type: .stringAttributeType, optional: true))
         }
         entity.properties = pointProperties
 

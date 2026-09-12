@@ -76,6 +76,11 @@ struct GeoTrackLocationPoint: Encodable, Sendable {
     let gpsEnabled: Bool
     let airplaneMode: Bool
     let recordedAt: Int64  // Unix epoch milliseconds
+    /// Trip attribution, stamped when the point was captured. Additive: a
+    /// deployment that does not read these ignores them, and a point buffered
+    /// by an older build sends them as nil.
+    let contextType: String?
+    let contextId: String?
 
     init(
         pointId: String? = nil,
@@ -93,7 +98,9 @@ struct GeoTrackLocationPoint: Encodable, Sendable {
         networkType: String,
         gpsEnabled: Bool,
         airplaneMode: Bool,
-        recordedAt: Int64
+        recordedAt: Int64,
+        contextType: String? = nil,
+        contextId: String? = nil
     ) {
         self.pointId = pointId
         self.deviceSequence = deviceSequence
@@ -111,6 +118,8 @@ struct GeoTrackLocationPoint: Encodable, Sendable {
         self.gpsEnabled = gpsEnabled
         self.airplaneMode = airplaneMode
         self.recordedAt = recordedAt
+        self.contextType = contextType
+        self.contextId = contextId
     }
 }
 
@@ -194,6 +203,11 @@ struct GeoTrackHeartbeatRequest: Encodable, Sendable {
     let movementMode: String?
     let trackingActive: Bool?
     let backgroundRestricted: Bool?
+    /// The trip running at this tick. A heartbeat is always sent live, so
+    /// unlike a location point this is read at send time — and it is what tells
+    /// the backend a trip is still open when the point stream has gone quiet.
+    var contextType: String?
+    var contextId: String?
 }
 
 // MARK: - Tamper
@@ -814,6 +828,35 @@ struct CpOtpAssistResponse: Decodable, Sendable {
     let success: Bool
     let gmName: String?
     let error: String?
+}
+
+/// `sourceType` mirrors the backend's `otpAssistSourceTypeValidator`. Mobile
+/// always reveals from a CP row, but the field is sent explicitly so the same
+/// route can serve a site-visit source later without a contract change.
+struct CpOtpRevealRequest: Encodable, Sendable {
+    let sourceId: String
+    var sourceType: String = "client_place_visit"
+}
+
+/// Everything past `success` is optional because the server answers refusals on
+/// this same shape — "No active OTP is available. Generate OTP first.",
+/// "Arrival OTP is already verified." Those messages tell the manager what to
+/// do next, so they are surfaced rather than collapsed into a generic failure.
+struct CpOtpRevealResponse: Decodable, Sendable {
+    let success: Bool
+    let fieldVisitId: String?
+    let clientPlaceVisitId: String?
+    let otp: String?
+    let contactPhoneMasked: String?
+    let resendCount: Int?
+    let attempts: Int?
+    let assignedStaffName: String?
+    let placeName: String?
+    let error: String?
+}
+
+struct CpOtpRevealCopiedRequest: Encodable, Sendable {
+    let fieldVisitId: String
 }
 
 struct GeoTrackArrivalOtpVerifyBody: Encodable, Sendable {
