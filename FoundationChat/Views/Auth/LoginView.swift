@@ -461,10 +461,10 @@ struct LoginView: View {
                     OtpBox(
                         digit: $otpDigits[i],
                         isFocused: focusedOtpBox == i,
+                        onTap: { focusedOtpBox = i },
                         onInput: { handleOtpInput(at: i, value: $0) },
                         onDelete: { handleOtpDelete(at: i) }
                     )
-                    .focused($focusedOtpBox, equals: i)
                 }
             }
             .frame(maxWidth: .infinity)
@@ -663,6 +663,7 @@ private struct AuthPulsingLoadingCircle: View {
 private struct OtpBox: View {
     @Binding var digit: String
     let isFocused: Bool
+    let onTap: () -> Void
     let onInput: (String) -> Void
     let onDelete: () -> Void
 
@@ -687,11 +688,20 @@ private struct OtpBox: View {
                                  : Color(red: 0.063, green: 0.094, blue: 0.157))
 
             // Hidden text field for input capture
-            OtpTextField(text: $digit, onInput: onInput, onDelete: onDelete)
-                .opacity(0.011)
+            OtpTextField(
+                text: $digit,
+                isFocused: isFocused,
+                onInput: onInput,
+                onDelete: onDelete
+            )
+            // UIKit excludes fully transparent controls from hit testing on
+            // some iOS versions. Keep this almost invisible, but interactive.
+            .opacity(0.02)
         }
         .frame(height: 50)
         .frame(maxWidth: .infinity)
+        .contentShape(Rectangle())
+        .onTapGesture(perform: onTap)
     }
 }
 
@@ -699,6 +709,7 @@ private struct OtpBox: View {
 
 private struct OtpTextField: UIViewRepresentable {
     @Binding var text: String
+    let isFocused: Bool
     let onInput: (String) -> Void
     let onDelete: () -> Void
 
@@ -716,6 +727,11 @@ private struct OtpTextField: UIViewRepresentable {
 
     func updateUIView(_ uiView: _OtpUITextField, context: Context) {
         if uiView.text != text { uiView.text = text }
+        if isFocused, uiView.window != nil, !uiView.isFirstResponder {
+            DispatchQueue.main.async { uiView.becomeFirstResponder() }
+        } else if !isFocused, uiView.isFirstResponder {
+            uiView.resignFirstResponder()
+        }
     }
 
     class Coordinator: NSObject, UITextFieldDelegate {
