@@ -914,6 +914,11 @@ private struct CpListVisit: Identifiable {
     let completedAt: Int64?
     let visitCategory: String
     let cpType: String?
+    /// Whether the signed-in staff member is this Joint CP's reviewer. Decided
+    /// at construction because that is the only place the viewer's staff ids are
+    /// in scope; the card needs it to choose between a live "Review outcome"
+    /// action and a passive "Awaiting: <name>".
+    let viewerIsJointReviewer: Bool
     let detail: CpVisitDetail
 
     init?(detail: CpVisitDetail, currentStaffIds: Set<String>) {
@@ -927,6 +932,12 @@ private struct CpListVisit: Identifiable {
             ?? detail.fieldVisitId?.blankToNil
             ?? detail.fieldVisit?.id?.blankToNil
         self.clientPlaceVisitId = detail.id
+        let reviewerId = detail.joint?.workflow?.reviewerStaffId?
+            .trimmingCharacters(in: .whitespacesAndNewlines)
+        self.viewerIsJointReviewer = {
+            guard let reviewerId, !reviewerId.isEmpty else { return false }
+            return currentStaffIds.contains(reviewerId)
+        }()
         self.clientPlaceId = detail.clientPlaceId
         self.scheduledStartTime = detail.scheduledTime
         self.scheduledEndTime = nil
@@ -1410,6 +1421,7 @@ private struct CpVisitCard: View {
         if visit.isExpired { return "Expired" }
         if normalizedStatus.isCancelled { return "Cancelled" }
         if visit.isPendingOutcomeCpVisit { return "Pending" }
+        if normalizedStatus == CpVisitStatusPolicy.jointPendingReview { return "Pending Review" }
         if normalizedStatus.isCompleted { return "Completed" }
         if visit.needsCpDetails { return "Reaching" }
         if normalizedStatus.isInProgress { return normalizedStatus == "arrived" ? "Reaching" : "Enroute" }
@@ -1421,6 +1433,17 @@ private struct CpVisitCard: View {
         if visit.isExpired { return "Expired" }
         if normalizedStatus.isCancelled { return "Cancelled" }
         if visit.isPendingOutcomeCpVisit { return "Pending" }
+        if normalizedStatus == CpVisitStatusPolicy.jointPendingReview {
+            // Tell each side what THEY are waiting on: the reviewer gets a live
+            // action, the owner gets the reviewer's name so they know who to
+            // chase rather than a dead "Completed".
+            if visit.viewerIsJointReviewer { return "Review outcome" }
+            if let name = visit.detail.joint?.workflow?.reviewerName?
+                .trimmingCharacters(in: .whitespacesAndNewlines), !name.isEmpty {
+                return "Awaiting: \(name)"
+            }
+            return "Awaiting review"
+        }
         if normalizedStatus.isCompleted { return "Completed" }
         if visit.needsCpDetails { return visit.cpCompletionActionTitle }
         if normalizedStatus == "arrived" { return visit.cpCompletionActionTitle }

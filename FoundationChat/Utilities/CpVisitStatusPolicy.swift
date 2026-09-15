@@ -68,6 +68,14 @@ enum CpVisitStatusPolicy {
         if terminalStatuses.contains(parentStatus.lowercased()) {
             return parentStatus
         }
+        // A Joint CP is NOT finished when one participant's own leg finishes.
+        // The visit closes only when the higher-level reviewer adds their remark
+        // and completes it. The owner's leg flips to "completed" the moment they
+        // submit their outcome for review, and it is returned verbatim below, so
+        // the card read "Completed" while the reviewer had not even looked at it
+        // — and the row routed to the read-only detail with no way back in.
+        if let joint, jointReviewStillOpen(joint) { return jointPendingReview }
+
         let participantStatus = actorParticipant(in: joint, currentStaffIds: currentStaffIds)?
             .status?
             .trimmingCharacters(in: .whitespacesAndNewlines)
@@ -76,6 +84,33 @@ enum CpVisitStatusPolicy {
         }
         return parentStatus
     }
+
+    /// Card status for a Joint CP whose outcome is submitted but not yet
+    /// reviewed. Its own value rather than "arrived" or "completed", both of
+    /// which already drive actions that are wrong here. Must match the Android
+    /// `JOINT_PENDING_REVIEW` constant.
+    static let jointPendingReview = "pending_joint_review"
+
+    /// True while the Joint CP workflow is still running.
+    ///
+    /// Answers only from the workflow the SERVER resolved. A payload with no
+    /// workflow — an older deployment, or a list shape that omits it — returns
+    /// false and the previous behaviour stands, so a missing field can never
+    /// strand a genuinely finished visit in a pending state.
+    private static func jointReviewStillOpen(_ joint: JointCpSummary) -> Bool {
+        let state = joint.workflow?.state?
+            .trimmingCharacters(in: .whitespacesAndNewlines)
+            .lowercased() ?? ""
+        if state.isEmpty { return false }
+        return !terminalJointWorkflowStates.contains(state)
+    }
+
+    private static let terminalJointWorkflowStates: Set<String> = [
+        "completed",
+        "complete",
+        "cancelled",
+        "canceled"
+    ]
 
     static func isOutcomePending(cpStatus: String?, fieldVisitStatus: String?, outcome: String?) -> Bool {
         let cp = cpStatus?.trimmingCharacters(in: .whitespacesAndNewlines).lowercased() ?? ""
