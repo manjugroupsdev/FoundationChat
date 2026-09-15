@@ -1552,6 +1552,13 @@ struct HomeView: View {
         if ["completed", "complete", "done", "closed"].contains(status) {
             return .complete
         }
+        // Matched BEFORE the in-progress and clock-in checks: these mean the
+        // visit is done from this staff member's side.
+        if status == CpVisitStatusPolicy.jointPendingReview
+            || status == "pending_gm_approval"
+            || status == "pending-gm-approval" {
+            return .awaitingOther
+        }
         if visit.needsCpOutcomeDetails {
             return .reaching
         }
@@ -3133,6 +3140,11 @@ private enum HomeTripState: Equatable {
     case reaching
     case complete
     case clockInFirst
+    /// Finished by this staff member, waiting on someone else — a Joint CP with
+    /// the reviewer, or an out-of-geofence completion with the GM. Without its
+    /// own case both fell through to `.ready` and told a staff member who had
+    /// already done the OTP and the outcome to "Start Trip" again.
+    case awaitingOther
 
     var statusLabel: String {
         switch self {
@@ -3141,6 +3153,7 @@ private enum HomeTripState: Equatable {
         case .reaching: return "Reaching"
         case .complete: return "Completed"
         case .clockInFirst: return "Clock in"
+        case .awaitingOther: return "Pending Review"
         }
     }
 
@@ -3151,6 +3164,7 @@ private enum HomeTripState: Equatable {
         case .reaching: return "Complete Trip"
         case .complete: return "Completed"
         case .clockInFirst: return "Clock In First"
+        case .awaitingOther: return "Awaiting review"
         }
     }
 
@@ -3161,6 +3175,7 @@ private enum HomeTripState: Equatable {
         case .reaching: return "At client place"
         case .complete: return "Complete"
         case .clockInFirst: return "After clock in"
+        case .awaitingOther: return "With reviewer"
         }
     }
 
@@ -3174,6 +3189,7 @@ private enum HomeTripState: Equatable {
         case .enroute, .reaching: return Color(red: 0.71, green: 0.28, blue: 0.03)
         case .complete: return Color(red: 0.09, green: 0.61, blue: 0.18)
         case .clockInFirst: return HomePalette.textSecondary
+        case .awaitingOther: return Color(red: 0.71, green: 0.28, blue: 0.03)
         }
     }
 
@@ -3182,6 +3198,7 @@ private enum HomeTripState: Equatable {
         case .ready: return Color(red: 0.90, green: 0.96, blue: 0.92)
         case .enroute, .reaching: return Color(red: 1.0, green: 0.96, blue: 0.90)
         case .complete, .clockInFirst: return Color(red: 0.95, green: 0.96, blue: 0.97)
+        case .awaitingOther: return Color(red: 1.0, green: 0.96, blue: 0.90)
         }
     }
 
@@ -3191,6 +3208,7 @@ private enum HomeTripState: Equatable {
         case .enroute: return Color(red: 0.71, green: 0.28, blue: 0.03)
         case .complete: return Color(hex: 0x1F7A3F)
         case .clockInFirst: return HomePalette.textSecondary
+        case .awaitingOther: return HomePalette.textSecondary
         }
     }
 
@@ -3206,7 +3224,7 @@ private enum HomeTripState: Equatable {
             )
         case .enroute:
             return AnyShapeStyle(Color(red: 1.0, green: 0.96, blue: 0.90))
-        case .complete, .clockInFirst:
+        case .complete, .clockInFirst, .awaitingOther:
             return AnyShapeStyle(Color(red: 0.89, green: 0.91, blue: 0.93))
         }
     }
