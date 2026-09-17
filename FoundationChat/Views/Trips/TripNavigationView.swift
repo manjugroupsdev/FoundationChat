@@ -112,7 +112,7 @@ struct TripNavigationView: View {
     @State private var jointWorkflow: JointCpWorkflow?
     @State private var resolvedJointSummary: JointCpSummary?
     @State private var isJointMutationInProgress = false
-    @State private var autoOpenedJointReviewRevision: Int64?
+    @State private var autoOpenedJointReview = false
     @State private var showJointReviewerRemarks = false
 
     private let geoAPI = GeoTrackAPIService.shared
@@ -898,13 +898,46 @@ struct TripNavigationView: View {
     @ViewBuilder
     private func jointWorkflowAction(_ workflow: JointCpWorkflow) -> some View {
         let actorRole = verifiedJointActorRole(workflow)
-        let canEnterOutcome = jointOutcomeOwnerCanEnterOutcome(workflow, actorRole: actorRole)
+        let ownerArrived = jointOwnerArrivalVerified(workflow)
+        // The owner gets the outcome only AFTER arrival is verified. Offering it
+        // before hid the swipe, so OTP and photo were never done and
+        // submit-review failed the proof check.
+        let canEnterOutcome = ownerArrived
+            && jointOutcomeOwnerCanEnterOutcome(workflow, actorRole: actorRole)
         let canReview = jointReviewerCanReview(workflow, actorRole: actorRole)
         let jointState = workflow.state?
             .trimmingCharacters(in: .whitespacesAndNewlines)
             .lowercased()
             .replacingOccurrences(of: "-", with: "_")
-        if canEnterOutcome || canReview {
+        if canReview {
+            // Review the submitted outcome. Reopening the outcome form here
+            // re-saved it (flipping a client-not-met outcome to met) and bumped
+            // the revision, so completion failed with a conflict.
+            VStack(spacing: 8) {
+                Button {
+                    showJointReviewerRemarks = true
+                } label: {
+                    HStack {
+                        if isJointMutationInProgress { ProgressView().tint(.white) }
+                        Image(systemName: "doc.text.magnifyingglass")
+                        Text("Review outcome")
+                            .font(.system(size: 14, weight: .semibold))
+                    }
+                    .frame(maxWidth: .infinity)
+                    .frame(height: 48)
+                }
+                .buttonStyle(.borderedProminent)
+                .buttonBorderShape(.capsule)
+                .tint(Color(hex: 0x1BCA0B))
+                .disabled(isJointMutationInProgress)
+
+                Button("Edit outcome") {
+                    showCpCompletionSheet = true
+                }
+                .font(.system(size: 13, weight: .semibold))
+                .disabled(isJointMutationInProgress)
+            }
+        } else if canEnterOutcome {
             Button {
                 showCpCompletionSheet = true
             } label: {
@@ -922,6 +955,7 @@ struct TripNavigationView: View {
             .tint(Color(hex: 0x1BCA0B))
             .disabled(isJointMutationInProgress)
         } else if actorRole == "outcome_owner"
+                    && !ownerArrived
                     && jointState != "pending_review"
                     && jointState != "reviewing"
                     && jointState != "completed" {
@@ -975,9 +1009,15 @@ struct TripNavigationView: View {
                 : "Waiting for the outcome owner to submit"
         }
         if actorRole == "outcome_owner" {
+            let reviewer = workflow.reviewerName?.nilIfBlank ?? "the higher-level partner"
             if state == "pending_review" || state == "reviewing" {
-                let reviewer = workflow.reviewerName?.nilIfBlank ?? "the higher-level partner"
                 return "Waiting for \(reviewer) to add remarks and complete"
+            }
+            if state == "awaiting_both_trips" {
+                return "Waiting for \(reviewer) to start their trip"
+            }
+            if !jointOwnerArrivalVerified(workflow) {
+                return "Swipe on arrival, then complete OTP and photo"
             }
             return "OTP verified. Complete the outcome and send it for review"
         }
@@ -1009,8 +1049,21 @@ struct TripNavigationView: View {
             .trimmingCharacters(in: .whitespacesAndNewlines)
             .lowercased()
             .replacingOccurrences(of: "-", with: "_")
-        return !["pending_review", "reviewing", "completed", "cancelled", "canceled"]
+        // awaiting_both_trips: the reviewer has not started; the server rejects
+        // submit-review until both trips are started.
+        return !["awaiting_both_trips", "pending_review", "reviewing", "completed", "cancelled", "canceled"]
             .contains(state ?? "")
+    }
+
+    /// The owner's arrival OTP is verified: their own trip reached arrived (or
+    /// later) on the server, or this screen verified it.
+    private func jointOwnerArrivalVerified(_ workflow: JointCpWorkflow) -> Bool {
+        let trip = workflow.ownerTripStatus?
+            .trimmingCharacters(in: .whitespacesAndNewlines)
+            .lowercased()
+            .replacingOccurrences(of: "-", with: "_") ?? ""
+        if ["arrived", "arrival_verified", "on_site", "completed"].contains(trip) { return true }
+        return verifiedArrivalCoordinate != nil
     }
 
     private var verifiedJointCtaMode: String? {
@@ -1108,14 +1161,17 @@ struct TripNavigationView: View {
         resolvedJointSummary = detail.joint ?? resolvedJointSummary
         let actorStaffId = authStore.currentSession?.user.staffId?.nilIfBlank
             ?? authStore.currentSession?.user._id.nilIfBlank
-        if let participantVisitId = detail.joint?.participants?
-            .first(where: { $0.staffId?.nilIfBlank == actorStaffId })?
-            .fieldVisitId?.nilIfBlank {
-            resolvedVisitId = participantVisitId
+        let actorParticipant = detail.joint?.participants?
+            .first(where: { $0.staffId?.nilIfBlank == actorStaffId })
+        if let actorParticipant {
+            // Never the parent field visit for a participant: that is the
+            // owner's trip. The CP id resolves server-side to the actor's leg.
+            resolvedVisitId = actorParticipant.fieldVisitId?.nilIfBlank ?? cpId
         } else if let fieldVisitId = detail.fieldVisitId?.nilIfBlank
             ?? detail.fieldVisit?.id?.nilIfBlank {
             resolvedVisitId = fieldVisitId
         }
+        let parentIsOwnTrip = jointParentIsOwnTrip(detail, actorStaffId: actorStaffId)
 
         reconciledCpClientMet = detail.clientMet ?? reconciledCpClientMet
         let persistedOutcome = detail.outcome?.nilIfBlank
@@ -1123,7 +1179,7 @@ struct TripNavigationView: View {
             ?? (detail.convertedBookingId?.nilIfBlank == nil ? nil : "converted_to_booking")
         reconciledCpOutcome = persistedOutcome ?? reconciledCpOutcome
 
-        if let proof = detail.arrivalProof, proof.otpVerifiedAt != nil {
+        if parentIsOwnTrip, let proof = detail.arrivalProof, proof.otpVerifiedAt != nil {
             pendingStorageId = proof.photoStorageId?.nilIfBlank ?? pendingStorageId
             if let lat = proof.gpsLat, let lng = proof.gpsLng {
                 verifiedArrivalCoordinate = CLLocationCoordinate2D(latitude: lat, longitude: lng)
@@ -1140,7 +1196,12 @@ struct TripNavigationView: View {
             "postponed", "pending_gm_approval"
         ].contains(normalized)
         serverOutcomePendingFinalClose = persistedOutcome != nil && !terminal
-        if ["completed", "complete", "done", "closed"].contains(normalized) {
+        if normalized == CpVisitStatusPolicy.jointPendingReview {
+            // Outcome sent, reviewer not done. Not complete, and not Start Trip.
+            visitStarted = true
+            serverOutcomePendingFinalClose = false
+            statusLine = "Pending Review"
+        } else if ["completed", "complete", "done", "closed"].contains(normalized) {
             visitStarted = true
             visitCompletedSuccessfully = true
             serverOutcomePendingFinalClose = false
@@ -1163,18 +1224,67 @@ struct TripNavigationView: View {
         let server = detail.effectiveStatus?.nilIfBlank ?? ""
         if terminalStatuses.contains(cp.lowercased()) { return cp }
         if terminalStatuses.contains(server.lowercased()) { return server }
-        if detail.completedAt != nil || detail.fieldVisit?.completedAt != nil { return "completed" }
 
-        let actorStatus = detail.joint?.participants?
-            .first(where: { $0.staffId?.nilIfBlank == actorStaffId })?
-            .status?.nilIfBlank
-        let candidates = actorStatus.map { [$0, server, cp] }
-            ?? [detail.fieldVisit?.status?.nilIfBlank ?? "", server, cp]
+        let workflowState = detail.joint?.workflow?.state?
+            .trimmingCharacters(in: .whitespacesAndNewlines)
+            .lowercased()
+            .replacingOccurrences(of: "-", with: "_") ?? ""
+        // Checked before any completedAt: submitting completes the owner's field
+        // visit, which used to show Complete for both staff mid-review.
+        if ["pending_review", "reviewing"].contains(workflowState) {
+            return CpVisitStatusPolicy.jointPendingReview
+        }
+
+        let actorParticipant = detail.joint?.participants?
+            .first(where: { $0.staffId?.nilIfBlank == actorStaffId })
+        guard let actorParticipant else {
+            if detail.completedAt != nil || detail.fieldVisit?.completedAt != nil { return "completed" }
+            let candidates = [detail.fieldVisit?.status?.nilIfBlank ?? "", server, cp]
+            let best = candidates.filter { !$0.isEmpty }
+                .max { cpStatusRank($0) < cpStatusRank($1) }
+                ?? "scheduled"
+            if detail.arrivalProof?.otpVerifiedAt != nil && cpStatusRank(best) < 3 { return "arrived" }
+            return best
+        }
+
+        // Joint participant: their OWN trip only. The CP row's effectiveStatus,
+        // fieldVisit and arrivalProof are the owner's, which made the reviewer
+        // read in-progress/arrived as soon as the junior started, so they
+        // never got Start Trip and submit-review was then rejected.
+        if detail.completedAt != nil { return "completed" }
+        let parentIsOwnTrip = jointParentIsOwnTrip(detail, actorStaffId: actorStaffId)
+        if parentIsOwnTrip && detail.fieldVisit?.completedAt != nil { return "completed" }
+        let workflow = detail.joint?.workflow
+        let ownTrip: String? = {
+            guard let actorStaffId, let workflow else { return nil }
+            if workflow.outcomeOwnerStaffId?.nilIfBlank == actorStaffId { return workflow.ownerTripStatus }
+            if workflow.reviewerStaffId?.nilIfBlank == actorStaffId { return workflow.reviewerTripStatus }
+            return nil
+        }()
+        var candidates = [actorParticipant.status?.nilIfBlank ?? "", ownTrip?.nilIfBlank ?? ""]
+        if parentIsOwnTrip {
+            candidates += [detail.fieldVisit?.status?.nilIfBlank ?? "", server, cp]
+        }
         let best = candidates.filter { !$0.isEmpty }
             .max { cpStatusRank($0) < cpStatusRank($1) }
             ?? "scheduled"
-        if detail.arrivalProof?.otpVerifiedAt != nil && cpStatusRank(best) < 3 { return "arrived" }
+        if parentIsOwnTrip && detail.arrivalProof?.otpVerifiedAt != nil && cpStatusRank(best) < 3 {
+            return "arrived"
+        }
         return best
+    }
+
+    /// True when the CP row's parent field visit is this participant's own trip.
+    private func jointParentIsOwnTrip(_ detail: CpVisitDetail, actorStaffId: String?) -> Bool {
+        guard let actorParticipant = detail.joint?.participants?
+            .first(where: { $0.staffId?.nilIfBlank == actorStaffId })
+        else { return true }
+        let legId = actorParticipant.fieldVisitId?.nilIfBlank
+        let parentId = detail.fieldVisitId?.nilIfBlank ?? detail.fieldVisit?.id?.nilIfBlank
+        if let legId, let parentId { return legId == parentId }
+        let ownerId = detail.joint?.workflow?.outcomeOwnerStaffId?.nilIfBlank
+        if let ownerId, let actorStaffId { return ownerId == actorStaffId }
+        return actorParticipant.workflowRole == "outcome_owner"
     }
 
     private func cpStatusRank(_ value: String) -> Int {
@@ -1597,10 +1707,12 @@ struct TripNavigationView: View {
                         workflow,
                         actorRole: verifiedJointActorRole(workflow)
                       ),
-                      let revision = workflow.outcomeRevision,
-                      autoOpenedJointReviewRevision != revision {
-                autoOpenedJointReviewRevision = revision
-                showCpCompletionSheet = true
+                      !autoOpenedJointReview,
+                      !showCpCompletionSheet {
+                // Once per screen. Keying on the revision reopened the form on
+                // every poll after the reviewer's own edits bumped it.
+                autoOpenedJointReview = true
+                showJointReviewerRemarks = true
             }
         } catch {
             // Additive endpoint: preserve the live trip on mixed deployments.
@@ -1979,6 +2091,9 @@ struct TripNavigationView: View {
             arrivalStatusText = nil
         }
         do {
+            if let latest = try? await MarketingConvexAPIService.getJointCpWorkflow(token: token, id: cpId) {
+                jointWorkflow = latest
+            }
             guard let workflow = jointWorkflow,
                   jointReviewerCanReview(workflow, actorRole: verifiedJointActorRole(workflow)),
                   let revision = workflow.outcomeRevision else {
@@ -2026,6 +2141,14 @@ struct TripNavigationView: View {
     ) -> Bool {
         let state = workflow.state?.nilIfBlank?.lowercased().replacingOccurrences(of: "-", with: "_")
         guard ["pending_review", "reviewing", "completed"].contains(state ?? "") else { return false }
+        // A Joint CP converted to a Site Visit is closed directly, with no
+        // submission or review; that is not a confirmed send-for-review.
+        if state == "completed",
+           workflow.submittedAt == nil,
+           workflow.reviewedAt == nil,
+           workflow.reviewedByName?.nilIfBlank == nil {
+            return false
+        }
         guard let expectedRevision else { return true }
         return workflow.outcomeRevision.map { $0 >= expectedRevision } == true
     }

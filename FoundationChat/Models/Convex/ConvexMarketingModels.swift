@@ -440,6 +440,14 @@ struct JointCpWorkflow: Codable, Sendable {
     let reviewedByName: String?
     let reviewedByTemplateName: String?
     let completedAt: Int64?
+    // Each participant's OWN trip. The CP row's effectiveStatus / arrivalProof
+    // come from the parent field visit (the owner's).
+    let ownerFieldVisitId: String?
+    let reviewerFieldVisitId: String?
+    let ownerTripStatus: String?
+    let reviewerTripStatus: String?
+    let submittedAt: Int64?
+    let reviewedAt: Int64?
 }
 
 struct CpCompletedCountResponse: Codable, Sendable {

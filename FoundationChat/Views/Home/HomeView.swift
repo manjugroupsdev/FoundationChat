@@ -3370,9 +3370,13 @@ private extension GeoTrackCPVisitDetail {
 
         return GeoTrackTodayVisit(
             id: cpId,
-            fieldVisitId: actorParticipant?.fieldVisitId?.nilIfBlank
-                ?? fieldVisitId?.nilIfBlank
-                ?? fieldVisit?.id?.nilIfBlank,
+            // A joint participant never borrows the parent field visit (the
+            // owner's trip): starting it would start the owner's leg. With no
+            // leg id, nil lets the start use the CP id, which the server
+            // resolves to the acting staff member's own leg.
+            fieldVisitId: actorParticipant != nil
+                ? actorParticipant?.fieldVisitId?.nilIfBlank
+                : (fieldVisitId?.nilIfBlank ?? fieldVisit?.id?.nilIfBlank),
             clientPlaceId: clientPlaceId?.nilIfBlank ?? cpId,
             scheduledDate: scheduled,
             status: effectiveStatus,
