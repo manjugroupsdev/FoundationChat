@@ -15,6 +15,10 @@ enum GeoTrackAPIError: LocalizedError {
     case noToken
     case badStatus(Int)
     case serverError(String)
+    /// HTTP 404 with a JSON error body, e.g. "tracking record not found".
+    /// Kept distinct so callers can tell "that record does not exist" apart
+    /// from a retryable failure. Displays exactly like `serverError`.
+    case notFound(String)
     case decodingFailed(Error)
 
     var errorDescription: String? {
@@ -23,7 +27,7 @@ enum GeoTrackAPIError: LocalizedError {
             return "No authentication token available."
         case .badStatus(let code):
             return "Server returned HTTP \(code)."
-        case .serverError(let msg):
+        case .serverError(let msg), .notFound(let msg):
             return "Server error: \(msg)"
         case .decodingFailed(let err):
             return "Failed to decode response: \(err.localizedDescription)"
@@ -168,6 +172,7 @@ final class GeoTrackAPIService {
             if let envelope = try? JSONDecoder().decode(ErrorEnvelope.self, from: data),
                let message = envelope.error ?? envelope.message,
                !message.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
+                if http.statusCode == 404 { throw GeoTrackAPIError.notFound(message) }
                 throw GeoTrackAPIError.serverError(message)
             }
             throw GeoTrackAPIError.badStatus(http.statusCode)
@@ -286,7 +291,16 @@ final class GeoTrackAPIService {
             directGeoTrack: true,
             idempotencyKey: requestId
         )
-        let result: GeoTrackDirectSessionResponse = try await perform(request)
+        let result: GeoTrackDirectSessionResponse
+        do {
+            result = try await perform(request)
+        } catch GeoTrackAPIError.notFound {
+            // The service has no such session: it already ended, or it belongs
+            // to a different backend. Retrying can never succeed, so the stop
+            // is complete. Android replayed one of these 13 times in 2 minutes.
+            clearPendingControl(requestId: requestId)
+            return nil
+        }
         guard result.success else {
             throw GeoTrackAPIError.serverError(result.error ?? "GeoTrack stop failed")
         }
@@ -331,7 +345,16 @@ final class GeoTrackAPIService {
                 directGeoTrack: true,
                 idempotencyKey: pending.requestId
             )
-            let result: GeoTrackDirectSessionResponse = try await perform(request)
+            let result: GeoTrackDirectSessionResponse
+            do {
+                result = try await perform(request)
+            } catch GeoTrackAPIError.notFound where pending.action == "end" {
+                // Unknown session: the end is already true. Drop it instead of
+                // replaying it on every sync forever.
+                GeoTrackBootstrapCoordinator.shared.clearActiveSessionIfMatching(pending.end?.sessionId)
+                clearPendingControl(requestId: pending.requestId)
+                return
+            }
             guard result.success, result.error == nil else { return }
             if pending.action == "end" {
                 GeoTrackBootstrapCoordinator.shared.clearActiveSessionIfMatching(pending.end?.sessionId)

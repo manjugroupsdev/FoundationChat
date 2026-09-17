@@ -84,6 +84,13 @@ final class GeoTrackBootstrapCoordinator {
 
         if userDefaults.object(forKey: DefaultsKey.trackingEnabled) != nil,
            !userDefaults.bool(forKey: DefaultsKey.trackingEnabled) {
+            // The stored flag is only written when a session is validated
+            // (launch/login). GeoTrack switched on later on the web stayed
+            // "off" here until the next cold start. Re-check before refusing.
+            await refreshTrackingEnabledFlag()
+        }
+        if userDefaults.object(forKey: DefaultsKey.trackingEnabled) != nil,
+           !userDefaults.bool(forKey: DefaultsKey.trackingEnabled) {
             await endDirectSession(reason: "tracking_not_enabled")
             return
         }
@@ -206,6 +213,23 @@ final class GeoTrackBootstrapCoordinator {
             // Keep the session id until that command is acknowledged.
             lastError = error.localizedDescription
         }
+    }
+
+    private var lastTrackingFlagRefresh: Date?
+
+    /// Reads the current `geoTrackingEnabled` from `/api/auth/validate-session`.
+    /// Throttled to one call per 2 minutes. Only an explicit server value is
+    /// stored: a failed call or a missing field never switches tracking off,
+    /// and an invalid session is left for the normal auth path to handle.
+    private func refreshTrackingEnabledFlag() async {
+        if let lastTrackingFlagRefresh, Date().timeIntervalSince(lastTrackingFlagRefresh) < 120 {
+            return
+        }
+        lastTrackingFlagRefresh = Date()
+        guard let token = geoAPI.tokenProvider?(), !token.isEmpty else { return }
+        guard let user = try? await AuthAPIService.validateSession(token: token),
+              let enabled = user.geoTrackingEnabled else { return }
+        userDefaults.set(enabled, forKey: DefaultsKey.trackingEnabled)
     }
 
     /// MMS remains the source of truth only for whether attendance is open.
