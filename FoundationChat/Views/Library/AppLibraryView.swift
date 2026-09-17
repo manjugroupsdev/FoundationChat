@@ -214,11 +214,11 @@ private struct AppLibraryTableSection: View {
                 VStack(alignment: .leading, spacing: 2) {
                     Text(section.title)
                         .font(.system(size: 16, weight: .semibold))
-                        .foregroundStyle(Color(hex: 0x111111))
+                        .foregroundStyle(Color.appPrimaryText)
 
                     Text(section.subtitle)
                         .font(.system(size: 12, weight: .regular))
-                        .foregroundStyle(Color(hex: 0x6B7280))
+                        .foregroundStyle(Color.appSecondaryText)
                 }
 
                 Spacer(minLength: 0)
@@ -246,7 +246,7 @@ private struct AppLibraryTableSection: View {
             }
         }
         .padding(16)
-        .background(.white, in: RoundedRectangle(cornerRadius: 16, style: .continuous))
+        .background(Color.appSurface, in: RoundedRectangle(cornerRadius: 16, style: .continuous))
         .shadow(color: .black.opacity(0.04), radius: 12, x: 0, y: 4)
     }
 }
@@ -260,7 +260,7 @@ private struct NativeAppLibraryRow: View {
 
             Text(item.title)
                 .font(.system(size: 14, weight: .medium))
-                .foregroundStyle(Color(hex: 0x111111))
+                .foregroundStyle(Color.appPrimaryText)
 
             Spacer(minLength: 8)
 
@@ -898,7 +898,7 @@ private struct AppLibraryFilterStrip: View {
         }
         .frame(height: 84)
         .frame(maxWidth: .infinity)
-        .background(Color.white)
+        .background(Color.appElevatedSurface)
         .sensoryFeedback(.selection, trigger: selectedFilter)
     }
 }
@@ -912,13 +912,13 @@ private struct AppLibraryFilterTab: View {
             Image(systemName: isSelected ? filter.selectedSystemIcon : filter.systemIcon)
                 .font(.system(size: 16, weight: .semibold))
                 .symbolRenderingMode(.hierarchical)
-                .foregroundStyle(isSelected ? .white : Color(hex: 0x6A6D78))
+                .foregroundStyle(isSelected ? .white : Color.appSecondaryText)
                 .frame(width: 36, height: 36)
-                .background(isSelected ? Color(hex: 0x0B61CA) : Color(hex: 0xF4F6F8), in: Circle())
+                .background(isSelected ? Color(hex: 0x0B61CA) : Color.appFieldBackground, in: Circle())
 
             Text(filter.title)
                 .font(.system(size: 10, weight: .medium))
-                .foregroundStyle(isSelected ? Color(hex: 0x0B61CA) : Color(hex: 0x667085))
+                .foregroundStyle(isSelected ? Color(hex: 0x0B61CA) : Color.appSecondaryText)
                 .lineLimit(1)
                 .minimumScaleFactor(0.72)
                 .padding(.top, 1)

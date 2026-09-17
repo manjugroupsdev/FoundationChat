@@ -116,7 +116,7 @@ struct HRDashboardView: View {
                 Color(hex: 0x0B61CA)
                     .ignoresSafeArea(edges: .top)
 
-                Color(red: 0.945, green: 0.953, blue: 0.973)
+                Color.appScreenBackground
                     .ignoresSafeArea(edges: .bottom)
 
                 fixedAttendanceHeader
@@ -135,10 +135,10 @@ struct HRDashboardView: View {
                         VStack(spacing: 0) {
                             Color.clear
                                 .frame(height: attendancePanelTopOffset)
-                            Color.white
+                            Color.appElevatedSurface
                                 .clipShape(.rect(topLeadingRadius: 30, topTrailingRadius: 30))
                                 .frame(height: 176)
-                            Color(red: 0.945, green: 0.953, blue: 0.973)
+                            Color.appScreenBackground
                         }
                         .allowsHitTesting(false)
                     }
@@ -202,7 +202,7 @@ struct HRDashboardView: View {
                 }
                 .appFormActivity()
                 .appLibraryNativeSheet([.fraction(0.72), .large])
-                .presentationBackground(Color(hex: 0xF8FAFC))
+                .presentationBackground(Color.appElevatedSurface)
             }
             .sheet(isPresented: $showClockOutConfirm) {
                 ClockOutConfirmSheet(
@@ -280,10 +280,10 @@ struct HRDashboardView: View {
             VStack(alignment: .leading, spacing: 2) {
                 Text("Total Working Hour")
                     .font(.system(size: 14, weight: .semibold))
-                    .foregroundStyle(Color(red: 0.063, green: 0.094, blue: 0.157))
+                    .foregroundStyle(Color.appPrimaryText)
                 Text(androidPayPeriodLabel)
                     .font(.system(size: 12, weight: .regular))
-                    .foregroundStyle(Color(red: 0.278, green: 0.329, blue: 0.404))
+                    .foregroundStyle(Color.appSecondaryText)
             }
 
             HStack(spacing: 8) {
@@ -303,7 +303,7 @@ struct HRDashboardView: View {
         .padding(.bottom, 16)
         .frame(maxWidth: .infinity, alignment: .leading)
         .background(
-            Color.white
+            Color.appElevatedSurface
                 .clipShape(
                     .rect(
                         topLeadingRadius: 30,
@@ -319,13 +319,13 @@ struct HRDashboardView: View {
         VStack(alignment: .leading, spacing: 5) {
             Text(title)
                 .font(.system(size: 12, weight: .medium))
-                .foregroundStyle(Color(red: 0.278, green: 0.329, blue: 0.404))
+                .foregroundStyle(Color.appSecondaryText)
                 .lineLimit(1)
                 .minimumScaleFactor(0.75)
 
             Text(value)
                 .font(.system(size: 22, weight: .regular, design: .default).monospacedDigit())
-                .foregroundStyle(Color(red: 0.086, green: 0.106, blue: 0.137))
+                .foregroundStyle(Color.appPrimaryText)
                 .lineLimit(1)
                 .minimumScaleFactor(0.52)
                 .contentTransition(.numericText())
@@ -333,10 +333,10 @@ struct HRDashboardView: View {
         .frame(maxWidth: .infinity, alignment: .leading)
         .frame(height: 72, alignment: .center)
         .padding(.horizontal, 12)
-        .background(Color(red: 0.976, green: 0.976, blue: 0.976), in: RoundedRectangle(cornerRadius: 8, style: .continuous))
+        .background(Color.appFieldBackground, in: RoundedRectangle(cornerRadius: 8, style: .continuous))
         .overlay(
             RoundedRectangle(cornerRadius: 8, style: .continuous)
-                .stroke(Color(red: 0.922, green: 0.925, blue: 0.933), lineWidth: 1)
+                .stroke(Color.appSeparator, lineWidth: 1)
         )
     }
 
@@ -351,10 +351,10 @@ struct HRDashboardView: View {
             VStack(alignment: .leading, spacing: 2) {
                 Text("Today's Shift")
                     .font(.system(size: 11, weight: .medium))
-                    .foregroundStyle(Color(hex: 0x667085))
+                    .foregroundStyle(Color.appSecondaryText)
                 Text(todayShiftLabel)
                     .font(.system(size: 13, weight: .semibold).monospacedDigit())
-                    .foregroundStyle(Color(hex: 0x101828))
+                    .foregroundStyle(Color.appPrimaryText)
                     .lineLimit(1)
                     .minimumScaleFactor(0.75)
             }
@@ -368,10 +368,10 @@ struct HRDashboardView: View {
         }
         .frame(minHeight: 42)
         .padding(.horizontal, 10)
-        .background(Color(hex: 0xF8FAFC), in: RoundedRectangle(cornerRadius: 8, style: .continuous))
+        .background(Color.appFieldBackground, in: RoundedRectangle(cornerRadius: 8, style: .continuous))
         .overlay {
             RoundedRectangle(cornerRadius: 8, style: .continuous)
-                .stroke(Color(hex: 0xE4E7EC), lineWidth: 1)
+                .stroke(Color.appSeparator, lineWidth: 1)
         }
     }
 
@@ -443,7 +443,7 @@ struct HRDashboardView: View {
             HStack {
                 Text("Attendance History")
                     .font(.system(size: 15, weight: .semibold))
-                    .foregroundStyle(Color(red: 0.063, green: 0.094, blue: 0.157))
+                    .foregroundStyle(Color.appPrimaryText)
                 Spacer()
                 NavigationLink {
                     ConvexAttendanceListView()
@@ -465,7 +465,7 @@ struct HRDashboardView: View {
                     .padding(.vertical, 24)
                 }
                 .frame(maxWidth: .infinity)
-                .background(Color.white, in: RoundedRectangle(cornerRadius: 12, style: .continuous))
+                .background(Color.appSurface, in: RoundedRectangle(cornerRadius: 12, style: .continuous))
                 .padding(.horizontal, 12)
             } else {
                 ForEach(historyRecords) { record in
@@ -513,7 +513,7 @@ struct HRDashboardView: View {
             VStack(alignment: .leading, spacing: 10) {
                 Text("HR Shortcuts")
                     .font(.system(size: 15, weight: .semibold))
-                    .foregroundStyle(Color(red: 0.063, green: 0.094, blue: 0.157))
+                    .foregroundStyle(Color.appPrimaryText)
                     .padding(.horizontal, 4)
 
                 LazyVGrid(columns: [GridItem(.flexible()), GridItem(.flexible())], spacing: 10) {
@@ -528,7 +528,7 @@ struct HRDashboardView: View {
                 }
             }
             .padding(12)
-            .background(Color.white, in: RoundedRectangle(cornerRadius: 12, style: .continuous))
+            .background(Color.appSurface, in: RoundedRectangle(cornerRadius: 12, style: .continuous))
             .padding(.horizontal, 12)
             .padding(.top, errorMessage == nil ? 12 : 0)
         }
@@ -542,17 +542,17 @@ struct HRDashboardView: View {
                     .foregroundStyle(Color(red: 0.412, green: 0.22, blue: 0.937))
                 Text(formatAndroidHistoryDate(record.date))
                     .font(.system(size: 14, weight: .semibold))
-                    .foregroundStyle(Color(red: 0.063, green: 0.094, blue: 0.157))
+                    .foregroundStyle(Color.appPrimaryText)
             }
 
             HStack(alignment: .top, spacing: 14) {
                 VStack(alignment: .leading, spacing: 6) {
                     Text("Total Hours")
                         .font(.system(size: 12, weight: .medium))
-                        .foregroundStyle(Color(red: 0.278, green: 0.329, blue: 0.404))
+                        .foregroundStyle(Color.appSecondaryText)
                     Text(historyTotalHMS(for: record))
                         .font(.system(size: 16, weight: .medium).monospacedDigit())
-                        .foregroundStyle(Color(red: 0.204, green: 0.251, blue: 0.329))
+                        .foregroundStyle(Color.appPrimaryText)
                         .lineLimit(1)
                         .minimumScaleFactor(0.7)
                 }
@@ -561,25 +561,25 @@ struct HRDashboardView: View {
                 VStack(alignment: .leading, spacing: 6) {
                     Text("Clock in & Out")
                         .font(.system(size: 12, weight: .medium))
-                        .foregroundStyle(Color(red: 0.278, green: 0.329, blue: 0.404))
+                        .foregroundStyle(Color.appSecondaryText)
                     Text(formatAndroidTimeRange(in: firstPunchIn(for: record), out: resolvedPunchOut(for: record)))
                         .font(.system(size: 16, weight: .medium))
-                        .foregroundStyle(Color(red: 0.204, green: 0.251, blue: 0.329))
+                        .foregroundStyle(Color.appPrimaryText)
                         .lineLimit(1)
                         .minimumScaleFactor(0.58)
                 }
                 .frame(maxWidth: .infinity, alignment: .leading)
             }
             .padding(12)
-            .background(Color(red: 0.976, green: 0.976, blue: 0.976), in: RoundedRectangle(cornerRadius: 16, style: .continuous))
+            .background(Color.appFieldBackground, in: RoundedRectangle(cornerRadius: 16, style: .continuous))
             .overlay(
                 RoundedRectangle(cornerRadius: 16, style: .continuous)
-                    .stroke(Color(red: 0.922, green: 0.925, blue: 0.933), lineWidth: 1)
+                    .stroke(Color.appSeparator, lineWidth: 1)
             )
         }
         .padding(.horizontal, 16)
         .padding(.vertical, 12)
-        .background(Color.white, in: RoundedRectangle(cornerRadius: 12, style: .continuous))
+        .background(Color.appSurface, in: RoundedRectangle(cornerRadius: 12, style: .continuous))
         .padding(.horizontal, 12)
     }
 
@@ -1564,8 +1564,8 @@ private struct OnDutyStartSheet: View {
                 .lineLimit(4...6)
                 .padding(12)
                 .frame(minHeight: 80, alignment: .topLeading)
-                .background(Color.white, in: RoundedRectangle(cornerRadius: 12, style: .continuous))
-                .overlay(RoundedRectangle(cornerRadius: 12, style: .continuous).stroke(Color(hex: 0xE4E7EC), lineWidth: 1))
+                .background(Color.appElevatedSurface, in: RoundedRectangle(cornerRadius: 12, style: .continuous))
+                .overlay(RoundedRectangle(cornerRadius: 12, style: .continuous).stroke(Color.appSeparator, lineWidth: 1))
         } else {
             VStack(spacing: 12) {
                 NativeInlineSearchBar(
@@ -1610,7 +1610,7 @@ private struct OnDutyStartSheet: View {
         VStack(alignment: .leading, spacing: 8) {
             Text(title)
                 .font(.system(size: 14, weight: .semibold))
-                .foregroundStyle(Color(hex: 0x344054))
+                .foregroundStyle(Color.appSecondaryText)
             HStack(spacing: 12) {
                 vehicleCard(ownership: ownership, type: "2 Wheeler", title: "Two Wheeler", systemImage: "bicycle")
                 vehicleCard(ownership: ownership, type: "4 Wheeler", title: "Four Wheeler", systemImage: "car.fill")
@@ -1636,14 +1636,14 @@ private struct OnDutyStartSheet: View {
                 }
                 Text(title)
                     .font(.system(size: 14, weight: .semibold))
-                    .foregroundStyle(isSelected ? .white : Color(hex: 0x101828))
+                    .foregroundStyle(isSelected ? .white : Color.appPrimaryText)
             }
             .frame(maxWidth: .infinity)
             .frame(height: 54)
-            .background(isSelected ? Color(hex: 0x0B61CA) : Color.white, in: RoundedRectangle(cornerRadius: 14, style: .continuous))
+            .background(isSelected ? Color(hex: 0x0B61CA) : Color.appElevatedSurface, in: RoundedRectangle(cornerRadius: 14, style: .continuous))
             .overlay(
                 RoundedRectangle(cornerRadius: 14, style: .continuous)
-                    .stroke(isSelected ? Color(hex: 0x0B61CA) : Color(hex: 0xE4E7EC), lineWidth: 1)
+                    .stroke(isSelected ? Color(hex: 0x0B61CA) : Color.appSeparator, lineWidth: 1)
             )
         }
         .buttonStyle(.plain)
@@ -1797,16 +1797,16 @@ private struct OnDutyStartSheet: View {
                     VStack(alignment: .leading, spacing: 2) {
                         Text(category.title)
                             .font(.system(size: 14, weight: .semibold))
-                            .foregroundStyle(Color(hex: 0x101828))
+                            .foregroundStyle(Color.appPrimaryText)
                         Text(category.subtitle)
                             .font(.system(size: 11, weight: .regular))
-                            .foregroundStyle(Color(hex: 0x667085))
+                            .foregroundStyle(Color.appSecondaryText)
                     }
                     Spacer()
                 }
                 .padding(12)
-                .background(Color.white, in: RoundedRectangle(cornerRadius: 14, style: .continuous))
-                .overlay(RoundedRectangle(cornerRadius: 14, style: .continuous).stroke(Color(hex: 0xE4E7EC), lineWidth: 1))
+                .background(Color.appElevatedSurface, in: RoundedRectangle(cornerRadius: 14, style: .continuous))
+                .overlay(RoundedRectangle(cornerRadius: 14, style: .continuous).stroke(Color.appSeparator, lineWidth: 1))
             }
             .buttonStyle(.plain)
         }
@@ -1822,18 +1822,18 @@ private struct OnDutyStartSheet: View {
                 HStack(spacing: 12) {
                     Text(target.name)
                         .font(.system(size: 15, weight: .semibold))
-                        .foregroundStyle(Color(hex: 0x101828))
+                        .foregroundStyle(Color.appPrimaryText)
                         .lineLimit(2)
                         .frame(maxWidth: .infinity, alignment: .leading)
                     Image(systemName: isSelected ? "largecircle.fill.circle" : "circle")
                         .font(.system(size: 20, weight: .semibold))
-                        .foregroundStyle(isSelected ? Color(hex: 0x0B61CA) : Color(hex: 0x98A2B3))
+                        .foregroundStyle(isSelected ? Color(hex: 0x0B61CA) : Color.appTertiaryText)
                 }
                 .padding(.horizontal, 16)
                 .padding(.vertical, 14)
                 .frame(minHeight: 56)
-                .background(isSelected ? Color(hex: 0xEAF3FF) : Color.white, in: RoundedRectangle(cornerRadius: 14, style: .continuous))
-                .overlay(RoundedRectangle(cornerRadius: 14, style: .continuous).stroke(isSelected ? Color(hex: 0x0B61CA) : Color(hex: 0xE4E7EC), lineWidth: 1))
+                .background(isSelected ? Color.accentColor.opacity(0.14) : Color.appElevatedSurface, in: RoundedRectangle(cornerRadius: 14, style: .continuous))
+                .overlay(RoundedRectangle(cornerRadius: 14, style: .continuous).stroke(isSelected ? Color(hex: 0x0B61CA) : Color.appSeparator, lineWidth: 1))
             }
             .buttonStyle(.plain)
         }

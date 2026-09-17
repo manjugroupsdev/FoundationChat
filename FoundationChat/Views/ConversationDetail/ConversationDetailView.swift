@@ -521,7 +521,7 @@ struct ConversationDetailView: View {
     }
     .navigationTitle(conversationTitle)
     .navigationBarTitleDisplayMode(.inline)
-    .toolbarBackground(Color.white.opacity(0.94), for: .navigationBar)
+    .toolbarBackground(Color.appElevatedSurface, for: .navigationBar)
     .toolbarBackground(.visible, for: .navigationBar)
     .toolbar {
       if selectedMessageIDs.isEmpty {
@@ -535,12 +535,12 @@ struct ConversationDetailView: View {
               VStack(spacing: 1) {
                 Text(conversationTitle)
                   .font(.system(size: 18, weight: .semibold))
-                  .foregroundStyle(Color.black.opacity(0.9))
+                  .foregroundStyle(Color.appPrimaryText)
                   .lineLimit(1)
 
                 Text(conversationSubtitle)
                   .font(.system(size: 12, weight: .regular))
-                  .foregroundStyle(typingUsers.isEmpty ? Color.black.opacity(0.35) : Color(red: 0.05, green: 0.52, blue: 0.22))
+                  .foregroundStyle(typingUsers.isEmpty ? Color.appTertiaryText : Color(red: 0.05, green: 0.52, blue: 0.22))
                   .lineLimit(1)
               }
             }
@@ -574,7 +574,7 @@ struct ConversationDetailView: View {
       .overlay(
         Text(String(conversationTitle.prefix(1)).uppercased())
           .font(.system(size: 14, weight: .semibold))
-          .foregroundStyle(Color.black.opacity(0.8))
+          .foregroundStyle(Color.appPrimaryText)
       )
       .overlay(alignment: .bottomTrailing) {
         if let otherParticipantPresence {
@@ -626,13 +626,13 @@ struct ConversationDetailView: View {
           .foregroundStyle(Color(red: 0.05, green: 0.42, blue: 0.82))
           .padding(.horizontal, 14)
           .frame(height: 40)
-          .background(Color.black.opacity(0.04), in: Capsule())
+          .background(Color.appFieldBackground, in: Capsule())
       }
       .buttonStyle(.plain)
 
       Text("\(selectedMessageIDs.count) selected")
         .font(.system(size: 18, weight: .semibold))
-        .foregroundStyle(Color.black.opacity(0.9))
+        .foregroundStyle(Color.appPrimaryText)
         .frame(maxWidth: .infinity)
 
       Menu {
@@ -682,17 +682,17 @@ struct ConversationDetailView: View {
           .font(.system(size: 18, weight: .bold))
           .foregroundStyle(Color(red: 0.05, green: 0.42, blue: 0.82))
           .frame(width: 40, height: 40)
-          .background(Color.black.opacity(0.04), in: Circle())
+          .background(Color.appFieldBackground, in: Circle())
       }
       .buttonStyle(.plain)
     }
     .padding(.horizontal, 14)
     .padding(.top, 10)
     .padding(.bottom, 12)
-    .background(Color.white.opacity(0.96))
+    .background(Color.appElevatedSurface)
     .overlay(alignment: .bottom) {
       Rectangle()
-        .fill(Color.black.opacity(0.06))
+        .fill(Color.appSeparator)
         .frame(height: 1)
     }
     .transition(.move(edge: .top).combined(with: .opacity))
@@ -1101,9 +1101,9 @@ struct MentionSuggestionsView: View {
           .buttonStyle(.plain)
         }
       }
-      .background(Color.white)
+      .background(Color.appElevatedSurface)
       .overlay(alignment: .top) {
-        Rectangle().fill(Color.black.opacity(0.06)).frame(height: 1)
+        Rectangle().fill(Color.appSeparator).frame(height: 1)
       }
     }
   }
@@ -1138,13 +1138,13 @@ private struct MessageTimestampDivider: View {
   var body: some View {
     Text(Self.title(for: date))
       .font(.system(size: 12, weight: .medium))
-      .foregroundStyle(Color.black.opacity(0.6))
+      .foregroundStyle(Color.appSecondaryText)
       .padding(.horizontal, 14)
       .padding(.vertical, 5)
-      .background(Color.white.opacity(0.9), in: RoundedRectangle(cornerRadius: 9, style: .continuous))
+      .background(Color.appElevatedSurface, in: RoundedRectangle(cornerRadius: 9, style: .continuous))
       .overlay(
         RoundedRectangle(cornerRadius: 9, style: .continuous)
-          .stroke(Color.black.opacity(0.04), lineWidth: 1)
+          .stroke(Color.appSeparator, lineWidth: 1)
       )
       .frame(maxWidth: .infinity)
   }
@@ -1208,7 +1208,7 @@ private struct AttachmentOptionRow: View {
 
         Text(title)
           .font(.system(size: 24, weight: .regular))
-          .foregroundStyle(Color.black.opacity(0.92))
+          .foregroundStyle(Color.appPrimaryText)
 
         Spacer()
       }
@@ -1250,7 +1250,7 @@ private struct ReplyComposerPreview: View {
 
         Text(previewText)
           .font(.system(size: 13, weight: .regular))
-          .foregroundStyle(Color.black.opacity(0.56))
+          .foregroundStyle(Color.appSecondaryText)
           .lineLimit(1)
       }
       .frame(maxWidth: .infinity, alignment: .leading)
@@ -1258,18 +1258,18 @@ private struct ReplyComposerPreview: View {
       Button(action: onClose) {
         Image(systemName: "xmark")
           .font(.system(size: 12, weight: .bold))
-          .foregroundStyle(Color.black.opacity(0.42))
+          .foregroundStyle(Color.appSecondaryText)
           .frame(width: 28, height: 28)
-          .background(Color.black.opacity(0.06), in: Circle())
+          .background(Color.appFieldBackground, in: Circle())
       }
       .buttonStyle(.plain)
     }
     .padding(.horizontal, 16)
     .frame(height: 54)
-    .background(Color.white)
+    .background(Color.appElevatedSurface)
     .overlay(alignment: .top) {
       Rectangle()
-        .fill(Color.black.opacity(0.06))
+        .fill(Color.appSeparator)
         .frame(height: 1)
     }
   }
@@ -1859,7 +1859,7 @@ private struct ForwardMessageSheet: View {
 
             Text(previewText)
               .font(.system(size: 14, weight: .regular))
-              .foregroundStyle(Color.black.opacity(0.72))
+              .foregroundStyle(Color.appSecondaryText)
               .lineLimit(2)
           }
           .padding(.vertical, 4)
@@ -2217,16 +2217,16 @@ private struct ReactionPreviewBubble: View {
   var body: some View {
     Text(previewText)
       .font(.system(size: 15, weight: .regular))
-      .foregroundStyle(isOutgoing ? .white : Color.black.opacity(0.9))
+      .foregroundStyle(isOutgoing ? .white : Color.appPrimaryText)
       .lineLimit(4)
       .padding(.horizontal, 14)
       .padding(.vertical, 10)
       .frame(maxWidth: 260, alignment: .leading)
-      .background(isOutgoing ? Color(red: 0.05, green: 0.38, blue: 0.79) : .white)
+      .background(isOutgoing ? Color(red: 0.05, green: 0.38, blue: 0.79) : Color.appSurface)
       .clipShape(RoundedRectangle(cornerRadius: 16, style: .continuous))
       .overlay(
         RoundedRectangle(cornerRadius: 16, style: .continuous)
-          .stroke(Color.white.opacity(isOutgoing ? 0.16 : 0.9), lineWidth: 1)
+          .stroke(isOutgoing ? Color.white.opacity(0.16) : Color.appSeparator, lineWidth: 1)
       )
       .shadow(color: .black.opacity(0.2), radius: 18, y: 8)
       .frame(maxWidth: .infinity, alignment: isOutgoing ? .trailing : .leading)

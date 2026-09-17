@@ -15,7 +15,7 @@ struct MessageContentView: View {
         ChatLocationCard(payload: payload, isOutgoing: isOutgoing)
       } else {
         Text(message.content)
-          .foregroundStyle(isOutgoing ? .white : Color.black.opacity(0.92))
+          .foregroundStyle(isOutgoing ? .white : Color.appPrimaryText)
           .font(.system(size: 15.8, weight: .regular))
           .lineSpacing(2)
       }

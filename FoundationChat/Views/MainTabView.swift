@@ -35,20 +35,19 @@ struct MainTabView: View {
         let active = UIColor(red: 0.106, green: 0.792, blue: 0.043, alpha: 1)
         let inactive = UIColor(red: 0.6, green: 0.615, blue: 0.635, alpha: 1)
         let tabBar = UITabBar.appearance()
-        let appearance = UITabBarAppearance()
         if #available(iOS 26.0, *) {
-            // The floating iOS 26 tab bar supplies its own glass backdrop. A
-            // second UIKit blur can be laid out as a full-height background
-            // after scroll/minimize transitions, covering Home content.
-            appearance.configureWithTransparentBackground()
-            appearance.backgroundEffect = nil
-            appearance.backgroundColor = .clear
-            appearance.shadowColor = .clear
-        } else {
-            appearance.configureWithTransparentBackground()
-            appearance.backgroundEffect = UIBlurEffect(style: .systemUltraThinMaterialLight)
-            appearance.backgroundColor = UIColor.white.withAlphaComponent(0.62)
+            // iOS 26 owns the floating tab bar's glass backdrop. Installing a
+            // custom UITabBarAppearance can expand that backdrop into an opaque
+            // layer after a scroll transition and cover the page content.
+            tabBar.tintColor = active
+            tabBar.unselectedItemTintColor = inactive
+            return
         }
+
+        let appearance = UITabBarAppearance()
+        appearance.configureWithTransparentBackground()
+        appearance.backgroundEffect = UIBlurEffect(style: .systemUltraThinMaterial)
+        appearance.backgroundColor = UIColor.systemBackground.withAlphaComponent(0.62)
         [appearance.stackedLayoutAppearance,
          appearance.inlineLayoutAppearance,
          appearance.compactInlineLayoutAppearance].forEach { itemAppearance in
@@ -65,55 +64,31 @@ struct MainTabView: View {
 
     var body: some View {
         TabView(selection: $selectedTab) {
-            HomeView(hasPlayedEntryAnimation: $hasPlayedHomeEntryAnimation)
-                .tabItem {
-                    Label {
-                        Text("Home")
-                    } icon: {
-                        Image("AndroidNavHomeIcon")
-                    }
-                }
-                .tag(AppTab.home)
-
-            HRDashboardView(isActive: selectedTab == .hr, openRoute: openHRRouteFromPush) {
-                openHRRouteFromPush = nil
+            Tab("Home", image: "AndroidNavHomeIcon", value: .home) {
+                HomeView(hasPlayedEntryAnimation: $hasPlayedHomeEntryAnimation)
             }
-                .tabItem {
-                    Label {
-                        Text("Attendance")
-                    } icon: {
-                        Image("AndroidNavAttendanceIcon")
-                    }
-                }
-                .tag(AppTab.hr)
 
-            ConversationsListView(
-                selectedTab: $selectedTab,
-                openConversationID: openConversationIDFromPush,
-                openChannelID: openChannelIDFromPush
-            ) {
-                openConversationIDFromPush = nil
-            } onOpenChannelHandled: {
-                openChannelIDFromPush = nil
-            }
-            .tabItem {
-                Label {
-                    Text("Chat")
-                } icon: {
-                    Image("AndroidNavChatIcon")
+            Tab("Attendance", image: "AndroidNavAttendanceIcon", value: .hr) {
+                HRDashboardView(isActive: selectedTab == .hr, openRoute: openHRRouteFromPush) {
+                    openHRRouteFromPush = nil
                 }
             }
-            .tag(AppTab.chats)
 
-            AppLibraryView()
-                .tabItem {
-                    Label {
-                        Text("Apps")
-                    } icon: {
-                        Image("AndroidNavAppsIcon")
-                    }
+            Tab("Chat", image: "AndroidNavChatIcon", value: .chats) {
+                ConversationsListView(
+                    selectedTab: $selectedTab,
+                    openConversationID: openConversationIDFromPush,
+                    openChannelID: openChannelIDFromPush
+                ) {
+                    openConversationIDFromPush = nil
+                } onOpenChannelHandled: {
+                    openChannelIDFromPush = nil
                 }
-                .tag(AppTab.apps)
+            }
+
+            Tab("Apps", image: "AndroidNavAppsIcon", value: .apps) {
+                AppLibraryView()
+            }
         }
         .onAppear {
             Self.configureTabBarColors()

@@ -47,9 +47,9 @@ struct MessageView: View {
 
   private var bubbleColor: Color {
     if message.isDeleted {
-      return Color.white.opacity(0.88)
+      return Color.appSurface
     }
-    return isOutgoing ? Color(red: 0.02, green: 0.42, blue: 0.82) : .white
+    return isOutgoing ? Color(red: 0.02, green: 0.42, blue: 0.82) : .appSurface
   }
 
   private var hasTextContent: Bool {
@@ -112,7 +112,7 @@ struct MessageView: View {
         .font(.system(size: 18, weight: .semibold))
         .foregroundStyle(Color(red: 0.05, green: 0.38, blue: 0.79))
         .frame(width: 36, height: 36)
-        .background(Color.white.opacity(0.92), in: Circle())
+        .background(Color.appElevatedSurface, in: Circle())
         .opacity(abs(horizontalDragOffset) > 14 ? 1 : 0)
         .scaleEffect(abs(horizontalDragOffset) > 52 ? 1.08 : 0.9)
         .padding(.horizontal, 18)
@@ -155,7 +155,7 @@ struct MessageView: View {
                 .stroke(
                   isHighlighted
                     ? Color.yellow.opacity(0.95)
-                    : Color.black.opacity(message.isDeleted ? 0.08 : (isOutgoing ? 0.03 : 0.06)),
+                    : (isOutgoing ? Color.white.opacity(0.08) : Color.appSeparator),
                   lineWidth: isHighlighted ? 2 : 1
                 )
             )
@@ -206,11 +206,11 @@ struct MessageView: View {
   private var selectionIndicator: some View {
     ZStack {
       Circle()
-        .fill(isSelected ? Color(red: 0.05, green: 0.42, blue: 0.82) : Color.white.opacity(0.9))
+        .fill(isSelected ? Color(red: 0.05, green: 0.42, blue: 0.82) : Color.appElevatedSurface)
         .frame(width: 24, height: 24)
         .overlay(
           Circle()
-            .stroke(isSelected ? Color.clear : Color.black.opacity(0.18), lineWidth: 1.5)
+            .stroke(isSelected ? Color.clear : Color.appSeparator, lineWidth: 1.5)
         )
 
       if isSelected {
@@ -274,15 +274,15 @@ private struct MessageReactionSummaryView: View {
       if total > 1 {
         Text("\(total)")
           .font(.system(size: 10, weight: .semibold))
-          .foregroundStyle(Color.black.opacity(0.55))
+          .foregroundStyle(Color.appSecondaryText)
       }
     }
     .padding(.horizontal, 7)
     .padding(.vertical, 4)
-    .background(Color.white, in: Capsule())
+    .background(Color.appElevatedSurface, in: Capsule())
     .overlay(
       Capsule()
-        .stroke(Color.black.opacity(0.08), lineWidth: 1)
+        .stroke(Color.appSeparator, lineWidth: 1)
     )
     .shadow(color: .black.opacity(0.08), radius: 6, y: 2)
   }
@@ -310,12 +310,12 @@ private struct ReplySnippetView: View {
 
         Text(preview)
           .font(.system(size: 12, weight: .regular))
-          .foregroundStyle(isOutgoing ? .white.opacity(0.72) : Color.black.opacity(0.55))
+          .foregroundStyle(isOutgoing ? .white.opacity(0.72) : Color.appSecondaryText)
           .lineLimit(2)
       }
     }
     .padding(8)
-    .background(isOutgoing ? .white.opacity(0.14) : Color.black.opacity(0.04), in: RoundedRectangle(cornerRadius: 8, style: .continuous))
+    .background(isOutgoing ? .white.opacity(0.14) : Color.appFieldBackground, in: RoundedRectangle(cornerRadius: 8, style: .continuous))
     .contentShape(Rectangle())
     .onTapGesture(perform: onTap)
   }
@@ -336,7 +336,7 @@ private struct MessageDeliveryStatusView: View {
         Text(text)
       }
       .font(.system(size: 11, weight: .medium))
-      .foregroundStyle(isFailed ? Color.red.opacity(0.82) : Color.black.opacity(0.38))
+      .foregroundStyle(isFailed ? Color.red.opacity(0.82) : Color.appTertiaryText)
     }
     .buttonStyle(.plain)
     .disabled(!isFailed)

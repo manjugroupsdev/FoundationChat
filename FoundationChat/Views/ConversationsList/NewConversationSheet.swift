@@ -180,11 +180,11 @@ struct NewConversationSheet: View {
         }
         .padding(.horizontal, 14)
         .frame(height: 52)
-        .background(Color.white, in: RoundedRectangle(cornerRadius: 13, style: .continuous))
+        .background(Color.appElevatedSurface, in: RoundedRectangle(cornerRadius: 13, style: .continuous))
         .overlay {
           RoundedRectangle(cornerRadius: 13, style: .continuous)
             .stroke(
-              focusedField == .groupName ? FoundationChatTheme.outgoingBubble : Color.black.opacity(0.10),
+              focusedField == .groupName ? FoundationChatTheme.outgoingBubble : Color.appSeparator,
               lineWidth: focusedField == .groupName ? 1.5 : 1
             )
         }
@@ -274,7 +274,7 @@ struct NewConversationSheet: View {
             .foregroundStyle(FoundationChatTheme.outgoingBubble)
             .padding(.horizontal, 10)
             .frame(height: 32)
-            .background(Color.white, in: Capsule())
+            .background(Color.appElevatedSurface, in: Capsule())
           }
           .buttonStyle(.plain)
         }

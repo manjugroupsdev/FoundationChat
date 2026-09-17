@@ -87,10 +87,10 @@ struct ConversationRowView: View {
     }
     .frame(height: 80)
     .padding(.horizontal, 12)
-    .background(Color.white)
+    .background(Color.appElevatedSurface)
     .overlay(alignment: .bottom) {
       Rectangle()
-        .fill(Color.black.opacity(0.06))
+        .fill(Color.appSeparator)
         .frame(height: 1)
         .padding(.leading, 76)
     }
@@ -104,20 +104,20 @@ extension ConversationRowView {
       if subtitle == "Current Location" || subtitle.localizedCaseInsensitiveContains("[LOCATION:") {
         Image(systemName: "location.fill")
           .font(.system(size: 15, weight: .semibold))
-          .foregroundStyle(Color.black)
+          .foregroundStyle(Color.appPrimaryText)
       } else if subtitle.localizedCaseInsensitiveContains("call") {
         Image(systemName: subtitle.localizedCaseInsensitiveContains("video") ? "video.fill" : "phone.arrow.up.right")
           .font(.system(size: 12, weight: .semibold))
-          .foregroundStyle(Color.black.opacity(0.52))
+          .foregroundStyle(Color.appSecondaryText)
       } else if subtitle.localizedCaseInsensitiveContains(".") || subtitle == "Attachment" {
         Image(systemName: "doc.text.fill")
           .font(.system(size: 13, weight: .semibold))
-          .foregroundStyle(Color.black.opacity(0.52))
+          .foregroundStyle(Color.appSecondaryText)
       }
 
       Text(subtitle)
         .font(.system(size: 15, weight: .regular))
-        .foregroundStyle(Color(red: 0.45, green: 0.46, blue: 0.48))
+        .foregroundStyle(Color.appSecondaryText)
         .lineLimit(1)
     }
   }
@@ -146,7 +146,7 @@ struct ConversationAvatarView: View {
         .clipShape(Circle())
         .overlay(
           Circle()
-            .stroke(Color.black.opacity(0.04), lineWidth: 1)
+            .stroke(Color.appSeparator.opacity(0.5), lineWidth: 1)
         )
       }
     }
@@ -166,8 +166,8 @@ struct AvatarPlaceholder: View {
         .fill(
           LinearGradient(
             colors: [
-              Color(red: 0.93, green: 0.95, blue: 0.98),
-              Color(red: 0.86, green: 0.90, blue: 0.95)
+              Color.appFieldBackground,
+              Color.appSurface
             ],
             startPoint: .topLeading,
             endPoint: .bottomTrailing
@@ -176,7 +176,7 @@ struct AvatarPlaceholder: View {
         .frame(width: size, height: size)
         .overlay(
           Circle()
-            .stroke(Color.black.opacity(0.04), lineWidth: 1)
+            .stroke(Color.appSeparator.opacity(0.5), lineWidth: 1)
         )
 
       Text(initials)

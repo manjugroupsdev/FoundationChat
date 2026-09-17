@@ -181,23 +181,23 @@ private struct DocumentAttachmentCard: View {
   }
 
   private var cardBackground: Color {
-    isOutgoing ? Color(red: 0.02, green: 0.42, blue: 0.82) : .white
+    isOutgoing ? Color(red: 0.02, green: 0.42, blue: 0.82) : .appSurface
   }
 
   private var topPanelBackground: Color {
-    isOutgoing ? .white.opacity(0.10) : Color.black.opacity(0.035)
+    isOutgoing ? .white.opacity(0.10) : Color.appFieldBackground
   }
 
   private var dividerColor: Color {
-    isOutgoing ? .white.opacity(0.20) : Color.black.opacity(0.10)
+    isOutgoing ? .white.opacity(0.20) : Color.appSeparator
   }
 
   private var primaryText: Color {
-    isOutgoing ? .white : Color.black.opacity(0.92)
+    isOutgoing ? .white : Color.appPrimaryText
   }
 
   private var secondaryText: Color {
-    isOutgoing ? .white.opacity(0.72) : Color.black.opacity(0.56)
+    isOutgoing ? .white.opacity(0.72) : Color.appSecondaryText
   }
 
   var body: some View {
@@ -260,7 +260,7 @@ private struct DocumentAttachmentCard: View {
           }
         } else {
           Text("Save as...")
-            .foregroundStyle(Color.black.opacity(0.28))
+            .foregroundStyle(Color.appTertiaryText)
             .frame(maxWidth: .infinity)
         }
       }
@@ -273,7 +273,7 @@ private struct DocumentAttachmentCard: View {
     .clipShape(RoundedRectangle(cornerRadius: 18, style: .continuous))
     .overlay(
       RoundedRectangle(cornerRadius: 18, style: .continuous)
-        .stroke(isOutgoing ? .white.opacity(0.16) : Color.black.opacity(0.08), lineWidth: 1)
+        .stroke(isOutgoing ? .white.opacity(0.16) : Color.appSeparator, lineWidth: 1)
     )
     .shadow(color: .black.opacity(0.06), radius: 7, y: 2)
   }
@@ -465,13 +465,13 @@ private struct ChatImagePreview: View {
           .clipped()
       } else if isLoading {
         ZStack {
-          Color.white.opacity(0.72)
+          Color.appFieldBackground
           ProgressView()
         }
         .frame(width: 242, height: 180)
       } else {
         ZStack {
-          Color.white.opacity(didFail ? 0.72 : 0.46)
+          Color.appFieldBackground.opacity(didFail ? 1 : 0.72)
           Image(systemName: "photo")
             .font(.system(size: 28, weight: .regular))
             .foregroundStyle(Color.secondary.opacity(0.7))
@@ -567,7 +567,7 @@ struct AudioAttachmentPlaybackView: View {
           ForEach(0..<24, id: \.self) { index in
             Capsule()
               .fill(
-                (isOutgoing ? Color.white : Color.black)
+                (isOutgoing ? Color.white : Color.appPrimaryText)
                   .opacity(playbackController.progress >= Double(index + 1) / 24.0 ? 0.88 : (index % 3 == 0 ? 0.58 : 0.32))
               )
               .frame(width: 3, height: CGFloat([8, 15, 11, 20, 13, 17, 9, 14][index % 8]))
@@ -579,7 +579,7 @@ struct AudioAttachmentPlaybackView: View {
         Text(playbackController.displayTimeLabel)
           .font(.system(size: 12, weight: .medium))
           .monospacedDigit()
-          .foregroundStyle(isOutgoing ? .white.opacity(0.72) : Color.black.opacity(0.48))
+          .foregroundStyle(isOutgoing ? .white.opacity(0.72) : Color.appSecondaryText)
       }
 
       if isPendingUpload {

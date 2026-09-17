@@ -255,7 +255,7 @@ struct ChatLocationCard: View {
           VStack(alignment: .leading, spacing: 2) {
             Text(payload.label)
               .font(.system(size: 16, weight: .semibold))
-              .foregroundStyle(isOutgoing ? .white : Color.black.opacity(0.9))
+              .foregroundStyle(isOutgoing ? .white : Color.appPrimaryText)
             Text(metaText)
               .font(.system(size: 13, weight: .medium))
               .foregroundStyle(isOutgoing ? .white.opacity(0.72) : .secondary)

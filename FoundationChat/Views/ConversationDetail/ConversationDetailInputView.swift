@@ -34,9 +34,9 @@ struct ConversationDetailInputView: View {
       Button(action: onAddAttachment) {
         Image(systemName: "plus")
           .font(.system(size: 19, weight: .medium))
-          .foregroundStyle(Color.black.opacity(0.8))
+          .foregroundStyle(Color.appPrimaryText)
           .frame(width: 32, height: 32)
-          .background(Color(red: 0.89, green: 0.90, blue: 0.92), in: Circle())
+          .background(Color.appFieldBackground, in: Circle())
       }
       .buttonStyle(.plain)
       .disabled(isVoiceRecording)
@@ -49,26 +49,26 @@ struct ConversationDetailInputView: View {
 
           Text("Recording voice...")
             .font(.system(size: 16, weight: .medium))
-            .foregroundStyle(shouldCancelVoiceDrag ? Color.red : Color.black.opacity(0.78))
+            .foregroundStyle(shouldCancelVoiceDrag ? Color.red : Color.appPrimaryText)
 
           Spacer(minLength: 0)
 
           Text(Self.formatDuration(voiceRecordingElapsed))
             .font(.system(size: 14, weight: .medium))
             .monospacedDigit()
-            .foregroundStyle(Color.black.opacity(0.48))
+            .foregroundStyle(Color.appSecondaryText)
 
           Button(action: onCancelVoiceRecording) {
             Image(systemName: "xmark.circle.fill")
               .font(.system(size: 18, weight: .semibold))
-              .foregroundStyle(Color.black.opacity(0.35))
+              .foregroundStyle(Color.appTertiaryText)
           }
           .buttonStyle(.plain)
         } else if let pendingVoicePreviewURL {
           Button(action: onDiscardVoicePreview) {
             Image(systemName: "xmark.circle.fill")
               .font(.system(size: 18, weight: .semibold))
-              .foregroundStyle(Color.black.opacity(0.35))
+              .foregroundStyle(Color.appTertiaryText)
           }
           .buttonStyle(.plain)
 
@@ -82,7 +82,7 @@ struct ConversationDetailInputView: View {
         } else {
           TextField("Message ...", text: $newMessage, axis: .vertical)
             .font(.system(size: 16, weight: .regular))
-            .foregroundStyle(Color.black.opacity(0.85))
+            .foregroundStyle(Color.appPrimaryText)
             .lineLimit(1...4)
             .focused(isInputFocused)
             .onTapGesture {
@@ -99,7 +99,7 @@ struct ConversationDetailInputView: View {
           } label: {
             Image(systemName: "face.smiling")
               .font(.system(size: 18, weight: .regular))
-              .foregroundStyle(isEmojiPanelVisible ? Color(red: 0.05, green: 0.38, blue: 0.79) : Color.black.opacity(0.45))
+              .foregroundStyle(isEmojiPanelVisible ? Color(red: 0.05, green: 0.38, blue: 0.79) : Color.appSecondaryText)
               .frame(width: 24, height: 24)
           }
           .buttonStyle(.plain)
@@ -108,10 +108,10 @@ struct ConversationDetailInputView: View {
       .padding(.leading, 14)
       .padding(.trailing, 10)
       .frame(minHeight: 40)
-      .background(Color.white, in: Capsule())
+      .background(Color.appFieldBackground, in: Capsule())
       .overlay(
         Capsule()
-          .stroke(Color.black.opacity(0.08), lineWidth: 1)
+          .stroke(Color.appSeparator, lineWidth: 1)
       )
       .shadow(color: .black.opacity(0.05), radius: 10, y: 4)
 
@@ -142,10 +142,10 @@ struct ConversationDetailInputView: View {
     .padding(.horizontal, 16)
     .padding(.top, 10)
     .padding(.bottom, 10)
-    .background(Color.white)
+    .background(Color.appElevatedSurface)
       .overlay(alignment: .top) {
       Rectangle()
-        .fill(Color.black.opacity(0.06))
+        .fill(Color.appSeparator)
         .frame(height: 1)
     }
     .background {

@@ -277,7 +277,7 @@ struct ConversationsListView: View {
           }
         }
       }
-      .background(Color.white.ignoresSafeArea())
+      .background(Color.appElevatedSurface.ignoresSafeArea())
       .textInputAutocapitalization(.never)
       .autocorrectionDisabled()
       .navigationDestination(for: Conversation.self) { conversation in
@@ -427,7 +427,7 @@ struct ConversationsListView: View {
             .background(
               selectedFilter == filter
                 ? FoundationChatTheme.outgoingBubble
-                : Color(red: 0.94, green: 0.96, blue: 0.98),
+                : Color.appFieldBackground,
               in: Capsule()
             )
           }
@@ -1060,7 +1060,7 @@ private struct ChannelSummaryRow: View {
         HStack(spacing: 8) {
           Text(channel.lastMessageContent ?? channel.description ?? "No messages yet")
             .font(.system(size: 15, weight: .regular))
-            .foregroundStyle(Color(red: 0.45, green: 0.46, blue: 0.48))
+            .foregroundStyle(Color.appSecondaryText)
             .lineLimit(1)
 
           Spacer(minLength: 8)
@@ -1077,10 +1077,10 @@ private struct ChannelSummaryRow: View {
     }
     .frame(height: 80)
     .padding(.horizontal, 12)
-    .background(Color.white)
+    .background(Color.appElevatedSurface)
     .overlay(alignment: .bottom) {
       Rectangle()
-        .fill(Color.black.opacity(0.06))
+        .fill(Color.appSeparator)
         .frame(height: 1)
         .padding(.leading, 76)
     }
@@ -1137,11 +1137,11 @@ private struct HomeRowSelectionOverlay: ViewModifier {
         if isSelectionMode {
           ZStack {
             Circle()
-              .fill(isSelected ? Color(red: 0.05, green: 0.38, blue: 0.79) : Color.white)
+              .fill(isSelected ? Color(red: 0.05, green: 0.38, blue: 0.79) : Color.appElevatedSurface)
               .frame(width: 22, height: 22)
               .overlay(
                 Circle()
-                  .stroke(isSelected ? Color.white : Color.black.opacity(0.22), lineWidth: 2)
+                  .stroke(isSelected ? Color.white : Color.appSeparator, lineWidth: 2)
               )
 
             if isSelected {
@@ -1204,11 +1204,11 @@ private struct EmptyChatState: View {
 
       Text(title)
         .font(.system(size: 20, weight: .regular))
-        .foregroundStyle(Color.black)
+        .foregroundStyle(Color.appPrimaryText)
 
       Text("Stay organized by creating or joining teams. Groups help you manage tasks, track progress, and collaborate with your team in one place.")
         .font(.system(size: 16, weight: .regular))
-        .foregroundStyle(Color(red: 0.45, green: 0.46, blue: 0.48))
+        .foregroundStyle(Color.appSecondaryText)
         .multilineTextAlignment(.center)
         .lineSpacing(4)
         .padding(.horizontal, 28)
@@ -1272,7 +1272,7 @@ private struct NativeGroupsIllustration: View {
             .font(.system(size: 24, weight: .regular))
             .foregroundStyle(Color(red: 0.09, green: 0.76, blue: 0.02))
         }
-        .background(Color.white, in: Circle())
+        .background(Color.appElevatedSurface, in: Circle())
         .offset(y: 68)
     }
   }
