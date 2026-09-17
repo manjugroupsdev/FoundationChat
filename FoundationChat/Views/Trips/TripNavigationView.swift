@@ -1909,16 +1909,25 @@ struct TripNavigationView: View {
         }
         guard !isJointMutationInProgress,
               let token = authStore.currentSession?.token,
-              let cpId = clientPlaceVisitId,
-              let fieldVisitId = resolvedVisitId
+              let cpId = clientPlaceVisitId
         else { return }
-        let expectedRevision = workflow.outcomeRevision
+        // resolvedVisitId falls back to the CP id when this staff's leg id is
+        // unknown. The server validates fieldVisitId as a strict fieldVisits id
+        // (ArgumentValidationError otherwise), and it is optional, so omit it.
+        let fieldVisitId = resolvedVisitId
+            .map { $0.trimmingCharacters(in: .whitespacesAndNewlines) }
+            .flatMap { $0.isEmpty || $0 == cpId ? nil : $0 }
         isJointMutationInProgress = true
         arrivalStatusText = "Sending outcome for review..."
         defer {
             isJointMutationInProgress = false
             arrivalStatusText = nil
         }
+        // Saving the outcome writes a new draft revision on the server, so the
+        // revision cached before the sheet opened is stale and submit-review
+        // rejects it ("outcome changed"). Use the revision the save produced.
+        let latestWorkflow = try? await MarketingConvexAPIService.getJointCpWorkflow(token: token, id: cpId)
+        let expectedRevision = latestWorkflow?.outcomeRevision ?? workflow.outcomeRevision
         do {
             let updated = try await MarketingConvexAPIService.submitJointCpReview(
                 token: token,
@@ -1930,7 +1939,7 @@ struct TripNavigationView: View {
                     accuracyMeters: nil,
                     capturedAt: Int64(Date().timeIntervalSince1970 * 1_000),
                     arrivalPhotoStorageId: pendingStorageId,
-                    expectedOutcomeRevision: jointWorkflow?.outcomeRevision
+                    expectedOutcomeRevision: expectedRevision
                 ),
                 idempotencyKey: UUID().uuidString
             )
@@ -2406,7 +2415,17 @@ struct TripNavigationView: View {
         isRouteLoading = true
         defer { isRouteLoading = false }
 
-        routeInfo = await directionsClient.fetchDriving(origin: current, destination: dest)
+        let fetched = await directionsClient.fetchDriving(origin: current, destination: dest)
+        // A cancelled fetch (the screen went away, or a newer fetch replaced
+        // this one) is not a route failure. Without this the staff saw "Road
+        // route is temporarily unavailable" for a request nobody was waiting on,
+        // and the key stayed set so the route was never retried. Mirrors
+        // Android's TripNavigationFragment.
+        guard !Task.isCancelled else {
+            lastRouteKey = nil
+            return
+        }
+        routeInfo = fetched
         updateMapBounds(currentCoord: current)
         routeWarning = routeInfo == nil
             ? "Road route is temporarily unavailable. Try again shortly."

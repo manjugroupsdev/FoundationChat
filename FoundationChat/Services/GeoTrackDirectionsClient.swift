@@ -76,6 +76,9 @@ struct GeoTrackDirectionsClient {
                 durationText: Self.formatDuration(durationSeconds)
             )
         } catch {
+            // Cancellation also lands here (CancellationError or
+            // URLError.cancelled). Callers check Task.isCancelled before
+            // reporting a failure, so returning nil is safe for both.
             return nil
         }
     }

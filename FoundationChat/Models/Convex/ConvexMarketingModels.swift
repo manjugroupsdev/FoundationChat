@@ -533,7 +533,9 @@ private struct DynamicCodingKey: CodingKey {
 
 struct JointCpLocationRequest: Encodable, Sendable {
     let id: String
-    let fieldVisitId: String
+    /// Optional cross-check, validated server-side as a strict fieldVisits id.
+    /// nil is omitted from the body; never send the CP id here.
+    let fieldVisitId: String?
     let lat: Double
     let lng: Double
     let accuracyMeters: Double?
@@ -542,7 +544,9 @@ struct JointCpLocationRequest: Encodable, Sendable {
 
 struct JointCpSubmitReviewRequest: Encodable, Sendable {
     let id: String
-    let fieldVisitId: String
+    /// Optional cross-check, validated server-side as a strict fieldVisits id.
+    /// nil is omitted from the body; never send the CP id here.
+    let fieldVisitId: String?
     let lat: Double?
     let lng: Double?
     let accuracyMeters: Double?

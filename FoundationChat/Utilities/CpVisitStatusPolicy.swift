@@ -65,16 +65,22 @@ enum CpVisitStatusPolicy {
             fieldVisitStatus: fieldVisitStatus,
             serverEffectiveStatus: serverEffectiveStatus
         )
+        // A Joint CP is NOT finished when one participant's own leg finishes.
+        // The visit closes only when the higher-level reviewer adds their remark
+        // and completes it. Submitting completes the owner's field visit, so this
+        // is checked BEFORE the terminal return below (which reads the field
+        // visit) — only a terminal CP or server status outranks it.
+        let cpOrServerTerminal = [cpStatus, serverEffectiveStatus].contains { value in
+            terminalStatuses.contains(
+                value?.trimmingCharacters(in: .whitespacesAndNewlines).lowercased() ?? ""
+            )
+        }
+        if !cpOrServerTerminal, let joint, jointReviewStillOpen(joint) {
+            return jointPendingReview
+        }
         if terminalStatuses.contains(parentStatus.lowercased()) {
             return parentStatus
         }
-        // A Joint CP is NOT finished when one participant's own leg finishes.
-        // The visit closes only when the higher-level reviewer adds their remark
-        // and completes it. The owner's leg flips to "completed" the moment they
-        // submit their outcome for review, and it is returned verbatim below, so
-        // the card read "Completed" while the reviewer had not even looked at it
-        // — and the row routed to the read-only detail with no way back in.
-        if let joint, jointReviewStillOpen(joint) { return jointPendingReview }
 
         let participantStatus = actorParticipant(in: joint, currentStaffIds: currentStaffIds)?
             .status?
@@ -101,15 +107,16 @@ enum CpVisitStatusPolicy {
         let state = joint.workflow?.state?
             .trimmingCharacters(in: .whitespacesAndNewlines)
             .lowercased() ?? ""
-        if state.isEmpty { return false }
-        return !terminalJointWorkflowStates.contains(state)
+        return jointReviewOpenStates.contains(state.replacingOccurrences(of: "-", with: "_"))
     }
 
-    private static let terminalJointWorkflowStates: Set<String> = [
-        "completed",
-        "complete",
-        "cancelled",
-        "canceled"
+    /// Only the states AFTER the owner has sent the outcome. The server's
+    /// earlier states (awaiting_both_trips, awaiting_owner_arrival,
+    /// awaiting_owner_outcome) are live trips; treating them as pending review
+    /// hid the trip actions and sent the staff back to "Start Trip".
+    private static let jointReviewOpenStates: Set<String> = [
+        "pending_review",
+        "reviewing"
     ]
 
     static func isOutcomePending(cpStatus: String?, fieldVisitStatus: String?, outcome: String?) -> Bool {
