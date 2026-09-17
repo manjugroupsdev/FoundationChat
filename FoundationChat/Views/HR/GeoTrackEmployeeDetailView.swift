@@ -25,6 +25,12 @@ struct GeoTrackEmployeeDetailView: View {
                     staffHeader(detail.staff)
                     if let live = detail.liveStatus {
                         liveStatusCard(live)
+                    } else {
+                        ContentUnavailableView(
+                            "No live status",
+                            systemImage: "location.slash",
+                            description: Text("No location has been received from this staff member's phone yet.")
+                        )
                     }
                     if let tampers = detail.recentTamperEvents, !tampers.isEmpty {
                         tamperEventsCard(tampers)
@@ -67,12 +73,16 @@ struct GeoTrackEmployeeDetailView: View {
                 }
             }
 
-            HStack(spacing: 6) {
-                Image(systemName: staff.geoTrackingEnabled == true ? "location.circle.fill" : "location.slash.fill")
-                    .foregroundStyle(staff.geoTrackingEnabled == true ? .green : .red)
-                Text(staff.geoTrackingEnabled == true ? "Geo Tracking Enabled" : "Geo Tracking Disabled")
-                    .font(.caption)
-                    .foregroundStyle(staff.geoTrackingEnabled == true ? .green : .red)
+            // Only shown when known: the geo service does not hold this flag,
+            // and "Disabled" for an unknown value was wrong.
+            if let enabled = staff.geoTrackingEnabled {
+                HStack(spacing: 6) {
+                    Image(systemName: enabled ? "location.circle.fill" : "location.slash.fill")
+                        .foregroundStyle(enabled ? .green : .red)
+                    Text(enabled ? "Geo Tracking Enabled" : "Geo Tracking Disabled")
+                        .font(.caption)
+                        .foregroundStyle(enabled ? .green : .red)
+                }
             }
         }
         .frame(maxWidth: .infinity)
@@ -217,7 +227,7 @@ struct GeoTrackEmployeeDetailView: View {
         isLoading = true
         errorMessage = nil
         do {
-            detail = try await geoAPI.employeeDetail(staffId: staffId)
+            detail = try await geoAPI.employeeDetail(staffId: staffId, staffName: staffName)
         } catch {
             errorMessage = error.localizedDescription
         }

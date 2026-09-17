@@ -265,6 +265,22 @@ struct GeoTrackTamperEvent: Decodable, Sendable {
     let acknowledged: Bool
     let staffName: String?
     let staffPhoto: String?
+
+    private enum CodingKeys: String, CodingKey {
+        case staffId, eventType, severity, detectedAt, acknowledged, staffName, staffPhoto
+    }
+
+    // Geo sends detectedAt as RFC 3339; see GeoTrackWire.
+    init(from decoder: Decoder) throws {
+        let c = try decoder.container(keyedBy: CodingKeys.self)
+        staffId = c.geoStringIfPresent(.staffId) ?? ""
+        eventType = c.geoStringIfPresent(.eventType) ?? "UNKNOWN"
+        severity = c.geoStringIfPresent(.severity) ?? "LOW"
+        detectedAt = c.geoMillisIfPresent(.detectedAt) ?? 0
+        acknowledged = c.geoBoolIfPresent(.acknowledged) ?? false
+        staffName = c.geoStringIfPresent(.staffName)
+        staffPhoto = c.geoStringIfPresent(.staffPhoto)
+    }
 }
 
 struct GeoTrackTamperFeedResponse: Decodable, Sendable {
@@ -276,7 +292,8 @@ struct GeoTrackTamperFeedResponse: Decodable, Sendable {
 // MARK: - Timeline
 
 struct GeoTrackTimelinePoint: Decodable, Sendable {
-    let staffId: String
+    /// Not sent by the geo service (the request is already per staff).
+    let staffId: String?
     let lat: Double
     let lng: Double
     let accuracy: Double?
@@ -292,6 +309,37 @@ struct GeoTrackTimelinePoint: Decodable, Sendable {
     let airplaneMode: Bool?
     let movementMode: String?
     let recordedAt: Double
+
+    private enum CodingKeys: String, CodingKey {
+        case staffId, lat, lng, accuracy, speed, bearing, altitude, activity, activityConfidence
+        case isMock, batteryPct, networkType, gpsEnabled, airplaneMode, movementMode, recordedAt
+    }
+
+    // Geo sends recordedAt as RFC 3339 and omits staffId; see GeoTrackWire.
+    init(from decoder: Decoder) throws {
+        let c = try decoder.container(keyedBy: CodingKeys.self)
+        guard let lat = c.geoDoubleIfPresent(.lat), let lng = c.geoDoubleIfPresent(.lng) else {
+            throw DecodingError.dataCorrupted(
+                DecodingError.Context(codingPath: c.codingPath, debugDescription: "timeline point without lat/lng")
+            )
+        }
+        self.lat = lat
+        self.lng = lng
+        staffId = c.geoStringIfPresent(.staffId)
+        accuracy = c.geoDoubleIfPresent(.accuracy)
+        speed = c.geoDoubleIfPresent(.speed) ?? 0
+        bearing = c.geoDoubleIfPresent(.bearing)
+        altitude = c.geoDoubleIfPresent(.altitude)
+        activity = c.geoStringIfPresent(.activity) ?? "UNKNOWN"
+        activityConfidence = c.geoIntIfPresent(.activityConfidence)
+        isMock = c.geoBoolIfPresent(.isMock)
+        batteryPct = c.geoIntIfPresent(.batteryPct)
+        networkType = c.geoStringIfPresent(.networkType)
+        gpsEnabled = c.geoBoolIfPresent(.gpsEnabled)
+        airplaneMode = c.geoBoolIfPresent(.airplaneMode)
+        movementMode = c.geoStringIfPresent(.movementMode)
+        recordedAt = c.geoMillisIfPresent(.recordedAt) ?? 0
+    }
 }
 
 struct GeoTrackTimelineResponse: Decodable, Sendable {
@@ -313,6 +361,20 @@ struct GeoTrackSessionRouteData: Decodable, Sendable {
     let routeStart: Double?
     let routeEnd: Double?
     let distanceMeters: Double?
+
+    private enum CodingKeys: String, CodingKey {
+        case timeline, trips, stops, routeStart, routeEnd, distanceMeters
+    }
+
+    init(from decoder: Decoder) throws {
+        let c = try decoder.container(keyedBy: CodingKeys.self)
+        timeline = (try? c.decodeIfPresent([GeoTrackTimelinePoint].self, forKey: .timeline)) ?? []
+        trips = (try? c.decodeIfPresent([GeoTrackSessionTrip].self, forKey: .trips)) ?? []
+        stops = (try? c.decodeIfPresent([GeoTrackSessionStop].self, forKey: .stops)) ?? []
+        routeStart = c.geoMillisIfPresent(.routeStart)
+        routeEnd = c.geoMillisIfPresent(.routeEnd)
+        distanceMeters = c.geoDoubleIfPresent(.distanceMeters)
+    }
 }
 
 struct GeoTrackSessionTrip: Decodable, Sendable {
@@ -335,8 +397,30 @@ struct GeoTrackSessionTrip: Decodable, Sendable {
 
     enum CodingKeys: String, CodingKey {
         case id = "_id"
+        case tripId
         case staffId, startedAt, endedAt, startLat, startLng, endLat, endLng
         case distanceMeters, durationSeconds, pointCount, onDutyCategory, fieldVisitId, vehicleType, snappedPath, stops
+    }
+
+    // Geo sends tripId and RFC 3339 times; see GeoTrackWire.
+    init(from decoder: Decoder) throws {
+        let c = try decoder.container(keyedBy: CodingKeys.self)
+        id = c.geoStringIfPresent(.id, .tripId)
+        staffId = c.geoStringIfPresent(.staffId)
+        startedAt = c.geoMillisIfPresent(.startedAt)
+        endedAt = c.geoMillisIfPresent(.endedAt)
+        startLat = c.geoDoubleIfPresent(.startLat)
+        startLng = c.geoDoubleIfPresent(.startLng)
+        endLat = c.geoDoubleIfPresent(.endLat)
+        endLng = c.geoDoubleIfPresent(.endLng)
+        distanceMeters = c.geoDoubleIfPresent(.distanceMeters)
+        durationSeconds = c.geoDoubleIfPresent(.durationSeconds)
+        pointCount = c.geoIntIfPresent(.pointCount)
+        onDutyCategory = c.geoStringIfPresent(.onDutyCategory)
+        fieldVisitId = c.geoStringIfPresent(.fieldVisitId)
+        vehicleType = c.geoStringIfPresent(.vehicleType)
+        snappedPath = try? c.decodeIfPresent([GeoTrackLatLngPoint].self, forKey: .snappedPath)
+        stops = try? c.decodeIfPresent([GeoTrackSessionStop].self, forKey: .stops)
     }
 }
 
@@ -347,6 +431,25 @@ struct GeoTrackSessionStop: Decodable, Sendable {
     let departedAt: Double?
     let durationMinutes: Int?
     let address: String?
+
+    private enum CodingKeys: String, CodingKey {
+        case lat, lng, arrivedAt, departedAt, durationMinutes, address
+    }
+
+    init(from decoder: Decoder) throws {
+        let c = try decoder.container(keyedBy: CodingKeys.self)
+        guard let lat = c.geoDoubleIfPresent(.lat), let lng = c.geoDoubleIfPresent(.lng) else {
+            throw DecodingError.dataCorrupted(
+                DecodingError.Context(codingPath: c.codingPath, debugDescription: "stop without lat/lng")
+            )
+        }
+        self.lat = lat
+        self.lng = lng
+        arrivedAt = c.geoMillisIfPresent(.arrivedAt) ?? 0
+        departedAt = c.geoMillisIfPresent(.departedAt)
+        durationMinutes = c.geoIntIfPresent(.durationMinutes)
+        address = c.geoStringIfPresent(.address)
+    }
 }
 
 struct GeoTrackLatLngPoint: Decodable, Sendable {
@@ -371,6 +474,32 @@ struct GeoTrackLiveStatusEntry: Decodable, Sendable {
     let staffPhoto: String?
     let designation: String?
     let department: String?
+
+    private enum CodingKeys: String, CodingKey {
+        case staffId, lat, lng, speed, activity, movementMode, batteryPct
+        case isTracking, isOnline, trackingActive, hasTamperAlert, lastSeenAt, lastSeen
+        case staffName, staffPhoto, designation, department
+    }
+
+    // Geo sends isOnline/trackingActive and lastSeen (RFC 3339) instead of
+    // isTracking/lastSeenAt, so every staff member read as Offline on iOS.
+    init(from decoder: Decoder) throws {
+        let c = try decoder.container(keyedBy: CodingKeys.self)
+        staffId = c.geoStringIfPresent(.staffId) ?? ""
+        lat = c.geoDoubleIfPresent(.lat)
+        lng = c.geoDoubleIfPresent(.lng)
+        speed = c.geoDoubleIfPresent(.speed)
+        activity = c.geoStringIfPresent(.activity)
+        movementMode = c.geoStringIfPresent(.movementMode)
+        batteryPct = c.geoIntIfPresent(.batteryPct)
+        isTracking = c.geoBoolIfPresent(.isTracking, .isOnline, .trackingActive)
+        hasTamperAlert = c.geoBoolIfPresent(.hasTamperAlert)
+        lastSeenAt = c.geoMillisIfPresent(.lastSeenAt, .lastSeen)
+        staffName = c.geoStringIfPresent(.staffName)
+        staffPhoto = c.geoStringIfPresent(.staffPhoto)
+        designation = c.geoStringIfPresent(.designation)
+        department = c.geoStringIfPresent(.department)
+    }
 }
 
 struct GeoTrackLiveStatusResponse: Decodable, Sendable {
@@ -429,7 +558,20 @@ struct GeoTrackTrip: Decodable, Sendable {
 
     enum CodingKeys: String, CodingKey {
         case id = "_id"
+        case tripId
         case staffId, startedAt, endedAt, distanceMeters, durationSeconds, stops
+    }
+
+    // Geo sends tripId, RFC 3339 times and no stops in the list; see GeoTrackWire.
+    init(from decoder: Decoder) throws {
+        let c = try decoder.container(keyedBy: CodingKeys.self)
+        id = c.geoStringIfPresent(.id, .tripId) ?? ""
+        staffId = c.geoStringIfPresent(.staffId) ?? ""
+        startedAt = c.geoMillisIfPresent(.startedAt) ?? 0
+        endedAt = c.geoMillisIfPresent(.endedAt)
+        distanceMeters = c.geoDoubleIfPresent(.distanceMeters) ?? 0
+        durationSeconds = c.geoDoubleIfPresent(.durationSeconds) ?? 0
+        stops = (try? c.decodeIfPresent([GeoTrackStop].self, forKey: .stops)) ?? []
     }
 }
 
@@ -438,6 +580,18 @@ struct GeoTrackStop: Decodable, Sendable {
     let lng: Double?
     let arrivedAt: Double?
     let leftAt: Double?
+
+    private enum CodingKeys: String, CodingKey {
+        case lat, lng, arrivedAt, leftAt, departedAt
+    }
+
+    init(from decoder: Decoder) throws {
+        let c = try decoder.container(keyedBy: CodingKeys.self)
+        lat = c.geoDoubleIfPresent(.lat)
+        lng = c.geoDoubleIfPresent(.lng)
+        arrivedAt = c.geoMillisIfPresent(.arrivedAt)
+        leftAt = c.geoMillisIfPresent(.leftAt, .departedAt)
+    }
 }
 
 struct GeoTrackTripsResponse: Decodable, Sendable {

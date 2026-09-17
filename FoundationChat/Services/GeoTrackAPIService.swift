@@ -581,18 +581,46 @@ final class GeoTrackAPIService {
         return result.data ?? []
     }
 
-    /// GET /api/geotrack/employee-detail?staffId=...
-    func employeeDetail(staffId: String? = nil) async throws -> GeoTrackEmployeeDetail? {
-        var items: [URLQueryItem] = []
-        if let staffId { items.append(URLQueryItem(name: "staffId", value: staffId)) }
+    /// GET /api/tracking/tamper-events?staffId=...&limit=...
+    func tamperEvents(staffId: String?, limit: Int = 50) async throws -> [GeoTrackTamperEvent] {
+        var items = [URLQueryItem(name: "limit", value: "\(limit)")]
+        if let staffId, !staffId.isEmpty { items.append(URLQueryItem(name: "staffId", value: staffId)) }
         let request = try makeGETRequest(
-            path: "/api/geotrack/employee-detail",
+            path: "/api/tracking/tamper-events",
             queryItems: items,
             directGeoTrack: true
         )
-        let result: GeoTrackEmployeeDetailResponse = try await perform(request)
+        let result: GeoTrackTamperFeedResponse = try await perform(request)
         if let err = result.error { throw GeoTrackAPIError.serverError(err) }
-        return result.data
+        return result.data ?? []
+    }
+
+    /// One staff member's live status and recent tamper events.
+    ///
+    /// Built from routes the geo service implements. It has no
+    /// `/api/geotrack/employee-detail` (404) and no staff directory, so the
+    /// name comes from the caller and consent is not available here. Android
+    /// never called employee-detail; it reads live status and session-route.
+    func employeeDetail(staffId: String? = nil, staffName: String? = nil) async throws -> GeoTrackEmployeeDetail? {
+        guard let staffId, !staffId.isEmpty else { return nil }
+        let live = try await liveStatus().first { $0.staffId == staffId }
+        // Tamper events are secondary: a failure must not hide the live status.
+        let tampers = (try? await tamperEvents(staffId: staffId, limit: 20)) ?? []
+        let staff = GeoTrackStaffInfo(
+            id: staffId,
+            name: staffName ?? live?.staffName,
+            phone: nil,
+            photo: live?.staffPhoto,
+            designation: live?.designation,
+            department: live?.department,
+            geoTrackingEnabled: nil
+        )
+        return GeoTrackEmployeeDetail(
+            staff: staff,
+            liveStatus: live,
+            recentTamperEvents: tampers,
+            consent: nil
+        )
     }
 
     // MARK: - Trips & Stats
@@ -606,6 +634,8 @@ final class GeoTrackAPIService {
         var items: [URLQueryItem] = [
             URLQueryItem(name: "from", value: "\(startDate)"),
             URLQueryItem(name: "to", value: "\(endDate)"),
+            // The service defaults to a small page; stats sum the whole range.
+            URLQueryItem(name: "limit", value: "500"),
         ]
         if let staffId { items.append(URLQueryItem(name: "staffId", value: staffId)) }
         let request = try makeGETRequest(
@@ -618,25 +648,37 @@ final class GeoTrackAPIService {
         return result.data ?? []
     }
 
-    /// GET /api/geotrack/stats?staffId=...&startDate=...&endDate=...
+    /// Trip, distance, duration, stop and tamper totals for a date range.
+    ///
+    /// The geo service has no `/api/geotrack/stats` (404), so this aggregates
+    /// routes it does implement: trips for counts, distance and duration;
+    /// session-route for stops (per staff only, as that route requires one);
+    /// tamper events for the alert count.
     func stats(
         staffId: String? = nil,
         startDate: Int64,
         endDate: Int64
     ) async throws -> GeoTrackStats? {
-        var items: [URLQueryItem] = [
-            URLQueryItem(name: "startDate", value: "\(startDate)"),
-            URLQueryItem(name: "endDate", value: "\(endDate)"),
-        ]
-        if let staffId { items.append(URLQueryItem(name: "staffId", value: staffId)) }
-        let request = try makeGETRequest(
-            path: "/api/geotrack/stats",
-            queryItems: items,
-            directGeoTrack: true
+        let tripList = try await trips(staffId: staffId, startDate: startDate, endDate: endDate)
+
+        var stopCount = tripList.reduce(0) { $0 + $1.stops.count }
+        if let staffId, !staffId.isEmpty,
+           let route = try? await sessionRoute(staffId: staffId, dayStart: startDate, dayEnd: endDate) {
+            stopCount = max(stopCount, route.stops.count)
+        }
+
+        let tampers = (try? await tamperEvents(staffId: staffId, limit: 500)) ?? []
+        let tamperCount = tampers.filter {
+            $0.detectedAt >= Double(startDate) && $0.detectedAt <= Double(endDate)
+        }.count
+
+        return GeoTrackStats(
+            tripCount: tripList.count,
+            totalDistanceMeters: tripList.reduce(0) { $0 + $1.distanceMeters },
+            totalDurationSeconds: tripList.reduce(0) { $0 + $1.durationSeconds },
+            totalStops: stopCount,
+            tamperEventCount: tamperCount
         )
-        let result: GeoTrackStatsResponse = try await perform(request)
-        if let err = result.error { throw GeoTrackAPIError.serverError(err) }
-        return result.data
     }
 
     /// GET /api/mms-fleet/driver/trips
