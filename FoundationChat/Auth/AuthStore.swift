@@ -487,22 +487,44 @@ final class AuthStore {
   }
 
   func logout() async {
-    await GeoTrackBootstrapCoordinator.shared.stopForSessionEnd()
+    // Stop tracking, but never wait long for the network: each call below used
+    // to be awaited in turn with the default 60 s timeout, so on a slow
+    // connection Logout sat spinning. Local tracking stops first either way.
+    let stopTracking = Task { await GeoTrackBootstrapCoordinator.shared.stopForSessionEnd() }
+    await withTaskGroup(of: Void.self) { group in
+      group.addTask { await stopTracking.value }
+      group.addTask { try? await Task.sleep(for: .milliseconds(1500)) }
+      await group.next()
+      group.cancelAll()
+    }
     userDefaults.removeObject(forKey: "geotrack.trackingEnabled")
-    // Unregister push token before logging out
-    if currentSession?.user.isExternalFleetPrincipal != true,
-       let t = token, let deviceToken = lastKnownAPNSToken {
-      try? await ChatAPIService.unregisterPushToken(token: t, deviceToken: deviceToken)
-    }
-    if currentSession?.user.isExternalFleetPrincipal != true,
-       let t = token, let voipToken = ModernDialerVoIPTokenCache.token {
-      try? await ChatAPIService.unregisterPushToken(token: t, deviceToken: voipToken)
-    }
+
+    // Push unregister and the server logout (which frees the single-device
+    // login block) run in the background with the token captured now,
+    // because it is cleared below. Android parity.
+    let isExternal = currentSession?.user.isExternalFleetPrincipal == true
     if let t = token {
-      if currentSession?.user.isExternalFleetPrincipal == true {
-        try? await AuthAPIService.logoutTravelDesk(token: t)
-      } else {
-        try? await AuthAPIService.logout(token: t)
+      let deviceToken = isExternal ? nil : lastKnownAPNSToken
+      let voipToken = isExternal ? nil : ModernDialerVoIPTokenCache.token
+      Task.detached(priority: .utility) {
+        if let deviceToken {
+          try? await ChatAPIService.unregisterPushToken(token: t, deviceToken: deviceToken)
+        }
+        if let voipToken {
+          try? await ChatAPIService.unregisterPushToken(token: t, deviceToken: voipToken)
+        }
+        for attempt in 0..<3 {
+          do {
+            if isExternal {
+              try await AuthAPIService.logoutTravelDesk(token: t)
+            } else {
+              try await AuthAPIService.logout(token: t)
+            }
+            return
+          } catch {
+            if attempt < 2 { try? await Task.sleep(for: .seconds(attempt + 1)) }
+          }
+        }
       }
     }
     try? tokenStore.clear()

@@ -623,10 +623,23 @@ struct LoginView: View {
     }
 
     private func handleOtpInput(at index: Int, value: String) {
-        let digit = value.filter(\.isNumber).prefix(1)
-        otpDigits[index] = String(digit)
-        if !digit.isEmpty && index < 5 {
-            focusedOtpBox = index + 1
+        let digits = Array(value.filter(\.isNumber))
+        guard !digits.isEmpty else { return }
+        // "From Messages" autofill and paste deliver the whole code at once.
+        // Keeping only the first digit (as before) meant the code iOS had
+        // already read never reached the boxes. A full code fills every box;
+        // a shorter run spreads forward from the tapped box.
+        let start = digits.count >= otpDigits.count ? 0 : index
+        let run = digits.count >= otpDigits.count ? Array(digits.suffix(otpDigits.count)) : digits
+        var next = start
+        for d in run where next < otpDigits.count {
+            otpDigits[next] = String(d)
+            next += 1
+        }
+        focusedOtpBox = min(next, otpDigits.count - 1)
+        if otpDigits.allSatisfy({ !$0.isEmpty }), !authStore.isAuthenticating {
+            focusedOtpBox = nil
+            Task { await handleVerifyOtp() }
         }
     }
 
@@ -726,6 +739,7 @@ private struct OtpTextField: UIViewRepresentable {
     }
 
     func updateUIView(_ uiView: _OtpUITextField, context: Context) {
+        context.coordinator.parent = self
         if uiView.text != text { uiView.text = text }
         if isFocused, uiView.window != nil, !uiView.isFirstResponder {
             DispatchQueue.main.async { uiView.becomeFirstResponder() }
@@ -741,7 +755,8 @@ private struct OtpTextField: UIViewRepresentable {
         func textField(_ tf: UITextField, shouldChangeCharactersIn range: NSRange, replacementString string: String) -> Bool {
             if string.isEmpty { return true }
             let digits = string.filter(\.isNumber)
-            if !digits.isEmpty { parent.onInput(String(digits.prefix(1))) }
+            // Pass the whole run: autofill / paste inserts all six digits.
+            if !digits.isEmpty { parent.onInput(digits) }
             return false
         }
     }
