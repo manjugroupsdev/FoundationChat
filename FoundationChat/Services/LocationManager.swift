@@ -275,6 +275,7 @@ final class LocationTracker: NSObject {
                     break
                 }
                 await self?.flushWaypoints()
+                await GeoTrackBootstrapCoordinator.shared.verifyTrackingStillValid()
             }
         }
     }

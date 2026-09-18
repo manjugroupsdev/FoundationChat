@@ -232,6 +232,41 @@ final class GeoTrackBootstrapCoordinator {
         userDefaults.set(enabled, forKey: DefaultsKey.trackingEnabled)
     }
 
+    private var lastTrackingVerify: Date?
+
+    /// Keeps this device's tracking session and clock-in state in step with
+    /// the server, at most every 10 minutes (Android parity).
+    ///
+    /// Production showed staff "Offline" while their phones kept posting: the
+    /// points carried a session the server had already ended, which forces the
+    /// live row Offline. And a clock-out from the web, a biometric device or
+    /// another phone never reached a running tracker.
+    func verifyTrackingStillValid() async {
+        if let lastTrackingVerify, Date().timeIntervalSince(lastTrackingVerify) < 600 { return }
+        lastTrackingVerify = Date()
+        guard let token = geoAPI.tokenProvider?() else { return }
+
+        // Only an authoritative "closed" ends tracking; an outage never does.
+        if await AttendanceTrackingGate.hasOpenSessionNow(token: token) == false {
+            await endDirectSession(reason: "attendance_session_closed")
+            return
+        }
+        do {
+            let current = try await geoAPI.currentTrackingSession()
+            if let current, current.state?.lowercased() == "active" {
+                if current.sessionId != activeSessionId {
+                    applyRecoveredSessionId(current.sessionId)
+                }
+            } else {
+                // Clocked in but the server has no open session: open one so
+                // the points being captured now belong to a live session.
+                await sync(reason: "tracking-session-missing", force: true)
+            }
+        } catch {
+            // A failed read is not proof of anything; check again next time.
+        }
+    }
+
     /// MMS remains the source of truth only for whether attendance is open.
     private func currentAttendanceOpenState() async -> Bool? {
         guard let token = geoAPI.tokenProvider?() else { return nil }

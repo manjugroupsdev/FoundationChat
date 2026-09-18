@@ -39,7 +39,8 @@ final class PendingPunch: NSManagedObject {
             photoPath: photoPath,
             deviceId: deviceId,
             source: source,
-            createdAt: createdAt
+            createdAt: createdAt,
+            attemptCount: Int(attemptCount)
         )
     }
 }
@@ -57,6 +58,8 @@ struct PendingPunchValue: Sendable {
     let deviceId: String?
     let source: String
     let createdAt: Int64
+    /// Failed flush attempts so far; bounds how long a selfie upload is retried.
+    let attemptCount: Int
 }
 
 // MARK: - PendingPunchStore (programmatic CoreData stack)
@@ -279,6 +282,9 @@ enum PunchTimestamp {
 /// 09:00 and synced at 09:20 still lands at 09:00. Replays oldest-first with the
 /// original tap time, removes on success, and keeps the row on a network failure.
 actor PendingPunchSyncCoordinator {
+    /// Flushes before a punch is recorded without its selfie.
+    static let maxSelfieUploadAttempts = 20
+
     static let shared = PendingPunchSyncCoordinator()
 
     private var isFlushing = false
@@ -296,7 +302,11 @@ actor PendingPunchSyncCoordinator {
 
         for punch in pending {
             do {
-                // Upload the selfie (best-effort — a punch may still land without it).
+                // The selfie is part of the punch. Recording it with photo=nil
+                // whenever the upload failed is how punches reached the web
+                // with time and GPS but no selfie. Keep the row and retry; only
+                // after many failed attempts is it recorded without the photo,
+                // so the attendance itself is never lost. (Android parity.)
                 var storageId: String?
                 if let path = punch.photoPath,
                    let data = try? Data(contentsOf: URL(fileURLWithPath: path)) {
@@ -306,6 +316,14 @@ actor PendingPunchSyncCoordinator {
                         fileName: "attendance-photo.jpg",
                         purpose: .attendancePhoto
                     )
+                    if storageId?.isEmpty != false,
+                       punch.attemptCount < Self.maxSelfieUploadAttempts {
+                        await PendingPunchStore.shared.bumpAttempt(
+                            id: punch.id,
+                            error: "Selfie upload failed"
+                        )
+                        continue
+                    }
                 }
 
                 let attendanceId: String?

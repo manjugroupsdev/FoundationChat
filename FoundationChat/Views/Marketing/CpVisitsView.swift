@@ -76,6 +76,12 @@ struct CpVisitsView: View {
                 }
                 if !hasLoaded { await load() }
             }
+            .onAppear {
+                // Returning from a visit keeps this list alive, so without a
+                // reload a Joint CP still read Enroute / Pending Review after
+                // it was submitted or completed.
+                if hasLoaded { Task { await load() } }
+            }
             .onChange(of: searchText) { _, value in
                 scheduleServerSearch(value)
             }
