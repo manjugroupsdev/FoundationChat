@@ -46,6 +46,7 @@ final class GeoTrackBootstrapCoordinator {
     func sync(
         reason: String,
         force: Bool = false,
+        allowConsentPresentation: Bool = true,
         contextId: String? = nil,
         occurredAt: Int64? = nil,
         lat: Double? = nil,
@@ -65,6 +66,35 @@ final class GeoTrackBootstrapCoordinator {
             lastSyncDate = Date()
         }
 
+        if userDefaults.object(forKey: DefaultsKey.trackingEnabled) != nil,
+           !userDefaults.bool(forKey: DefaultsKey.trackingEnabled) {
+            // The stored flag is only written when a session is validated
+            // (launch/login). GeoTrack switched on later on the web stayed
+            // "off" here until the next cold start. Re-check before refusing.
+            await refreshTrackingEnabledFlag()
+        }
+        if userDefaults.object(forKey: DefaultsKey.trackingEnabled) != nil,
+           !userDefaults.bool(forKey: DefaultsKey.trackingEnabled) {
+            await endDirectSession(reason: "tracking_not_enabled")
+            return
+        }
+
+        // Ask during signed-in app startup, before attendance is opened. This
+        // keeps the disclosure from appearing on top of a just-completed punch.
+        let consent = GeoTrackConsentManager.shared
+        if consent.needsConsent {
+            shouldPresentConsent = allowConsentPresentation
+            userDefaults.set(false, forKey: DefaultsKey.shouldTrackNow)
+            await tracker?.stopAndFinalize(notifyServer: false)
+            return
+        }
+        guard consent.hasConsented else {
+            shouldPresentConsent = false
+            userDefaults.set(false, forKey: DefaultsKey.shouldTrackNow)
+            await tracker?.stopAndFinalize(notifyServer: false)
+            return
+        }
+
         let attendanceOpen = await currentAttendanceOpenState()
         if attendanceOpen == false {
             await geoAPI.retryPendingTrackingControl(discardStart: true)
@@ -82,35 +112,8 @@ final class GeoTrackBootstrapCoordinator {
             return
         }
 
-        if userDefaults.object(forKey: DefaultsKey.trackingEnabled) != nil,
-           !userDefaults.bool(forKey: DefaultsKey.trackingEnabled) {
-            // The stored flag is only written when a session is validated
-            // (launch/login). GeoTrack switched on later on the web stayed
-            // "off" here until the next cold start. Re-check before refusing.
-            await refreshTrackingEnabledFlag()
-        }
-        if userDefaults.object(forKey: DefaultsKey.trackingEnabled) != nil,
-           !userDefaults.bool(forKey: DefaultsKey.trackingEnabled) {
-            await endDirectSession(reason: "tracking_not_enabled")
-            return
-        }
-
         await geoAPI.retryPendingTrackingControl(allowStart: true)
         let startCommandStillPending = geoAPI.hasPendingTrackingStart
-
-        let consent = GeoTrackConsentManager.shared
-        if consent.needsConsent {
-            shouldPresentConsent = true
-            userDefaults.set(false, forKey: DefaultsKey.shouldTrackNow)
-            await tracker?.stopAndFinalize(notifyServer: false)
-            return
-        }
-        guard consent.hasConsented else {
-            shouldPresentConsent = false
-            userDefaults.set(false, forKey: DefaultsKey.shouldTrackNow)
-            await tracker?.stopAndFinalize(notifyServer: false)
-            return
-        }
 
         do {
             // A failed current-session read must never be interpreted as

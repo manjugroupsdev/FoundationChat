@@ -372,6 +372,7 @@ struct PunchFlowView: View {
                 await GeoTrackBootstrapCoordinator.shared.sync(
                     reason: mode == .punchIn ? "attendance-punch-in" : "attendance-punch-out",
                     force: true,
+                    allowConsentPresentation: false,
                     contextId: attendanceId,
                     occurredAt: Int64(tapTime.timeIntervalSince1970 * 1_000),
                     lat: loc.coordinate.latitude,
