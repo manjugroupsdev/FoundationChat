@@ -25,6 +25,14 @@ final class PushNotificationAppDelegate: NSObject, UIApplicationDelegate, UNUser
     ModernDialerCallKitCoordinator.shared.start()
     print("\(logPrefix) app launched, UNUserNotificationCenter delegate set")
 
+    // Relaunched by iOS for a location event (monitoring left on by an earlier
+    // run): resume only an active shift, otherwise switch it off.
+    if launchOptions?[.location] != nil {
+      Task { @MainActor in
+        await GeoTrackBootstrapCoordinator.shared.handleLocationRelaunch()
+      }
+    }
+
     if let remoteNotification = launchOptions?[.remoteNotification] as? [AnyHashable: Any] {
       handleGeoTrackSyncIfNeeded(from: remoteNotification, source: "launchOptions")
       handleNotificationRoute(from: remoteNotification, source: "launchOptions")

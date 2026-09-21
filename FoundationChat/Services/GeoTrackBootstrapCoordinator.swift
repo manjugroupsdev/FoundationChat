@@ -85,13 +85,13 @@ final class GeoTrackBootstrapCoordinator {
         if consent.needsConsent {
             shouldPresentConsent = allowConsentPresentation
             userDefaults.set(false, forKey: DefaultsKey.shouldTrackNow)
-            await tracker?.stopAndFinalize(notifyServer: false)
+            await stopLocalTracking()
             return
         }
         guard consent.hasConsented else {
             shouldPresentConsent = false
             userDefaults.set(false, forKey: DefaultsKey.shouldTrackNow)
-            await tracker?.stopAndFinalize(notifyServer: false)
+            await stopLocalTracking()
             return
         }
 
@@ -180,13 +180,36 @@ final class GeoTrackBootstrapCoordinator {
         userDefaults.set(false, forKey: DefaultsKey.shouldTrackNow)
     }
 
+    /// Stops local capture. With no tracker in this process (the app was
+    /// relaunched by iOS), still switch off the system monitoring a previous
+    /// run left on.
+    private func stopLocalTracking() async {
+        if let tracker {
+            await tracker.stopAndFinalize(notifyServer: false)
+        } else {
+            LocationTracker.stopSystemLocationServices()
+        }
+    }
+
+    /// iOS relaunched the app in the background for a location event. Carry on
+    /// only when a shift is still meant to be tracked (the sync re-checks
+    /// attendance and ends tracking if it closed meanwhile); otherwise switch
+    /// the leftover monitoring off so nothing runs until the next clock-in.
+    func handleLocationRelaunch() async {
+        if userDefaults.bool(forKey: DefaultsKey.shouldTrackNow) {
+            await sync(reason: "location-relaunch", force: true)
+        } else {
+            LocationTracker.stopSystemLocationServices()
+        }
+    }
+
     private func endDirectSession(
         reason: String,
         endedAt: Int64? = nil,
         lat: Double? = nil,
         lng: Double? = nil
     ) async {
-        await tracker?.stopAndFinalize(notifyServer: false)
+        await stopLocalTracking()
         tracker = nil
         userDefaults.set(false, forKey: DefaultsKey.shouldTrackNow)
 

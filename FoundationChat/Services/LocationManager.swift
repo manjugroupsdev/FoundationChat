@@ -75,6 +75,21 @@ final class LocationTracker: NSObject {
         authorizationStatus = locationManager.authorizationStatus
     }
 
+    /// Kept only to switch off app-wide location monitoring that outlived the
+    /// tracker that started it.
+    private static let shutdownManager = CLLocationManager()
+
+    /// Significant-change monitoring belongs to the app, not to a
+    /// CLLocationManager instance, and survives the app being killed: iOS
+    /// relaunches the app in the background on every significant move until
+    /// someone stops it. After a relaunch there is no tracker to call
+    /// `stopTracking()`, so a clocked-out staff member kept being woken and
+    /// located ("Location, recently") until the next clock-in.
+    static func stopSystemLocationServices() {
+        shutdownManager.stopUpdatingLocation()
+        shutdownManager.stopMonitoringSignificantLocationChanges()
+    }
+
     // MARK: - Trip Lifecycle
 
     /// Starts a direct GeoTrack session and begins tamper monitoring.
