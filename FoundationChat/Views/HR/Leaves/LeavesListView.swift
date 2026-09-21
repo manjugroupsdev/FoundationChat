@@ -1099,7 +1099,7 @@ struct LeavesListView: View {
                     status: apiStatus,
                     leaveType: leaveType,
                     staffId: staffId,
-                    pageSize: 200
+                    pageSize: 100
                 )
                 async let balanceReq = HRConvexAPIService.getLeaveBalance(token: token, year: year)
                 async let pendingReq: [ConvexLeave] = canManageTeamLeaves
@@ -1113,7 +1113,7 @@ struct LeavesListView: View {
                         status: apiStatus,
                         leaveType: leaveType,
                         staffId: staffId,
-                        pageSize: 200
+                        pageSize: 100
                     )
                     : []
                 async let allReq: [ConvexLeave] = canViewAllLeaves
@@ -1124,7 +1124,7 @@ struct LeavesListView: View {
                         status: apiStatus,
                         leaveType: leaveType,
                         staffId: staffId,
-                        pageSize: 200
+                        pageSize: 100
                     )
                     : []
                 leaves = try await leavesReq

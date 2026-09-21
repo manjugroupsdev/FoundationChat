@@ -326,48 +326,49 @@ private struct MandatoryAppUpdateView: View {
     let onUpdate: () -> Void
 
     var body: some View {
-        HStack(spacing: 10) {
+        VStack(spacing: 0) {
+            Spacer()
+
             Image(systemName: "arrow.down.app.fill")
-                .font(.system(size: 22, weight: .semibold))
+                .font(.system(size: 58, weight: .semibold))
                 .foregroundStyle(Color(hex: 0x0B61CA))
+                .accessibilityHidden(true)
 
-            VStack(alignment: .leading, spacing: 2) {
-                Text("Update available")
-                    .font(.system(size: 13, weight: .semibold))
-                    .foregroundStyle(.primary)
+            Text("Update required")
+                .font(.system(size: 24, weight: .bold))
+                .foregroundStyle(.primary)
+                .padding(.top, 28)
 
-                Text(message)
-                    .font(.system(size: 11, weight: .regular))
-                    .foregroundStyle(.secondary)
-                    .lineLimit(1)
-            }
-            .frame(maxWidth: .infinity, alignment: .leading)
+            Text(message)
+                .font(.system(size: 15))
+                .foregroundStyle(.secondary)
+                .multilineTextAlignment(.center)
+                .padding(.top, 10)
+                .padding(.horizontal, 32)
+
+            Spacer()
 
             Button(action: onUpdate) {
-                Text("Open Store")
-                    .font(.system(size: 12, weight: .semibold))
-                    .foregroundStyle(Color(hex: 0x0B61CA))
-                    .frame(minWidth: 74, minHeight: 40)
+                Text("Update now")
+                    .font(.system(size: 17, weight: .semibold))
+                    .foregroundStyle(.white)
+                    .frame(maxWidth: .infinity, minHeight: 54)
+                    .background(Color(hex: 0x16C60C), in: RoundedRectangle(cornerRadius: 8))
             }
             .buttonStyle(.plain)
+            .padding(.horizontal, 24)
+            .padding(.bottom, 24)
         }
-        .padding(.horizontal, 12)
-        .padding(.vertical, 9)
-        .frame(maxWidth: 520)
-        .background(Color.appSurface, in: RoundedRectangle(cornerRadius: 8, style: .continuous))
-        .overlay {
-            RoundedRectangle(cornerRadius: 8, style: .continuous)
-                .stroke(Color.appSeparator, lineWidth: 1)
-        }
-        .shadow(color: Color.black.opacity(0.10), radius: 8, y: 3)
-        .padding(.horizontal, 12)
-        .padding(.top, 8)
+        .frame(maxWidth: .infinity, maxHeight: .infinity)
+        .background(Color.appScreenBackground.ignoresSafeArea())
+        .contentShape(Rectangle())
+        .accessibilityAddTraits(.isModal)
     }
 
     private var message: String {
         if let version {
-            return "M-Chat \(version) is ready"
+            return "M-Chat \(version) is required. Please update to keep using the app."
         }
-        return "A new M-Chat version is ready"
+        return "A new version of M-Chat is available. Please update to keep using the app."
     }
 }

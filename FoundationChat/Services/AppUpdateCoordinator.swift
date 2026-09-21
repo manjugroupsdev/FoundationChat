@@ -37,13 +37,11 @@ final class AppUpdateCoordinator {
     private(set) var requiredVersion: String?
     private(set) var requiredBuild: Int?
     private(set) var storeURL: URL?
-    private(set) var isOperationallySafe = false
-
     private let defaults: UserDefaults
     private var lastStoreCheck: Date?
 
     var mustShowUpdate: Bool {
-        hasNewerVersion && isOperationallySafe
+        hasNewerVersion
     }
 
     private init(defaults: UserDefaults = .standard) {
@@ -51,7 +49,7 @@ final class AppUpdateCoordinator {
         restoreKnownUpdate()
     }
 
-    func refresh(token: String?, isExternalFleetPrincipal: Bool) async {
+    func refresh(token _: String?, isExternalFleetPrincipal _: Bool) async {
         if lastStoreCheck.map({ Date().timeIntervalSince($0) >= Self.storeCheckInterval }) != false {
             lastStoreCheck = Date()
             let serverPolicyFound = await fetchServerVersionPolicy()
@@ -62,15 +60,8 @@ final class AppUpdateCoordinator {
 
         guard hasNewerVersion else {
             clearKnownUpdate()
-            isOperationallySafe = false
             return
         }
-
-        isOperationallySafe = await MobileOperationalUpdateGate.isSafe(
-            token: token,
-            isExternalFleetPrincipal: isExternalFleetPrincipal,
-            defaults: defaults
-        )
     }
 
     func openAppStore() {
@@ -218,45 +209,4 @@ final class AppUpdateCoordinator {
     }
 
     private static let storeCheckInterval: TimeInterval = 15 * 60
-}
-
-@MainActor
-private enum MobileOperationalUpdateGate {
-    static func isSafe(
-        token: String?,
-        isExternalFleetPrincipal: Bool,
-        defaults: UserDefaults
-    ) async -> Bool {
-        if defaults.bool(forKey: "geotrack.shouldTrackNow") { return false }
-        if hasValue(defaults.string(forKey: "geotrack.activeTrackingSessionId")) { return false }
-        if hasValue(defaults.string(forKey: "attendance.onDuty.tripId")) { return false }
-        if ModernDialerBridge.shared.stage != .idle { return false }
-        if ModernDialerCallKitCoordinator.shared.hasActiveCall { return false }
-        if await PendingPunchStore.shared.count() > 0 { return false }
-
-        do {
-            if !(try await GeoTrackPersistence.shared.fetchUnsent(limit: 1)).isEmpty { return false }
-            if !(try await GeoTrackPersistence.shared.fetchUnsentTamperEvents(limit: 1)).isEmpty { return false }
-        } catch {
-            return false
-        }
-
-        if let pendingHeartbeats = defaults.data(forKey: "geotrack.pendingHeartbeats"),
-           !pendingHeartbeats.isEmpty {
-            return false
-        }
-
-        guard let token, !token.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else {
-            return true
-        }
-        if isExternalFleetPrincipal { return true }
-        guard let attendanceOpen = await AttendanceTrackingGate.hasOpenSessionNow(token: token) else {
-            return false
-        }
-        return !attendanceOpen
-    }
-
-    private static func hasValue(_ value: String?) -> Bool {
-        value?.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty == false
-    }
 }

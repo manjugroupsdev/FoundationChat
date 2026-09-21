@@ -1624,22 +1624,54 @@ private struct SiteVisitOverviewSheet: View {
                 }
             }
 
-            LazyVGrid(columns: [GridItem(.flexible()), GridItem(.flexible())], spacing: 10) {
-                outcomeButton("Booking", icon: "briefcase.fill", tint: Color(hex: 0x16A34A), outcome: .booking)
-                outcomeButton("Client Not Interested", icon: "hand.thumbsdown.fill", tint: Color(hex: 0xDC2626), outcome: .notInterested)
-                outcomeButton("Follow up", icon: "calendar.badge.clock", tint: Color(hex: 0xD97706), outcome: .followUp)
-                outcomeButton("Others", icon: "ellipsis.circle.fill", tint: Color(hex: 0x475467), outcome: .other)
-            }
-
             if isVisitClosed {
-                Label("This site visit outcome is already completed.", systemImage: "lock.fill")
-                    .font(.system(size: 12, weight: .medium))
-                    .foregroundStyle(.secondary)
-            } else if !isOutcomeEnabled {
-                Label("Scan the client QR and start counselling to record the outcome.", systemImage: "qrcode")
-                    .font(.system(size: 12, weight: .medium))
-                    .foregroundStyle(.secondary)
+                recordedOutcomeCard
+            } else {
+                LazyVGrid(columns: [GridItem(.flexible()), GridItem(.flexible())], spacing: 10) {
+                    outcomeButton("Booking", icon: "briefcase.fill", tint: Color(hex: 0x16A34A), outcome: .booking)
+                    outcomeButton("Client Not Interested", icon: "hand.thumbsdown.fill", tint: Color(hex: 0xDC2626), outcome: .notInterested)
+                    outcomeButton("Follow up", icon: "calendar.badge.clock", tint: Color(hex: 0xD97706), outcome: .followUp)
+                    outcomeButton("Others", icon: "ellipsis.circle.fill", tint: Color(hex: 0x475467), outcome: .other)
+                }
+
+                if !isOutcomeEnabled {
+                    Label("Scan the client QR and start counselling to record the outcome.", systemImage: "qrcode")
+                        .font(.system(size: 12, weight: .medium))
+                        .foregroundStyle(.secondary)
+                }
             }
+        }
+    }
+
+    private var recordedOutcomeCard: some View {
+        let presentation = recordedOutcomePresentation
+        return HStack(spacing: 12) {
+            Image(systemName: "checkmark.circle.fill")
+                .font(.system(size: 22, weight: .semibold))
+                .foregroundStyle(presentation.tint)
+
+            VStack(alignment: .leading, spacing: 4) {
+                Text(presentation.title)
+                    .font(.system(size: 14, weight: .semibold))
+                    .foregroundStyle(.primary)
+                if let detail = recordedOutcomeDetail {
+                    Text(detail)
+                        .font(.system(size: 12))
+                        .foregroundStyle(.secondary)
+                }
+            }
+            .frame(maxWidth: .infinity, alignment: .leading)
+
+            Image(systemName: "lock.fill")
+                .font(.system(size: 12, weight: .semibold))
+                .foregroundStyle(.secondary)
+                .accessibilityLabel("Recorded")
+        }
+        .padding(14)
+        .background(presentation.tint.opacity(0.10), in: RoundedRectangle(cornerRadius: 8))
+        .overlay {
+            RoundedRectangle(cornerRadius: 8)
+                .stroke(presentation.tint.opacity(0.25), lineWidth: 1)
         }
     }
 
@@ -2109,24 +2141,58 @@ private struct SiteVisitOverviewSheet: View {
     }
 
     private var siteVisitOutcome: String? {
-        if detail?.proposedSiteVisit != nil {
-            return detail?.proposedSiteVisit?.outcome
-        }
-        return detail?.outcome ?? visit.outcome
+        detail?.proposedSiteVisit?.outcome?.nilIfBlank
+            ?? detail?.outcome?.nilIfBlank
+            ?? visit.outcome?.nilIfBlank
     }
 
     private var siteVisitConvertedBookingID: String? {
-        if detail?.proposedSiteVisit != nil {
-            return detail?.proposedSiteVisit?.convertedBookingId
-        }
-        return detail?.convertedBookingId ?? visit.convertedBookingId
+        detail?.proposedSiteVisit?.convertedBookingId?.nilIfBlank
+            ?? detail?.convertedBookingId?.nilIfBlank
+            ?? visit.convertedBookingId?.nilIfBlank
     }
 
     private var siteVisitCancelledAt: Int64? {
-        if detail?.proposedSiteVisit != nil {
-            return detail?.proposedSiteVisit?.cancelledAt
+        detail?.proposedSiteVisit?.cancelledAt ?? detail?.cancelledAt
+    }
+
+    private var recordedOutcomeValue: String? {
+        if let outcome = siteVisitOutcome?.nilIfBlank {
+            return outcome
         }
-        return detail?.cancelledAt
+        if siteVisitConvertedBookingID?.nilIfBlank != nil {
+            return "converted_to_booking"
+        }
+        if siteVisitCancelledAt != nil {
+            return "cancelled"
+        }
+        return normalizedStatus.nilIfBlank
+    }
+
+    private var recordedOutcomeDetail: String? {
+        if let reasons = detail?.postponeReasons?.compactMap(\.nilIfBlank), !reasons.isEmpty {
+            return reasons.joined(separator: ", ")
+        }
+        return detail?.clientNoShowReason?.nilIfBlank
+    }
+
+    private var recordedOutcomePresentation: (title: String, tint: Color) {
+        switch recordedOutcomeValue?.normalizedSiteVisitValue {
+        case "converted_to_booking", "converted", "booked":
+            return ("Converted as Booking", Color(hex: 0x067647))
+        case "not_interested":
+            return ("Client Not Interested", Color(hex: 0xB42318))
+        case "follow_up", "followup", "postponed":
+            return ("Follow up", Color(hex: 0xB54708))
+        case "cancelled", "canceled":
+            return ("Site Visit Cancelled", Color(hex: 0x475467))
+        case "no_show":
+            return ("Client No-show", Color(hex: 0x475467))
+        case "other":
+            return ("Other", Color(hex: 0x344054))
+        default:
+            return ("Outcome recorded", Color(hex: 0x344054))
+        }
     }
 
     private var canPostponeVisit: Bool {

@@ -730,7 +730,7 @@ struct ConvexPermissionListView: View {
                     status: apiStatus,
                     fromDate: fromDate,
                     toDate: toDate,
-                    pageSize: 200
+                    pageSize: 100
                 )
                 async let usageReq = HRConvexAPIService.getMonthlyPermissionUsage(token: token, year: year, month: month)
                 async let pendingReq: [ConvexPermission] = canManageTeamPermissions
@@ -742,7 +742,7 @@ struct ConvexPermissionListView: View {
                         toDate: toDate,
                         status: apiStatus,
                         staffId: staffId,
-                        pageSize: 200
+                        pageSize: 100
                     )
                     : []
                 async let allReq: [ConvexPermission] = canViewAllPermissions
@@ -753,7 +753,7 @@ struct ConvexPermissionListView: View {
                         toDate: toDate,
                         status: apiStatus,
                         staffId: staffId,
-                        pageSize: 200
+                        pageSize: 100
                     )
                     : []
                 permissions = try await permsReq

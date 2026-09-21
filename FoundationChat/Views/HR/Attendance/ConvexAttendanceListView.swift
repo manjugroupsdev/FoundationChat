@@ -697,7 +697,7 @@ struct ConvexAttendanceListView: View {
                 status: advancedFilter.selected("status").first,
                 staffId: advancedFilter.selected("staff").first,
                 search: normalizedSearchText.nilIfBlank,
-                pageSize: 200
+                pageSize: 100
             )
             records = loadedRecords
             if let cacheKey = myAttendanceCacheKey {
@@ -775,7 +775,7 @@ struct ConvexAttendanceListView: View {
                         status: advancedFilter.selected("status").first,
                         staffId: advancedFilter.selected("staff").first,
                         search: normalizedSearchText.nilIfBlank,
-                        pageSize: 200
+                        pageSize: 100
                     )
                 case .approval:
                     loadedRecords = try await HRConvexAPIService.getPendingAttendanceApprovals(
@@ -787,7 +787,7 @@ struct ConvexAttendanceListView: View {
                         status: advancedFilter.selected("status").first,
                         staffId: advancedFilter.selected("staff").first,
                         search: normalizedSearchText.nilIfBlank,
-                        pageSize: 200
+                        pageSize: 100
                     )
                 case .allApproval:
                     loadedRecords = try await HRConvexAPIService.getPendingAttendanceApprovals(
@@ -798,7 +798,7 @@ struct ConvexAttendanceListView: View {
                         status: advancedFilter.selected("status").first,
                         staffId: advancedFilter.selected("staff").first,
                         search: normalizedSearchText.nilIfBlank,
-                        pageSize: 200
+                        pageSize: 100
                     )
                 case .hrReview:
                     loadedRecords = try await HRConvexAPIService.getHrReview(
@@ -808,7 +808,7 @@ struct ConvexAttendanceListView: View {
                         status: advancedFilter.selected("status").first,
                         staffId: advancedFilter.selected("staff").first,
                         search: normalizedSearchText.nilIfBlank,
-                        pageSize: 200
+                        pageSize: 100
                     )
                 case .all:
                     loadedRecords = try await HRConvexAPIService.getAllAttendance(
@@ -818,7 +818,7 @@ struct ConvexAttendanceListView: View {
                         search: normalizedSearchText.nilIfBlank,
                         status: advancedFilter.selected("status").first,
                         staffId: advancedFilter.selected("staff").first,
-                        pageSize: 200
+                        pageSize: 100
                     )
                 }
 
