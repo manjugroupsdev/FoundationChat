@@ -26,11 +26,11 @@ struct ApplyPermissionView: View {
                 VStack(alignment: .leading, spacing: 0) {
                     Text("Fill Permission Summary")
                         .font(.system(size: 18, weight: .bold))
-                        .foregroundStyle(Color(hex: 0x101828))
+                        .foregroundStyle(Color.appPrimaryText)
 
                     Text("Information about Permission details")
                         .font(.system(size: 12, weight: .medium))
-                        .foregroundStyle(Color(hex: 0x667085))
+                        .foregroundStyle(Color.appSecondaryText)
                         .padding(.top, 2)
 
                     pickerField(
@@ -92,7 +92,7 @@ struct ApplyPermissionView: View {
             .disabled(!submitEnabled || isSubmitting)
             .padding(.horizontal, 20)
             .padding(.bottom, 20)
-            .background(Color.white.opacity(0.98))
+            .background(Color.appSurface.opacity(0.98))
 
         }
         .appCompactSheetCTAContainer()
@@ -123,7 +123,7 @@ struct ApplyPermissionView: View {
         VStack(alignment: .leading, spacing: 6) {
             Text("Permission Description")
                 .font(.system(size: 15, weight: .medium))
-                .foregroundStyle(Color(hex: 0x344054))
+                .foregroundStyle(Color.appPrimaryText)
 
             TextField("Enter Permission Description", text: $reason, axis: .vertical)
                 .font(.system(size: 14))
@@ -131,10 +131,10 @@ struct ApplyPermissionView: View {
                 .padding(.horizontal, 14)
                 .padding(.vertical, 10)
                 .frame(maxWidth: .infinity, minHeight: 90, alignment: .topLeading)
-                .background(Color(hex: 0xF8FAFC), in: RoundedRectangle(cornerRadius: 12, style: .continuous))
+                .background(Color.appFieldBackground, in: RoundedRectangle(cornerRadius: 12, style: .continuous))
                 .overlay {
                     RoundedRectangle(cornerRadius: 12, style: .continuous)
-                        .stroke(Color(hex: 0xE5E7EB), lineWidth: 1)
+                        .stroke(Color.appSeparator, lineWidth: 1)
                 }
         }
     }
@@ -150,29 +150,29 @@ struct ApplyPermissionView: View {
         VStack(alignment: .leading, spacing: 6) {
             Text(title)
                 .font(.system(size: 15, weight: .medium))
-                .foregroundStyle(Color(hex: 0x344054))
+                .foregroundStyle(Color.appPrimaryText)
 
             Button(action: action) {
                 HStack(spacing: 10) {
                     Image(systemName: icon)
                         .font(.system(size: 18, weight: .semibold))
-                        .foregroundStyle(Color(hex: 0x667085))
+                        .foregroundStyle(Color.appSecondaryText)
                         .frame(width: 22)
                     Text(value)
                         .font(.system(size: 14))
-                        .foregroundStyle(placeholder ? Color(hex: 0x9CA3AF) : Color(hex: 0x101828))
+                        .foregroundStyle(placeholder ? Color.appTertiaryText : Color.appPrimaryText)
                     Spacer()
                     Image(systemName: "chevron.down")
                         .font(.system(size: 13, weight: .bold))
-                        .foregroundStyle(Color(hex: 0x667085))
+                        .foregroundStyle(Color.appSecondaryText)
                 }
                 .padding(.horizontal, 14)
                 .frame(maxWidth: .infinity)
                 .frame(height: 48)
-                .background(Color(hex: 0xF8FAFC), in: RoundedRectangle(cornerRadius: 12, style: .continuous))
+                .background(Color.appFieldBackground, in: RoundedRectangle(cornerRadius: 12, style: .continuous))
                 .overlay {
                     RoundedRectangle(cornerRadius: 12, style: .continuous)
-                        .stroke(Color(hex: 0xE5E7EB), lineWidth: 1)
+                        .stroke(Color.appSeparator, lineWidth: 1)
                 }
             }
             .buttonStyle(.plain)
@@ -267,7 +267,7 @@ struct ApplyPermissionView: View {
 
     private var disabledButtonFill: LinearGradient {
         LinearGradient(
-            colors: [Color(hex: 0xE5E7EB), Color(hex: 0xD1D5DB)],
+            colors: [Color.appSeparator, Color(hex: 0xD1D5DB)],
             startPoint: .leading,
             endPoint: .trailing
         )

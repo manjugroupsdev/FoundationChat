@@ -93,10 +93,10 @@ struct TasksListView: View {
             .padding(.top, 14)
             .padding(.bottom, 28)
         }
-        .background(Color(hex: 0xF1F3F8).ignoresSafeArea())
+        .background(Color.appScreenBackground.ignoresSafeArea())
         .navigationTitle("Task Manager")
         .navigationBarTitleDisplayMode(.inline)
-        .toolbarBackground(Color.white, for: .navigationBar)
+        .toolbarBackground(Color.appElevatedSurface, for: .navigationBar)
         .toolbarBackground(.visible, for: .navigationBar)
         .toolbar(.hidden, for: .tabBar)
         .task { await loadTasks() }
@@ -109,7 +109,7 @@ struct TasksListView: View {
         .sheet(item: $webLinkTask) { task in
             TaskWebLinkSheet(task: task)
                 .presentationDetents([.height(300)])
-                .presentationBackground(Color.white)
+                .presentationBackground(Color.appElevatedSurface)
         }
         .navigationDestination(item: $selectedRoute) { route in
             route.view
@@ -152,15 +152,15 @@ struct TasksListView: View {
             VStack(spacing: 12) {
                 Image(systemName: "checklist.unchecked")
                     .font(.system(size: 44, weight: .regular))
-                    .foregroundStyle(Color(hex: 0x98A2B3))
+                    .foregroundStyle(Color.appTertiaryText)
 
                 Text("Inbox zero")
                     .font(.system(size: 20, weight: .bold))
-                    .foregroundStyle(Color(hex: 0x101828))
+                    .foregroundStyle(Color.appPrimaryText)
 
                 Text("No tasks match this filter.")
                     .font(.system(size: 13, weight: .medium))
-                    .foregroundStyle(Color(hex: 0x667085))
+                    .foregroundStyle(Color.appSecondaryText)
             }
             .frame(maxWidth: .infinity)
             .padding(.top, 150)
@@ -563,21 +563,21 @@ private struct TaskMetricCard: View {
         VStack(alignment: .leading, spacing: 8) {
             Text(title)
                 .font(.system(size: 11, weight: .medium))
-                .foregroundStyle(Color(hex: 0x475467))
+                .foregroundStyle(Color.appSecondaryText)
                 .lineLimit(1)
 
             Text("\(value)")
                 .font(.system(size: 22, weight: .bold))
-                .foregroundStyle(isDanger ? Color(hex: 0xDC2626) : Color(hex: 0x101828))
+                .foregroundStyle(isDanger ? Color(hex: 0xDC2626) : Color.appPrimaryText)
                 .monospacedDigit()
         }
         .frame(width: 112, alignment: .leading)
         .padding(.horizontal, 12)
         .padding(.vertical, 12)
-        .background(Color.white, in: RoundedRectangle(cornerRadius: 12, style: .continuous))
+        .background(Color.appSurface, in: RoundedRectangle(cornerRadius: 12, style: .continuous))
         .overlay {
             RoundedRectangle(cornerRadius: 12, style: .continuous)
-                .stroke(Color(hex: 0xE5E7EB), lineWidth: 1)
+                .stroke(Color.appSeparator, lineWidth: 1)
         }
     }
 }
@@ -593,7 +593,7 @@ private struct TaskManagerLoadingSkeleton: View {
                                 .fill(Color(hex: 0xE8EEF6))
                                 .frame(width: 178, height: 15)
                             RoundedRectangle(cornerRadius: 4, style: .continuous)
-                                .fill(Color(hex: 0xEEF2F6))
+                                .fill(Color.appFieldBackground)
                                 .frame(width: 130, height: 11)
                         }
                         Spacer()
@@ -610,12 +610,12 @@ private struct TaskManagerLoadingSkeleton: View {
                     }
 
                     RoundedRectangle(cornerRadius: 10, style: .continuous)
-                        .fill(Color(hex: 0xF2F4F7))
+                        .fill(Color.appFieldBackground)
                         .frame(width: 108, height: 20)
                 }
                 .padding(.horizontal, 14)
                 .padding(.vertical, 14)
-                .background(Color.white, in: RoundedRectangle(cornerRadius: 12, style: .continuous))
+                .background(Color.appSurface, in: RoundedRectangle(cornerRadius: 12, style: .continuous))
                 .redacted(reason: .placeholder)
             }
         }
@@ -624,7 +624,7 @@ private struct TaskManagerLoadingSkeleton: View {
     private func skeletonMetric(width: CGFloat) -> some View {
         VStack(alignment: .leading, spacing: 5) {
             RoundedRectangle(cornerRadius: 3, style: .continuous)
-                .fill(Color(hex: 0xEEF2F6))
+                .fill(Color.appFieldBackground)
                 .frame(width: 62, height: 10)
             RoundedRectangle(cornerRadius: 4, style: .continuous)
                 .fill(Color(hex: 0xE8EEF6))
@@ -641,7 +641,7 @@ private struct TaskFilterSection<Content: View>: View {
         VStack(alignment: .leading, spacing: 8) {
             Text(title)
                 .font(.system(size: 10, weight: .semibold))
-                .foregroundStyle(Color(hex: 0x98A2B3))
+                .foregroundStyle(Color.appTertiaryText)
                 .tracking(0.8)
 
             ScrollView(.horizontal, showsIndicators: false) {
@@ -674,7 +674,7 @@ private struct TaskManagerChip: View {
                         .background(isSelected ? Color.white : Color(hex: 0x0B61CA), in: Capsule())
                 }
             }
-            .foregroundStyle(isSelected ? .white : Color(hex: 0x475467))
+            .foregroundStyle(isSelected ? .white : Color.appSecondaryText)
             .padding(.horizontal, 14)
             .frame(height: 36)
             .background(isSelected ? Color(hex: 0x0B61CA) : Color(hex: 0xE8EEF6), in: RoundedRectangle(cornerRadius: 10, style: .continuous))
@@ -699,7 +699,7 @@ private struct TaskCategoryChip: View {
                     .font(.system(size: 12, weight: .semibold))
                     .lineLimit(1)
             }
-            .foregroundStyle(isSelected ? .white : Color(hex: 0x344054))
+            .foregroundStyle(isSelected ? .white : Color.appPrimaryText)
             .padding(.horizontal, 13)
             .frame(height: 34)
             .background(isSelected ? Color(hex: 0x0B61CA) : Color.white, in: Capsule())
@@ -735,13 +735,13 @@ private struct DailyTaskManagerCard: View {
                         VStack(alignment: .leading, spacing: 4) {
                             Text(task.displayTitle)
                                 .font(.system(size: 14, weight: .bold))
-                                .foregroundStyle(Color(hex: 0x101828))
+                                .foregroundStyle(Color.appPrimaryText)
                                 .lineLimit(2)
 
                             if let subtitle = task.displaySubtitle {
                                 Text(subtitle)
                                     .font(.system(size: 11, weight: .regular))
-                                    .foregroundStyle(Color(hex: 0x667085))
+                                    .foregroundStyle(Color.appSecondaryText)
                                     .lineLimit(2)
                             }
                         }
@@ -755,11 +755,11 @@ private struct DailyTaskManagerCard: View {
                         VStack(alignment: .leading, spacing: 4) {
                             Text("Deadline")
                                 .font(.system(size: 10, weight: .regular))
-                                .foregroundStyle(Color(hex: 0x98A2B3))
+                                .foregroundStyle(Color.appTertiaryText)
 
                             Text(shortDeadline)
                                 .font(.system(size: 12, weight: .semibold))
-                                .foregroundStyle(Color(hex: 0x101828))
+                                .foregroundStyle(Color.appPrimaryText)
                         }
 
                         Spacer(minLength: 12)
@@ -767,11 +767,11 @@ private struct DailyTaskManagerCard: View {
                         VStack(alignment: .leading, spacing: 4) {
                             Text("Assigned to")
                                 .font(.system(size: 10, weight: .regular))
-                                .foregroundStyle(Color(hex: 0x98A2B3))
+                                .foregroundStyle(Color.appTertiaryText)
 
                             Text(task.displayAssignedTo)
                                 .font(.system(size: 12, weight: .semibold))
-                                .foregroundStyle(Color(hex: 0x101828))
+                                .foregroundStyle(Color.appPrimaryText)
                                 .lineLimit(1)
                         }
                         .frame(width: 132, alignment: .leading)
@@ -780,10 +780,10 @@ private struct DailyTaskManagerCard: View {
                     if let badge = badgeText {
                         Text(badge)
                             .font(.system(size: 9, weight: .medium))
-                            .foregroundStyle(Color(hex: 0x475467))
+                            .foregroundStyle(Color.appSecondaryText)
                             .padding(.horizontal, 8)
                             .frame(height: 20)
-                            .background(Color(hex: 0xF2F4F7), in: Capsule())
+                            .background(Color.appFieldBackground, in: Capsule())
                     }
                 }
                 .frame(maxWidth: .infinity, alignment: .leading)
@@ -822,10 +822,10 @@ private struct DailyTaskManagerCard: View {
             }
         }
         .padding(14)
-        .background(Color.white, in: RoundedRectangle(cornerRadius: 14, style: .continuous))
+        .background(Color.appSurface, in: RoundedRectangle(cornerRadius: 14, style: .continuous))
         .overlay {
             RoundedRectangle(cornerRadius: 14, style: .continuous)
-                .stroke(Color(hex: 0xE5E7EB), lineWidth: 1)
+                .stroke(Color.appSeparator, lineWidth: 1)
         }
     }
 
@@ -915,20 +915,20 @@ private struct TaskWebLinkSheet: View {
             VStack(alignment: .leading, spacing: 6) {
                 Text(label)
                     .font(.system(size: 18, weight: .bold))
-                    .foregroundStyle(Color(hex: 0x101828))
+                    .foregroundStyle(Color.appPrimaryText)
                     .lineLimit(2)
                 Text("Open this task on the web app to act on it.")
                     .font(.system(size: 13, weight: .medium))
-                    .foregroundStyle(Color(hex: 0x667085))
+                    .foregroundStyle(Color.appSecondaryText)
             }
 
             Text(resolvedURL)
                 .font(.system(size: 12, weight: .regular))
-                .foregroundStyle(Color(hex: 0x475467))
+                .foregroundStyle(Color.appSecondaryText)
                 .lineLimit(2)
                 .padding(12)
                 .frame(maxWidth: .infinity, alignment: .leading)
-                .background(Color(hex: 0xF2F4F7), in: RoundedRectangle(cornerRadius: 10, style: .continuous))
+                .background(Color.appFieldBackground, in: RoundedRectangle(cornerRadius: 10, style: .continuous))
 
             Button {
                 if let url = URL(string: resolvedURL) { openURL(url) }
@@ -964,6 +964,6 @@ private struct TaskWebLinkSheet: View {
         .padding(.top, 22)
         .padding(.bottom, 20)
         .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
-        .background(Color.white)
+        .background(Color.appSurface)
     }
 }

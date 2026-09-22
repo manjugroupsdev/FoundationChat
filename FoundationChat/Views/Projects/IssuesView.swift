@@ -60,7 +60,7 @@ struct IssuesView: View {
             }
             .frame(maxWidth: .infinity, maxHeight: .infinity)
         }
-        .background(Color.white)
+        .background(Color.appSurface)
         .navigationTitle("Issues")
         .navigationBarTitleDisplayMode(.inline)
         .searchable(
@@ -70,7 +70,7 @@ struct IssuesView: View {
         )
         .textInputAutocapitalization(.never)
         .autocorrectionDisabled()
-        .toolbarBackground(Color.white, for: .navigationBar)
+        .toolbarBackground(Color.appElevatedSurface, for: .navigationBar)
         .toolbarBackground(.visible, for: .navigationBar)
         .toolbar {
             ToolbarItem(placement: .topBarTrailing) {
@@ -213,7 +213,7 @@ private struct IssueCard: View {
             if let description {
                 Text(description)
                     .font(.system(size: 13, weight: .regular))
-                    .foregroundStyle(Color(hex: 0x475467))
+                    .foregroundStyle(Color.appSecondaryText)
                     .lineLimit(3)
                     .fixedSize(horizontal: false, vertical: true)
             }
@@ -247,7 +247,7 @@ private struct IssueCard: View {
             }
         }
         .padding(16)
-        .background(Color.white, in: RoundedRectangle(cornerRadius: 16, style: .continuous))
+        .background(Color.appSurface, in: RoundedRectangle(cornerRadius: 16, style: .continuous))
         .overlay(
             RoundedRectangle(cornerRadius: 16, style: .continuous)
                 .stroke(Color(hex: 0xE2E8F0), lineWidth: 1)
@@ -337,7 +337,7 @@ private struct CreateIssueSheet: View {
                             .frame(minHeight: 100)
                             .padding(12)
                             .scrollContentBackground(.hidden)
-                            .background(Color.white, in: RoundedRectangle(cornerRadius: 12, style: .continuous))
+                            .background(Color.appSurface, in: RoundedRectangle(cornerRadius: 12, style: .continuous))
                             .overlay(RoundedRectangle(cornerRadius: 12).stroke(Color(hex: 0xE2E8F0), lineWidth: 1))
                     }
 
@@ -373,7 +373,7 @@ private struct CreateIssueSheet: View {
                     .frame(height: 52)
                     .background(
                         LinearGradient(
-                            colors: canSubmit ? [Color(hex: 0x1BCB0B), Color(hex: 0x3DA302)] : [Color(hex: 0xD0D5DD), Color(hex: 0xD0D5DD)],
+                            colors: canSubmit ? [Color(hex: 0x1BCB0B), Color(hex: 0x3DA302)] : [Color.appSeparator, Color.appSeparator],
                             startPoint: .leading,
                             endPoint: .trailing
                         ),
@@ -386,9 +386,9 @@ private struct CreateIssueSheet: View {
                 .padding(.top, 12)
                 .padding(.bottom, 20)
             }
-            .background(Color.white)
+            .background(Color.appSurface)
         }
-        .background(Color.white)
+        .background(Color.appSurface)
         .appCompactSheetCTAContainer()
         .task {
             await loadProjects()
@@ -451,7 +451,7 @@ private struct CreateIssueSheet: View {
                     .autocorrectionDisabled()
                     .padding(.horizontal, 16)
                     .frame(height: 48)
-                    .background(Color.white, in: RoundedRectangle(cornerRadius: 12, style: .continuous))
+                    .background(Color.appSurface, in: RoundedRectangle(cornerRadius: 12, style: .continuous))
                     .overlay(RoundedRectangle(cornerRadius: 12).stroke(Color(hex: 0xE2E8F0), lineWidth: 1))
         }
     }
@@ -474,7 +474,7 @@ private struct CreateIssueSheet: View {
                 }
                 .padding(.horizontal, 16)
                 .frame(height: 48)
-                .background(Color.white, in: RoundedRectangle(cornerRadius: 12, style: .continuous))
+                .background(Color.appSurface, in: RoundedRectangle(cornerRadius: 12, style: .continuous))
                 .overlay(RoundedRectangle(cornerRadius: 12).stroke(Color(hex: 0xE2E8F0), lineWidth: 1))
             }
             .buttonStyle(.plain)
@@ -531,7 +531,7 @@ private struct CreateIssueSheet: View {
                 .buttonStyle(.plain)
             }
             .padding(12)
-            .background(Color(hex: 0xF8FAFC), in: RoundedRectangle(cornerRadius: 12, style: .continuous))
+            .background(Color.appFieldBackground, in: RoundedRectangle(cornerRadius: 12, style: .continuous))
             .overlay(RoundedRectangle(cornerRadius: 12).stroke(Color(hex: 0xE2E8F0), lineWidth: 1))
         }
     }
@@ -757,7 +757,7 @@ private struct IssueCardSkeleton: View {
                 .frame(width: 140, height: 12)
         }
         .padding(16)
-        .background(Color.white, in: RoundedRectangle(cornerRadius: 16, style: .continuous))
+        .background(Color.appSurface, in: RoundedRectangle(cornerRadius: 16, style: .continuous))
         .overlay(
             RoundedRectangle(cornerRadius: 16, style: .continuous)
                 .stroke(Color(hex: 0xE2E8F0), lineWidth: 1)

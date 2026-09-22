@@ -46,7 +46,7 @@ struct BookingsListView: View {
             filterBar
             content
         }
-        .background(Color(hex: 0xF1F3F8).ignoresSafeArea())
+        .background(Color.appScreenBackground.ignoresSafeArea())
         .navigationTitle("Booking")
         .navigationBarTitleDisplayMode(.inline)
         .searchable(
@@ -56,13 +56,13 @@ struct BookingsListView: View {
         )
         .textInputAutocapitalization(.never)
         .autocorrectionDisabled()
-        .toolbarBackground(Color.white, for: .navigationBar)
+        .toolbarBackground(Color.appElevatedSurface, for: .navigationBar)
         .toolbarBackground(.visible, for: .navigationBar)
         .toolbar {
             ToolbarItem(placement: .principal) {
                 Text("Booking")
                     .font(.system(size: 20, weight: .bold))
-                    .foregroundStyle(Color(hex: 0x101828))
+                    .foregroundStyle(Color.appPrimaryText)
             }
 
             ToolbarItemGroup(placement: .topBarTrailing) {
@@ -88,7 +88,7 @@ struct BookingsListView: View {
         }) {
             BookingCreateView()
             .appLibraryNativeSheet([.height(720), .large])
-            .presentationBackground(Color.white)
+            .presentationBackground(Color.appElevatedSurface)
         }
         .sheet(item: $selectedBooking, onDismiss: {
             Task { await load() }
@@ -180,13 +180,13 @@ struct BookingsListView: View {
                     } label: {
                         Text(status.title)
                             .font(.system(size: 13, weight: .semibold))
-                            .foregroundStyle(selectedStatus == status ? .white : Color(hex: 0x475467))
+                            .foregroundStyle(selectedStatus == status ? .white : Color.appSecondaryText)
                             .padding(.horizontal, 16)
                             .frame(height: 34)
                             .background(selectedStatus == status ? Color(hex: 0x0B61CA) : Color.white, in: Capsule())
                             .overlay(
                                 Capsule()
-                                    .stroke(Color(hex: 0xE5E7EB), lineWidth: selectedStatus == status ? 0 : 1)
+                                    .stroke(Color.appSeparator, lineWidth: selectedStatus == status ? 0 : 1)
                             )
                     }
                     .buttonStyle(.plain)
@@ -195,7 +195,7 @@ struct BookingsListView: View {
             .padding(.horizontal, 16)
             .padding(.vertical, 12)
         }
-        .background(Color(hex: 0xF1F3F8))
+        .background(Color.appScreenBackground)
     }
 
     @MainActor
@@ -332,17 +332,17 @@ private struct BookingEmptyState: View {
         VStack(spacing: 12) {
             Image(systemName: systemImage)
                 .font(.system(size: 52, weight: .regular))
-                .foregroundStyle(Color(hex: 0x98A2B3))
+                .foregroundStyle(Color.appTertiaryText)
                 .frame(width: 112, height: 96)
-                .background(Color.white.opacity(0.75), in: RoundedRectangle(cornerRadius: 18, style: .continuous))
+                .background(Color.appSurface.opacity(0.75), in: RoundedRectangle(cornerRadius: 18, style: .continuous))
 
             Text(title)
                 .font(.system(size: 16, weight: .semibold))
-                .foregroundStyle(Color(hex: 0x101828))
+                .foregroundStyle(Color.appPrimaryText)
 
             Text(message)
                 .font(.system(size: 13))
-                .foregroundStyle(Color(hex: 0x667085))
+                .foregroundStyle(Color.appSecondaryText)
                 .multilineTextAlignment(.center)
         }
         .padding(.horizontal, 32)
@@ -388,7 +388,7 @@ private struct BookingDrawerGrid<Content: View>: View {
             content
         }
         .padding(12)
-        .background(Color.white, in: RoundedRectangle(cornerRadius: 16, style: .continuous))
+        .background(Color.appSurface, in: RoundedRectangle(cornerRadius: 16, style: .continuous))
         .overlay {
             RoundedRectangle(cornerRadius: 16, style: .continuous)
                 .stroke(Color(hex: 0xEAECF0), lineWidth: 1)
@@ -404,18 +404,18 @@ private struct BookingDrawerGridItem: View {
         VStack(alignment: .leading, spacing: 5) {
             Text(title)
                 .font(.system(size: 11, weight: .semibold))
-                .foregroundStyle(Color(hex: 0x667085))
+                .foregroundStyle(Color.appSecondaryText)
                 .lineLimit(2)
             Text(value?.nilIfBlank ?? "-")
                 .font(.system(size: 14, weight: .semibold))
-                .foregroundStyle(Color(hex: 0x101828))
+                .foregroundStyle(Color.appPrimaryText)
                 .lineLimit(2)
                 .minimumScaleFactor(0.75)
         }
         .frame(maxWidth: .infinity, alignment: .leading)
         .frame(minHeight: 50, alignment: .topLeading)
         .padding(11)
-        .background(Color(hex: 0xF8FAFC), in: RoundedRectangle(cornerRadius: 11, style: .continuous))
+        .background(Color.appFieldBackground, in: RoundedRectangle(cornerRadius: 11, style: .continuous))
     }
 }
 
@@ -573,7 +573,7 @@ private struct BookingSkeletonCard: View {
         }
         .padding(.horizontal, 16)
         .padding(.vertical, 14)
-        .background(Color.white, in: RoundedRectangle(cornerRadius: 12, style: .continuous))
+        .background(Color.appSurface, in: RoundedRectangle(cornerRadius: 12, style: .continuous))
         .overlay(
             RoundedRectangle(cornerRadius: 12, style: .continuous)
                 .stroke(Color(hex: 0xEAECF0), lineWidth: 1)
@@ -582,7 +582,7 @@ private struct BookingSkeletonCard: View {
 
     private func skeleton(width: CGFloat, height: CGFloat) -> some View {
         RoundedRectangle(cornerRadius: height / 2, style: .continuous)
-            .fill(Color(hex: 0xE5E7EB))
+            .fill(Color.appSeparator)
             .frame(width: width, height: height)
             .redacted(reason: .placeholder)
     }
@@ -620,7 +620,7 @@ private struct BookingDetailView: View {
                     .padding(.top, 18)
                     .padding(.horizontal, 16)
                     .padding(.bottom, 12)
-                    .background(Color.white)
+                    .background(Color.appSurface)
                     .overlay(alignment: .bottom) {
                         Rectangle()
                             .fill(Color(hex: 0xEAECF0))
@@ -668,13 +668,13 @@ private struct BookingDetailView: View {
                 VStack(alignment: .leading, spacing: 4) {
                     Text(booking.bookingRefNo?.nilIfBlank ?? "Booking")
                         .font(.system(size: 18, weight: .bold))
-                        .foregroundStyle(Color(hex: 0x101828))
+                        .foregroundStyle(Color.appPrimaryText)
                         .lineLimit(1)
                         .minimumScaleFactor(0.72)
 
                     Text(booking.clientName?.nilIfBlank ?? "Unnamed client")
                         .font(.system(size: 13, weight: .semibold))
-                        .foregroundStyle(Color(hex: 0x475467))
+                        .foregroundStyle(Color.appSecondaryText)
                         .lineLimit(1)
                 }
 
@@ -700,9 +700,9 @@ private struct BookingDetailView: View {
                 } label: {
                     Image(systemName: "xmark")
                         .font(.system(size: 13, weight: .bold))
-                        .foregroundStyle(Color(hex: 0x344054))
+                        .foregroundStyle(Color.appPrimaryText)
                         .frame(width: 34, height: 34)
-                        .background(Color(hex: 0xF2F4F7), in: Circle())
+                        .background(Color.appFieldBackground, in: Circle())
                 }
                 .buttonStyle(.plain)
                 .accessibilityLabel("Close")
@@ -720,7 +720,7 @@ private struct BookingDetailView: View {
                 }
             }
             .font(.system(size: 11, weight: .medium))
-            .foregroundStyle(Color(hex: 0x667085))
+            .foregroundStyle(Color.appSecondaryText)
         }
     }
 
@@ -733,10 +733,10 @@ private struct BookingDetailView: View {
                     } label: {
                         Text(tab.title)
                             .font(.system(size: 12, weight: .semibold))
-                            .foregroundStyle(selectedTab == tab ? .white : Color(hex: 0x475467))
+                            .foregroundStyle(selectedTab == tab ? .white : Color.appSecondaryText)
                             .padding(.horizontal, 14)
                             .frame(height: 36)
-                            .background(selectedTab == tab ? Color(hex: 0x0B61CA) : Color(hex: 0xF8FAFC), in: Capsule())
+                            .background(selectedTab == tab ? Color(hex: 0x0B61CA) : Color.appFieldBackground, in: Capsule())
                             .overlay(
                                 Capsule()
                                     .stroke(Color(hex: 0xEAECF0), lineWidth: selectedTab == tab ? 0 : 1)
@@ -788,18 +788,18 @@ private struct BookingDetailView: View {
                 VStack(alignment: .leading, spacing: 10) {
                     Label("Approval Timeline", systemImage: "checkmark.seal")
                         .font(.system(size: 14, weight: .bold))
-                        .foregroundStyle(Color(hex: 0x101828))
+                        .foregroundStyle(Color.appPrimaryText)
                     Text(
                         booking.displayStatus.lowercased().contains("draft")
                         ? "Approval starts when the draft is submitted for confirmation."
                         : "Approval status will update as managers review this booking."
                     )
                     .font(.system(size: 13))
-                    .foregroundStyle(Color(hex: 0x667085))
+                    .foregroundStyle(Color.appSecondaryText)
                     .fixedSize(horizontal: false, vertical: true)
                 }
                 .padding(16)
-                .background(Color.white, in: RoundedRectangle(cornerRadius: 14, style: .continuous))
+                .background(Color.appSurface, in: RoundedRectangle(cornerRadius: 14, style: .continuous))
                 .overlay {
                     RoundedRectangle(cornerRadius: 14, style: .continuous)
                         .stroke(Color(hex: 0xEAECF0), lineWidth: 1)
@@ -828,12 +828,12 @@ private struct BookingDetailView: View {
             if let stamp = formattedDrawerEpoch(cancelledAt) {
                 Text(stamp)
                     .font(.system(size: 11))
-                    .foregroundStyle(Color(hex: 0x667085))
+                    .foregroundStyle(Color.appSecondaryText)
             }
             if let reason = booking.selfCancellationReason?.nilIfBlank {
                 Text(reason)
                     .font(.system(size: 13))
-                    .foregroundStyle(Color(hex: 0x475467))
+                    .foregroundStyle(Color.appSecondaryText)
                     .fixedSize(horizontal: false, vertical: true)
             }
         }
@@ -859,7 +859,7 @@ private struct BookingDetailView: View {
             HStack {
                 Label("Approval Timeline", systemImage: "checkmark.seal")
                     .font(.system(size: 14, weight: .bold))
-                    .foregroundStyle(Color(hex: 0x101828))
+                    .foregroundStyle(Color.appPrimaryText)
                 Spacer()
                 if let totalSteps, totalSteps > 0 {
                     Text("Step \(min(currentStep, totalSteps)) / \(totalSteps)")
@@ -878,7 +878,7 @@ private struct BookingDetailView: View {
                     isLast: steps.isEmpty,
                     title: Text("Submitted by \(request?.requestedBy?.nilIfBlank ?? "system")")
                         .font(.system(size: 13, weight: .semibold))
-                        .foregroundColor(Color(hex: 0x101828)),
+                        .foregroundColor(Color.appPrimaryText),
                     subtitle: formattedDrawerTimestamp(request?.requestedOn) ?? formattedDrawerEpoch(booking.createdAt),
                     pending: nil,
                     comment: nil
@@ -903,7 +903,7 @@ private struct BookingDetailView: View {
         }
         .padding(16)
         .frame(maxWidth: .infinity, alignment: .leading)
-        .background(Color.white, in: RoundedRectangle(cornerRadius: 14, style: .continuous))
+        .background(Color.appSurface, in: RoundedRectangle(cornerRadius: 14, style: .continuous))
         .overlay {
             RoundedRectangle(cornerRadius: 14, style: .continuous)
                 .stroke(Color(hex: 0xEAECF0), lineWidth: 1)
@@ -939,7 +939,7 @@ private struct BookingDetailView: View {
         case .current: return (Color(hex: 0xF79009), "clock.fill")
         case .rejected: return (Color(hex: 0xD92D20), "xmark.circle.fill")
         case .cancelled: return (Color(hex: 0xD92D20), "nosign")
-        case .future: return (Color(hex: 0x98A2B3), "circle")
+        case .future: return (Color.appTertiaryText, "circle")
         }
     }
 
@@ -951,7 +951,7 @@ private struct BookingDetailView: View {
     ) -> Text {
         let base = Text("Step \(order) — \(role)")
             .font(.system(size: 13, weight: .semibold))
-            .foregroundColor(Color(hex: 0x101828))
+            .foregroundColor(Color.appPrimaryText)
         switch state {
         case .current:
             return base + Text("  Awaiting")
@@ -1016,22 +1016,22 @@ private struct BookingDetailView: View {
                 if let subtitle = subtitle?.nilIfBlank {
                     Text(subtitle)
                         .font(.system(size: 11))
-                        .foregroundStyle(Color(hex: 0x667085))
+                        .foregroundStyle(Color.appSecondaryText)
                 }
                 if let pending = pending?.nilIfBlank {
                     Text("Pending: \(pending)")
                         .font(.system(size: 11))
-                        .foregroundStyle(Color(hex: 0x667085))
+                        .foregroundStyle(Color.appSecondaryText)
                 }
                 if let comment = comment?.nilIfBlank {
                     Text(comment)
                         .font(.system(size: 12))
-                        .foregroundStyle(Color(hex: 0x475467))
+                        .foregroundStyle(Color.appSecondaryText)
                         .fixedSize(horizontal: false, vertical: true)
                         .padding(.horizontal, 8)
                         .padding(.vertical, 6)
                         .frame(maxWidth: .infinity, alignment: .leading)
-                        .background(Color(hex: 0xF2F4F7), in: RoundedRectangle(cornerRadius: 8, style: .continuous))
+                        .background(Color.appFieldBackground, in: RoundedRectangle(cornerRadius: 8, style: .continuous))
                 }
             }
             .frame(maxWidth: .infinity, alignment: .leading)
@@ -1264,7 +1264,7 @@ private struct BookingDetailView: View {
     private func drawerSectionHeader(_ title: String, systemImage: String) -> some View {
         Label(title, systemImage: systemImage)
             .font(.system(size: 13, weight: .bold))
-            .foregroundStyle(Color(hex: 0x344054))
+            .foregroundStyle(Color.appPrimaryText)
             .padding(.top, 8)
             .padding(.horizontal, 2)
     }
@@ -1292,7 +1292,7 @@ private struct BookingDetailView: View {
                 VStack(alignment: .leading, spacing: 7) {
                     Text(title)
                         .font(.system(size: 12, weight: .semibold))
-                        .foregroundStyle(Color(hex: 0x667085))
+                        .foregroundStyle(Color.appSecondaryText)
 
                     TextField(title, text: text, axis: axis)
                         .font(.system(size: 15, weight: .medium))
@@ -1303,21 +1303,21 @@ private struct BookingDetailView: View {
                         .lineLimit(axis == .vertical ? 3...6 : 1...1)
                         .padding(.horizontal, 14)
                         .frame(minHeight: axis == .vertical ? 78 : 50)
-                        .background(Color.white, in: RoundedRectangle(cornerRadius: 12, style: .continuous))
+                        .background(Color.appSurface, in: RoundedRectangle(cornerRadius: 12, style: .continuous))
                         .overlay {
                             RoundedRectangle(cornerRadius: 12, style: .continuous)
-                                .stroke(Color(hex: 0xD0D5DD), lineWidth: 1)
+                                .stroke(Color.appSeparator, lineWidth: 1)
                         }
                 }
             } else {
                 VStack(alignment: .leading, spacing: 6) {
                     Text(title)
                         .font(.system(size: 11, weight: .semibold))
-                        .foregroundStyle(Color(hex: 0x667085))
+                        .foregroundStyle(Color.appSecondaryText)
 
                     Text(displayValue)
                         .font(.system(size: 15, weight: .semibold))
-                        .foregroundStyle(displayValue == "-" ? Color(hex: 0x98A2B3) : Color(hex: 0x101828))
+                        .foregroundStyle(displayValue == "-" ? Color.appTertiaryText : Color.appPrimaryText)
                         .frame(maxWidth: .infinity, alignment: .leading)
                         .fixedSize(horizontal: false, vertical: true)
                         .textSelection(.enabled)
@@ -1325,7 +1325,7 @@ private struct BookingDetailView: View {
                 .padding(.horizontal, 14)
                 .padding(.vertical, 12)
                 .frame(maxWidth: .infinity, minHeight: 62, alignment: .leading)
-                .background(Color.white, in: RoundedRectangle(cornerRadius: 13, style: .continuous))
+                .background(Color.appSurface, in: RoundedRectangle(cornerRadius: 13, style: .continuous))
                 .overlay {
                     RoundedRectangle(cornerRadius: 13, style: .continuous)
                         .stroke(Color(hex: 0xEAECF0), lineWidth: 1)
@@ -1364,7 +1364,7 @@ private struct BookingDetailView: View {
                 .padding(.top, 14)
                 .padding(.bottom, 20)
             }
-            .background(Color.white)
+            .background(Color.appSurface)
         }
     }
 
@@ -1521,7 +1521,7 @@ private struct BookingUpdateSheet: View {
                         .padding(.horizontal, 16)
                 }
             }
-            .background(Color(hex: 0xF1F3F8).ignoresSafeArea())
+            .background(Color.appScreenBackground.ignoresSafeArea())
             .navigationTitle("Update Booking")
             .navigationBarTitleDisplayMode(.inline)
             .toolbar {
@@ -1567,12 +1567,12 @@ private struct BookingDetailHero: View {
                 VStack(alignment: .leading, spacing: 3) {
                     Text(booking.clientName?.nilIfBlank ?? "Unnamed client")
                         .font(.system(size: 18, weight: .semibold))
-                        .foregroundStyle(Color(hex: 0x101828))
+                        .foregroundStyle(Color.appPrimaryText)
                         .lineLimit(1)
 
                     Text(booking.bookingRefNo?.nilIfBlank ?? "Reference not available")
                         .font(.system(size: 12))
-                        .foregroundStyle(Color(hex: 0x667085))
+                        .foregroundStyle(Color.appSecondaryText)
                         .lineLimit(1)
                 }
 
@@ -1587,7 +1587,7 @@ private struct BookingDetailHero: View {
             }
         }
         .padding(16)
-        .background(Color.white, in: RoundedRectangle(cornerRadius: 14, style: .continuous))
+        .background(Color.appSurface, in: RoundedRectangle(cornerRadius: 14, style: .continuous))
         .overlay(
             RoundedRectangle(cornerRadius: 14, style: .continuous)
                 .stroke(Color(hex: 0xEAECF0), lineWidth: 1)
@@ -1603,16 +1603,16 @@ private struct BookingMetricChip: View {
         VStack(alignment: .leading, spacing: 4) {
             Text(title)
                 .font(.system(size: 11, weight: .medium))
-                .foregroundStyle(Color(hex: 0x667085))
+                .foregroundStyle(Color.appSecondaryText)
             Text(value?.nilIfBlank ?? "-")
                 .font(.system(size: 13, weight: .semibold))
-                .foregroundStyle(Color(hex: 0x101828))
+                .foregroundStyle(Color.appPrimaryText)
                 .lineLimit(1)
                 .minimumScaleFactor(0.72)
         }
         .frame(maxWidth: .infinity, alignment: .leading)
         .padding(12)
-        .background(Color(hex: 0xF9FAFB), in: RoundedRectangle(cornerRadius: 10, style: .continuous))
+        .background(Color.appFieldBackground, in: RoundedRectangle(cornerRadius: 10, style: .continuous))
     }
 }
 
@@ -1624,14 +1624,14 @@ private struct BookingDetailSection<Content: View>: View {
         VStack(alignment: .leading, spacing: 12) {
             Text(title)
                 .font(.system(size: 13, weight: .semibold))
-                .foregroundStyle(Color(hex: 0x101828))
+                .foregroundStyle(Color.appPrimaryText)
 
             VStack(spacing: 10) {
                 content
             }
         }
         .padding(16)
-        .background(Color.white, in: RoundedRectangle(cornerRadius: 14, style: .continuous))
+        .background(Color.appSurface, in: RoundedRectangle(cornerRadius: 14, style: .continuous))
         .overlay(
             RoundedRectangle(cornerRadius: 14, style: .continuous)
                 .stroke(Color(hex: 0xEAECF0), lineWidth: 1)
@@ -1647,12 +1647,12 @@ private struct BookingDetailLine: View {
         HStack(alignment: .firstTextBaseline, spacing: 12) {
             Text(title)
                 .font(.system(size: 12, weight: .medium))
-                .foregroundStyle(Color(hex: 0x667085))
+                .foregroundStyle(Color.appSecondaryText)
                 .frame(width: 104, alignment: .leading)
 
             Text(value?.nilIfBlank ?? "-")
                 .font(.system(size: 13, weight: .medium))
-                .foregroundStyle(Color(hex: 0x101828))
+                .foregroundStyle(Color.appPrimaryText)
                 .frame(maxWidth: .infinity, alignment: .trailing)
                 .multilineTextAlignment(.trailing)
         }
@@ -1667,14 +1667,14 @@ private struct BookingEditSection<Content: View>: View {
         VStack(alignment: .leading, spacing: 14) {
             Text(title)
                 .font(.system(size: 13, weight: .semibold))
-                .foregroundStyle(Color(hex: 0x101828))
+                .foregroundStyle(Color.appPrimaryText)
 
             VStack(alignment: .leading, spacing: 14) {
                 content
             }
         }
         .padding(16)
-        .background(Color.white, in: RoundedRectangle(cornerRadius: 14, style: .continuous))
+        .background(Color.appSurface, in: RoundedRectangle(cornerRadius: 14, style: .continuous))
         .overlay(
             RoundedRectangle(cornerRadius: 14, style: .continuous)
                 .stroke(Color(hex: 0xEAECF0), lineWidth: 1)
@@ -1693,7 +1693,7 @@ private struct BookingEditField: View {
         VStack(alignment: .leading, spacing: 6) {
             Text(title)
                 .font(.system(size: 12, weight: .medium))
-                .foregroundStyle(Color(hex: 0x475467))
+                .foregroundStyle(Color.appSecondaryText)
 
             TextField(placeholder, text: $text, axis: axis)
                 .font(.system(size: 13, weight: .medium))
@@ -1702,7 +1702,7 @@ private struct BookingEditField: View {
                 .padding(.horizontal, 14)
                 .padding(.vertical, axis == .vertical ? 12 : 0)
                 .frame(minHeight: 48)
-                .background(Color(hex: 0xF9FAFB), in: RoundedRectangle(cornerRadius: 12, style: .continuous))
+                .background(Color.appFieldBackground, in: RoundedRectangle(cornerRadius: 12, style: .continuous))
         }
     }
 }
@@ -1722,7 +1722,7 @@ private struct BookingRow: View {
                 VStack(alignment: .leading, spacing: 4) {
                     Text(booking.clientName?.nilIfBlank ?? "Unnamed client")
                         .font(.system(size: 16, weight: .bold))
-                        .foregroundStyle(Color(hex: 0x101828))
+                        .foregroundStyle(Color.appPrimaryText)
                         .lineLimit(1)
 
                     HStack(spacing: 5) {
@@ -1732,7 +1732,7 @@ private struct BookingRow: View {
                             .font(.system(size: 11, weight: .medium, design: .monospaced))
                             .lineLimit(1)
                     }
-                    .foregroundStyle(Color(hex: 0x667085))
+                    .foregroundStyle(Color.appSecondaryText)
                 }
 
                 Spacer(minLength: 6)
@@ -1749,10 +1749,10 @@ private struct BookingRow: View {
                     VStack(alignment: .leading, spacing: 2) {
                         Text("PROJECT")
                             .font(.system(size: 9, weight: .bold))
-                            .foregroundStyle(Color(hex: 0x98A2B3))
+                            .foregroundStyle(Color.appTertiaryText)
                         Text(projectText)
                             .font(.system(size: 13, weight: .semibold))
-                            .foregroundStyle(Color(hex: 0x344054))
+                            .foregroundStyle(Color.appPrimaryText)
                             .lineLimit(1)
                     }
                 }
@@ -1765,22 +1765,22 @@ private struct BookingRow: View {
                 VStack(alignment: .leading, spacing: 2) {
                     Text("PLOT")
                         .font(.system(size: 9, weight: .bold))
-                        .foregroundStyle(Color(hex: 0x98A2B3))
+                        .foregroundStyle(Color.appTertiaryText)
                     Text(plotText)
                         .font(.system(size: 13, weight: .semibold))
-                        .foregroundStyle(Color(hex: 0x344054))
+                        .foregroundStyle(Color.appPrimaryText)
                         .lineLimit(1)
                 }
                 .frame(minWidth: 54, alignment: .leading)
             }
             .padding(.horizontal, 12)
             .frame(height: 52)
-            .background(Color(hex: 0xF8FAFC), in: RoundedRectangle(cornerRadius: 11, style: .continuous))
+            .background(Color.appFieldBackground, in: RoundedRectangle(cornerRadius: 11, style: .continuous))
 
             HStack(alignment: .center, spacing: 10) {
                 Label(formattedDate, systemImage: "calendar")
                     .font(.system(size: 12, weight: .medium))
-                    .foregroundStyle(Color(hex: 0x667085))
+                    .foregroundStyle(Color.appSecondaryText)
                     .lineLimit(1)
 
                 Spacer()
@@ -1788,7 +1788,7 @@ private struct BookingRow: View {
                 VStack(alignment: .trailing, spacing: 2) {
                     Text("BOOKING VALUE")
                         .font(.system(size: 9, weight: .bold))
-                        .foregroundStyle(Color(hex: 0x98A2B3))
+                        .foregroundStyle(Color.appTertiaryText)
                     Text(amountText)
                         .font(.system(size: 14, weight: .bold))
                         .foregroundStyle(Color(hex: 0x0B61CA))
@@ -1796,11 +1796,11 @@ private struct BookingRow: View {
 
                 Image(systemName: "chevron.right")
                     .font(.system(size: 11, weight: .bold))
-                    .foregroundStyle(Color(hex: 0x98A2B3))
+                    .foregroundStyle(Color.appTertiaryText)
             }
         }
         .padding(14)
-        .background(Color.white, in: RoundedRectangle(cornerRadius: 16, style: .continuous))
+        .background(Color.appSurface, in: RoundedRectangle(cornerRadius: 16, style: .continuous))
         .overlay {
             RoundedRectangle(cornerRadius: 16, style: .continuous)
                 .stroke(Color(hex: 0xEAECF0), lineWidth: 1)
@@ -1850,7 +1850,7 @@ private struct BookingRow: View {
         case "cancelled", "canceled", "rejected":
             return Color(hex: 0xD92D20)
         case "draft":
-            return Color(hex: 0x667085)
+            return Color.appSecondaryText
         default:
             return Color(hex: 0x0B61CA)
         }
@@ -1880,7 +1880,7 @@ private struct BookingStatusPill: View {
     private var colors: (background: Color, foreground: Color) {
         switch normalized {
         case "draft":
-            return (Color(hex: 0xF2F4F7), Color(hex: 0x475467))
+            return (Color.appFieldBackground, Color.appSecondaryText)
         case "pending", "pending confirmation":
             return (Color(hex: 0xFEF0C7), Color(hex: 0xB54708))
         case "confirmed", "approved":
@@ -1888,7 +1888,7 @@ private struct BookingStatusPill: View {
         case "cancelled", "canceled", "rejected":
             return (Color(hex: 0xFEE4E2), Color(hex: 0xB42318))
         default:
-            return (Color(hex: 0xF2F4F7), Color(hex: 0x475467))
+            return (Color.appFieldBackground, Color.appSecondaryText)
         }
     }
 

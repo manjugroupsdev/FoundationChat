@@ -44,7 +44,7 @@ struct ProjectTasksView: View {
                                 minHeight: max(proxy.size.height - (headerHeight - panelOverlap), 0),
                                 alignment: .top
                             )
-                            .background(Color.white)
+                            .background(Color.appSurface)
                             .clipShape(.rect(topLeadingRadius: 32, topTrailingRadius: 32))
                     }
                 }
@@ -124,7 +124,7 @@ struct ProjectTasksView: View {
                 .frame(maxWidth: .infinity)
         }
         .frame(maxWidth: .infinity, alignment: .top)
-        .background(Color.white)
+        .background(Color.appSurface)
         .clipShape(.rect(topLeadingRadius: 32, topTrailingRadius: 32))
     }
 
@@ -139,12 +139,12 @@ struct ProjectTasksView: View {
                     } label: {
                         Text(filter.label)
                             .font(.system(size: 14, weight: selectedFilter == filter ? .semibold : .medium))
-                            .foregroundStyle(selectedFilter == filter ? .white : Color(hex: 0x475467))
+                            .foregroundStyle(selectedFilter == filter ? .white : Color.appSecondaryText)
                             .lineLimit(1)
                             .fixedSize(horizontal: true, vertical: false)
                             .padding(.horizontal, 14)
                             .frame(height: 34)
-                            .background(selectedFilter == filter ? Color(hex: 0x0B61CA) : Color(hex: 0xF2F4F7), in: Capsule())
+                            .background(selectedFilter == filter ? Color(hex: 0x0B61CA) : Color.appFieldBackground, in: Capsule())
                     }
                     .buttonStyle(.plain)
                 }
@@ -221,12 +221,12 @@ private struct ProjectTaskCard: View {
                 VStack(alignment: .leading, spacing: 3) {
                     Text(task.displayTitle)
                         .font(.system(size: 16, weight: .semibold))
-                        .foregroundStyle(Color(hex: 0x101828))
+                        .foregroundStyle(Color.appPrimaryText)
                         .lineLimit(2)
 
                     Text(task.displayProject)
                         .font(.system(size: 12, weight: .medium))
-                        .foregroundStyle(Color(hex: 0x667085))
+                        .foregroundStyle(Color.appSecondaryText)
                         .lineLimit(1)
                 }
 
@@ -238,14 +238,14 @@ private struct ProjectTaskCard: View {
             if let description = task.displayDescription {
                 Text(description)
                     .font(.system(size: 13, weight: .regular))
-                    .foregroundStyle(Color(hex: 0x667085))
+                    .foregroundStyle(Color.appSecondaryText)
                     .lineLimit(2)
             }
 
             VStack(alignment: .trailing, spacing: 5) {
                 Text("\(task.displayProgress)%")
                     .font(.system(size: 13, weight: .medium))
-                    .foregroundStyle(Color(hex: 0x344054))
+                    .foregroundStyle(Color.appPrimaryText)
                     .frame(maxWidth: .infinity, alignment: .trailing)
 
                 GeometryReader { proxy in
@@ -267,13 +267,13 @@ private struct ProjectTaskCard: View {
                 if let dueDate = task.displayDueDate {
                     Label(projectTaskDisplayDate(dueDate), systemImage: "calendar")
                         .font(.system(size: 12, weight: .medium))
-                        .foregroundStyle(Color(hex: 0x667085))
+                        .foregroundStyle(Color.appSecondaryText)
                 }
             }
         }
         .padding(16)
         .frame(maxWidth: .infinity, minHeight: 150, alignment: .topLeading)
-        .background(Color.white, in: RoundedRectangle(cornerRadius: 18, style: .continuous))
+        .background(Color.appSurface, in: RoundedRectangle(cornerRadius: 18, style: .continuous))
         .overlay {
             RoundedRectangle(cornerRadius: 18, style: .continuous)
                 .stroke(Color(hex: 0xEEF2F7), lineWidth: 1)
@@ -343,11 +343,11 @@ private struct ProjectTasksEmptyState: View {
 
             Text("No Tasks Available")
                 .font(.system(size: 23, weight: .bold))
-                .foregroundStyle(Color(hex: 0x101828))
+                .foregroundStyle(Color.appPrimaryText)
 
             Text("It looks like you don't have any tasks scheduled at the moment.")
                 .font(.system(size: 15, weight: .medium))
-                .foregroundStyle(Color(hex: 0x98A2B3))
+                .foregroundStyle(Color.appTertiaryText)
                 .multilineTextAlignment(.center)
                 .padding(.horizontal, 30)
         }
@@ -357,7 +357,7 @@ private struct ProjectTasksEmptyState: View {
 private struct ProjectTaskSkeletonCard: View {
     var body: some View {
         RoundedRectangle(cornerRadius: 12, style: .continuous)
-            .fill(Color.white)
+            .fill(Color.appSurface)
             .frame(height: 140)
             .redacted(reason: .placeholder)
     }

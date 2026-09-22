@@ -150,9 +150,12 @@ struct NotificationsListView: View {
             type: notification.type,
             title: notification.title
         ) else { return .clear }
+        // A translucent wash rather than a fixed peach: the literal light
+        // tint stayed bright in dark mode and the row's primary-label text
+        // turned white on it, leaving approvals and tasks unreadable.
         return notification.isUnread
-            ? Color(red: 1.0, green: 0.93, blue: 0.83)   // #FFEDD5
-            : Color(red: 1.0, green: 0.97, blue: 0.93)   // #FFF7ED
+            ? Color.orange.opacity(0.18)
+            : Color.orange.opacity(0.09)
     }
 
     private func colorFromString(_ name: String) -> Color {

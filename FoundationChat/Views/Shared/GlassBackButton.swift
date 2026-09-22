@@ -7,9 +7,9 @@ struct GlassBackButton: View {
         Button(action: action) {
             Image(systemName: "chevron.left")
                 .font(.system(size: 28, weight: .regular))
-                .foregroundStyle(Color(hex: 0x101828))
+                .foregroundStyle(Color.appPrimaryText)
                 .frame(width: 72, height: 72)
-                .background(Color.white.opacity(0.92), in: Circle())
+                .background(Color.appSurface.opacity(0.92), in: Circle())
                 .shadow(color: .black.opacity(0.04), radius: 18, x: 0, y: 8)
                 .contentShape(Circle())
         }

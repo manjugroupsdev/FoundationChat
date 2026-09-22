@@ -35,7 +35,7 @@ struct LoansView: View {
             Color(hex: 0x0B61CA)
                 .ignoresSafeArea(edges: .top)
 
-            Color(hex: 0xF1F3F8)
+            Color.appScreenBackground
                 .ignoresSafeArea(edges: .bottom)
 
             header
@@ -66,7 +66,7 @@ struct LoansView: View {
             }
             .appFormActivity()
             .appLibraryNativeSheet([.height(720), .large])
-            .presentationBackground(Color.white)
+            .presentationBackground(Color.appElevatedSurface)
         }
         .sheet(isPresented: $showingSalaryAdvance) {
             SalaryAdvanceRequestSheet {
@@ -74,7 +74,7 @@ struct LoansView: View {
             }
             .appFormActivity()
             .appLibraryNativeSheet([.height(520), .large])
-            .presentationBackground(Color.white)
+            .presentationBackground(Color.appElevatedSurface)
         }
         .sheet(item: $signatureApprovalLoan) { loan in
             LoanSignatureApprovalSheet(loan: loan) {
@@ -184,7 +184,7 @@ struct LoansView: View {
             }
         }
         .padding(.bottom, 32)
-        .background(Color.white)
+        .background(Color.appSurface)
         .clipShape(.rect(topLeadingRadius: 30, topTrailingRadius: 30))
         .padding(.top, selectedTab == .salary ? -36 : -44)
     }
@@ -313,7 +313,7 @@ struct LoansView: View {
     private var previousLoansTitle: some View {
         Text("Previous Loans")
             .font(.system(size: 20, weight: .bold))
-            .foregroundStyle(Color(hex: 0x101828))
+            .foregroundStyle(Color.appPrimaryText)
             .frame(maxWidth: .infinity, alignment: .leading)
             .padding(.horizontal, 20)
     }
@@ -322,7 +322,7 @@ struct LoansView: View {
         HStack {
             Text(title)
                 .font(.system(size: 18, weight: .bold))
-                .foregroundStyle(Color(hex: 0x101828))
+                .foregroundStyle(Color.appPrimaryText)
             Spacer()
             if showsViewAll {
                 Text("View All")
@@ -331,7 +331,7 @@ struct LoansView: View {
             } else {
                 Text("\(count)")
                     .font(.system(size: 13, weight: .semibold))
-                    .foregroundStyle(Color(hex: 0x667085))
+                    .foregroundStyle(Color.appSecondaryText)
             }
         }
         .padding(.horizontal, 20)
@@ -361,7 +361,7 @@ struct LoansView: View {
 
                 Text("This loan request will be cancelled and removed from your visible loan history.")
                     .font(.system(size: 14, weight: .regular))
-                    .foregroundStyle(Color(hex: 0x475467))
+                    .foregroundStyle(Color.appSecondaryText)
                     .multilineTextAlignment(.center)
                     .lineSpacing(3)
                     .padding(.top, 12)
@@ -372,13 +372,13 @@ struct LoansView: View {
                     } label: {
                         Text("No, Go Back")
                             .font(.system(size: 14, weight: .semibold))
-                            .foregroundStyle(Color(hex: 0x344054))
+                            .foregroundStyle(Color.appPrimaryText)
                             .frame(maxWidth: .infinity)
                             .frame(height: 48)
-                            .background(Color.white, in: RoundedRectangle(cornerRadius: 12, style: .continuous))
+                            .background(Color.appSurface, in: RoundedRectangle(cornerRadius: 12, style: .continuous))
                             .overlay {
                                 RoundedRectangle(cornerRadius: 12, style: .continuous)
-                                    .stroke(Color(hex: 0xD0D5DD), lineWidth: 1)
+                                    .stroke(Color.appSeparator, lineWidth: 1)
                             }
                     }
                     .buttonStyle(.plain)
@@ -400,7 +400,7 @@ struct LoansView: View {
                 .padding(.top, 24)
             }
             .padding(24)
-            .background(Color.white, in: RoundedRectangle(cornerRadius: 20, style: .continuous))
+            .background(Color.appSurface, in: RoundedRectangle(cornerRadius: 20, style: .continuous))
             .padding(.horizontal, 24)
         }
     }
@@ -418,7 +418,7 @@ struct LoansView: View {
                         .font(.system(size: 18, weight: .bold))
                     Text(selectedTab == .salary ? "Request advance from this tab" : "Active loan card appears here")
                         .font(.system(size: 13))
-                        .foregroundStyle(Color(hex: 0x667085))
+                        .foregroundStyle(Color.appSecondaryText)
                 }
                 Spacer()
             }
@@ -432,14 +432,14 @@ struct LoansView: View {
         .padding(.top, 18)
         .padding(.bottom, 16)
         .frame(maxWidth: .infinity, alignment: .leading)
-        .background(Color.white)
+        .background(Color.appSurface)
     }
 
     private func loanSectionTitle(_ title: String, count: Int, showsViewAll: Bool = false) -> some View {
         HStack {
             Text(title)
                 .font(.system(size: 18, weight: .bold))
-                .foregroundStyle(Color(hex: 0x101828))
+                .foregroundStyle(Color.appPrimaryText)
             Spacer()
             if showsViewAll {
                 Text("View All")
@@ -448,7 +448,7 @@ struct LoansView: View {
             } else {
                 Text("\(count)")
                     .font(.system(size: 13, weight: .semibold))
-                    .foregroundStyle(Color(hex: 0x667085))
+                    .foregroundStyle(Color.appSecondaryText)
             }
         }
         .padding(.horizontal, 20)
@@ -458,14 +458,14 @@ struct LoansView: View {
         VStack(alignment: .leading, spacing: 4) {
             Text(title)
                 .font(.system(size: 12, weight: .medium))
-                .foregroundStyle(Color(hex: 0x667085))
+                .foregroundStyle(Color.appSecondaryText)
             Text(value)
                 .font(.system(size: 18, weight: .bold))
-                .foregroundStyle(Color(hex: 0x101828))
+                .foregroundStyle(Color.appPrimaryText)
         }
         .frame(maxWidth: .infinity, alignment: .leading)
         .padding(12)
-        .background(Color(hex: 0xF8FAFC), in: RoundedRectangle(cornerRadius: 12))
+        .background(Color.appFieldBackground, in: RoundedRectangle(cornerRadius: 12))
     }
 
     private var loansControlRow: some View {
@@ -479,7 +479,7 @@ struct LoansView: View {
                     } label: {
                         Text(tab.title)
                             .font(.system(size: 15, weight: selectedTab == tab ? .semibold : .medium))
-                            .foregroundStyle(selectedTab == tab ? .white : Color(hex: 0x475467))
+                            .foregroundStyle(selectedTab == tab ? .white : Color.appSecondaryText)
                             .frame(maxWidth: .infinity)
                             .frame(height: 32)
                             .background(selectedTab == tab ? Color(hex: 0x0B61CA) : Color.clear, in: Capsule())
@@ -500,9 +500,9 @@ struct LoansView: View {
             } label: {
                 Image(systemName: "plus")
                     .font(.system(size: 18, weight: .bold))
-                    .foregroundStyle(Color(hex: 0x101828))
+                    .foregroundStyle(Color.appPrimaryText)
                     .frame(width: 38, height: 38)
-                    .background(Color.white, in: RoundedRectangle(cornerRadius: 10, style: .continuous))
+                    .background(Color.appSurface, in: RoundedRectangle(cornerRadius: 10, style: .continuous))
                     .shadow(color: .black.opacity(0.08), radius: 6, y: 2)
             }
             .buttonStyle(.plain)
@@ -514,15 +514,15 @@ struct LoansView: View {
         VStack(alignment: .leading, spacing: 10) {
             Text("Salary Advance")
                 .font(AppModuleFont.rowTitle)
-                .foregroundStyle(Color(hex: 0x101828))
+                .foregroundStyle(Color.appPrimaryText)
             Text("Use this tab to request an advance against salary. Submitted requests are handled through the same approval flow.")
                 .font(AppModuleFont.rowBody)
-                .foregroundStyle(Color(hex: 0x667085))
+                .foregroundStyle(Color.appSecondaryText)
                 .fixedSize(horizontal: false, vertical: true)
         }
         .padding(16)
         .frame(maxWidth: .infinity, alignment: .leading)
-        .background(Color.white, in: RoundedRectangle(cornerRadius: 14, style: .continuous))
+        .background(Color.appSurface, in: RoundedRectangle(cornerRadius: 14, style: .continuous))
         .padding(.horizontal, 16)
     }
 
@@ -535,7 +535,7 @@ struct LoansView: View {
                 .opacity(0.82)
             Text("No Loans Yet")
                 .font(.system(size: 21, weight: .regular))
-                .foregroundStyle(Color(hex: 0x101828))
+                .foregroundStyle(Color.appPrimaryText)
                 .padding(.top, 2)
             Text(errorMessage ?? "Stay organized by creating or joining teams.\nGroups help you manage tasks, track progress,\nand collaborate with your team in one place.")
                 .font(.system(size: 15, weight: .regular))
@@ -781,7 +781,7 @@ private struct LoanSignatureApprovalSheet: View {
         }
         .frame(maxWidth: .infinity)
         .frame(height: 180)
-        .background(Color.white, in: RoundedRectangle(cornerRadius: 12))
+        .background(Color.appSurface, in: RoundedRectangle(cornerRadius: 12))
         .overlay(RoundedRectangle(cornerRadius: 12).stroke(Color.appSeparator, lineWidth: 1))
         .accessibilityLabel("Saved signature")
     }
@@ -945,10 +945,10 @@ private struct LoanNomineePickerSheet: View {
                 VStack(alignment: .leading, spacing: 3) {
                     Text(title)
                         .font(.system(size: 18, weight: .semibold))
-                        .foregroundStyle(Color(hex: 0x101828))
+                        .foregroundStyle(Color.appPrimaryText)
                     Text("Search and choose staff")
                         .font(.system(size: 12, weight: .regular))
-                        .foregroundStyle(Color(hex: 0x667085))
+                        .foregroundStyle(Color.appSecondaryText)
                 }
                 Spacer()
                 Button {
@@ -956,9 +956,9 @@ private struct LoanNomineePickerSheet: View {
                 } label: {
                     Image(systemName: "xmark")
                         .font(.system(size: 13, weight: .bold))
-                        .foregroundStyle(Color(hex: 0x667085))
+                        .foregroundStyle(Color.appSecondaryText)
                         .frame(width: 34, height: 34)
-                        .background(Color(hex: 0xF2F4F7), in: Circle())
+                        .background(Color.appFieldBackground, in: Circle())
                 }
                 .buttonStyle(.plain)
             }
@@ -975,10 +975,10 @@ private struct LoanNomineePickerSheet: View {
                 VStack(spacing: 10) {
                     Image(systemName: "person.crop.circle.badge.questionmark")
                         .font(.system(size: 34, weight: .medium))
-                        .foregroundStyle(Color(hex: 0x98A2B3))
+                        .foregroundStyle(Color.appTertiaryText)
                     Text("No staff found")
                         .font(.system(size: 15, weight: .semibold))
-                        .foregroundStyle(Color(hex: 0x344054))
+                        .foregroundStyle(Color.appPrimaryText)
                 }
                 .frame(maxWidth: .infinity, maxHeight: .infinity)
             } else {
@@ -998,14 +998,14 @@ private struct LoanNomineePickerSheet: View {
                                     VStack(alignment: .leading, spacing: 3) {
                                         Text(item.displayName)
                                             .font(.system(size: 15, weight: .semibold))
-                                            .foregroundStyle(Color(hex: 0x101828))
+                                            .foregroundStyle(Color.appPrimaryText)
                                             .lineLimit(1)
                                         Text([item.employeeId, item.designation, item.department]
                                             .compactMap { $0?.trimmingCharacters(in: .whitespacesAndNewlines) }
                                             .filter { !$0.isEmpty }
                                             .joined(separator: " · "))
                                             .font(.system(size: 12, weight: .regular))
-                                            .foregroundStyle(Color(hex: 0x667085))
+                                            .foregroundStyle(Color.appSecondaryText)
                                             .lineLimit(1)
                                     }
 
@@ -1029,7 +1029,7 @@ private struct LoanNomineePickerSheet: View {
                 }
             }
         }
-        .background(Color.white.ignoresSafeArea())
+        .background(Color.appSurface.ignoresSafeArea())
     }
 }
 
@@ -1074,7 +1074,7 @@ private struct LoanRequestSheet: View {
                         .padding(.bottom, 10)
                     Text("Information about Loans")
                         .font(.system(size: 13, weight: .medium))
-                        .foregroundStyle(Color(hex: 0x667085))
+                        .foregroundStyle(Color.appSecondaryText)
                         .padding(.bottom, 16)
 
                     nomineeMenuField(title: "Nominee 1 *", selection: $selectedNominee1)
@@ -1140,7 +1140,7 @@ private struct LoanRequestSheet: View {
 
             VStack(spacing: 0) {
                 Divider()
-                    .overlay(Color(hex: 0xD0D5DD))
+                    .overlay(Color.appSeparator)
                 Button {
                     submit()
                 } label: {
@@ -1163,7 +1163,7 @@ private struct LoanRequestSheet: View {
                 .padding(.horizontal, 24)
                 .padding(.top, 14)
                 .padding(.bottom, 20)
-                .background(Color.white)
+                .background(Color.appSurface)
             }
         }
         .appCompactSheetCTAContainer()
@@ -1196,7 +1196,7 @@ private struct LoanRequestSheet: View {
             inputShell(title: title, icon: "person.crop.circle", trailingChevron: true) {
                 Text(selection.wrappedValue?.displayName ?? "Select Nominee")
                     .font(.system(size: 14, weight: .regular))
-                    .foregroundStyle(selection.wrappedValue == nil ? Color(hex: 0x98A2B3) : Color(hex: 0x101828))
+                    .foregroundStyle(selection.wrappedValue == nil ? Color.appTertiaryText : Color.appPrimaryText)
                     .frame(maxWidth: .infinity, alignment: .leading)
             }
         }
@@ -1236,7 +1236,7 @@ private struct LoanRequestSheet: View {
             inputShell(title: title, icon: icon, trailingChevron: true) {
                 Text(value.isEmpty ? placeholder : value)
                     .font(.system(size: 14, weight: .regular))
-                    .foregroundStyle(value.isEmpty ? Color(hex: 0x98A2B3) : Color(hex: 0x101828))
+                    .foregroundStyle(value.isEmpty ? Color.appTertiaryText : Color.appPrimaryText)
                     .frame(maxWidth: .infinity, alignment: .leading)
             }
         }
@@ -1250,7 +1250,7 @@ private struct LoanRequestSheet: View {
             inputShell(title: title, icon: "calendar", trailingChevron: false) {
                 Text(value)
                     .font(.system(size: 14, weight: .regular))
-                    .foregroundStyle(Color(hex: 0x101828))
+                    .foregroundStyle(Color.appPrimaryText)
                     .frame(maxWidth: .infinity, alignment: .leading)
 
                 Image(systemName: "calendar.badge.clock")
@@ -1305,10 +1305,10 @@ private struct LoanDatePickerSheet: View {
                 VStack(alignment: .leading, spacing: 3) {
                     Text(title)
                         .font(.system(size: 18, weight: .semibold))
-                        .foregroundStyle(Color(hex: 0x101828))
+                        .foregroundStyle(Color.appPrimaryText)
                     Text("Choose a date")
                         .font(.system(size: 12, weight: .regular))
-                        .foregroundStyle(Color(hex: 0x667085))
+                        .foregroundStyle(Color.appSecondaryText)
                 }
                 Spacer()
                 Button("Done") {
@@ -1329,7 +1329,7 @@ private struct LoanDatePickerSheet: View {
 
             Spacer(minLength: 0)
         }
-        .background(Color.white.ignoresSafeArea())
+        .background(Color.appSurface.ignoresSafeArea())
     }
 }
 
@@ -1346,7 +1346,7 @@ private extension LoanRequestSheet {
         inputShell(title: title, icon: icon, minHeight: minHeight) {
             TextField(placeholder, text: text, axis: axis)
                 .font(.system(size: 14, weight: .regular))
-                .foregroundStyle(Color(hex: 0x101828))
+                .foregroundStyle(Color.appPrimaryText)
                 .keyboardType(keyboard)
                 .lineLimit(axis == .vertical ? 3...5 : 1...1)
                 .frame(maxWidth: .infinity, minHeight: max(24, minHeight - 20), alignment: .leading)
@@ -1363,26 +1363,26 @@ private extension LoanRequestSheet {
         VStack(alignment: .leading, spacing: 4) {
             Text(title)
                 .font(.system(size: 12, weight: .medium))
-                .foregroundStyle(Color(hex: 0x344054))
+                .foregroundStyle(Color.appPrimaryText)
             HStack(spacing: 10) {
                 Image(systemName: icon)
                     .font(.system(size: 18, weight: .medium))
-                    .foregroundStyle(Color(hex: 0x667085))
+                    .foregroundStyle(Color.appSecondaryText)
                     .frame(width: 20)
                 content()
                 if trailingChevron {
                     Image(systemName: "chevron.down")
                         .font(.system(size: 13, weight: .bold))
-                        .foregroundStyle(Color(hex: 0x667085))
+                        .foregroundStyle(Color.appSecondaryText)
                 }
             }
             .padding(.horizontal, 12)
             .padding(.vertical, minHeight > 44 ? 10 : 0)
             .frame(maxWidth: .infinity, minHeight: minHeight, alignment: .center)
-            .background(Color(hex: 0xF8FAFC), in: RoundedRectangle(cornerRadius: 12, style: .continuous))
+            .background(Color.appFieldBackground, in: RoundedRectangle(cornerRadius: 12, style: .continuous))
             .overlay {
                 RoundedRectangle(cornerRadius: 12, style: .continuous)
-                    .stroke(Color(hex: 0xE5E7EB), lineWidth: 1)
+                    .stroke(Color.appSeparator, lineWidth: 1)
             }
         }
         .padding(.bottom, 12)
@@ -1509,7 +1509,7 @@ private struct SalaryAdvanceRequestSheet: View {
                         .padding(.bottom, 10)
                     Text("Information about Salary Advance")
                         .font(.system(size: 13, weight: .medium))
-                        .foregroundStyle(Color(hex: 0x667085))
+                        .foregroundStyle(Color.appSecondaryText)
                         .padding(.bottom, 16)
 
                     advanceInput(title: "Amount *", placeholder: "Enter Amount", icon: "indianrupeesign.circle", text: $amount, keyboard: .decimalPad)
@@ -1530,7 +1530,7 @@ private struct SalaryAdvanceRequestSheet: View {
 
             VStack(spacing: 0) {
                 Divider()
-                    .overlay(Color(hex: 0xD0D5DD))
+                    .overlay(Color.appSeparator)
                 Button {
                     submit()
                 } label: {
@@ -1553,7 +1553,7 @@ private struct SalaryAdvanceRequestSheet: View {
                 .padding(.horizontal, 24)
                 .padding(.top, 14)
                 .padding(.bottom, 20)
-                .background(Color.white)
+                .background(Color.appSurface)
             }
         }
         .appCompactSheetCTAContainer()
@@ -1571,11 +1571,11 @@ private struct SalaryAdvanceRequestSheet: View {
         VStack(alignment: .leading, spacing: 4) {
             Text(title)
                 .font(.system(size: 12, weight: .medium))
-                .foregroundStyle(Color(hex: 0x344054))
+                .foregroundStyle(Color.appPrimaryText)
             HStack(spacing: 10) {
                 Image(systemName: icon)
                     .font(.system(size: 18, weight: .medium))
-                    .foregroundStyle(Color(hex: 0x667085))
+                    .foregroundStyle(Color.appSecondaryText)
                     .frame(width: 20)
                 TextField(placeholder, text: text, axis: axis)
                     .font(.system(size: 14, weight: .regular))
@@ -1586,10 +1586,10 @@ private struct SalaryAdvanceRequestSheet: View {
             .padding(.horizontal, 12)
             .padding(.vertical, minHeight > 44 ? 10 : 0)
             .frame(maxWidth: .infinity, minHeight: minHeight, alignment: .center)
-            .background(Color(hex: 0xF8FAFC), in: RoundedRectangle(cornerRadius: 12, style: .continuous))
+            .background(Color.appFieldBackground, in: RoundedRectangle(cornerRadius: 12, style: .continuous))
             .overlay {
                 RoundedRectangle(cornerRadius: 12, style: .continuous)
-                    .stroke(Color(hex: 0xE5E7EB), lineWidth: 1)
+                    .stroke(Color.appSeparator, lineWidth: 1)
             }
         }
         .padding(.bottom, 12)
@@ -1643,10 +1643,10 @@ private struct LoanHeroCard: View {
                 VStack(alignment: .leading, spacing: 5) {
                     Text(displayTitle)
                         .font(.system(size: 17, weight: .semibold))
-                        .foregroundStyle(Color(hex: 0x101828))
+                        .foregroundStyle(Color.appPrimaryText)
                     Text(loan.status == .pending ? (loan.loanId.isEmpty ? "—" : loan.loanId) : "Loan ID: \(loan.loanId.isEmpty ? "—" : loan.loanId)")
                         .font(.system(size: 13, weight: .regular))
-                        .foregroundStyle(Color(hex: 0x667085))
+                        .foregroundStyle(Color.appSecondaryText)
                 }
                 Spacer()
                 VStack(spacing: 8) {
@@ -1663,7 +1663,7 @@ private struct LoanHeroCard: View {
                                 .font(.system(size: 14, weight: .semibold))
                                 .foregroundStyle(Color(hex: 0xEF4444))
                                 .frame(width: 34, height: 34)
-                                .background(Color.white, in: RoundedRectangle(cornerRadius: 8, style: .continuous))
+                                .background(Color.appSurface, in: RoundedRectangle(cornerRadius: 8, style: .continuous))
                                 .overlay {
                                     RoundedRectangle(cornerRadius: 8, style: .continuous)
                                         .stroke(Color(hex: 0xFCA5A5), lineWidth: 1)
@@ -1682,7 +1682,7 @@ private struct LoanHeroCard: View {
                     .padding(.top, 4)
             } else {
                 Divider()
-                    .overlay(Color(hex: 0xF2F4F7))
+                    .overlay(Color.appFieldBackground)
 
                 HStack(alignment: .center, spacing: 0) {
                     VStack(alignment: .leading, spacing: 2) {
@@ -1731,7 +1731,7 @@ private struct LoanHeroCard: View {
         .padding(.horizontal, 16)
         .padding(.top, 14)
         .padding(.bottom, loan.status == .pending ? 12 : 16)
-        .background(Color.white)
+        .background(Color.appSurface)
     }
 
     private var loanIcon: String {
@@ -1782,11 +1782,11 @@ private struct AdvanceHeroCard: View {
                 VStack(alignment: .leading, spacing: 3) {
                     Text(displayTitle)
                         .font(.system(size: 15, weight: .semibold))
-                        .foregroundStyle(Color(hex: 0x101828))
+                        .foregroundStyle(Color.appPrimaryText)
                         .lineLimit(1)
                     Text(loan.loanId.isEmpty ? "—" : loan.loanId)
                         .font(.system(size: 12, weight: .regular))
-                        .foregroundStyle(Color(hex: 0x667085))
+                        .foregroundStyle(Color.appSecondaryText)
                         .lineLimit(1)
                 }
 
@@ -1806,7 +1806,7 @@ private struct AdvanceHeroCard: View {
                                 .font(.system(size: 13, weight: .semibold))
                                 .foregroundStyle(Color(hex: 0xEF4444))
                                 .frame(width: 34, height: 34)
-                                .background(Color.white, in: RoundedRectangle(cornerRadius: 8, style: .continuous))
+                                .background(Color.appSurface, in: RoundedRectangle(cornerRadius: 8, style: .continuous))
                                 .overlay {
                                     RoundedRectangle(cornerRadius: 8, style: .continuous)
                                         .stroke(Color(hex: 0xFCA5A5), lineWidth: 1)
@@ -1826,7 +1826,7 @@ private struct AdvanceHeroCard: View {
         .padding(.horizontal, 16)
         .padding(.top, 12)
         .padding(.bottom, 12)
-        .background(Color.white)
+        .background(Color.appSurface)
     }
 
     private var advanceIcon: some View {
@@ -1886,12 +1886,12 @@ private struct AdvanceTrackerPills: View {
             Text(title)
                 .font(.system(size: 12, weight: .medium))
         }
-        .foregroundStyle(isDone ? Color(hex: 0x1BCB0B) : Color(hex: 0x98A2B3))
+        .foregroundStyle(isDone ? Color(hex: 0x1BCB0B) : Color.appTertiaryText)
         .frame(width: 88, height: 30)
-        .background(Color.white, in: RoundedRectangle(cornerRadius: 8, style: .continuous))
+        .background(Color.appSurface, in: RoundedRectangle(cornerRadius: 8, style: .continuous))
         .overlay {
             RoundedRectangle(cornerRadius: 8, style: .continuous)
-                .stroke(isDone ? Color(hex: 0x1BCB0B) : Color(hex: 0xE5E7EB), lineWidth: 1)
+                .stroke(isDone ? Color(hex: 0x1BCB0B) : Color.appSeparator, lineWidth: 1)
         }
     }
 
@@ -1963,20 +1963,20 @@ private struct LoanApprovalTracker: View {
                             VStack(spacing: 7) {
                                 Image(systemName: step.isDone ? "checkmark" : step.icon)
                                     .font(.system(size: step.isDone ? 14 : 17, weight: .semibold))
-                                    .foregroundStyle(step.isDone ? Color(hex: 0x0B61CA) : Color(hex: 0x98A2B3))
+                                    .foregroundStyle(step.isDone ? Color(hex: 0x0B61CA) : Color.appTertiaryText)
                                     .frame(width: 43, height: 43)
                                     .background(Color(hex: step.isDone ? 0xEAF3FF : 0xEEF4FF), in: RoundedRectangle(cornerRadius: 12, style: .continuous))
 
                                 Text(step.title)
                                     .font(.system(size: 8, weight: step.isDone ? .bold : .semibold))
-                                    .foregroundStyle(step.isDone ? Color(hex: 0x0B61CA) : Color(hex: 0x98A2B3))
+                                    .foregroundStyle(step.isDone ? Color(hex: 0x0B61CA) : Color.appTertiaryText)
                                     .lineLimit(1)
                                     .minimumScaleFactor(0.55)
 
                                 if let name = step.name?.trimmingCharacters(in: .whitespacesAndNewlines), !name.isEmpty {
                                     Text(shortName(name))
                                         .font(.system(size: 7, weight: .medium))
-                                        .foregroundStyle(Color(hex: 0x667085))
+                                        .foregroundStyle(Color.appSecondaryText)
                                         .lineLimit(1)
                                         .minimumScaleFactor(0.5)
                                 }
@@ -2053,7 +2053,7 @@ private struct DashedDivider: View {
                         path.move(to: CGPoint(x: 0, y: 0.5))
                         path.addLine(to: CGPoint(x: proxy.size.width, y: 0.5))
                     }
-                    .stroke(Color(hex: 0xE5E7EB), style: StrokeStyle(lineWidth: 1, dash: [5, 5]))
+                    .stroke(Color.appSeparator, style: StrokeStyle(lineWidth: 1, dash: [5, 5]))
                 }
             }
     }
@@ -2075,11 +2075,11 @@ private struct SalaryAdvanceRow: View {
                 VStack(alignment: .leading, spacing: 4) {
                     Text(displayTitle)
                         .font(.system(size: 17, weight: .semibold))
-                        .foregroundStyle(Color(hex: 0x101828))
+                        .foregroundStyle(Color.appPrimaryText)
                         .lineLimit(1)
                     Text(loan.loanId.isEmpty ? "Salary Advance Request" : loan.loanId)
                         .font(.system(size: 13, weight: .regular))
-                        .foregroundStyle(Color(hex: 0x667085))
+                        .foregroundStyle(Color.appSecondaryText)
                         .lineLimit(1)
                 }
 
@@ -2098,7 +2098,7 @@ private struct SalaryAdvanceRow: View {
                             .font(.system(size: 14, weight: .semibold))
                             .foregroundStyle(Color(hex: 0xEF4444))
                             .frame(width: 34, height: 34)
-                            .background(Color.white, in: RoundedRectangle(cornerRadius: 8, style: .continuous))
+                            .background(Color.appSurface, in: RoundedRectangle(cornerRadius: 8, style: .continuous))
                             .overlay {
                                 RoundedRectangle(cornerRadius: 8, style: .continuous)
                                     .stroke(Color(hex: 0xFCA5A5), lineWidth: 1)
@@ -2109,7 +2109,7 @@ private struct SalaryAdvanceRow: View {
             }
 
             Divider()
-                .overlay(Color(hex: 0xF2F4F7))
+                .overlay(Color.appFieldBackground)
 
             HStack(spacing: 0) {
                 metricColumn("Principal", AppModuleFormatters.rupees(loan.principal))
@@ -2121,22 +2121,22 @@ private struct SalaryAdvanceRow: View {
             }
             .padding(.horizontal, 12)
             .padding(.vertical, 12)
-            .background(Color(hex: 0xF8FAFC), in: RoundedRectangle(cornerRadius: 14, style: .continuous))
+            .background(Color.appFieldBackground, in: RoundedRectangle(cornerRadius: 14, style: .continuous))
 
             if let requesterName {
                 HStack(spacing: 8) {
                     Spacer()
                     Text("By")
                         .font(.system(size: 12, weight: .regular))
-                        .foregroundStyle(Color(hex: 0x344054))
+                        .foregroundStyle(Color.appPrimaryText)
                     Text(requesterInitial)
                         .font(.system(size: 10, weight: .bold))
-                        .foregroundStyle(Color(hex: 0x667085))
+                        .foregroundStyle(Color.appSecondaryText)
                         .frame(width: 24, height: 24)
-                        .background(Color(hex: 0xF2F4F7), in: Circle())
+                        .background(Color.appFieldBackground, in: Circle())
                     Text(requesterName)
                         .font(.system(size: 13, weight: .semibold))
-                        .foregroundStyle(Color(hex: 0x101828))
+                        .foregroundStyle(Color.appPrimaryText)
                         .lineLimit(1)
                         .minimumScaleFactor(0.7)
                 }
@@ -2152,7 +2152,7 @@ private struct SalaryAdvanceRow: View {
                             .foregroundStyle(Color(hex: 0xD92D20))
                             .frame(maxWidth: .infinity)
                             .frame(height: 46)
-                            .background(Color.white, in: RoundedRectangle(cornerRadius: 10, style: .continuous))
+                            .background(Color.appSurface, in: RoundedRectangle(cornerRadius: 10, style: .continuous))
                             .overlay {
                                 RoundedRectangle(cornerRadius: 10, style: .continuous)
                                     .stroke(Color(hex: 0xEF4444), lineWidth: 1)
@@ -2185,10 +2185,10 @@ private struct SalaryAdvanceRow: View {
         }
         .padding(.horizontal, 18)
         .padding(.vertical, 18)
-        .background(Color.white, in: RoundedRectangle(cornerRadius: 24, style: .continuous))
+        .background(Color.appSurface, in: RoundedRectangle(cornerRadius: 24, style: .continuous))
         .overlay {
             RoundedRectangle(cornerRadius: 24, style: .continuous)
-                .stroke(Color(hex: 0xE5E7EB), lineWidth: 1)
+                .stroke(Color.appSeparator, lineWidth: 1)
         }
     }
 
@@ -2196,10 +2196,10 @@ private struct SalaryAdvanceRow: View {
         VStack(alignment: .leading, spacing: 2) {
             Text(title)
                 .font(.system(size: 12, weight: .regular))
-                .foregroundStyle(Color(hex: 0x667085))
+                .foregroundStyle(Color.appSecondaryText)
             Text(value)
                 .font(.system(size: 16, weight: .semibold))
-                .foregroundStyle(Color(hex: 0x101828))
+                .foregroundStyle(Color.appPrimaryText)
                 .lineLimit(1)
                 .minimumScaleFactor(0.68)
         }
@@ -2258,7 +2258,7 @@ private struct SalaryAdvanceRow: View {
         case "Pending Advance": return Color(hex: 0xF79009)
         case "Approved": return Color(hex: 0x12B76A)
         case "• REQUESTED": return Color(hex: 0x12B76A)
-        case "• CANCELLED": return Color(hex: 0x475467)
+        case "• CANCELLED": return Color.appSecondaryText
         case "• REJECTED": return Color(hex: 0xB42318)
         default: return Color(hex: 0x12B76A)
         }
@@ -2286,11 +2286,11 @@ private struct AdvanceHistoryRow: View {
                 VStack(alignment: .leading, spacing: 4) {
                     Text(displayTitle)
                         .font(.system(size: 15, weight: .semibold))
-                        .foregroundStyle(Color(hex: 0x101828))
+                        .foregroundStyle(Color.appPrimaryText)
                         .lineLimit(1)
                     Text(loan.loanId.isEmpty ? "—" : loan.loanId)
                         .font(.system(size: 12, weight: .regular))
-                        .foregroundStyle(Color(hex: 0x667085))
+                        .foregroundStyle(Color.appSecondaryText)
                         .lineLimit(1)
                 }
 
@@ -2314,7 +2314,7 @@ private struct AdvanceHistoryRow: View {
             }
             .padding(.horizontal, 12)
             .padding(.vertical, 12)
-            .background(Color(hex: 0xF8FAFC), in: RoundedRectangle(cornerRadius: 14, style: .continuous))
+            .background(Color.appFieldBackground, in: RoundedRectangle(cornerRadius: 14, style: .continuous))
 
             Label("View Repayment History", systemImage: "clock.arrow.circlepath")
                 .font(.system(size: 14, weight: .semibold))
@@ -2324,10 +2324,10 @@ private struct AdvanceHistoryRow: View {
                 .background(Color(hex: 0x0B61CA), in: Capsule())
         }
         .padding(18)
-        .background(Color.white, in: RoundedRectangle(cornerRadius: 22, style: .continuous))
+        .background(Color.appSurface, in: RoundedRectangle(cornerRadius: 22, style: .continuous))
         .overlay {
             RoundedRectangle(cornerRadius: 22, style: .continuous)
-                .stroke(Color(hex: 0xE5E7EB), lineWidth: 1)
+                .stroke(Color.appSeparator, lineWidth: 1)
         }
     }
 
@@ -2335,10 +2335,10 @@ private struct AdvanceHistoryRow: View {
         VStack(alignment: alignment, spacing: 3) {
             Text(title)
                 .font(.system(size: 11, weight: .regular))
-                .foregroundStyle(Color(hex: 0x667085))
+                .foregroundStyle(Color.appSecondaryText)
             Text(value)
                 .font(.system(size: 14, weight: .semibold))
-                .foregroundStyle(Color(hex: 0x101828))
+                .foregroundStyle(Color.appPrimaryText)
                 .lineLimit(1)
                 .minimumScaleFactor(0.7)
         }
@@ -2378,7 +2378,7 @@ private struct AdvanceHistoryRow: View {
     private var statusColor: Color {
         switch statusText {
         case "REJECTED": return Color(hex: 0xB42318)
-        case "CANCELLED": return Color(hex: 0x475467)
+        case "CANCELLED": return Color.appSecondaryText
         default: return Color(hex: 0x12B76A)
         }
     }
@@ -2415,10 +2415,10 @@ private struct PreviousLoanRow: View {
                 VStack(alignment: .leading, spacing: 4) {
                     Text(loan.title)
                         .font(.system(size: 17, weight: .semibold))
-                        .foregroundStyle(Color(hex: 0x101828))
+                        .foregroundStyle(Color.appPrimaryText)
                     Text(loan.loanId.isEmpty ? "—" : loan.loanId)
                         .font(.system(size: 13, weight: .regular))
-                        .foregroundStyle(Color(hex: 0x667085))
+                        .foregroundStyle(Color.appSecondaryText)
                 }
                 Spacer()
                 Text("• \(statusText)")
@@ -2430,7 +2430,7 @@ private struct PreviousLoanRow: View {
             }
 
             Divider()
-                .overlay(Color(hex: 0xF2F4F7))
+                .overlay(Color.appFieldBackground)
 
             HStack(spacing: 0) {
                 metricColumn("Principal", AppModuleFormatters.rupees(loan.principal))
@@ -2443,10 +2443,10 @@ private struct PreviousLoanRow: View {
         }
         .padding(.horizontal, 18)
         .padding(.vertical, 18)
-        .background(Color.white, in: RoundedRectangle(cornerRadius: 24, style: .continuous))
+        .background(Color.appSurface, in: RoundedRectangle(cornerRadius: 24, style: .continuous))
         .overlay {
             RoundedRectangle(cornerRadius: 24, style: .continuous)
-                .stroke(Color(hex: 0xE5E7EB), lineWidth: 1)
+                .stroke(Color.appSeparator, lineWidth: 1)
         }
     }
 
@@ -2454,10 +2454,10 @@ private struct PreviousLoanRow: View {
         VStack(alignment: .leading, spacing: 2) {
             Text(title)
                 .font(.system(size: 12, weight: .regular))
-                .foregroundStyle(Color(hex: 0x667085))
+                .foregroundStyle(Color.appSecondaryText)
             Text(value)
                 .font(.system(size: 16, weight: .semibold))
-                .foregroundStyle(Color(hex: 0x101828))
+                .foregroundStyle(Color.appPrimaryText)
                 .lineLimit(1)
                 .minimumScaleFactor(0.68)
         }
@@ -2474,7 +2474,7 @@ private struct PreviousLoanRow: View {
 
     private var statusColor: Color {
         switch statusText {
-        case "CANCELLED": return Color(hex: 0x475467)
+        case "CANCELLED": return Color.appSecondaryText
         case "REJECTED": return Color(hex: 0xB42318)
         default: return Color(hex: 0x12B76A)
         }

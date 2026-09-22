@@ -72,7 +72,7 @@ struct FinesDeductionsView: View {
         )
         .textInputAutocapitalization(.never)
         .autocorrectionDisabled()
-        .toolbarBackground(Color.white, for: .navigationBar)
+        .toolbarBackground(Color.appElevatedSurface, for: .navigationBar)
         .toolbarBackground(.visible, for: .navigationBar)
         .toolbar {
             if canManage {
@@ -103,7 +103,7 @@ struct FinesDeductionsView: View {
             }
             .appFormActivity()
             .appLibraryNativeSheet([.height(720), .large])
-            .presentationBackground(Color.white)
+            .presentationBackground(Color.appElevatedSurface)
         }
     }
 
@@ -129,7 +129,7 @@ struct FinesDeductionsView: View {
             }
             .padding(.horizontal, 16)
             .frame(height: 56)
-            .background(Color.white)
+            .background(Color.appSurface)
 
             Divider()
                 .background(Color(hex: 0xE4E7EC))
@@ -140,17 +140,17 @@ struct FinesDeductionsView: View {
         VStack(spacing: 12) {
             ForEach(0..<5, id: \.self) { _ in
                 RoundedRectangle(cornerRadius: 14, style: .continuous)
-                    .fill(Color.white)
+                    .fill(Color.appSurface)
                     .frame(height: 86)
                     .overlay(alignment: .leading) {
                         HStack(spacing: 14) {
-                            Circle().fill(Color(hex: 0xEEF2F6)).frame(width: 48, height: 48)
+                            Circle().fill(Color.appFieldBackground).frame(width: 48, height: 48)
                             VStack(alignment: .leading, spacing: 8) {
-                                RoundedRectangle(cornerRadius: 4).fill(Color(hex: 0xEEF2F6)).frame(width: 120, height: 14)
-                                RoundedRectangle(cornerRadius: 4).fill(Color(hex: 0xEEF2F6)).frame(width: 170, height: 10)
+                                RoundedRectangle(cornerRadius: 4).fill(Color.appFieldBackground).frame(width: 120, height: 14)
+                                RoundedRectangle(cornerRadius: 4).fill(Color.appFieldBackground).frame(width: 170, height: 10)
                             }
                             Spacer()
-                            RoundedRectangle(cornerRadius: 4).fill(Color(hex: 0xEEF2F6)).frame(width: 58, height: 16)
+                            RoundedRectangle(cornerRadius: 4).fill(Color.appFieldBackground).frame(width: 58, height: 16)
                         }
                         .padding(16)
                     }
@@ -163,9 +163,9 @@ struct FinesDeductionsView: View {
         VStack(spacing: 10) {
             Image(systemName: "tray")
                 .font(.system(size: 34, weight: .semibold))
-                .foregroundStyle(Color(hex: 0x98A2B3))
+                .foregroundStyle(Color.appTertiaryText)
                 .frame(width: 78, height: 78)
-                .background(Color.white, in: Circle())
+                .background(Color.appSurface, in: Circle())
 
             Text("No Fines Recorded")
                 .font(.system(size: 18, weight: .bold))
@@ -174,7 +174,7 @@ struct FinesDeductionsView: View {
             Text(canViewAll ? "Search another name or add a new fine." : "Your active fines and deductions will show here.")
                 .font(.system(size: 13, weight: .regular))
                 .multilineTextAlignment(.center)
-                .foregroundStyle(Color(hex: 0x98A2B3))
+                .foregroundStyle(Color.appTertiaryText)
                 .padding(.horizontal, 24)
         }
     }
@@ -221,7 +221,7 @@ private struct FineDeductionCard: View {
 
                     Text("\(fine.displayDepartment)\n\(fine.displayType)")
                         .font(.system(size: 12, weight: .regular))
-                        .foregroundStyle(Color(hex: 0x667085))
+                        .foregroundStyle(Color.appSecondaryText)
                         .lineSpacing(2)
                         .lineLimit(2)
                 }
@@ -246,13 +246,13 @@ private struct FineDeductionCard: View {
 
                     Text(fine.displayDate)
                         .font(.system(size: 11, weight: .regular))
-                        .foregroundStyle(Color(hex: 0x98A2B3))
+                        .foregroundStyle(Color.appTertiaryText)
                         .lineLimit(1)
                 }
             }
             .padding(.horizontal, 16)
             .padding(.vertical, 12)
-            .background(Color.white, in: RoundedRectangle(cornerRadius: 14, style: .continuous))
+            .background(Color.appSurface, in: RoundedRectangle(cornerRadius: 14, style: .continuous))
             .shadow(color: .black.opacity(0.03), radius: 8, y: 2)
         }
         .buttonStyle(.plain)
@@ -295,7 +295,7 @@ private struct CreateFineDeductionSheet: View {
         VStack(spacing: 0) {
             formContent
         }
-        .background(Color.white)
+        .background(Color.appSurface)
         .appCompactSheetCTAContainer()
         .task { await loadStaff() }
         .sheet(isPresented: $showEmployeePicker) {
@@ -322,7 +322,7 @@ private struct CreateFineDeductionSheet: View {
 
                     Text("Information about fine details")
                         .font(.system(size: 13, weight: .medium))
-                        .foregroundStyle(Color(hex: 0x667085))
+                        .foregroundStyle(Color.appSecondaryText)
                         .padding(.bottom, 2)
 
                     Button {
@@ -332,10 +332,10 @@ private struct CreateFineDeductionSheet: View {
                             VStack(alignment: .leading, spacing: 3) {
                                 Text("Employee *")
                                     .font(.system(size: 13, weight: .semibold))
-                                    .foregroundStyle(Color(hex: 0x344054))
+                                    .foregroundStyle(Color.appPrimaryText)
                                 Text(selectedStaff?.displayName ?? "Select Employee")
                                     .font(.system(size: 16, weight: .semibold))
-                                    .foregroundStyle(selectedStaff == nil ? Color(hex: 0x98A2B3) : Color(hex: 0x101828))
+                                    .foregroundStyle(selectedStaff == nil ? Color.appTertiaryText : Color.appPrimaryText)
                                     .lineLimit(1)
                             }
                             .frame(maxWidth: .infinity, alignment: .leading)
@@ -371,15 +371,15 @@ private struct CreateFineDeductionSheet: View {
                     VStack(alignment: .leading, spacing: 8) {
                         Text("Reason")
                             .font(.system(size: 14, weight: .semibold))
-                            .foregroundStyle(Color(hex: 0x344054))
+                            .foregroundStyle(Color.appPrimaryText)
 
                         TextEditor(text: $notes)
                             .font(.system(size: 15, weight: .regular))
-                            .foregroundStyle(Color(hex: 0x101828))
+                            .foregroundStyle(Color.appPrimaryText)
                             .frame(minHeight: 104)
                             .padding(12)
                             .scrollContentBackground(.hidden)
-                            .background(Color(hex: 0xF8FAFC), in: RoundedRectangle(cornerRadius: 14, style: .continuous))
+                            .background(Color.appFieldBackground, in: RoundedRectangle(cornerRadius: 14, style: .continuous))
                             .overlay {
                                 RoundedRectangle(cornerRadius: 14, style: .continuous)
                                     .stroke(Color(hex: 0xE4E7EC), lineWidth: 1)
@@ -393,10 +393,10 @@ private struct CreateFineDeductionSheet: View {
                             VStack(alignment: .leading, spacing: 3) {
                                 Text("Photo")
                                     .font(.system(size: 13, weight: .semibold))
-                                    .foregroundStyle(Color(hex: 0x344054))
+                                    .foregroundStyle(Color.appPrimaryText)
                                 Text(selectedPhotoData == nil ? "Upload fine photo" : "Photo selected")
                                     .font(.system(size: 15, weight: .medium))
-                                    .foregroundStyle(selectedPhotoData == nil ? Color(hex: 0x667085) : Color(hex: 0x16A34A))
+                                    .foregroundStyle(selectedPhotoData == nil ? Color.appSecondaryText : Color(hex: 0x16A34A))
                             }
                             .frame(maxWidth: .infinity, alignment: .leading)
                         }
@@ -425,7 +425,7 @@ private struct CreateFineDeductionSheet: View {
                 .frame(height: 56)
                 .background(
                     LinearGradient(
-                        colors: canSubmit ? [Color(hex: 0x18D20B), Color(hex: 0x29A800)] : [Color(hex: 0xD0D5DD), Color(hex: 0xD0D5DD)],
+                        colors: canSubmit ? [Color(hex: 0x18D20B), Color(hex: 0x29A800)] : [Color.appSeparator, Color.appSeparator],
                         startPoint: .leading,
                         endPoint: .trailing
                     ),
@@ -437,7 +437,7 @@ private struct CreateFineDeductionSheet: View {
             .padding(.horizontal, 20)
             .padding(.top, 12)
             .padding(.bottom, 20)
-            .background(Color.white)
+            .background(Color.appSurface)
         }
     }
 
@@ -450,7 +450,7 @@ private struct CreateFineDeductionSheet: View {
                         .tint(Color(hex: 0x0B61CA))
                     Text("Loading employees...")
                         .font(.system(size: 15, weight: .semibold))
-                        .foregroundStyle(Color(hex: 0x667085))
+                        .foregroundStyle(Color.appSecondaryText)
                 }
                 .frame(maxWidth: .infinity, maxHeight: .infinity)
                 .navigationTitle("Select Employee")
@@ -488,12 +488,12 @@ private struct CreateFineDeductionSheet: View {
                         VStack(alignment: .leading, spacing: 4) {
                             Text(item.displayName)
                                 .font(.system(size: 15, weight: .semibold))
-                                .foregroundStyle(Color(hex: 0x101828))
+                                .foregroundStyle(Color.appPrimaryText)
                                 .lineLimit(1)
 
                             Text([item.employeeId, item.department, item.designation].compactMap { $0?.nonBlank }.joined(separator: " · "))
                                 .font(.system(size: 12, weight: .medium))
-                                .foregroundStyle(Color(hex: 0x667085))
+                                .foregroundStyle(Color.appSecondaryText)
                                 .lineLimit(1)
                         }
 
@@ -522,11 +522,11 @@ private struct CreateFineDeductionSheet: View {
         VStack(alignment: .leading, spacing: 8) {
             Text(title)
                 .font(.system(size: 14, weight: .semibold))
-                .foregroundStyle(Color(hex: 0x344054))
+                .foregroundStyle(Color.appPrimaryText)
             CreateFineFieldShell(icon: icon) {
                 TextField(placeholder, text: text)
                     .font(.system(size: 16, weight: .semibold))
-                    .foregroundStyle(Color(hex: 0x101828))
+                    .foregroundStyle(Color.appPrimaryText)
                     .keyboardType(keyboard)
                     .autocorrectionDisabled()
             }
@@ -537,14 +537,14 @@ private struct CreateFineDeductionSheet: View {
         VStack(alignment: .leading, spacing: 8) {
             Text(title)
                 .font(.system(size: 14, weight: .semibold))
-                .foregroundStyle(Color(hex: 0x344054))
+                .foregroundStyle(Color.appPrimaryText)
             Menu {
                 content()
             } label: {
                 CreateFineFieldShell(icon: "calendar", chevron: true) {
                     Text(value)
                         .font(.system(size: 15, weight: .semibold))
-                        .foregroundStyle(Color(hex: 0x101828))
+                        .foregroundStyle(Color.appPrimaryText)
                         .frame(maxWidth: .infinity, alignment: .leading)
                 }
             }
@@ -661,7 +661,7 @@ private struct CreateFineFieldShell<Content: View>: View {
         HStack(spacing: 12) {
             Image(systemName: icon)
                 .font(.system(size: 20, weight: .semibold))
-                .foregroundStyle(Color(hex: 0x667085))
+                .foregroundStyle(Color.appSecondaryText)
                 .frame(width: 24)
 
             content()
@@ -669,13 +669,13 @@ private struct CreateFineFieldShell<Content: View>: View {
             if chevron {
                 Image(systemName: "chevron.down")
                     .font(.system(size: 15, weight: .bold))
-                    .foregroundStyle(Color(hex: 0x667085))
+                    .foregroundStyle(Color.appSecondaryText)
             }
         }
         .padding(.horizontal, 14)
         .frame(minHeight: 54)
         .frame(maxWidth: .infinity)
-        .background(Color(hex: 0xF8FAFC), in: RoundedRectangle(cornerRadius: 14, style: .continuous))
+        .background(Color.appFieldBackground, in: RoundedRectangle(cornerRadius: 14, style: .continuous))
         .overlay {
             RoundedRectangle(cornerRadius: 14, style: .continuous)
                 .stroke(Color(hex: 0xE4E7EC), lineWidth: 1)
@@ -691,11 +691,11 @@ private struct FineDeductionDetailSheet: View {
             VStack(alignment: .leading, spacing: 0) {
                 Text(fine.displayName)
                     .font(.system(size: 18, weight: .bold))
-                    .foregroundStyle(Color(hex: 0x101828))
+                    .foregroundStyle(Color.appPrimaryText)
 
                 Text(detailMeta)
                     .font(.system(size: 13, weight: .medium))
-                    .foregroundStyle(Color(hex: 0x667085))
+                    .foregroundStyle(Color.appSecondaryText)
                     .padding(.top, 4)
 
                 finePhoto
@@ -703,19 +703,19 @@ private struct FineDeductionDetailSheet: View {
 
                 Text("Reason")
                     .font(.system(size: 13, weight: .semibold))
-                    .foregroundStyle(Color(hex: 0x344054))
+                    .foregroundStyle(Color.appPrimaryText)
                     .padding(.top, 18)
 
                 Text(fine.notes?.nonBlank ?? "No reason provided")
                     .font(.system(size: 14, weight: .regular))
-                    .foregroundStyle(Color(hex: 0x475467))
+                    .foregroundStyle(Color.appSecondaryText)
                     .padding(.top, 6)
             }
             .padding(.horizontal, 20)
             .padding(.top, 14)
             .padding(.bottom, 24)
         }
-        .background(Color.white)
+        .background(Color.appSurface)
     }
 
     private var detailMeta: String {
@@ -760,10 +760,10 @@ private struct FineDeductionDetailSheet: View {
     private func noPhoto(_ text: String) -> some View {
         Text(text)
             .font(.system(size: 13, weight: .medium))
-            .foregroundStyle(Color(hex: 0x9CA3AF))
+            .foregroundStyle(Color.appTertiaryText)
             .frame(maxWidth: .infinity)
             .frame(height: 88)
-            .background(Color(hex: 0xF8FAFC), in: RoundedRectangle(cornerRadius: 12, style: .continuous))
+            .background(Color.appFieldBackground, in: RoundedRectangle(cornerRadius: 12, style: .continuous))
             .overlay {
                 RoundedRectangle(cornerRadius: 12, style: .continuous)
                     .stroke(Color(hex: 0xEAECF0), lineWidth: 1)

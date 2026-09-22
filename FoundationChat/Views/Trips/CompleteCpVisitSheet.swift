@@ -2575,7 +2575,7 @@ private struct SegmentButton: View {
         Button(action: action) {
             Text(title)
                 .font(.system(size: 13, weight: .semibold))
-                .foregroundStyle(isSelected ? .white : Color(hex: 0x475467))
+                .foregroundStyle(isSelected ? .white : Color.appSecondaryText)
                 .frame(maxWidth: .infinity)
                 .frame(height: 44)
                 .background(
@@ -2603,7 +2603,7 @@ private struct ReasonToggleRow: View {
             HStack(spacing: 10) {
                 Image(systemName: isSelected ? "checkmark.circle.fill" : "circle")
                     .font(.system(size: 18, weight: .semibold))
-                    .foregroundStyle(isSelected ? Color(hex: 0x1ECB09) : Color(hex: 0x98A2B3))
+                    .foregroundStyle(isSelected ? Color(hex: 0x1ECB09) : Color.appTertiaryText)
                 Text(title)
                     .font(.system(size: 13, weight: .semibold))
                     .foregroundStyle(.primary)
@@ -2628,7 +2628,7 @@ private struct BookingSubTab: View {
     var body: some View {
         Text(title)
             .font(.system(size: 12, weight: isSelected ? .semibold : .medium))
-            .foregroundStyle(isSelected ? .white : Color(hex: 0x475467))
+            .foregroundStyle(isSelected ? .white : Color.appSecondaryText)
             .padding(.horizontal, 14)
             .frame(height: 32)
             .background(
@@ -2650,7 +2650,7 @@ private struct RadioRow: View {
             HStack(spacing: 10) {
                 Image(systemName: isSelected ? "largecircle.fill.circle" : "circle")
                     .font(.system(size: 18, weight: .semibold))
-                    .foregroundStyle(isSelected ? Color(hex: 0x0B61CA) : Color(hex: 0x98A2B3))
+                    .foregroundStyle(isSelected ? Color(hex: 0x0B61CA) : Color.appTertiaryText)
                 Text(title)
                     .font(.system(size: 13, weight: .medium))
                     .foregroundStyle(.primary)
@@ -2794,7 +2794,7 @@ private struct BookingPickerTextField: View {
                 .frame(width: 16)
             Text(text.isEmpty ? placeholder : text)
                 .font(.system(size: 13, weight: .medium))
-                .foregroundStyle(text.isEmpty ? Color(hex: 0x94A3B8) : Color(hex: 0x101828))
+                .foregroundStyle(text.isEmpty ? Color(hex: 0x94A3B8) : Color.appPrimaryText)
                 .lineLimit(1)
             Spacer()
             Image(systemName: "chevron.down")
@@ -2836,7 +2836,7 @@ private struct BookingDateTextField: View {
                         .frame(width: 16)
                     Text(text.isEmpty ? placeholder : text)
                         .font(.system(size: 13, weight: .medium))
-                        .foregroundStyle(text.isEmpty ? Color(hex: 0x94A3B8) : Color(hex: 0x101828))
+                        .foregroundStyle(text.isEmpty ? Color(hex: 0x94A3B8) : Color.appPrimaryText)
                     Spacer()
                     Image(systemName: "chevron.down")
                         .font(.system(size: 12, weight: .semibold))

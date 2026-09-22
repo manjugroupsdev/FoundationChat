@@ -639,7 +639,7 @@ struct TripNavigationView: View {
                 .frame(maxWidth: .infinity)
 
                 Rectangle()
-                    .fill(Color(hex: 0xE5E7EB))
+                    .fill(Color.appSeparator)
                     .frame(
                         width: 1,
                         // Grows with the taller column so the divider doesn't
@@ -2633,7 +2633,7 @@ struct TripNavigationView: View {
         switch tripProgressStage {
         case .notStarted: return Color(hex: 0x169B2F)
         case .started, .reaching, .reached: return Color(hex: 0xB54708)
-        case .complete: return Color(hex: 0x475467)
+        case .complete: return Color.appSecondaryText
         }
     }
 
@@ -2733,7 +2733,7 @@ private enum TripProgressStepState {
         switch self {
         case .active: return Color(hex: 0x19B900)
         case .done: return Color(hex: 0x19B900)
-        case .inactive: return Color(hex: 0xD0D5DD)
+        case .inactive: return Color.appSeparator
         }
     }
 }
@@ -2769,7 +2769,7 @@ private struct TripProgressLine: View {
 
     var body: some View {
         Capsule()
-            .fill(isActive ? Color(hex: 0x19B900) : Color(hex: 0xD0D5DD))
+            .fill(isActive ? Color(hex: 0x19B900) : Color.appSeparator)
             .frame(height: 2)
             .frame(maxWidth: .infinity)
             .padding(.bottom, 18)
@@ -2796,8 +2796,8 @@ private struct SwipeToConfirmTripButton: View {
             let travel = max(0, proxy.size.width - thumbSize - inset * 2)
             ZStack(alignment: .leading) {
                 Capsule()
-                    .fill(.white)
-                    .overlay(Capsule().stroke(Color(hex: 0xE5E7EB), lineWidth: 1))
+                    .fill(Color.appSurface)
+                    .overlay(Capsule().stroke(Color.appSeparator, lineWidth: 1))
 
                 Text(isBusy ? busyTitle : title)
                     .frame(maxWidth: .infinity)
@@ -2814,7 +2814,7 @@ private struct SwipeToConfirmTripButton: View {
                     .opacity(isBusy ? 0 : 1.0 - min(offset / max(travel, 1.0), 1.0))
 
                 Circle()
-                    .fill(.white)
+                    .fill(Color.appSurface)
                     .frame(width: thumbSize, height: thumbSize)
                     .shadow(color: .black.opacity(0.12), radius: 4, x: 0, y: 2)
                     .overlay(
@@ -3044,7 +3044,7 @@ private struct DriverOdometerSheet: View {
                 .background(Color.appFieldBackground, in: RoundedRectangle(cornerRadius: 12))
                 .overlay(
                     RoundedRectangle(cornerRadius: 12)
-                        .stroke(Color(hex: 0xD0D5DD), lineWidth: 1)
+                        .stroke(Color.appSeparator, lineWidth: 1)
                 )
 
             if let minimumKm, phase == .end {
@@ -3092,7 +3092,7 @@ private struct DriverOdometerSheet: View {
                     Spacer()
                     Image(systemName: "chevron.right")
                         .font(.system(size: 13, weight: .semibold))
-                        .foregroundStyle(Color(hex: 0x98A2B3))
+                        .foregroundStyle(Color.appTertiaryText)
                 }
                 .padding(12)
                 .background(Color.appSurface, in: RoundedRectangle(cornerRadius: 14))
@@ -3623,7 +3623,7 @@ private struct SpecialCpCompletionSheet: View {
                         .background(Color.appSurface, in: RoundedRectangle(cornerRadius: 14, style: .continuous))
                         .overlay {
                             RoundedRectangle(cornerRadius: 14, style: .continuous)
-                                .stroke(Color(hex: 0xD0D5DD), lineWidth: 1)
+                                .stroke(Color.appSeparator, lineWidth: 1)
                         }
                     }
                 }
@@ -3730,13 +3730,13 @@ private struct SpecialCpCompletionSheet: View {
                     }
                     Spacer()
                     Image(systemName: "chevron.right")
-                        .foregroundStyle(Color(hex: 0x98A2B3))
+                        .foregroundStyle(Color.appTertiaryText)
                 }
                 .padding(12)
                 .background(Color.appSurface, in: RoundedRectangle(cornerRadius: 14))
                 .overlay {
                     RoundedRectangle(cornerRadius: 14)
-                        .stroke(Color(hex: 0xD0D5DD), lineWidth: 1)
+                        .stroke(Color.appSeparator, lineWidth: 1)
                 }
             }
             .buttonStyle(.plain)
@@ -3788,7 +3788,7 @@ private struct SpecialCpCompletionSheet: View {
             .padding(.horizontal, 24)
         }
         .padding(.vertical, 14)
-        .background(Color.white)
+        .background(Color.appSurface)
     }
 
     private var submitTitle: String {
@@ -3880,7 +3880,7 @@ private struct SpecialCpCompletionSheet: View {
         .background(Color.appSurface, in: RoundedRectangle(cornerRadius: 14, style: .continuous))
         .overlay(
             RoundedRectangle(cornerRadius: 14, style: .continuous)
-                .stroke(Color(hex: 0xD0D5DD), lineWidth: 1)
+                .stroke(Color.appSeparator, lineWidth: 1)
         )
     }
 
@@ -3905,7 +3905,7 @@ private struct SpecialCpCompletionSheet: View {
                 .background(Color.appSurface, in: RoundedRectangle(cornerRadius: 14, style: .continuous))
                 .overlay(
                     RoundedRectangle(cornerRadius: 14, style: .continuous)
-                        .stroke(Color(hex: 0xD0D5DD), lineWidth: 1)
+                        .stroke(Color.appSeparator, lineWidth: 1)
                 )
         }
     }

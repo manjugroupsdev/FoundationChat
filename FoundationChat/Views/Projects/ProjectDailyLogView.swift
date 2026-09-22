@@ -105,7 +105,7 @@ struct ProjectDailyLogView: View {
             }
             .appFormActivity()
             .appLibraryNativeSheet([.height(720), .large])
-            .presentationBackground(Color.white)
+            .presentationBackground(Color.appElevatedSurface)
         }
         .sheet(isPresented: $showAddRecipient) {
             DprAddRecipientSheet(projects: selectableProjects) {
@@ -113,12 +113,12 @@ struct ProjectDailyLogView: View {
             }
             .appFormActivity()
             .appLibraryNativeSheet([.height(520), .large])
-            .presentationBackground(Color.white)
+            .presentationBackground(Color.appElevatedSurface)
         }
         .sheet(item: $selectedLog) { log in
             DailyLogDetailSheet(log: log)
                 .appLibraryNativeSheet([.height(700), .large])
-                .presentationBackground(Color.white)
+                .presentationBackground(Color.appElevatedSurface)
         }
         .sheet(isPresented: $showSendProjectPicker) {
             NativeSearchableSelectionSheet(
@@ -135,7 +135,7 @@ struct ProjectDailyLogView: View {
                 }
             )
             .appLibraryNativeSheet([.medium, .large])
-            .presentationBackground(Color.white)
+            .presentationBackground(Color.appElevatedSurface)
         }
     }
 
@@ -207,7 +207,7 @@ struct ProjectDailyLogView: View {
             }
             .padding(3)
             .frame(height: 44)
-            .background(Color.white, in: RoundedRectangle(cornerRadius: 14, style: .continuous))
+            .background(Color.appSurface, in: RoundedRectangle(cornerRadius: 14, style: .continuous))
 
             Button {
                 if selectedTab == .newEntry {
@@ -218,9 +218,9 @@ struct ProjectDailyLogView: View {
             } label: {
                 Image(systemName: "plus")
                     .font(.system(size: 18, weight: .bold))
-                    .foregroundStyle(Color(hex: 0x101828))
+                    .foregroundStyle(Color.appPrimaryText)
                     .frame(width: 44, height: 44)
-                    .background(Color.white, in: RoundedRectangle(cornerRadius: 14, style: .continuous))
+                    .background(Color.appSurface, in: RoundedRectangle(cornerRadius: 14, style: .continuous))
                     .overlay(
                         RoundedRectangle(cornerRadius: 14, style: .continuous)
                             .stroke(Color(hex: 0xEAECF0), lineWidth: 1)
@@ -236,7 +236,7 @@ struct ProjectDailyLogView: View {
         VStack(alignment: .leading, spacing: 14) {
             Text("Recent Entries")
                 .font(.system(size: 16, weight: .semibold))
-                .foregroundStyle(Color(hex: 0x101828))
+                .foregroundStyle(Color.appPrimaryText)
                 .padding(.horizontal, 16)
                 .padding(.top, 20)
 
@@ -273,7 +273,7 @@ struct ProjectDailyLogView: View {
             HStack {
                 Text("Recipients")
                     .font(.system(size: 16, weight: .semibold))
-                    .foregroundStyle(Color(hex: 0x101828))
+                    .foregroundStyle(Color.appPrimaryText)
                 Spacer()
                 Text("\(activeRecipientCount) active")
                     .font(.system(size: 13, weight: .semibold))
@@ -289,7 +289,7 @@ struct ProjectDailyLogView: View {
             } else if recipients.isEmpty {
                 Text("No recipients yet - tap + to add a WhatsApp recipient. Active recipients get the DPR PDF at 7:00 PM IST.")
                     .font(.system(size: 13, weight: .regular))
-                    .foregroundStyle(Color(hex: 0x98A2B3))
+                    .foregroundStyle(Color.appTertiaryText)
                     .padding(.horizontal, 16)
             } else {
                 LazyVStack(spacing: 8) {
@@ -325,14 +325,14 @@ struct ProjectDailyLogView: View {
 
             Text("Recent DPR History")
                 .font(.system(size: 16, weight: .semibold))
-                .foregroundStyle(Color(hex: 0x101828))
+                .foregroundStyle(Color.appPrimaryText)
                 .padding(.horizontal, 16)
                 .padding(.top, 10)
 
             if reports.isEmpty {
                 Text("No DPR send history yet.")
                     .font(.system(size: 13, weight: .regular))
-                    .foregroundStyle(Color(hex: 0x98A2B3))
+                    .foregroundStyle(Color.appTertiaryText)
                     .padding(.horizontal, 16)
             } else {
                 LazyVStack(spacing: 10) {
@@ -491,7 +491,7 @@ private struct DailyLogSegmentButton: View {
         Button(action: action) {
             Text(title)
                 .font(.system(size: 14, weight: isSelected ? .semibold : .medium))
-                .foregroundStyle(isSelected ? .white : Color(hex: 0x475467))
+                .foregroundStyle(isSelected ? .white : Color.appSecondaryText)
                 .frame(maxWidth: .infinity)
                 .frame(height: 38)
                 .background(
@@ -555,7 +555,7 @@ private struct DailyLogProjectCard: View {
                         HStack(spacing: 8) {
                             Text(group.projectName)
                                 .font(.system(size: 17, weight: .bold))
-                                .foregroundStyle(Color(hex: 0x101828))
+                                .foregroundStyle(Color.appPrimaryText)
                                 .lineLimit(2)
 
                             if isRecent {
@@ -576,7 +576,7 @@ private struct DailyLogProjectCard: View {
                         if let latest = group.latestLog {
                             Text(lastActivityLabel(for: latest))
                                 .font(.system(size: 12, weight: .regular))
-                                .foregroundStyle(Color(hex: 0x667085))
+                                .foregroundStyle(Color.appSecondaryText)
                         }
                     }
 
@@ -584,7 +584,7 @@ private struct DailyLogProjectCard: View {
 
                     Image(systemName: "chevron.down")
                         .font(.system(size: 14, weight: .bold))
-                        .foregroundStyle(Color(hex: 0x98A2B3))
+                        .foregroundStyle(Color.appTertiaryText)
                         .rotationEffect(.degrees(isExpanded ? 180 : 0))
                 }
                 .contentShape(Rectangle())
@@ -608,7 +608,7 @@ private struct DailyLogProjectCard: View {
         }
         .padding(16)
         .frame(maxWidth: .infinity, alignment: .leading)
-        .background(Color.white, in: RoundedRectangle(cornerRadius: 18, style: .continuous))
+        .background(Color.appSurface, in: RoundedRectangle(cornerRadius: 18, style: .continuous))
         .shadow(color: Color.black.opacity(0.06), radius: 8, y: 3)
     }
 }
@@ -626,18 +626,18 @@ private struct DailyLogEntryCard: View {
 
                 Text(displayDate(log.date))
                     .font(.system(size: 14, weight: .bold))
-                    .foregroundStyle(Color(hex: 0x101828))
+                    .foregroundStyle(Color.appPrimaryText)
 
                 Spacer()
 
                 Image(systemName: "chevron.right")
                     .font(.system(size: 11, weight: .bold))
-                    .foregroundStyle(Color(hex: 0x98A2B3))
+                    .foregroundStyle(Color.appTertiaryText)
             }
 
             Text(log.workSummary?.nonBlank ?? "-")
                 .font(.system(size: 13, weight: .regular))
-                .foregroundStyle(Color(hex: 0x475467))
+                .foregroundStyle(Color.appSecondaryText)
                 .lineLimit(2)
 
             HStack(spacing: 6) {
@@ -699,10 +699,10 @@ private struct DailyLogMetaPill: View {
                 .font(.system(size: 11, weight: .semibold))
                 .lineLimit(1)
         }
-        .foregroundStyle(Color(hex: 0x475467))
+        .foregroundStyle(Color.appSecondaryText)
         .padding(.horizontal, 8)
         .frame(height: 24)
-        .background(Color(hex: 0xF2F4F7), in: Capsule())
+        .background(Color.appFieldBackground, in: Capsule())
     }
 }
 
@@ -716,11 +716,11 @@ private struct DprRecipientRow: View {
             VStack(alignment: .leading, spacing: 4) {
                 Text(recipient.name?.nonBlank ?? "Recipient")
                     .font(.system(size: 14, weight: .semibold))
-                    .foregroundStyle(Color(hex: 0x101828))
+                    .foregroundStyle(Color.appPrimaryText)
                     .lineLimit(1)
                 Text([recipient.normalizedPhone?.nonBlank ?? recipient.phone?.nonBlank, recipient.projectName?.nonBlank].compactMap { $0 }.joined(separator: " · "))
                     .font(.system(size: 12, weight: .regular))
-                    .foregroundStyle(Color(hex: 0x667085))
+                    .foregroundStyle(Color.appSecondaryText)
                     .lineLimit(1)
             }
 
@@ -740,7 +740,7 @@ private struct DprRecipientRow: View {
             .buttonStyle(.plain)
         }
         .padding(12)
-        .background(Color.white, in: RoundedRectangle(cornerRadius: 13, style: .continuous))
+        .background(Color.appSurface, in: RoundedRectangle(cornerRadius: 13, style: .continuous))
         .overlay(RoundedRectangle(cornerRadius: 13).stroke(Color(hex: 0xEAECF0), lineWidth: 1))
     }
 }
@@ -779,7 +779,7 @@ private struct DprProjectCard: View {
                         HStack(spacing: 8) {
                             Text(group.projectName)
                                 .font(.system(size: 17, weight: .bold))
-                                .foregroundStyle(Color(hex: 0x101828))
+                                .foregroundStyle(Color.appPrimaryText)
                                 .lineLimit(2)
 
                             if isRecent {
@@ -800,7 +800,7 @@ private struct DprProjectCard: View {
                         if let date = group.reports.first?.date {
                             Text("Last sent: \(displayDate(date))")
                                 .font(.system(size: 12))
-                                .foregroundStyle(Color(hex: 0x667085))
+                                .foregroundStyle(Color.appSecondaryText)
                         }
                     }
 
@@ -808,7 +808,7 @@ private struct DprProjectCard: View {
 
                     Image(systemName: "chevron.down")
                         .font(.system(size: 14, weight: .bold))
-                        .foregroundStyle(Color(hex: 0x98A2B3))
+                        .foregroundStyle(Color.appTertiaryText)
                         .rotationEffect(.degrees(isExpanded ? 180 : 0))
                 }
                 .contentShape(Rectangle())
@@ -826,7 +826,7 @@ private struct DprProjectCard: View {
             }
         }
         .padding(16)
-        .background(Color.white, in: RoundedRectangle(cornerRadius: 18, style: .continuous))
+        .background(Color.appSurface, in: RoundedRectangle(cornerRadius: 18, style: .continuous))
         .shadow(color: Color.black.opacity(0.06), radius: 8, y: 3)
     }
 }
@@ -838,7 +838,7 @@ private struct DprReportRow: View {
         HStack(spacing: 10) {
             Text(displayDate(report.date))
                 .font(.system(size: 13, weight: .bold))
-                .foregroundStyle(Color(hex: 0x101828))
+                .foregroundStyle(Color.appPrimaryText)
                 .frame(maxWidth: .infinity, alignment: .leading)
 
             Text("\(report.sentCount ?? 0) sent / \(report.failedCount ?? 0) failed")
@@ -869,10 +869,10 @@ private struct DailyLogEmptyState: View {
                 .foregroundStyle(Color(hex: 0xCBD5E1))
             Text(title)
                 .font(.system(size: 19, weight: .bold))
-                .foregroundStyle(Color(hex: 0x101828))
+                .foregroundStyle(Color.appPrimaryText)
             Text(message)
                 .font(.system(size: 13, weight: .regular))
-                .foregroundStyle(Color(hex: 0x667085))
+                .foregroundStyle(Color.appSecondaryText)
                 .multilineTextAlignment(.center)
                 .lineSpacing(3)
                 .padding(.horizontal, 34)
@@ -934,7 +934,7 @@ private struct CreateDailyLogSheet: View {
                             .padding(.bottom, 4)
                         Text("Record today's site progress, labour and observations.")
                             .font(.system(size: 12, weight: .regular))
-                            .foregroundStyle(Color(hex: 0x667085))
+                            .foregroundStyle(Color.appSecondaryText)
                             .frame(maxWidth: .infinity, alignment: .leading)
                     }
                     .padding(.bottom, 4)
@@ -960,8 +960,8 @@ private struct CreateDailyLogSheet: View {
                             .padding(.horizontal, 12)
                             .frame(maxWidth: .infinity, alignment: .leading)
                             .frame(height: 48)
-                            .background(Color.white, in: RoundedRectangle(cornerRadius: 12, style: .continuous))
-                            .overlay(RoundedRectangle(cornerRadius: 12).stroke(Color(hex: 0xD0D5DD), lineWidth: 1))
+                            .background(Color.appSurface, in: RoundedRectangle(cornerRadius: 12, style: .continuous))
+                            .overlay(RoundedRectangle(cornerRadius: 12).stroke(Color.appSeparator, lineWidth: 1))
                     }
 
                     Menu {
@@ -1075,9 +1075,9 @@ private struct CreateDailyLogSheet: View {
             .padding(.horizontal, 20)
             .padding(.top, 8)
             .padding(.bottom, 20)
-            .background(Color.white)
+            .background(Color.appSurface)
         }
-        .background(Color.white)
+        .background(Color.appSurface)
         .appCompactSheetCTAContainer()
         .onAppear {
             if supervisorName.isEmpty {
@@ -1102,7 +1102,7 @@ private struct CreateDailyLogSheet: View {
                 }
             )
             .appLibraryNativeSheet([.medium, .large])
-            .presentationBackground(Color.white)
+            .presentationBackground(Color.appElevatedSurface)
         }
         .sheet(isPresented: $showQuickCreateProject) {
             QuickCreateProjectSheet { project in
@@ -1118,7 +1118,7 @@ private struct CreateDailyLogSheet: View {
             }
             .appFormActivity()
             .appLibraryNativeSheet([.height(650), .large])
-            .presentationBackground(Color.white)
+            .presentationBackground(Color.appElevatedSurface)
         }
         .sheet(isPresented: $showMaterialPicker) {
             NativeSearchableSelectionSheet(
@@ -1131,11 +1131,11 @@ private struct CreateDailyLogSheet: View {
                     VStack(alignment: .leading, spacing: 3) {
                         Text(item.displayName)
                             .font(.system(size: 15, weight: .semibold))
-                            .foregroundStyle(Color(hex: 0x101828))
+                            .foregroundStyle(Color.appPrimaryText)
                         if !item.subtitle.isEmpty {
                             Text(item.subtitle)
                                 .font(.system(size: 12, weight: .regular))
-                                .foregroundStyle(Color(hex: 0x667085))
+                                .foregroundStyle(Color.appSecondaryText)
                         }
                     }
                     .padding(.vertical, 4)
@@ -1145,7 +1145,7 @@ private struct CreateDailyLogSheet: View {
                 }
             )
             .appLibraryNativeSheet([.medium, .large])
-            .presentationBackground(Color.white)
+            .presentationBackground(Color.appElevatedSurface)
         }
     }
 
@@ -1153,7 +1153,7 @@ private struct CreateDailyLogSheet: View {
         HStack {
             Text(title)
                 .font(.system(size: 14, weight: .semibold))
-                .foregroundStyle(Color(hex: 0x101828))
+                .foregroundStyle(Color.appPrimaryText)
             Spacer()
             Button(actionTitle, action: action)
                 .font(.system(size: 12, weight: .bold))
@@ -1442,9 +1442,9 @@ private struct DprAddRecipientSheet: View {
             .padding(.horizontal, 20)
             .padding(.top, 8)
             .padding(.bottom, 20)
-            .background(Color.white)
+            .background(Color.appSurface)
         }
-        .background(Color.white)
+        .background(Color.appSurface)
         .appCompactSheetCTAContainer()
         .sheet(isPresented: $showProjectPicker) {
             NativeSearchableSelectionSheet(
@@ -1461,7 +1461,7 @@ private struct DprAddRecipientSheet: View {
                 }
             )
             .appLibraryNativeSheet([.medium, .large])
-            .presentationBackground(Color.white)
+            .presentationBackground(Color.appElevatedSurface)
         }
         .sheet(isPresented: $showStaffPicker) {
             NativeSearchableSelectionSheet(
@@ -1480,10 +1480,10 @@ private struct DprAddRecipientSheet: View {
                         VStack(alignment: .leading, spacing: 3) {
                             Text(item.displayName)
                                 .font(.system(size: 15, weight: .semibold))
-                                .foregroundStyle(Color(hex: 0x101828))
+                                .foregroundStyle(Color.appPrimaryText)
                             Text([item.designation?.nonBlank, item.phone?.nonBlank].compactMap { $0 }.joined(separator: " · "))
                                 .font(.system(size: 12, weight: .regular))
-                                .foregroundStyle(Color(hex: 0x667085))
+                                .foregroundStyle(Color.appSecondaryText)
                         }
                         Spacer()
                         if isSelected {
@@ -1502,7 +1502,7 @@ private struct DprAddRecipientSheet: View {
                 }
             )
             .appLibraryNativeSheet([.medium, .large])
-            .presentationBackground(Color.white)
+            .presentationBackground(Color.appElevatedSurface)
         }
     }
 
@@ -1604,7 +1604,7 @@ private struct DailyLogDetailSheet: View {
 
                 Text("Photos & Videos")
                     .font(.system(size: 14, weight: .semibold))
-                    .foregroundStyle(Color(hex: 0x101828))
+                    .foregroundStyle(Color.appPrimaryText)
                     .padding(.top, 8)
 
                 if let attachments = log.attachments, !attachments.isEmpty {
@@ -1622,18 +1622,18 @@ private struct DailyLogDetailSheet: View {
                             .foregroundStyle(Color(hex: 0xCBD5E1))
                         Text("No photos or videos")
                             .font(.system(size: 13, weight: .medium))
-                            .foregroundStyle(Color(hex: 0x98A2B3))
+                            .foregroundStyle(Color.appTertiaryText)
                     }
                     .frame(maxWidth: .infinity)
                     .padding(.vertical, 22)
-                    .background(Color(hex: 0xF9FAFB), in: RoundedRectangle(cornerRadius: 12, style: .continuous))
+                    .background(Color.appFieldBackground, in: RoundedRectangle(cornerRadius: 12, style: .continuous))
                     .overlay(RoundedRectangle(cornerRadius: 12).stroke(Color(hex: 0xEAECF0), lineWidth: 1))
                 }
             }
             .padding(.horizontal, 20)
             .padding(.bottom, 24)
         }
-        .background(Color.white)
+        .background(Color.appSurface)
     }
 
     private func detailField(_ label: String, _ value: String?, multiline: Bool = false) -> some View {
@@ -1643,13 +1643,13 @@ private struct DailyLogDetailSheet: View {
                     DailyLogFieldLabel(label)
                     Text(value)
                         .font(.system(size: 14, weight: .medium))
-                        .foregroundStyle(Color(hex: 0x101828))
+                        .foregroundStyle(Color.appPrimaryText)
                         .lineSpacing(2)
                         .frame(maxWidth: .infinity, alignment: .leading)
                         .frame(minHeight: multiline ? 72 : 46, alignment: multiline ? .topLeading : .center)
                         .padding(.horizontal, 12)
                         .padding(.vertical, multiline ? 12 : 0)
-                        .background(Color.white, in: RoundedRectangle(cornerRadius: 12, style: .continuous))
+                        .background(Color.appSurface, in: RoundedRectangle(cornerRadius: 12, style: .continuous))
                         .overlay(RoundedRectangle(cornerRadius: 12).stroke(Color(hex: 0xEAECF0), lineWidth: 1))
                 }
             }
@@ -1671,11 +1671,11 @@ private struct DailyLogProjectPickerRow: View {
             VStack(alignment: .leading, spacing: 3) {
                 Text(project.displayName)
                     .font(.system(size: 15, weight: .semibold))
-                    .foregroundStyle(Color(hex: 0x101828))
+                    .foregroundStyle(Color.appPrimaryText)
                 if let status = project.status?.nonBlank {
                     Text(status.capitalized)
                         .font(.system(size: 12, weight: .regular))
-                        .foregroundStyle(Color(hex: 0x667085))
+                        .foregroundStyle(Color.appSecondaryText)
                 }
             }
             Spacer()
@@ -1702,17 +1702,17 @@ private struct DailyLogPickerField: View {
                 HStack(spacing: 10) {
                     Text(value)
                         .font(.system(size: 15, weight: .medium))
-                        .foregroundStyle(isPlaceholder ? Color(hex: 0x98A2B3) : Color(hex: 0x101828))
+                        .foregroundStyle(isPlaceholder ? Color.appTertiaryText : Color.appPrimaryText)
                         .lineLimit(1)
                     Spacer()
                     Image(systemName: "chevron.down")
                         .font(.system(size: 14, weight: .semibold))
-                        .foregroundStyle(Color(hex: 0x667085))
+                        .foregroundStyle(Color.appSecondaryText)
                 }
                 .padding(.horizontal, 14)
                 .frame(height: 48)
-                .background(Color.white, in: RoundedRectangle(cornerRadius: 12, style: .continuous))
-                .overlay(RoundedRectangle(cornerRadius: 12).stroke(Color(hex: 0xD0D5DD), lineWidth: 1))
+                .background(Color.appSurface, in: RoundedRectangle(cornerRadius: 12, style: .continuous))
+                .overlay(RoundedRectangle(cornerRadius: 12).stroke(Color.appSeparator, lineWidth: 1))
             }
             .buttonStyle(.plain)
         }
@@ -1730,16 +1730,16 @@ private struct DailyLogSelectLikeField: View {
             HStack(spacing: 10) {
                 Text(value)
                     .font(.system(size: 15, weight: .medium))
-                    .foregroundStyle(isPlaceholder ? Color(hex: 0x98A2B3) : Color(hex: 0x101828))
+                    .foregroundStyle(isPlaceholder ? Color.appTertiaryText : Color.appPrimaryText)
                 Spacer()
                 Image(systemName: "chevron.down")
                     .font(.system(size: 14, weight: .semibold))
-                    .foregroundStyle(Color(hex: 0x667085))
+                    .foregroundStyle(Color.appSecondaryText)
             }
             .padding(.horizontal, 14)
             .frame(height: 48)
-            .background(Color.white, in: RoundedRectangle(cornerRadius: 12, style: .continuous))
-            .overlay(RoundedRectangle(cornerRadius: 12).stroke(Color(hex: 0xD0D5DD), lineWidth: 1))
+            .background(Color.appSurface, in: RoundedRectangle(cornerRadius: 12, style: .continuous))
+            .overlay(RoundedRectangle(cornerRadius: 12).stroke(Color.appSeparator, lineWidth: 1))
         }
     }
 }
@@ -1759,8 +1759,8 @@ private struct DailyLogTextField: View {
                 .textInputAutocapitalization(.words)
                 .padding(.horizontal, 14)
                 .frame(height: 48)
-                .background(Color.white, in: RoundedRectangle(cornerRadius: 12, style: .continuous))
-                .overlay(RoundedRectangle(cornerRadius: 12).stroke(Color(hex: 0xD0D5DD), lineWidth: 1))
+                .background(Color.appSurface, in: RoundedRectangle(cornerRadius: 12, style: .continuous))
+                .overlay(RoundedRectangle(cornerRadius: 12).stroke(Color.appSeparator, lineWidth: 1))
         }
     }
 }
@@ -1789,8 +1789,8 @@ private struct DailyLogTextEditor: View {
                     .padding(.vertical, 7)
                     .frame(minHeight: minHeight)
             }
-            .background(Color.white, in: RoundedRectangle(cornerRadius: 12, style: .continuous))
-            .overlay(RoundedRectangle(cornerRadius: 12).stroke(Color(hex: 0xD0D5DD), lineWidth: 1))
+            .background(Color.appSurface, in: RoundedRectangle(cornerRadius: 12, style: .continuous))
+            .overlay(RoundedRectangle(cornerRadius: 12).stroke(Color.appSeparator, lineWidth: 1))
         }
     }
 }
@@ -1804,12 +1804,12 @@ private struct DailyLogMaterialRow: View {
             VStack(alignment: .leading, spacing: 2) {
                 Text(item.name)
                     .font(.system(size: 13, weight: .semibold))
-                    .foregroundStyle(Color(hex: 0x101828))
+                    .foregroundStyle(Color.appPrimaryText)
                     .lineLimit(1)
                 if !item.unit.isEmpty {
                     Text(item.unit)
                         .font(.system(size: 11, weight: .regular))
-                        .foregroundStyle(Color(hex: 0x98A2B3))
+                        .foregroundStyle(Color.appTertiaryText)
                 }
             }
             .frame(maxWidth: .infinity, alignment: .leading)
@@ -1818,21 +1818,21 @@ private struct DailyLogMaterialRow: View {
                 .keyboardType(.decimalPad)
                 .padding(.horizontal, 10)
                 .frame(width: 90, height: 42)
-                .background(Color.white, in: RoundedRectangle(cornerRadius: 10, style: .continuous))
-                .overlay(RoundedRectangle(cornerRadius: 10).stroke(Color(hex: 0xD0D5DD), lineWidth: 1))
+                .background(Color.appSurface, in: RoundedRectangle(cornerRadius: 10, style: .continuous))
+                .overlay(RoundedRectangle(cornerRadius: 10).stroke(Color.appSeparator, lineWidth: 1))
             removeButton
         }
         .padding(10)
-        .background(Color(hex: 0xF9FAFB), in: RoundedRectangle(cornerRadius: 12, style: .continuous))
+        .background(Color.appFieldBackground, in: RoundedRectangle(cornerRadius: 12, style: .continuous))
     }
 
     private var removeButton: some View {
         Button(action: onRemove) {
             Image(systemName: "xmark")
                 .font(.system(size: 11, weight: .bold))
-                .foregroundStyle(Color(hex: 0x667085))
+                .foregroundStyle(Color.appSecondaryText)
                 .frame(width: 28, height: 28)
-                .background(Color(hex: 0xF2F4F7), in: Circle())
+                .background(Color.appFieldBackground, in: Circle())
         }
         .buttonStyle(.plain)
     }
@@ -1848,21 +1848,21 @@ private struct DailyLogEquipmentRow: View {
                 .font(.system(size: 13, weight: .medium))
                 .padding(.horizontal, 10)
                 .frame(height: 42)
-                .background(Color.white, in: RoundedRectangle(cornerRadius: 10, style: .continuous))
-                .overlay(RoundedRectangle(cornerRadius: 10).stroke(Color(hex: 0xD0D5DD), lineWidth: 1))
+                .background(Color.appSurface, in: RoundedRectangle(cornerRadius: 10, style: .continuous))
+                .overlay(RoundedRectangle(cornerRadius: 10).stroke(Color.appSeparator, lineWidth: 1))
             TextField("Hours", text: $item.hours)
                 .font(.system(size: 13, weight: .medium))
                 .keyboardType(.decimalPad)
                 .padding(.horizontal, 10)
                 .frame(width: 88, height: 42)
-                .background(Color.white, in: RoundedRectangle(cornerRadius: 10, style: .continuous))
-                .overlay(RoundedRectangle(cornerRadius: 10).stroke(Color(hex: 0xD0D5DD), lineWidth: 1))
+                .background(Color.appSurface, in: RoundedRectangle(cornerRadius: 10, style: .continuous))
+                .overlay(RoundedRectangle(cornerRadius: 10).stroke(Color.appSeparator, lineWidth: 1))
             Button(action: onRemove) {
                 Image(systemName: "xmark")
                     .font(.system(size: 11, weight: .bold))
-                    .foregroundStyle(Color(hex: 0x667085))
+                    .foregroundStyle(Color.appSecondaryText)
                     .frame(width: 28, height: 28)
-                    .background(Color(hex: 0xF2F4F7), in: Circle())
+                    .background(Color.appFieldBackground, in: Circle())
             }
             .buttonStyle(.plain)
         }
@@ -1882,7 +1882,7 @@ private struct DailyLogSelectedMediaThumb: View {
                         .scaledToFill()
                 } else {
                     ZStack {
-                        Color(hex: 0x101828)
+                        Color.appPrimaryText
                         Image(systemName: "play.fill")
                             .font(.system(size: 22, weight: .bold))
                             .foregroundStyle(.white)
@@ -1923,11 +1923,11 @@ private struct DailyLogAttachmentThumb: View {
                         case .success(let image):
                             image.resizable().scaledToFill()
                         default:
-                            Color(hex: 0xF2F4F7)
+                            Color.appFieldBackground
                         }
                     }
                 } else {
-                    Color(hex: 0xF2F4F7)
+                    Color.appFieldBackground
                 }
                 if attachment.type == "video" {
                     Image(systemName: "play.fill")
@@ -1958,7 +1958,7 @@ private struct DailyLogFieldLabel: View {
     var body: some View {
         Text(text)
             .font(.system(size: 12, weight: .medium))
-            .foregroundStyle(Color(hex: 0x667085))
+            .foregroundStyle(Color.appSecondaryText)
     }
 }
 

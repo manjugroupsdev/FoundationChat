@@ -565,7 +565,7 @@ private struct SiteVisitCounsellingSheet: View {
 
                             Text(accessMessage(visit))
                                 .font(.system(size: 12, weight: .medium))
-                                .foregroundStyle((canStart || canOpenOutcome || isCompleted) ? Color(hex: 0x667085) : Color(hex: 0xB54708))
+                                .foregroundStyle((canStart || canOpenOutcome || isCompleted) ? Color.appSecondaryText : Color(hex: 0xB54708))
                                 .fixedSize(horizontal: false, vertical: true)
                         }
                         .padding(20)
@@ -657,7 +657,7 @@ private struct SiteVisitCounsellingSheet: View {
         VStack(alignment: .leading, spacing: 7) {
             Label(title.uppercased(), systemImage: icon)
                 .font(.system(size: 10, weight: .bold))
-                .foregroundStyle(Color(hex: 0x98A2B3))
+                .foregroundStyle(Color.appTertiaryText)
             Text(value)
                 .font(.system(size: 13, weight: .semibold))
                 .foregroundStyle(.primary)
@@ -672,7 +672,7 @@ private struct SiteVisitCounsellingSheet: View {
         HStack(alignment: .top, spacing: 12) {
             Image(systemName: icon).foregroundStyle(Color(hex: 0x0B61CA)).frame(width: 28)
             VStack(alignment: .leading, spacing: 3) {
-                Text(title.uppercased()).font(.system(size: 10, weight: .bold)).foregroundStyle(Color(hex: 0x98A2B3))
+                Text(title.uppercased()).font(.system(size: 10, weight: .bold)).foregroundStyle(Color.appTertiaryText)
                 Text(value.nilIfBlank ?? "Not provided").font(.system(size: 13, weight: .semibold)).foregroundStyle(.primary)
             }
         }
@@ -883,7 +883,7 @@ private struct FrontDeskInvitationSheet: View {
             VStack(alignment: .leading, spacing: 2) {
                 Text(title)
                     .font(.system(size: 10, weight: .bold))
-                    .foregroundStyle(Color(hex: 0x98A2B3))
+                    .foregroundStyle(Color.appTertiaryText)
                 Text(value)
                     .font(.system(size: 13, weight: .semibold))
                     .foregroundStyle(.primary)
@@ -947,8 +947,8 @@ private struct FrontDeskInvitationSheet: View {
         let checkedOut = isCheckedOut(invitation)
         let checkedIn = isCheckedIn(invitation)
         let title = checkedOut ? "Checked Out" : (checkedIn ? "Checked In" : "Invited")
-        let foreground = checkedOut ? Color(hex: 0x475467) : (checkedIn ? Color(hex: 0x15803D) : Color(hex: 0x0B61CA))
-        let background = checkedOut ? Color(hex: 0xF2F4F7) : (checkedIn ? Color(hex: 0xDCFCE7) : Color(hex: 0xEAF4FF))
+        let foreground = checkedOut ? Color.appSecondaryText : (checkedIn ? Color(hex: 0x15803D) : Color(hex: 0x0B61CA))
+        let background = checkedOut ? Color.appFieldBackground : (checkedIn ? Color(hex: 0xDCFCE7) : Color(hex: 0xEAF4FF))
         return Text(title)
             .font(.system(size: 10, weight: .bold))
             .foregroundStyle(foreground)
@@ -1165,7 +1165,7 @@ private struct FrontDeskQRHistoryRow: View {
                 if let host = payload.hostLine {
                     Text(host)
                         .font(.system(size: 12, weight: .medium))
-                        .foregroundStyle(Color(hex: 0x98A2B3))
+                        .foregroundStyle(Color.appTertiaryText)
                         .lineLimit(1)
                 }
 
@@ -1176,7 +1176,7 @@ private struct FrontDeskQRHistoryRow: View {
 
             Image(systemName: "chevron.right")
                 .font(.system(size: 13, weight: .bold))
-                .foregroundStyle(Color(hex: 0x98A2B3))
+                .foregroundStyle(Color.appTertiaryText)
                 .padding(.top, 17)
         }
         .padding(14)
@@ -1273,7 +1273,7 @@ private struct FrontDeskQRHistoryDetailView: View {
                     VStack(alignment: .leading, spacing: 3) {
                         Text(row.label)
                             .font(.system(size: 11, weight: .bold))
-                            .foregroundStyle(Color(hex: 0x98A2B3))
+                            .foregroundStyle(Color.appTertiaryText)
                         Text(row.value)
                             .font(.system(size: 14, weight: .semibold))
                             .foregroundStyle(.primary)
@@ -1456,7 +1456,7 @@ private struct FrontDeskQRHistoryPayload {
     var statusLabel: FrontDeskQRStatusLabel? {
         switch string("status") {
         case "checked_out":
-            return FrontDeskQRStatusLabel(title: "Checked Out", foreground: Color(hex: 0x475467), background: Color(hex: 0xF2F4F7))
+            return FrontDeskQRStatusLabel(title: "Checked Out", foreground: Color.appSecondaryText, background: Color.appFieldBackground)
         case "checked_in":
             return FrontDeskQRStatusLabel(title: "Checked In", foreground: Color(hex: 0x15803D), background: Color(hex: 0xDCFCE7))
         default:

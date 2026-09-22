@@ -724,7 +724,7 @@ private struct SiteVisitSkeletonRow: View {
     private var footerSkeleton: some View {
         HStack(alignment: .top, spacing: 7) {
             Circle()
-                .fill(Color(hex: 0xE5E7EB))
+                .fill(Color.appSeparator)
                 .frame(width: 14, height: 14)
             VStack(alignment: .leading, spacing: 5) {
                 skeleton(width: 82, height: 13)
@@ -737,7 +737,7 @@ private struct SiteVisitSkeletonRow: View {
 
     private func skeleton(width: CGFloat, height: CGFloat) -> some View {
         RoundedRectangle(cornerRadius: height / 2, style: .continuous)
-            .fill(Color(hex: 0xE5E7EB))
+            .fill(Color.appSeparator)
             .frame(width: width, height: height)
     }
 }
@@ -781,7 +781,7 @@ struct SiteVisitRow: View {
                             .font(.system(size: 10, weight: .medium))
                     }
                     .font(.system(size: 12, weight: .medium))
-                    .foregroundStyle(Color(hex: 0x98A2B3))
+                    .foregroundStyle(Color.appTertiaryText)
 
                     Spacer(minLength: 8)
 
@@ -855,7 +855,7 @@ struct SiteVisitRow: View {
         HStack(alignment: .top, spacing: 7) {
             Image(systemName: icon)
                 .font(.system(size: 13, weight: .medium))
-                .foregroundStyle(Color(hex: 0x98A2B3))
+                .foregroundStyle(Color.appTertiaryText)
                 .frame(width: 14)
 
             VStack(alignment: .leading, spacing: 3) {
@@ -865,7 +865,7 @@ struct SiteVisitRow: View {
                     .lineLimit(1)
                 Text(subtitle)
                     .font(.system(size: 10, weight: .medium))
-                    .foregroundStyle(Color(hex: 0x98A2B3))
+                    .foregroundStyle(Color.appTertiaryText)
                     .lineLimit(1)
             }
             .frame(maxWidth: .infinity, alignment: .leading)
@@ -1309,8 +1309,8 @@ private struct SiteVisitOverviewSheet: View {
                 )
 
                 LazyVGrid(columns: [GridItem(.flexible()), GridItem(.flexible())], spacing: 12) {
-                    overviewCard(icon: "person.2", tint: Color(hex: 0x667085), label: "ATTENDEES", value: attendeeCountText)
-                    overviewCard(icon: "checkmark.circle.fill", tint: Color(hex: 0x475467), label: "SITE INCHARGE", value: inchargeName)
+                    overviewCard(icon: "person.2", tint: Color.appSecondaryText, label: "ATTENDEES", value: attendeeCountText)
+                    overviewCard(icon: "checkmark.circle.fill", tint: Color.appSecondaryText, label: "SITE INCHARGE", value: inchargeName)
                 }
 
                 HStack(spacing: 12) {
@@ -1430,11 +1430,11 @@ private struct SiteVisitOverviewSheet: View {
                         case .success(let image):
                             image.resizable().scaledToFill()
                         case .failure:
-                            Color(hex: 0xF2F4F7).overlay(
+                            Color.appFieldBackground.overlay(
                                 Image(systemName: "photo").foregroundStyle(.secondary)
                             )
                         default:
-                            Color(hex: 0xF2F4F7).overlay(ProgressView())
+                            Color.appFieldBackground.overlay(ProgressView())
                         }
                     }
                     .frame(height: 180)
@@ -1497,7 +1497,7 @@ private struct SiteVisitOverviewSheet: View {
                             VStack(spacing: 0) {
                                 Circle().fill(Color(hex: 0x0B61CA)).frame(width: 9, height: 9)
                                 if index < events.count - 1 {
-                                    Rectangle().fill(Color(hex: 0xD0D5DD)).frame(width: 2, height: 26)
+                                    Rectangle().fill(Color.appSeparator).frame(width: 2, height: 26)
                                 }
                             }
                             VStack(alignment: .leading, spacing: 1) {
@@ -1549,7 +1549,7 @@ private struct SiteVisitOverviewSheet: View {
                     .padding(.horizontal, 16)
                     .frame(height: 42)
                     .background(Color.appSurface, in: RoundedRectangle(cornerRadius: 10))
-                    .overlay(RoundedRectangle(cornerRadius: 10).stroke(Color(hex: 0xD0D5DD), lineWidth: 1))
+                    .overlay(RoundedRectangle(cornerRadius: 10).stroke(Color.appSeparator, lineWidth: 1))
             }
 
             HStack {
@@ -1589,12 +1589,12 @@ private struct SiteVisitOverviewSheet: View {
 
                             Image(systemName: step.icon)
                                 .font(.system(size: 13, weight: .semibold))
-                                .foregroundStyle(index <= displayedCurrentStepIndex ? .white : Color(hex: 0x98A2B3))
+                                .foregroundStyle(index <= displayedCurrentStepIndex ? .white : Color.appTertiaryText)
                         }
 
                         Text(step.title)
                             .font(.system(size: 8, weight: .semibold))
-                            .foregroundStyle(index <= displayedCurrentStepIndex ? Color(hex: 0x0B61CA) : Color(hex: 0x98A2B3))
+                            .foregroundStyle(index <= displayedCurrentStepIndex ? Color(hex: 0x0B61CA) : Color.appTertiaryText)
                             .lineLimit(2)
                             .minimumScaleFactor(0.65)
                             .multilineTextAlignment(.center)
@@ -1631,7 +1631,7 @@ private struct SiteVisitOverviewSheet: View {
                     outcomeButton("Booking", icon: "briefcase.fill", tint: Color(hex: 0x16A34A), outcome: .booking)
                     outcomeButton("Client Not Interested", icon: "hand.thumbsdown.fill", tint: Color(hex: 0xDC2626), outcome: .notInterested)
                     outcomeButton("Follow up", icon: "calendar.badge.clock", tint: Color(hex: 0xD97706), outcome: .followUp)
-                    outcomeButton("Others", icon: "ellipsis.circle.fill", tint: Color(hex: 0x475467), outcome: .other)
+                    outcomeButton("Others", icon: "ellipsis.circle.fill", tint: Color.appSecondaryText, outcome: .other)
                 }
 
                 if !isOutcomeEnabled {
@@ -1688,7 +1688,7 @@ private struct SiteVisitOverviewSheet: View {
                     .multilineTextAlignment(.center)
                     .lineLimit(2)
             }
-            .foregroundStyle(isOutcomeEnabled ? tint : Color(hex: 0x98A2B3))
+            .foregroundStyle(isOutcomeEnabled ? tint : Color.appTertiaryText)
             .frame(maxWidth: .infinity, minHeight: 72)
             .background((isOutcomeEnabled ? tint.opacity(0.10) : Color.appFieldBackground), in: RoundedRectangle(cornerRadius: 14))
         }
@@ -1708,7 +1708,7 @@ private struct SiteVisitOverviewSheet: View {
 
                 Text(label)
                     .font(.system(size: 10, weight: .semibold))
-                    .foregroundStyle(Color(hex: 0x98A2B3))
+                    .foregroundStyle(Color.appTertiaryText)
                     .lineLimit(1)
                     .minimumScaleFactor(0.78)
 
@@ -1739,7 +1739,7 @@ private struct SiteVisitOverviewSheet: View {
             VStack(alignment: .leading, spacing: 5) {
                 Text(label)
                     .font(.system(size: 10, weight: .semibold))
-                    .foregroundStyle(Color(hex: 0x98A2B3))
+                    .foregroundStyle(Color.appTertiaryText)
                 Text(value)
                     .font(.system(size: 15, weight: .bold))
                     .foregroundStyle(.primary)
@@ -2185,13 +2185,13 @@ private struct SiteVisitOverviewSheet: View {
         case "follow_up", "followup", "postponed":
             return ("Follow up", Color(hex: 0xB54708))
         case "cancelled", "canceled":
-            return ("Site Visit Cancelled", Color(hex: 0x475467))
+            return ("Site Visit Cancelled", Color.appSecondaryText)
         case "no_show":
-            return ("Client No-show", Color(hex: 0x475467))
+            return ("Client No-show", Color.appSecondaryText)
         case "other":
-            return ("Other", Color(hex: 0x344054))
+            return ("Other", Color.appPrimaryText)
         default:
-            return ("Outcome recorded", Color(hex: 0x344054))
+            return ("Outcome recorded", Color.appPrimaryText)
         }
     }
 

@@ -132,11 +132,11 @@ struct ApplyLeaveView: View {
                 VStack(alignment: .leading, spacing: 0) {
                     Text("Fill Leave Information")
                         .font(.system(size: 18, weight: .bold))
-                        .foregroundStyle(Color(hex: 0x101828))
+                        .foregroundStyle(Color.appPrimaryText)
 
                     Text("Information about leave details")
                         .font(.system(size: 12, weight: .medium))
-                        .foregroundStyle(Color(hex: 0x667085))
+                        .foregroundStyle(Color.appSecondaryText)
                         .padding(.top, 2)
 
                     fieldLabel("Leave Category")
@@ -157,7 +157,7 @@ struct ApplyLeaveView: View {
                         if compOffCreditsLoaded && compOffCredits.isEmpty {
                             Text("No comp-off balance available. You earn 1 comp-off credit by working a full day on your weekly-off or a holiday.")
                                 .font(.system(size: 12, weight: .medium))
-                                .foregroundStyle(Color(hex: 0x667085))
+                                .foregroundStyle(Color.appSecondaryText)
                                 .padding(.top, 8)
                         }
                     }
@@ -179,13 +179,13 @@ struct ApplyLeaveView: View {
                             .padding(.top, 16)
                         TextField("Enter Leave Description", text: $reason, axis: .vertical)
                             .font(.system(size: 14))
-                            .foregroundStyle(Color(hex: 0x101828))
+                            .foregroundStyle(Color.appPrimaryText)
                             .lineLimit(4...6)
                             .focused($isReasonFocused)
                             .padding(.horizontal, 14)
                             .padding(.vertical, 10)
                             .frame(minHeight: 90, alignment: .topLeading)
-                            .background(Color(hex: 0xF8FAFC), in: RoundedRectangle(cornerRadius: 10, style: .continuous))
+                            .background(Color.appFieldBackground, in: RoundedRectangle(cornerRadius: 10, style: .continuous))
                             .overlay {
                                 RoundedRectangle(cornerRadius: 10, style: .continuous)
                                     .stroke(Color(hex: 0xEAECF0), lineWidth: 1)
@@ -209,9 +209,9 @@ struct ApplyLeaveView: View {
                 .padding(.horizontal, 20)
                 .padding(.top, 10)
                 .padding(.bottom, 20)
-                .background(Color.white)
+                .background(Color.appSurface)
         }
-        .background(Color.white)
+        .background(Color.appSurface)
         .appCompactSheetCTAContainer()
         .task { await loadLeaveTypes() }
         .onDisappear {
@@ -279,7 +279,7 @@ struct ApplyLeaveView: View {
     private var submitBackground: some ShapeStyle {
         canSubmit
             ? AnyShapeStyle(LinearGradient(colors: [Color(hex: 0x1BCB0B), Color(hex: 0x3DA302)], startPoint: .leading, endPoint: .trailing))
-            : AnyShapeStyle(Color(hex: 0xD0D5DD))
+            : AnyShapeStyle(Color.appSeparator)
     }
 
     private var submitButton: some View {
@@ -316,15 +316,15 @@ struct ApplyLeaveView: View {
             HStack(spacing: 10) {
                 Image(systemName: isHalfDay ? "checkmark.square.fill" : "square")
                     .font(.system(size: 18))
-                    .foregroundStyle(isHalfDay ? Color(hex: 0x1D4ED8) : Color(hex: 0x98A2B3))
+                    .foregroundStyle(isHalfDay ? Color(hex: 0x1D4ED8) : Color.appTertiaryText)
                 Text("Half-day leave (0.5 day)")
                     .font(.system(size: 14))
-                    .foregroundStyle(Color(hex: 0x101828))
+                    .foregroundStyle(Color.appPrimaryText)
                 Spacer(minLength: 0)
             }
             .padding(.horizontal, 14)
             .frame(minHeight: 48)
-            .background(Color(hex: 0xF8FAFC), in: RoundedRectangle(cornerRadius: 10, style: .continuous))
+            .background(Color.appFieldBackground, in: RoundedRectangle(cornerRadius: 10, style: .continuous))
             .overlay {
                 RoundedRectangle(cornerRadius: 10, style: .continuous)
                     .stroke(Color(hex: 0xE4E7EC), lineWidth: 1)
@@ -350,11 +350,11 @@ struct ApplyLeaveView: View {
         } label: {
             Text(title)
                 .font(.system(size: 13, weight: .semibold))
-                .foregroundStyle(selectedHalfDaySession == title ? Color(hex: 0x1D4ED8) : Color(hex: 0x344054))
+                .foregroundStyle(selectedHalfDaySession == title ? Color(hex: 0x1D4ED8) : Color.appPrimaryText)
                 .frame(maxWidth: .infinity)
                 .frame(height: 42)
                 .background(
-                    selectedHalfDaySession == title ? Color(hex: 0xEAF2FF) : Color(hex: 0xF8FAFC),
+                    selectedHalfDaySession == title ? Color(hex: 0xEAF2FF) : Color.appFieldBackground,
                     in: RoundedRectangle(cornerRadius: 10, style: .continuous)
                 )
                 .overlay {
@@ -376,7 +376,7 @@ struct ApplyLeaveView: View {
     private func fieldLabel(_ title: String) -> some View {
         Text(title)
             .font(.system(size: 13, weight: .medium))
-            .foregroundStyle(Color(hex: 0x344054))
+            .foregroundStyle(Color.appPrimaryText)
             .padding(.bottom, 6)
     }
 
@@ -385,20 +385,20 @@ struct ApplyLeaveView: View {
             HStack(spacing: 10) {
                 Image(systemName: icon)
                     .font(.system(size: 18, weight: .medium))
-                    .foregroundStyle(Color(hex: 0x667085))
+                    .foregroundStyle(Color.appSecondaryText)
                     .frame(width: 20)
                 Text(value)
                     .font(.system(size: 14))
-                    .foregroundStyle(value.hasPrefix("Select") ? Color(hex: 0x9CA3AF) : Color(hex: 0x101828))
+                    .foregroundStyle(value.hasPrefix("Select") ? Color.appTertiaryText : Color.appPrimaryText)
                     .frame(maxWidth: .infinity, alignment: .leading)
                 Image(systemName: "chevron.down")
                     .font(.system(size: 13, weight: .semibold))
-                    .foregroundStyle(Color(hex: 0x667085))
+                    .foregroundStyle(Color.appSecondaryText)
             }
             .padding(.horizontal, 14)
             .frame(maxWidth: .infinity)
             .frame(height: 48)
-            .background(Color(hex: 0xF8FAFC), in: RoundedRectangle(cornerRadius: 10, style: .continuous))
+            .background(Color.appFieldBackground, in: RoundedRectangle(cornerRadius: 10, style: .continuous))
             .overlay {
                 RoundedRectangle(cornerRadius: 10, style: .continuous)
                     .stroke(Color(hex: 0xEAECF0), lineWidth: 1)
@@ -616,10 +616,10 @@ private struct LeaveCategorySheet: View {
 
             Text("Leave Category")
                 .font(.system(size: 18, weight: .bold))
-                .foregroundStyle(Color(hex: 0x101828))
+                .foregroundStyle(Color.appPrimaryText)
             Text("Select Leave category")
                 .font(.system(size: 12, weight: .medium))
-                .foregroundStyle(Color(hex: 0x667085))
+                .foregroundStyle(Color.appSecondaryText)
                 .padding(.top, 2)
 
             VStack(spacing: 8) {
@@ -630,17 +630,17 @@ private struct LeaveCategorySheet: View {
                         HStack {
                             Text(type.label)
                                 .font(.system(size: 14, weight: .medium))
-                                .foregroundStyle(Color(hex: 0x101828))
+                                .foregroundStyle(Color.appPrimaryText)
                                 .lineLimit(2)
                                 .minimumScaleFactor(0.82)
                             Spacer()
                             Image(systemName: draftType == type ? "largecircle.fill.circle" : "circle")
                                 .font(.system(size: 18, weight: .semibold))
-                                .foregroundStyle(draftType == type ? Color(hex: 0x1BCA0B) : Color(hex: 0x98A2B3))
+                                .foregroundStyle(draftType == type ? Color(hex: 0x1BCA0B) : Color.appTertiaryText)
                         }
                         .padding(.horizontal, 14)
                         .frame(height: 46)
-                        .background(draftType == type ? Color(hex: 0xEAF8E8) : Color(hex: 0xF8FAFC), in: RoundedRectangle(cornerRadius: 10, style: .continuous))
+                        .background(draftType == type ? Color(hex: 0xEAF8E8) : Color.appFieldBackground, in: RoundedRectangle(cornerRadius: 10, style: .continuous))
                         .overlay {
                             RoundedRectangle(cornerRadius: 10, style: .continuous)
                                 .stroke(draftType == type ? Color(hex: 0x1BCA0B).opacity(0.35) : Color(hex: 0xEAECF0), lineWidth: 1)
@@ -660,7 +660,7 @@ private struct LeaveCategorySheet: View {
         .padding(.horizontal, 20)
         .padding(.top, 20)
         .padding(.bottom, 20)
-        .background(Color.white)
+        .background(Color.appSurface)
         .appCompactSheetCTAContainer()
     }
 
@@ -696,10 +696,10 @@ private struct CompOffCreditSheet: View {
 
             Text("Comp Off Credit")
                 .font(.system(size: 18, weight: .bold))
-                .foregroundStyle(Color(hex: 0x101828))
+                .foregroundStyle(Color.appPrimaryText)
             Text("Select a credit to spend")
                 .font(.system(size: 12, weight: .medium))
-                .foregroundStyle(Color(hex: 0x667085))
+                .foregroundStyle(Color.appSecondaryText)
                 .padding(.top, 2)
 
             ScrollView(showsIndicators: false) {
@@ -711,22 +711,22 @@ private struct CompOffCreditSheet: View {
                             HStack(spacing: 12) {
                                 ZStack {
                                     Circle()
-                                        .fill(draftCredit?.id == credit.id ? Color(hex: 0xEAF8E8) : Color(hex: 0xF2F4F7))
+                                        .fill(draftCredit?.id == credit.id ? Color(hex: 0xEAF8E8) : Color.appFieldBackground)
                                         .frame(width: 36, height: 36)
                                     Image(systemName: "checkmark.seal")
                                         .font(.system(size: 16, weight: .semibold))
-                                        .foregroundStyle(draftCredit?.id == credit.id ? Color(hex: 0x1BCA0B) : Color(hex: 0x667085))
+                                        .foregroundStyle(draftCredit?.id == credit.id ? Color(hex: 0x1BCA0B) : Color.appSecondaryText)
                                 }
 
                                 VStack(alignment: .leading, spacing: 3) {
                                     Text(Self.creditTitle(credit))
                                         .font(.system(size: 14, weight: .semibold))
-                                        .foregroundStyle(Color(hex: 0x101828))
+                                        .foregroundStyle(Color.appPrimaryText)
                                         .lineLimit(1)
 
                                     Text(Self.creditSubtitle(credit))
                                         .font(.system(size: 11, weight: .medium))
-                                        .foregroundStyle(Color(hex: 0x667085))
+                                        .foregroundStyle(Color.appSecondaryText)
                                         .lineLimit(1)
                                 }
 
@@ -734,11 +734,11 @@ private struct CompOffCreditSheet: View {
 
                                 Image(systemName: draftCredit?.id == credit.id ? "largecircle.fill.circle" : "circle")
                                     .font(.system(size: 18, weight: .semibold))
-                                    .foregroundStyle(draftCredit?.id == credit.id ? Color(hex: 0x1BCA0B) : Color(hex: 0x98A2B3))
+                                    .foregroundStyle(draftCredit?.id == credit.id ? Color(hex: 0x1BCA0B) : Color.appTertiaryText)
                             }
                             .padding(.horizontal, 12)
                             .frame(height: 58)
-                            .background(draftCredit?.id == credit.id ? Color(hex: 0xEAF8E8) : Color(hex: 0xF8FAFC), in: RoundedRectangle(cornerRadius: 10, style: .continuous))
+                            .background(draftCredit?.id == credit.id ? Color(hex: 0xEAF8E8) : Color.appFieldBackground, in: RoundedRectangle(cornerRadius: 10, style: .continuous))
                             .overlay {
                                 RoundedRectangle(cornerRadius: 10, style: .continuous)
                                     .stroke(draftCredit?.id == credit.id ? Color(hex: 0x1BCA0B).opacity(0.35) : Color(hex: 0xEAECF0), lineWidth: 1)
@@ -764,7 +764,7 @@ private struct CompOffCreditSheet: View {
         .padding(.horizontal, 20)
         .padding(.top, 20)
         .padding(.bottom, 20)
-        .background(Color.white)
+        .background(Color.appSurface)
         .appCompactSheetCTAContainer()
     }
 
@@ -841,10 +841,10 @@ private struct LeaveDurationSheet: View {
 
             Text(title)
                 .font(.system(size: 18, weight: .bold))
-                .foregroundStyle(Color(hex: 0x101828))
+                .foregroundStyle(Color.appPrimaryText)
             Text(subtitle)
                 .font(.system(size: 12, weight: .medium))
-                .foregroundStyle(Color(hex: 0x667085))
+                .foregroundStyle(Color.appSecondaryText)
                 .padding(.top, 2)
 
             HStack {
@@ -852,7 +852,7 @@ private struct LeaveDurationSheet: View {
                     Button { changeMonth(-1) } label: {
                         Image(systemName: "chevron.left")
                             .font(.system(size: 17, weight: .bold))
-                            .foregroundStyle(Color(hex: 0x101828))
+                            .foregroundStyle(Color.appPrimaryText)
                             .frame(width: 28, height: 28)
                     }
                     .buttonStyle(.plain)
@@ -862,13 +862,13 @@ private struct LeaveDurationSheet: View {
                 Spacer()
                 Text(Self.monthFormatter.string(from: displayedMonth))
                     .font(.system(size: 16, weight: .semibold))
-                    .foregroundStyle(Color(hex: 0x101828))
+                    .foregroundStyle(Color.appPrimaryText)
                 Spacer()
                 if lockedMonthDate == nil {
                     Button { changeMonth(1) } label: {
                         Image(systemName: "chevron.right")
                             .font(.system(size: 17, weight: .bold))
-                            .foregroundStyle(Color(hex: 0x101828))
+                            .foregroundStyle(Color.appPrimaryText)
                             .frame(width: 28, height: 28)
                     }
                     .buttonStyle(.plain)
@@ -882,7 +882,7 @@ private struct LeaveDurationSheet: View {
                 ForEach(Self.weekdays, id: \.self) { day in
                     Text(day)
                         .font(.system(size: 10, weight: .medium))
-                        .foregroundStyle(Color(hex: 0x667085))
+                        .foregroundStyle(Color.appSecondaryText)
                         .frame(maxWidth: .infinity)
                 }
             }
@@ -910,7 +910,7 @@ private struct LeaveDurationSheet: View {
         .padding(.horizontal, 20)
         .padding(.top, 20)
         .padding(.bottom, 20)
-        .background(Color.white)
+        .background(Color.appSurface)
         .appCompactSheetCTAContainer()
     }
 
@@ -960,7 +960,7 @@ private struct LeaveDurationSheet: View {
 
     private func dayTextColor(inCurrentMonth: Bool, selected: Bool) -> Color {
         if selected { return .white }
-        return inCurrentMonth ? Color(hex: 0x101828) : Color(hex: 0x98A2B3)
+        return inCurrentMonth ? Color.appPrimaryText : Color.appTertiaryText
     }
 
     private func isInRange(_ date: Date) -> Bool {
@@ -1021,12 +1021,12 @@ private struct SubmitLeaveConfirmSheet: View {
 
             Text("Apply Leave")
                 .font(.system(size: 18, weight: .bold))
-                .foregroundStyle(Color(hex: 0x101828))
+                .foregroundStyle(Color.appPrimaryText)
                 .padding(.top, 10)
 
             Text("Double-check your leave details to ensure everything is correct. Do you want to proceed?")
                 .font(.system(size: 12, weight: .medium))
-                .foregroundStyle(Color(hex: 0x667085))
+                .foregroundStyle(Color.appSecondaryText)
                 .multilineTextAlignment(.center)
                 .padding(.horizontal, 24)
                 .padding(.top, 8)
@@ -1042,7 +1042,7 @@ private struct SubmitLeaveConfirmSheet: View {
             .padding(.top, 18)
             .padding(.bottom, 20)
         }
-        .background(Color.white)
+        .background(Color.appSurface)
         .appCompactSheetCTAContainer()
     }
 }
@@ -1073,7 +1073,7 @@ private func outlineButton(_ title: String, action: @escaping () -> Void) -> som
             .foregroundStyle(Color(hex: 0x1BCA0B))
             .frame(maxWidth: .infinity)
             .frame(height: 40)
-            .background(Color.white, in: Capsule())
+            .background(Color.appSurface, in: Capsule())
             .overlay {
                 Capsule()
                     .stroke(Color(hex: 0x1BCA0B), lineWidth: 1)

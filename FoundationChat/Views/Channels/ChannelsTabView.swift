@@ -1149,7 +1149,7 @@ private struct ChannelMessageRow: View {
         }
         .padding(.horizontal, 7)
         .padding(.vertical, 4)
-        .background(Color.white, in: Capsule())
+        .background(Color.appSurface, in: Capsule())
         .overlay(Capsule().stroke(Color.black.opacity(0.08), lineWidth: 1))
       }
 

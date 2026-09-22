@@ -371,7 +371,7 @@ struct CpVisitsView: View {
                     } label: {
                         Text(filter.title)
                             .font(.system(size: 13, weight: activeOwnershipScope == nil && selectedFilter == filter ? .semibold : .medium))
-                            .foregroundStyle(activeOwnershipScope == nil && selectedFilter == filter ? .white : Color(hex: 0x475467))
+                            .foregroundStyle(activeOwnershipScope == nil && selectedFilter == filter ? .white : Color.appSecondaryText)
                             .padding(.horizontal, 16)
                             .frame(height: 34)
                             .background(
@@ -399,7 +399,7 @@ struct CpVisitsView: View {
         } label: {
             Text(scope.title)
                 .font(.system(size: 13, weight: isActive ? .semibold : .medium))
-                .foregroundStyle(isActive ? .white : Color(hex: 0x475467))
+                .foregroundStyle(isActive ? .white : Color.appSecondaryText)
                 .padding(.horizontal, 16)
                 .frame(height: 34)
                 .background(isActive ? Color(hex: 0x0B61CA) : .white, in: Capsule())
@@ -1208,7 +1208,7 @@ private struct CpVisitCard: View {
         .frame(maxWidth: .infinity, minHeight: 278, alignment: .top)
         .background(
             RoundedRectangle(cornerRadius: 12)
-                .fill(.white)
+                .fill(Color.appSurface)
                 .stroke(Color(red: 0.95, green: 0.96, blue: 0.97), lineWidth: 1)
         )
         .contentShape(RoundedRectangle(cornerRadius: 12))
@@ -2400,13 +2400,13 @@ private struct CreateCpVisitSheet: View {
                             }
                             Spacer()
                             Image(systemName: "chevron.right")
-                                .foregroundStyle(Color(hex: 0x98A2B3))
+                                .foregroundStyle(Color.appTertiaryText)
                         }
                         .padding(12)
                         .background(Color.appSurface, in: RoundedRectangle(cornerRadius: 12))
                         .overlay {
                             RoundedRectangle(cornerRadius: 12)
-                                .stroke(Color(hex: 0xD0D5DD), lineWidth: 1)
+                                .stroke(Color.appSeparator, lineWidth: 1)
                         }
                     }
                     .buttonStyle(.plain)
@@ -2434,7 +2434,7 @@ private struct CreateCpVisitSheet: View {
                     .background(Color.appSurface, in: Capsule())
                     .overlay(
                         Capsule()
-                            .stroke(Color(hex: 0xD0D5DD), lineWidth: 1)
+                            .stroke(Color.appSeparator, lineWidth: 1)
                     )
 
                     Button {
@@ -2677,7 +2677,7 @@ private struct CreateCpVisitSheet: View {
             .background(Color.appSurface, in: RoundedRectangle(cornerRadius: 12, style: .continuous))
             .overlay(
                 RoundedRectangle(cornerRadius: 12, style: .continuous)
-                    .stroke(Color(hex: 0xD0D5DD), lineWidth: 1)
+                    .stroke(Color.appSeparator, lineWidth: 1)
             )
         }
         .padding(.top, 16)
@@ -2812,7 +2812,7 @@ private struct CreateCpVisitSheet: View {
                     VStack(alignment: .leading, spacing: 2) {
                         Text(selectedCpType?.title ?? "Select CP type")
                             .font(.system(size: 14, weight: .medium))
-                            .foregroundStyle(selectedCpType == nil ? Color(hex: 0x9CA3AF) : Color(hex: 0x101828))
+                            .foregroundStyle(selectedCpType == nil ? Color.appTertiaryText : Color.appPrimaryText)
                             .lineLimit(1)
                         // Was "Optional" - it is not, and the server now
                         // rejects an untyped CP.
@@ -2911,7 +2911,7 @@ private struct CreateCpVisitSheet: View {
                     VStack(alignment: .leading, spacing: 2) {
                         Text(selectedReferralSource?.title ?? "Select referral source")
                             .font(.system(size: 14, weight: .medium))
-                            .foregroundStyle(selectedReferralSource == nil ? Color(hex: 0x9CA3AF) : Color(hex: 0x101828))
+                            .foregroundStyle(selectedReferralSource == nil ? Color.appTertiaryText : Color.appPrimaryText)
                         Text(selectedReferralSource?.subtitle ?? "Required")
                             .font(.system(size: 10, weight: .medium))
                             .foregroundStyle(.secondary)
@@ -2937,7 +2937,7 @@ private struct CreateCpVisitSheet: View {
                     VStack(alignment: .leading, spacing: 2) {
                         Text(selectedReferringClient?.name ?? "Search client by name or mobile")
                             .font(.system(size: 14, weight: .medium))
-                            .foregroundStyle(selectedReferringClient == nil ? Color(hex: 0x9CA3AF) : Color(hex: 0x101828))
+                            .foregroundStyle(selectedReferringClient == nil ? Color.appTertiaryText : Color.appPrimaryText)
                             .lineLimit(1)
                         Text(selectedReferringClient?.mobileNumber ?? "Existing clients only")
                             .font(.system(size: 10, weight: .medium))
@@ -2972,7 +2972,7 @@ private struct CreateCpVisitSheet: View {
             .background(Color.appSurface, in: RoundedRectangle(cornerRadius: 12, style: .continuous))
             .overlay(
                 RoundedRectangle(cornerRadius: 12, style: .continuous)
-                    .stroke(Color(hex: 0xD0D5DD), lineWidth: 1)
+                    .stroke(Color.appSeparator, lineWidth: 1)
             )
         }
         .padding(.top, 16)
@@ -2982,7 +2982,7 @@ private struct CreateCpVisitSheet: View {
         HStack {
             Text(text)
                 .font(.system(size: 14, weight: .medium))
-                .foregroundStyle(text.lowercased().hasPrefix("select") ? Color(hex: 0x9CA3AF) : Color(hex: 0x101828))
+                .foregroundStyle(text.lowercased().hasPrefix("select") ? Color.appTertiaryText : Color.appPrimaryText)
                 .lineLimit(1)
             Spacer()
             Image(systemName: "chevron.down")
@@ -3017,7 +3017,7 @@ private struct CreateCpVisitSheet: View {
             .background(Color.appSurface, in: RoundedRectangle(cornerRadius: 12, style: .continuous))
             .overlay(
                 RoundedRectangle(cornerRadius: 12, style: .continuous)
-                    .stroke(Color(hex: 0xD0D5DD), lineWidth: 1)
+                    .stroke(Color.appSeparator, lineWidth: 1)
             )
         }
         .padding(.top, 16)

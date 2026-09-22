@@ -455,7 +455,7 @@ private struct FleetPortalHero: View {
                             .foregroundStyle(Color(hex: 0x0B61CA))
                             .padding(.horizontal, 14)
                             .frame(height: 34)
-                            .background(.white, in: Capsule())
+                            .background(Color.appSurface, in: Capsule())
                         }
                         .buttonStyle(.plain)
                     }
@@ -529,7 +529,7 @@ private struct FleetPortalHeroHeader: View {
                         .font(.system(size: 18, weight: .semibold))
                         .foregroundStyle(.white)
                         .frame(width: 40, height: 40)
-                        .background(.white.opacity(0.14), in: Circle())
+                        .background(Color.appSurface.opacity(0.14), in: Circle())
                 }
                 .buttonStyle(.plain)
                 .accessibilityLabel("Notifications")
@@ -541,7 +541,7 @@ private struct FleetPortalHeroHeader: View {
                 .accessibilityLabel("Profile")
             }
             .padding(4)
-            .background(.white.opacity(0.18), in: Capsule())
+            .background(Color.appSurface.opacity(0.18), in: Capsule())
         }
         .foregroundStyle(.white)
         .padding(.horizontal, 18)
@@ -1902,7 +1902,7 @@ private struct FleetPortalLoadingRows: View {
         VStack(spacing: 12) {
             ForEach(0..<3, id: \.self) { _ in
                 RoundedRectangle(cornerRadius: 8)
-                    .fill(Color.white.opacity(0.75))
+                    .fill(Color.appSurface.opacity(0.75))
                     .frame(height: 118)
                     .overlay { ProgressView().tint(Color(hex: 0x0B61CA)) }
             }

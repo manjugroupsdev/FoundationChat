@@ -82,16 +82,16 @@ struct AttendanceFilterSheet: View {
                         .foregroundStyle(Color(hex: 0x0B61CA))
                     Text(draft.rangeLabel.isEmpty ? "Select date range" : draft.rangeLabel)
                         .font(.system(size: 13, weight: .medium))
-                        .foregroundStyle(Color(hex: 0x101828))
+                        .foregroundStyle(Color.appPrimaryText)
                         .lineLimit(1)
                     Spacer()
                     Image(systemName: "chevron.down")
                         .font(.system(size: 14, weight: .semibold))
-                        .foregroundStyle(Color(hex: 0x667085))
+                        .foregroundStyle(Color.appSecondaryText)
                 }
                 .padding(.horizontal, 12)
                 .frame(height: 44)
-                .background(Color(hex: 0xF8FAFC), in: RoundedRectangle(cornerRadius: 10, style: .continuous))
+                .background(Color.appFieldBackground, in: RoundedRectangle(cornerRadius: 10, style: .continuous))
                 .overlay {
                     RoundedRectangle(cornerRadius: 10, style: .continuous)
                         .stroke(Color(hex: 0xEAECF0), lineWidth: 1)
@@ -118,7 +118,7 @@ struct AttendanceFilterSheet: View {
         .padding(.horizontal, 16)
         .padding(.top, 14)
         .padding(.bottom, 20)
-        .background(Color.white)
+        .background(Color.appSurface)
         .appCompactSheetCTAContainer()
         .sheet(isPresented: $showDateRangePicker) {
             AttendanceDateRangePickerSheet(
@@ -151,10 +151,10 @@ struct AttendanceFilterSheet: View {
             VStack(spacing: 2) {
                 Text("Filter")
                     .font(.system(size: 18, weight: .semibold))
-                    .foregroundStyle(Color(hex: 0x101828))
+                    .foregroundStyle(Color.appPrimaryText)
                 Text("Pick your date to view your attendance")
                     .font(.system(size: 11))
-                    .foregroundStyle(Color(hex: 0x475467))
+                    .foregroundStyle(Color.appSecondaryText)
             }
         }
     }
@@ -166,7 +166,7 @@ struct AttendanceFilterSheet: View {
                 .foregroundStyle(Color(hex: 0x0B61CA))
                 .padding(.horizontal, 14)
                 .frame(height: 32)
-                .background(Color.white, in: Capsule())
+                .background(Color.appSurface, in: Capsule())
                 .overlay {
                     Capsule()
                         .stroke(Color(hex: 0xD8E8FA), lineWidth: 1)
@@ -216,10 +216,10 @@ private struct AttendanceDateRangePickerSheet: View {
         VStack(alignment: .leading, spacing: 14) {
             Text("Date Range")
                 .font(.system(size: 18, weight: .semibold))
-                .foregroundStyle(Color(hex: 0x101828))
+                .foregroundStyle(Color.appPrimaryText)
             Text("Pick a date range")
                 .font(.system(size: 11))
-                .foregroundStyle(Color(hex: 0x475467))
+                .foregroundStyle(Color.appSecondaryText)
                 .padding(.top, -10)
 
             VStack(spacing: 12) {
@@ -228,7 +228,7 @@ private struct AttendanceDateRangePickerSheet: View {
             }
             .font(.system(size: 14, weight: .medium))
             .padding(14)
-            .background(Color(hex: 0xF8FAFC), in: RoundedRectangle(cornerRadius: 12, style: .continuous))
+            .background(Color.appFieldBackground, in: RoundedRectangle(cornerRadius: 12, style: .continuous))
 
             filterFilledButton("Submit Date") {
                 onSelect(fromDate, toDate)
@@ -239,7 +239,7 @@ private struct AttendanceDateRangePickerSheet: View {
         .padding(.horizontal, 20)
         .padding(.top, 26)
         .padding(.bottom, 20)
-        .background(Color.white)
+        .background(Color.appSurface)
         .appCompactSheetCTAContainer()
     }
 }

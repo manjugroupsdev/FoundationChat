@@ -1361,7 +1361,7 @@ private struct ImageAttachmentPreviewView: View {
               .foregroundStyle(.white)
               .padding(.horizontal, 14)
               .padding(.vertical, 9)
-              .background(Color.white.opacity(0.16), in: Capsule())
+              .background(Color.appSurface.opacity(0.16), in: Capsule())
               .padding(.top, max(proxy.safeAreaInsets.top, 44) + 72)
             Spacer()
           }
@@ -1437,7 +1437,7 @@ private struct ImageAttachmentPreviewView: View {
           .font(.system(size: 17, weight: .semibold))
           .foregroundStyle(.white)
           .frame(width: 44, height: 44)
-          .background(Color.white.opacity(0.16), in: Circle())
+          .background(Color.appSurface.opacity(0.16), in: Circle())
       }
       .buttonStyle(.plain)
       .disabled(isSending)
@@ -1477,7 +1477,7 @@ private struct ImageAttachmentPreviewView: View {
       }
       .padding(.horizontal, 16)
       .frame(minHeight: 52)
-      .background(Color.white.opacity(0.12), in: Capsule())
+      .background(Color.appSurface.opacity(0.12), in: Capsule())
 
       Button {
         guard !isSending else { return }
@@ -1595,7 +1595,7 @@ private struct PreviewToolButton: View {
         Image(systemName: icon)
           .font(.system(size: 17, weight: .semibold))
           .frame(width: 34, height: 34)
-          .background(Color.white.opacity(0.13), in: Circle())
+          .background(Color.appSurface.opacity(0.13), in: Circle())
         Text(title)
           .font(.system(size: 11, weight: .medium))
       }
@@ -1765,12 +1765,12 @@ private struct CropCanvasView: View {
     ZStack {
       ForEach([cropSize / 3, cropSize * 2 / 3], id: \.self) { position in
         Rectangle()
-          .fill(Color.white.opacity(0.45))
+          .fill(Color.appSurface.opacity(0.45))
           .frame(width: 1)
           .offset(x: position - cropSize / 2)
 
         Rectangle()
-          .fill(Color.white.opacity(0.45))
+          .fill(Color.appSurface.opacity(0.45))
           .frame(height: 1)
           .offset(y: position - cropSize / 2)
       }
@@ -2146,7 +2146,7 @@ private struct ReactionActionMenu: View {
             .font(.system(size: 18, weight: .semibold))
             .foregroundStyle(.white)
             .frame(width: 34, height: 34)
-            .background(Color.white.opacity(0.16), in: Circle())
+            .background(Color.appSurface.opacity(0.16), in: Circle())
         }
         .buttonStyle(.plain)
       }

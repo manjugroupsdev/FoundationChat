@@ -151,7 +151,7 @@ struct EmojiReactionPickerSheet: View {
 
   private let columns = [GridItem(.adaptive(minimum: 44), spacing: 6)]
   private let accent = Color(hex: 0x0B61CA)
-  private let mutedText = Color(hex: 0x475467)
+  private let mutedText = Color.appSecondaryText
 
   private var categoryNames: [String] {
     ["Recents"] + ChatEmojiCatalog.categories.map(\.name)

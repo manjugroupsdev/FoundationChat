@@ -217,7 +217,7 @@ struct ProjectInventoryView: View {
                 initialUnit: unit
             )
             .appLibraryNativeSheet([.height(720), .large])
-            .presentationBackground(Color.white)
+            .presentationBackground(Color.appElevatedSurface)
         }
         .alert("Inventory", isPresented: Binding(
             get: { actionMessage != nil },
@@ -364,7 +364,7 @@ private struct InventoryUnitRow: View {
         case "held": return Color(hex: 0xB54708)
         case "booked": return Color(hex: 0x1849A9)
         case "sold": return Color(hex: 0xB42318)
-        default: return Color(hex: 0x475467)
+        default: return Color.appSecondaryText
         }
     }
 }
@@ -520,12 +520,12 @@ private struct UnitMapCanvas: View {
                     for item in renderItems {
                         let path = item.path
                         context.fill(path, with: .color(fillColor(for: item.unit.status)))
-                        context.stroke(path, with: .color(Color(hex: 0x475467)), lineWidth: 1.5)
+                        context.stroke(path, with: .color(Color.appSecondaryText), lineWidth: 1.5)
                         if let label = item.unit.unitNumber {
                             context.draw(
                                 Text(label)
                                     .font(AppModuleFont.rowMetaSemibold)
-                                    .foregroundStyle(Color(hex: 0x101828)),
+                                    .foregroundStyle(Color.appPrimaryText),
                                 at: CGPoint(x: item.frame.midX, y: item.frame.midY)
                             )
                         }
@@ -611,7 +611,7 @@ private struct UnitMapCanvas: View {
         case "held": return Color(hex: 0xFEDF89)
         case "booked": return Color(hex: 0xB2DDFF)
         case "sold": return Color(hex: 0xFECDCA)
-        default: return Color(hex: 0xF2F4F7)
+        default: return Color.appFieldBackground
         }
     }
 }

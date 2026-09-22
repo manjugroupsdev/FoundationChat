@@ -437,7 +437,7 @@ struct ConvexAttendanceListView: View {
                             .frame(height: 15)
                             .background(approvalSubTab == tab ? Color.white : Color(hex: 0x0B61CA), in: Capsule())
                     }
-                    .foregroundStyle(approvalSubTab == tab ? .white : Color(hex: 0x344054))
+                    .foregroundStyle(approvalSubTab == tab ? .white : Color.appPrimaryText)
                     .frame(maxWidth: .infinity)
                     .frame(height: 34)
                     .background(
@@ -509,7 +509,7 @@ struct ConvexAttendanceListView: View {
                     .background(isSelected ? Color.white : Color(hex: 0x0B61CA), in: Capsule())
             }
         }
-        .foregroundStyle(isSelected ? .white : Color(hex: 0x344054))
+        .foregroundStyle(isSelected ? .white : Color.appPrimaryText)
         .frame(height: 33)
         .padding(.horizontal, 12)
         .background(isSelected ? Color(hex: 0x0B61CA) : Color(hex: 0xE4EAF2), in: RoundedRectangle(cornerRadius: 7, style: .continuous))
@@ -1100,7 +1100,7 @@ private struct AttendanceHistoryCard: View {
             }
             .padding(.horizontal, 12)
             .padding(.vertical, 10)
-            .background(Color(hex: 0xF8FAFC), in: RoundedRectangle(cornerRadius: 8))
+            .background(Color.appFieldBackground, in: RoundedRectangle(cornerRadius: 8))
             .overlay(RoundedRectangle(cornerRadius: 8).stroke(Color(hex: 0xE4E7EC), lineWidth: 1))
 
             if let penaltyReason = record.resolvedPenaltyReason {
@@ -1132,7 +1132,7 @@ private struct AttendanceHistoryCard: View {
                         .font(.system(size: 10, weight: .semibold))
                 .foregroundStyle(.tertiary)
                         .frame(width: 22, height: 22)
-                        .background(Color(hex: 0xF2F4F7), in: Circle())
+                        .background(Color.appFieldBackground, in: Circle())
                     Text(record.approvedByName?.trimmingCharacters(in: .whitespacesAndNewlines).nilIfBlank ?? "HR")
                         .font(.system(size: 12, weight: .medium))
                 .foregroundStyle(.primary)
@@ -1214,7 +1214,7 @@ private struct AttendanceHistoryCard: View {
         case "absent", "rejected":
             return ("Absent", Color(hex: 0xB42318))
         case "weekoff":
-            return ("Weekoff", Color(hex: 0x475467))
+            return ("Weekoff", Color.appSecondaryText)
         case "holiday":
             return ("Holiday", Color(hex: 0x0B61CA))
         default:
@@ -1300,7 +1300,7 @@ private struct AttendancePenaltyNotice: View {
                 .font(.system(size: 13, weight: .semibold))
                 .foregroundStyle(Color(hex: 0xB42318))
                 .frame(width: 28, height: 28)
-                .background(Color.white.opacity(0.72), in: Circle())
+                .background(Color.appSurface.opacity(0.72), in: Circle())
 
             VStack(alignment: .leading, spacing: 3) {
                 Text("Absent attendance penalty")
@@ -1407,7 +1407,7 @@ private struct AttendanceSkeletonCard: View {
             }
             .padding(.horizontal, 12)
             .padding(.vertical, 10)
-            .background(Color(hex: 0xF8FAFC), in: RoundedRectangle(cornerRadius: 8))
+            .background(Color.appFieldBackground, in: RoundedRectangle(cornerRadius: 8))
             .overlay(RoundedRectangle(cornerRadius: 8).stroke(Color(hex: 0xE4E7EC), lineWidth: 1))
         }
         .padding(.horizontal, 16)
@@ -1494,7 +1494,7 @@ private struct TeamAttendanceCard: View {
             }
             .padding(.horizontal, 12)
             .padding(.vertical, 10)
-            .background(Color(hex: 0xF8FAFC), in: RoundedRectangle(cornerRadius: 8))
+            .background(Color.appFieldBackground, in: RoundedRectangle(cornerRadius: 8))
             .overlay(RoundedRectangle(cornerRadius: 8).stroke(Color(hex: 0xE4E7EC), lineWidth: 1))
 
             if let lateFine = lateFineBanner {
@@ -1634,7 +1634,7 @@ private struct TeamAttendanceCard: View {
         case "absent", "rejected":
             return ("Absent", Color(hex: 0xB42318))
         case "weekoff":
-            return ("Weekoff", Color(hex: 0x475467))
+            return ("Weekoff", Color.appSecondaryText)
         case "holiday":
             return ("Holiday", Color(hex: 0x0B61CA))
         default:
@@ -1820,7 +1820,7 @@ private struct AttendanceApprovalReviewSheet: View {
                 } label: {
                     Text(title)
                         .font(.system(size: 13, weight: .semibold))
-                        .foregroundStyle(selectedTab == index ? Color(hex: 0x0B61CA) : Color(hex: 0x667085))
+                        .foregroundStyle(selectedTab == index ? Color(hex: 0x0B61CA) : Color.appSecondaryText)
                         .frame(maxWidth: .infinity)
                         .frame(height: 36)
                         .background(selectedTab == index ? Color(hex: 0xEAF2FF) : Color.clear, in: RoundedRectangle(cornerRadius: 8))
@@ -1829,7 +1829,7 @@ private struct AttendanceApprovalReviewSheet: View {
             }
         }
         .padding(3)
-        .background(Color(hex: 0xF2F4F7), in: RoundedRectangle(cornerRadius: 8, style: .continuous))
+        .background(Color.appFieldBackground, in: RoundedRectangle(cornerRadius: 8, style: .continuous))
     }
 
     private var punchSummary: some View {
@@ -1848,10 +1848,10 @@ private struct AttendanceApprovalReviewSheet: View {
         VStack(alignment: .leading, spacing: 10) {
             sheetSectionTitle("Travel Summary", icon: "point.topleft.down.curvedto.point.bottomright.up")
             twoByTwoGrid([
-                ("mappin.circle", "Distance", routeDistanceLabel, Color(hex: 0x101828)),
-                ("car", "Trips", "\(routeData?.trips.count ?? 0)", Color(hex: 0x101828)),
-                ("antenna.radiowaves.left.and.right", "GPS Points", "\(routeData?.timeline.count ?? 0)", Color(hex: 0x101828)),
-                ("clock", "Active Time", AttendanceSheetFormat.compactDuration(record.totalMinutes ?? record.cumulativeMinutes), Color(hex: 0x101828))
+                ("mappin.circle", "Distance", routeDistanceLabel, Color.appPrimaryText),
+                ("car", "Trips", "\(routeData?.trips.count ?? 0)", Color.appPrimaryText),
+                ("antenna.radiowaves.left.and.right", "GPS Points", "\(routeData?.timeline.count ?? 0)", Color.appPrimaryText),
+                ("clock", "Active Time", AttendanceSheetFormat.compactDuration(record.totalMinutes ?? record.cumulativeMinutes), Color.appPrimaryText)
             ])
         }
     }
@@ -1963,10 +1963,10 @@ private struct AttendanceApprovalReviewSheet: View {
         } label: {
             Text(title)
                 .font(.system(size: 12, weight: .medium))
-                .foregroundStyle(replaySpeed == speed ? Color(hex: 0x0B61CA) : Color(hex: 0x667085))
+                .foregroundStyle(replaySpeed == speed ? Color(hex: 0x0B61CA) : Color.appSecondaryText)
                 .frame(maxWidth: .infinity)
                 .frame(height: 32)
-                .background(replaySpeed == speed ? Color(hex: 0xEAF2FF) : Color(hex: 0xF2F4F7), in: RoundedRectangle(cornerRadius: 6))
+                .background(replaySpeed == speed ? Color(hex: 0xEAF2FF) : Color.appFieldBackground, in: RoundedRectangle(cornerRadius: 6))
         }
         .buttonStyle(.plain)
     }
@@ -2032,7 +2032,7 @@ private struct AttendanceApprovalReviewSheet: View {
             rejectDecisionButton
         }
         .padding(8)
-        .background(Color(hex: 0xF8FAFC), in: RoundedRectangle(cornerRadius: 14, style: .continuous))
+        .background(Color.appFieldBackground, in: RoundedRectangle(cornerRadius: 14, style: .continuous))
         .overlay(RoundedRectangle(cornerRadius: 14).stroke(Color(hex: 0xEAECF0), lineWidth: 1))
     }
 
@@ -2147,7 +2147,7 @@ private struct AttendanceApprovalReviewSheet: View {
                     .frame(width: 10, height: 10)
                 if showLine {
                     Rectangle()
-                        .fill(Color(hex: 0xD0D5DD))
+                        .fill(Color.appSeparator)
                         .frame(width: 1, height: 42)
                 }
             }
@@ -2196,7 +2196,7 @@ private struct AttendanceApprovalReviewSheet: View {
                     time: AttendanceSheetFormat.time(stop.arrivedAt),
                     title: "Stopped",
                     trailing: "\(stop.durationMinutes ?? 0) min",
-                    color: Color(hex: 0x667085)
+                    color: Color.appSecondaryText
                 )
             })
         }
@@ -2204,7 +2204,7 @@ private struct AttendanceApprovalReviewSheet: View {
             rows.append(.init(timestamp: AttendanceSheetFormat.timestampMillis(from: punchOut), time: AttendanceSheetFormat.time(punchOut) ?? "--", title: "Check Out", trailing: "", color: Color(hex: 0xF04438)))
         }
         if rows.isEmpty {
-            return [.init(timestamp: nil, time: "--", title: "No timeline data", trailing: "", color: Color(hex: 0x98A2B3))]
+            return [.init(timestamp: nil, time: "--", title: "No timeline data", trailing: "", color: Color.appTertiaryText)]
         }
         return rows.sorted { ($0.timestamp ?? 0) < ($1.timestamp ?? 0) }
     }
@@ -2938,7 +2938,7 @@ private enum AttendanceDecisionButtonStyle {
         case .outlined(let color):
             return color
         case .plain:
-            return Color(hex: 0x101828)
+            return Color.appPrimaryText
         }
     }
 
@@ -2968,7 +2968,7 @@ private enum AttendanceDecisionButtonStyle {
         case .outlined(let color):
             return color.opacity(0.55)
         case .plain:
-            return Color(hex: 0xD0D5DD)
+            return Color.appSeparator
         }
     }
 }
@@ -3017,7 +3017,7 @@ private struct AttendanceRouteMapView: View {
             ForEach(Array(routeData.stops.enumerated()), id: \.offset) { _, stop in
                 Annotation("", coordinate: CLLocationCoordinate2D(latitude: stop.lat, longitude: stop.lng)) {
                     Circle()
-                        .fill(Color(hex: 0x667085))
+                        .fill(Color.appSecondaryText)
                         .frame(width: 13, height: 13)
                         .overlay(Circle().stroke(.white, lineWidth: 2))
                 }
@@ -3064,7 +3064,7 @@ private struct RoutePreviewCard: View {
 
     var body: some View {
         ZStack {
-            LinearGradient(colors: [Color(hex: 0xF8FAFC), Color(hex: 0xEAF2FF)], startPoint: .topLeading, endPoint: .bottomTrailing)
+            LinearGradient(colors: [Color.appFieldBackground, Color(hex: 0xEAF2FF)], startPoint: .topLeading, endPoint: .bottomTrailing)
             Path { path in
                 path.move(to: CGPoint(x: 18, y: 82))
                 path.addCurve(to: CGPoint(x: 116, y: 70), control1: CGPoint(x: 52, y: 98), control2: CGPoint(x: 74, y: 45))
@@ -3204,7 +3204,7 @@ private enum AttendanceSheetFormat {
         case "two_wheeler": return Color(hex: 0xEAB308)
         case "four_wheeler": return Color(hex: 0x3B82F6)
         case "cycling": return Color(hex: 0x14B8A6)
-        default: return Color(hex: 0x667085)
+        default: return Color.appSecondaryText
         }
     }
 

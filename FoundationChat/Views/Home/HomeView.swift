@@ -349,7 +349,7 @@ struct HomeView: View {
                     .foregroundStyle(HomePalette.headerBlue)
                     .padding(.horizontal, 9)
                     .padding(.vertical, 4.5)
-                    .background(Color.white.opacity(0.96), in: Capsule())
+                    .background(Color.appSurface.opacity(0.96), in: Capsule())
                 }
                 .buttonStyle(.plain)
                 .padding(.top, 10)
@@ -382,7 +382,7 @@ struct HomeView: View {
                         .font(.system(size: 18, weight: .semibold))
                         .foregroundStyle(.white)
                         .frame(width: 40, height: 40)
-                        .background(Color.white.opacity(0.14), in: Circle())
+                        .background(Color.appSurface.opacity(0.14), in: Circle())
 
                     if unreadCount > 0 {
                         Text(unreadCount > 99 ? "99+" : String(unreadCount))
@@ -408,7 +408,7 @@ struct HomeView: View {
             .accessibilityLabel("Profile")
         }
         .padding(4)
-        .background(Color.white.opacity(0.18), in: Capsule())
+        .background(Color.appSurface.opacity(0.18), in: Capsule())
     }
 
     private var bannerIllustration: some View {
@@ -562,7 +562,7 @@ struct HomeView: View {
                 }
                 .padding(.horizontal, 40)
                 .padding(.vertical, 32)
-                .background(.white.opacity(0.14), in: RoundedRectangle(cornerRadius: 28, style: .continuous))
+                .background(Color.appSurface.opacity(0.14), in: RoundedRectangle(cornerRadius: 28, style: .continuous))
                 .overlay(
                     RoundedRectangle(cornerRadius: 28, style: .continuous)
                         .stroke(.white.opacity(0.18), lineWidth: 1)
@@ -828,7 +828,7 @@ struct HomeView: View {
                 .frame(maxWidth: .infinity, minHeight: 145, alignment: .leading)
                 .background(Color.appSurface, in: RoundedRectangle(cornerRadius: 16, style: .continuous))
                 .overlay(RoundedRectangle(cornerRadius: 16).stroke(Color.appSeparator, lineWidth: 1))
-                .shadow(color: Color(hex: 0x101828).opacity(0.04), radius: 7, y: 3)
+                .shadow(color: Color.appPrimaryText.opacity(0.04), radius: 7, y: 3)
             }
         }
         .transition(.opacity)
@@ -1224,7 +1224,7 @@ struct HomeView: View {
                     tint: gray,
                     background: grayBg,
                     pillBackground: grayPill,
-                    pillTextColor: Color(hex: 0x475467),
+                    pillTextColor: Color.appSecondaryText,
                     imageName: "HomeOverview3DWeekOff",
                     imageSize: CGSize(width: 42, height: 50),
                     size: .compact,
@@ -1252,7 +1252,7 @@ struct HomeView: View {
                     tint: green,
                     background: greenBg,
                     pillBackground: grayPill,
-                    pillTextColor: Color(hex: 0x475467),
+                    pillTextColor: Color.appSecondaryText,
                     imageName: "HomeOverview3DWfh",
                     imageSize: CGSize(width: 50, height: 56),
                     size: .compact,
@@ -1340,7 +1340,7 @@ struct HomeView: View {
                     tint: gray,
                     background: grayBg,
                     pillBackground: grayPill,
-                    pillTextColor: Color(hex: 0x475467),
+                    pillTextColor: Color.appSecondaryText,
                     imageName: "HomeMarketing3DCold",
                     imageSize: CGSize(width: 72, height: 66),
                     size: .compact,
@@ -1384,7 +1384,7 @@ struct HomeView: View {
                     tint: green,
                     background: greenBg,
                     pillBackground: grayPill,
-                    pillTextColor: Color(hex: 0x475467),
+                    pillTextColor: Color.appSecondaryText,
                     imageName: "HomeMarketing3DCp",
                     imageSize: CGSize(width: 66, height: 66),
                     size: .compact,
@@ -1459,7 +1459,7 @@ struct HomeView: View {
         .padding(14)
         .background(Color.appSurface, in: RoundedRectangle(cornerRadius: 16, style: .continuous))
         .overlay(RoundedRectangle(cornerRadius: 16).stroke(Color.appSeparator, lineWidth: 1))
-        .shadow(color: Color(hex: 0x101828).opacity(0.06), radius: 10, y: 4)
+        .shadow(color: Color.appPrimaryText.opacity(0.06), radius: 10, y: 4)
     }
 
     private func marketingConversionSection(for dashboard: ConvexMobileDashboard) -> some View {
@@ -2379,7 +2379,7 @@ private struct ManagementDashboardMetricCard: View {
             RoundedRectangle(cornerRadius: 16, style: .continuous)
                 .stroke(Color.appSeparator, lineWidth: 1)
         }
-        .shadow(color: Color(hex: 0x101828).opacity(0.03), radius: 1, x: 0, y: 1)
+        .shadow(color: Color.appPrimaryText.opacity(0.03), radius: 1, x: 0, y: 1)
     }
 }
 
@@ -2432,7 +2432,7 @@ private struct MarketingConversionCard: View {
         .frame(width: 154, height: 142, alignment: .topLeading)
         .background(Color.appSurface, in: RoundedRectangle(cornerRadius: 16, style: .continuous))
         .overlay(RoundedRectangle(cornerRadius: 16).stroke(Color.appSeparator, lineWidth: 1))
-        .shadow(color: Color(hex: 0x101828).opacity(0.05), radius: 8, y: 3)
+        .shadow(color: Color.appPrimaryText.opacity(0.05), radius: 8, y: 3)
     }
 }
 

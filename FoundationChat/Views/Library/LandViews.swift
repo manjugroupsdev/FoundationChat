@@ -47,7 +47,7 @@ struct LandInspectionView: View {
 
     var body: some View {
         ZStack {
-            Color(hex: 0xF1F3F8)
+            Color.appScreenBackground
                 .ignoresSafeArea()
 
             ScrollView(showsIndicators: false) {
@@ -69,7 +69,7 @@ struct LandInspectionView: View {
                 showingDateFilter = false
             }
             .appLibraryNativeSheet([.height(470)])
-            .presentationBackground(Color.white)
+            .presentationBackground(Color.appElevatedSurface)
         }
         .sheet(item: $viewingInspection, onDismiss: presentPendingInspectionAction) { inspection in
             LandIdentificationDetailsSheet(
@@ -176,7 +176,7 @@ struct LandInspectionView: View {
             }
         }
         .padding(.bottom, 32)
-        .background(Color(hex: 0xF1F3F8))
+        .background(Color.appScreenBackground)
         .clipShape(.rect(topLeadingRadius: 30, topTrailingRadius: 30))
         .padding(.top, -28)
     }
@@ -258,7 +258,7 @@ struct LandInspectionView: View {
         VStack(spacing: 6) {
             Text(emptyTitle)
                 .font(.system(size: 15, weight: .semibold))
-                .foregroundStyle(Color(hex: 0x101828))
+                .foregroundStyle(Color.appPrimaryText)
             Text(emptySubtitle)
                 .font(.system(size: 13))
                 .foregroundStyle(Color(hex: 0x6B7280))
@@ -488,11 +488,11 @@ private struct LandInspectionRow: View {
                         VStack(alignment: .leading, spacing: 4) {
                             Text(inspection.title)
                                 .font(.system(size: 15, weight: .semibold))
-                                .foregroundStyle(Color(hex: 0x101828))
+                                .foregroundStyle(Color.appPrimaryText)
                                 .lineLimit(1)
                             Text(inspection.inspectionPhone)
                                 .font(.system(size: 12))
-                                .foregroundStyle(Color(hex: 0x9CA3AF))
+                                .foregroundStyle(Color.appTertiaryText)
                                 .lineLimit(1)
                         }
                         Spacer()
@@ -505,13 +505,13 @@ private struct LandInspectionRow: View {
                     }
 
                     Divider()
-                        .overlay(Color(hex: 0xF2F4F7))
+                        .overlay(Color.appFieldBackground)
 
                     HStack(alignment: .center, spacing: 12) {
                         VStack(alignment: .leading, spacing: 8) {
                             Label(inspection.inspectionAreaDateLabel, systemImage: "arrow.left.arrow.right")
                                 .font(.system(size: 12, weight: .medium))
-                                .foregroundStyle(Color(hex: 0x475467))
+                                .foregroundStyle(Color.appSecondaryText)
                                 .lineLimit(1)
 
                             Label(inspection.inspectionPlace, systemImage: "mappin")
@@ -550,7 +550,7 @@ private struct LandInspectionRow: View {
         }
         .padding(.horizontal, 8)
         .padding(.vertical, 16)
-        .background(Color.white, in: RoundedRectangle(cornerRadius: 14))
+        .background(Color.appSurface, in: RoundedRectangle(cornerRadius: 14))
         .shadow(color: .black.opacity(0.04), radius: 5, y: 1)
         .padding(.vertical, 8)
         .contentShape(Rectangle())
@@ -562,9 +562,9 @@ private struct LandInspectionRow: View {
             disabledActionButton("Reschedule Requested", systemImage: nil)
         } else if inspection.isAcceptedInspection {
             Button(action: onOpen) {
-                actionButtonLabel("Accepted", systemImage: "checkmark", foreground: Color(hex: 0x667085))
+                actionButtonLabel("Accepted", systemImage: "checkmark", foreground: Color.appSecondaryText)
                     .frame(maxWidth: .infinity, minHeight: 48)
-                    .background(Color(hex: 0xE5E7EB), in: RoundedRectangle(cornerRadius: 12))
+                    .background(Color.appSeparator, in: RoundedRectangle(cornerRadius: 12))
             }
             .buttonStyle(.plain)
             .padding(.horizontal, 4)
@@ -574,7 +574,7 @@ private struct LandInspectionRow: View {
                 Button(action: onReschedule) {
                     actionButtonLabel("Reschedule", systemImage: "calendar.badge.clock", foreground: Color(hex: 0x16A34A))
                         .frame(maxWidth: .infinity, minHeight: 48)
-                        .background(Color.white, in: RoundedRectangle(cornerRadius: 12))
+                        .background(Color.appSurface, in: RoundedRectangle(cornerRadius: 12))
                         .overlay(
                             RoundedRectangle(cornerRadius: 12)
                                 .stroke(Color(hex: 0x16A34A), lineWidth: 1)
@@ -730,7 +730,7 @@ private struct LandIdentificationDetailsSheet: View {
             VStack(alignment: .leading, spacing: 4) {
                 Text(inspection.title)
                     .font(.system(size: 17, weight: .bold))
-                    .foregroundStyle(Color(hex: 0x101828))
+                    .foregroundStyle(Color.appPrimaryText)
                 Text(inspection.inspectionPlace)
                     .font(.system(size: 13))
                     .foregroundStyle(.secondary)
@@ -745,7 +745,7 @@ private struct LandIdentificationDetailsSheet: View {
                 .background(Color(hex: 0xEAF3FF), in: Capsule())
         }
         .padding(14)
-        .background(Color.white, in: RoundedRectangle(cornerRadius: 16))
+        .background(Color.appSurface, in: RoundedRectangle(cornerRadius: 16))
     }
 
     @ViewBuilder
@@ -757,12 +757,12 @@ private struct LandIdentificationDetailsSheet: View {
         VStack(alignment: .leading, spacing: 0) {
             Label(title, systemImage: systemImage)
                 .font(.system(size: 15, weight: .bold))
-                .foregroundStyle(Color(hex: 0x101828))
+                .foregroundStyle(Color.appPrimaryText)
                 .padding(.bottom, 10)
             content()
         }
         .padding(14)
-        .background(Color.white, in: RoundedRectangle(cornerRadius: 16))
+        .background(Color.appSurface, in: RoundedRectangle(cornerRadius: 16))
     }
 
     @ViewBuilder
@@ -804,7 +804,7 @@ private struct LandIdentificationDetailsSheet: View {
                             .font(.system(size: 14, weight: .semibold))
                             .foregroundStyle(Color(hex: 0x16A34A))
                             .frame(maxWidth: .infinity, minHeight: 50)
-                            .background(Color.white, in: RoundedRectangle(cornerRadius: 14))
+                            .background(Color.appSurface, in: RoundedRectangle(cornerRadius: 14))
                             .overlay(
                                 RoundedRectangle(cornerRadius: 14)
                                     .stroke(Color(hex: 0x16A34A), lineWidth: 1)
@@ -878,7 +878,7 @@ private struct LandInspectionDateFilterSheet: View {
             VStack(spacing: 14) {
                 Text("Select Date Filter")
                     .font(.system(size: 13, weight: .medium))
-                    .foregroundStyle(Color(hex: 0x667085))
+                    .foregroundStyle(Color.appSecondaryText)
                     .frame(maxWidth: .infinity, alignment: .leading)
                     .padding(.horizontal, 18)
                     .padding(.top, 10)
@@ -891,7 +891,7 @@ private struct LandInspectionDateFilterSheet: View {
 
                 Spacer(minLength: 0)
             }
-            .background(Color.white)
+            .background(Color.appSurface)
             .navigationTitle("Date Filter")
             .navigationBarTitleDisplayMode(.inline)
             .toolbar {
@@ -1059,7 +1059,7 @@ private struct LandInspectionSheet: View {
                             .foregroundStyle(Color(hex: 0x111827))
                             .frame(maxWidth: .infinity)
                             .frame(height: 48)
-                            .background(Color.white, in: RoundedRectangle(cornerRadius: 14))
+                            .background(Color.appSurface, in: RoundedRectangle(cornerRadius: 14))
                             .overlay(
                                 RoundedRectangle(cornerRadius: 14)
                                     .stroke(Color.black.opacity(0.10), lineWidth: 1)
@@ -1194,7 +1194,7 @@ private struct LandInspectionSheet: View {
                         }
                         Text(tab.title)
                             .font(.system(size: 9, weight: selectedTab == tab ? .semibold : .regular))
-                            .foregroundStyle(selectedTab == tab ? Color(hex: 0x0B61CA) : Color(hex: 0x667085))
+                            .foregroundStyle(selectedTab == tab ? Color(hex: 0x0B61CA) : Color.appSecondaryText)
                             .lineLimit(1)
                             .minimumScaleFactor(0.75)
                         Rectangle()
@@ -1299,7 +1299,7 @@ private struct LandInspectionSheet: View {
                     .foregroundStyle(.secondary)
                     .frame(maxWidth: .infinity, alignment: .leading)
                     .padding(18)
-                    .background(Color.white, in: RoundedRectangle(cornerRadius: 16))
+                    .background(Color.appSurface, in: RoundedRectangle(cornerRadius: 16))
             }
             ForEach($competitors) { $competitor in
                 CompetitorEditor(competitor: $competitor, isViewOnly: isViewOnly) {
@@ -1329,7 +1329,7 @@ private struct LandInspectionSheet: View {
                     .frame(maxWidth: .infinity, alignment: .leading)
                     .font(.system(size: 14))
                     .padding(12)
-                    .background(Color.white, in: RoundedRectangle(cornerRadius: 12))
+                    .background(Color.appSurface, in: RoundedRectangle(cornerRadius: 12))
             }
             ForEach(entries) { $entry in
                 HStack(spacing: 10) {
@@ -1403,7 +1403,7 @@ private struct LandInspectionSheet: View {
             .padding(.horizontal, 12)
             .padding(.vertical, 8)
             .frame(minHeight: minHeight, alignment: .center)
-            .background(Color.white, in: RoundedRectangle(cornerRadius: 12))
+            .background(Color.appSurface, in: RoundedRectangle(cornerRadius: 12))
             .overlay(
                 RoundedRectangle(cornerRadius: 12)
                     .stroke(Color.black.opacity(0.08), lineWidth: 1)
@@ -1463,7 +1463,7 @@ private struct LandInspectionSheet: View {
             .padding(.horizontal, 12)
             .padding(.vertical, 8)
             .frame(minHeight: 52)
-            .background(Color.white, in: RoundedRectangle(cornerRadius: 12))
+            .background(Color.appSurface, in: RoundedRectangle(cornerRadius: 12))
             .overlay(
                 RoundedRectangle(cornerRadius: 12)
                     .stroke(Color.black.opacity(0.08), lineWidth: 1)
@@ -1501,7 +1501,7 @@ private struct LandInspectionSheet: View {
                 }
             }
             .padding(.horizontal, 13)
-            .background(Color.white, in: RoundedRectangle(cornerRadius: 13))
+            .background(Color.appSurface, in: RoundedRectangle(cornerRadius: 13))
             .overlay(
                 RoundedRectangle(cornerRadius: 13)
                     .stroke(Color.black.opacity(0.08), lineWidth: 1)
@@ -1638,7 +1638,7 @@ private struct CompetitorEditor: View {
         }
         .disabled(isViewOnly)
         .padding(14)
-        .background(Color.white, in: RoundedRectangle(cornerRadius: 16))
+        .background(Color.appSurface, in: RoundedRectangle(cornerRadius: 16))
         .overlay(
             RoundedRectangle(cornerRadius: 16)
                 .stroke(Color.black.opacity(0.08), lineWidth: 1)
@@ -1765,7 +1765,7 @@ struct LandQueriesView: View {
 
     var body: some View {
         ZStack {
-            Color(hex: 0xF1F3F8)
+            Color.appScreenBackground
                 .ignoresSafeArea()
 
             ScrollView(showsIndicators: false) {
@@ -1787,7 +1787,7 @@ struct LandQueriesView: View {
                 showingDateFilter = false
             }
             .appLibraryNativeSheet([.height(470)])
-            .presentationBackground(Color.white)
+            .presentationBackground(Color.appElevatedSurface)
         }
         .sheet(item: $selectedQuery) { query in
             LandQueryDetailSheet(query: query) {
@@ -1795,7 +1795,7 @@ struct LandQueriesView: View {
                 selectedQuery = nil
             }
             .appLibraryNativeSheet([.height(520), .large])
-            .presentationBackground(Color.white)
+            .presentationBackground(Color.appElevatedSurface)
         }
     }
 
@@ -1856,7 +1856,7 @@ struct LandQueriesView: View {
             }
         }
         .padding(.bottom, 32)
-        .background(Color(hex: 0xF1F3F8))
+        .background(Color.appScreenBackground)
         .clipShape(.rect(topLeadingRadius: 24, topTrailingRadius: 24))
         .padding(.top, -28)
     }
@@ -1914,7 +1914,7 @@ struct LandQueriesView: View {
                     } label: {
                         Text(filter.title)
                             .font(.system(size: 13, weight: .semibold))
-                            .foregroundStyle(selectedStatus == filter ? .white : Color(hex: 0x101828))
+                            .foregroundStyle(selectedStatus == filter ? .white : Color.appPrimaryText)
                             .frame(maxWidth: .infinity, minHeight: 30)
                             .background(
                                 selectedStatus == filter ? Color(hex: 0x0B61CA) : .clear,
@@ -1926,7 +1926,7 @@ struct LandQueriesView: View {
             }
             .padding(3)
             .frame(height: 36)
-            .background(Color.white, in: Capsule())
+            .background(Color.appSurface, in: Capsule())
             .overlay(
                 Capsule()
                     .stroke(Color(hex: 0xD7E7FF), lineWidth: 1)
@@ -1939,7 +1939,7 @@ struct LandQueriesView: View {
         VStack(spacing: 6) {
             Text(queriesEmptyTitle)
                 .font(.system(size: 15, weight: .semibold))
-                .foregroundStyle(Color(hex: 0x101828))
+                .foregroundStyle(Color.appPrimaryText)
             Text(queriesEmptySubtitle)
                 .font(.system(size: 13))
                 .foregroundStyle(Color(hex: 0x6B7280))
@@ -2018,7 +2018,7 @@ private struct LandQueryRow: View {
 
                 Text(query.displayTitle)
                     .font(.system(size: 16, weight: .bold))
-                    .foregroundStyle(Color(hex: 0x101828))
+                    .foregroundStyle(Color.appPrimaryText)
                     .lineLimit(1)
                     .minimumScaleFactor(0.78)
 
@@ -2046,7 +2046,7 @@ private struct LandQueryRow: View {
         }
         .padding(.horizontal, 16)
         .padding(.vertical, 18)
-        .background(Color.white, in: RoundedRectangle(cornerRadius: 16, style: .continuous))
+        .background(Color.appSurface, in: RoundedRectangle(cornerRadius: 16, style: .continuous))
         .shadow(color: .black.opacity(0.05), radius: 5, x: 0, y: 1)
         .padding(.vertical, 8)
     }
@@ -2122,7 +2122,7 @@ private struct LandQueryDetailSheet: View {
                             .foregroundStyle(Color(hex: 0x0B61CA))
                         Text("Documents Needed (Additional)")
                             .font(.system(size: 18, weight: .bold))
-                            .foregroundStyle(Color(hex: 0x101828))
+                            .foregroundStyle(Color.appPrimaryText)
                             .lineLimit(1)
                             .minimumScaleFactor(0.8)
                     }
@@ -2164,10 +2164,10 @@ private struct LandQueryDetailSheet: View {
                 .padding(.horizontal, 20)
                 .padding(.top, 8)
                 .padding(.bottom, 20)
-                .background(Color.white)
+                .background(Color.appSurface)
             }
         }
-        .background(Color.white.ignoresSafeArea())
+        .background(Color.appSurface.ignoresSafeArea())
         .onAppear {
             remarks = query.remarks?.landNilIfBlank ?? query.latestUpdate?.landNilIfBlank ?? ""
         }
@@ -2229,7 +2229,7 @@ private struct RequestedDocumentRow: View {
 
             Text(name)
                 .font(.system(size: 14, weight: .semibold))
-                .foregroundStyle(Color(hex: 0x101828))
+                .foregroundStyle(Color.appPrimaryText)
                 .lineLimit(2)
                 .frame(maxWidth: .infinity, alignment: .leading)
 
@@ -2242,7 +2242,7 @@ private struct RequestedDocumentRow: View {
         }
         .padding(.horizontal, 14)
         .padding(.vertical, 12)
-        .background(Color.white, in: RoundedRectangle(cornerRadius: 14, style: .continuous))
+        .background(Color.appSurface, in: RoundedRectangle(cornerRadius: 14, style: .continuous))
         .overlay(
             RoundedRectangle(cornerRadius: 14, style: .continuous)
                 .stroke(Color(hex: 0xEAECF0), lineWidth: 1)
@@ -2264,16 +2264,16 @@ private struct LandQueryInfoCard: View {
             VStack(alignment: .leading, spacing: 3) {
                 Text(title)
                     .font(.system(size: 12, weight: .semibold))
-                    .foregroundStyle(Color(hex: 0x667085))
+                    .foregroundStyle(Color.appSecondaryText)
                 Text(value)
                     .font(.system(size: 14, weight: .medium))
-                    .foregroundStyle(Color(hex: 0x101828))
+                    .foregroundStyle(Color.appPrimaryText)
                     .fixedSize(horizontal: false, vertical: true)
             }
         }
         .padding(14)
         .frame(maxWidth: .infinity, alignment: .leading)
-        .background(Color.white, in: RoundedRectangle(cornerRadius: 14, style: .continuous))
+        .background(Color.appSurface, in: RoundedRectangle(cornerRadius: 14, style: .continuous))
     }
 }
 

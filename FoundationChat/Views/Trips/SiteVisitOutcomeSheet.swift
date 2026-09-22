@@ -274,7 +274,7 @@ struct SiteVisitOutcomeSheet: View {
                         Button { bookingSub = sub } label: {
                             Text(sub.title)
                                 .font(.system(size: 12, weight: .semibold))
-                                .foregroundStyle(bookingSub == sub ? .white : Color(hex: 0x475467))
+                                .foregroundStyle(bookingSub == sub ? .white : Color.appSecondaryText)
                                 .padding(.horizontal, 14)
                                 .frame(height: 36)
                                 .background(bookingSub == sub ? Color(hex: 0x2DAE12) : Color.appSurface, in: Capsule())
@@ -439,7 +439,7 @@ struct SiteVisitOutcomeSheet: View {
 
             Text("Reasons")
                 .font(.system(size: 14, weight: .semibold))
-                .foregroundStyle(Color(hex: 0x475467))
+                .foregroundStyle(Color.appSecondaryText)
 
             ForEach(SiteVisitPostponeReason.allCases) { reason in
                 outcomeCheckCard(title: reason.title, isOn: binding(for: reason))
@@ -453,7 +453,7 @@ struct SiteVisitOutcomeSheet: View {
         VStack(alignment: .leading, spacing: 14) {
             Text("Remarks")
                 .font(.system(size: 14, weight: .semibold))
-                .foregroundStyle(Color(hex: 0x475467))
+                .foregroundStyle(Color.appSecondaryText)
 
             SiteVisitOutcomeTextField("Remarks *", text: $otherRemarks, placeholder: "Explain why this visit is being closed", icon: "doc", axis: .vertical)
         }
@@ -463,10 +463,10 @@ struct SiteVisitOutcomeSheet: View {
         HStack(spacing: 10) {
             Image(systemName: "hand.tap.fill")
                 .font(.system(size: 16, weight: .semibold))
-                .foregroundStyle(Color(hex: 0x98A2B3))
+                .foregroundStyle(Color.appTertiaryText)
             Text("Select an outcome above to continue.")
                 .font(.system(size: 13, weight: .medium))
-                .foregroundStyle(Color(hex: 0x667085))
+                .foregroundStyle(Color.appSecondaryText)
             Spacer()
         }
         .padding(14)
@@ -542,7 +542,7 @@ struct SiteVisitOutcomeSheet: View {
                 .overlay(RoundedRectangle(cornerRadius: 14).stroke(Color(hex: 0xE4E7EC), lineWidth: 1))
             }
             .buttonStyle(.plain)
-            .foregroundStyle(isOn.wrappedValue ? Color(hex: 0x2DAE12) : Color(hex: 0x475467))
+            .foregroundStyle(isOn.wrappedValue ? Color(hex: 0x2DAE12) : Color.appSecondaryText)
         }
     }
 
@@ -553,7 +553,7 @@ struct SiteVisitOutcomeSheet: View {
             HStack(spacing: 12) {
                 Image(systemName: isOn.wrappedValue ? "checkmark.circle.fill" : "circle")
                     .font(.system(size: 20, weight: .semibold))
-                    .foregroundStyle(isOn.wrappedValue ? Color(hex: 0x2DAE12) : Color(hex: 0x98A2B3))
+                    .foregroundStyle(isOn.wrappedValue ? Color(hex: 0x2DAE12) : Color.appTertiaryText)
                 Text(title)
                     .font(.system(size: 14, weight: .medium))
                     .foregroundStyle(.primary)
@@ -1254,10 +1254,10 @@ private struct SiteVisitOutcomeTabView: View {
         VStack(spacing: 6) {
             Image(systemName: outcome.icon)
                 .font(.system(size: 16, weight: .semibold))
-                .foregroundStyle(isSelected ? Color(hex: 0x2DAE12) : Color(hex: 0x667085))
+                .foregroundStyle(isSelected ? Color(hex: 0x2DAE12) : Color.appSecondaryText)
             Text(outcome.title)
                 .font(.system(size: 11, weight: .semibold))
-                .foregroundStyle(isSelected ? Color(hex: 0x2DAE12) : Color(hex: 0x667085))
+                .foregroundStyle(isSelected ? Color(hex: 0x2DAE12) : Color.appSecondaryText)
                 .lineLimit(1)
                 .minimumScaleFactor(0.72)
         }
@@ -1296,7 +1296,7 @@ private struct SiteVisitOutcomeTextField: View {
                 .foregroundStyle(.secondary)
             HStack(alignment: axis == .vertical ? .top : .center, spacing: 12) {
                 Image(systemName: icon)
-                    .foregroundStyle(Color(hex: 0x98A2B3))
+                    .foregroundStyle(Color.appTertiaryText)
                     .frame(width: 20)
                 TextField(placeholder, text: $text, axis: axis)
                     .keyboardType(keyboard)
@@ -1371,14 +1371,14 @@ private struct SiteVisitOutcomePickerShell: View {
                 .foregroundStyle(.secondary)
             HStack(spacing: 12) {
                 Image(systemName: icon)
-                    .foregroundStyle(Color(hex: 0x98A2B3))
+                    .foregroundStyle(Color.appTertiaryText)
                     .frame(width: 20)
                 Text(value)
-                    .foregroundStyle(isPlaceholder ? Color(hex: 0x98A2B3) : Color(hex: 0x101828))
+                    .foregroundStyle(isPlaceholder ? Color.appTertiaryText : Color.appPrimaryText)
                 Spacer()
                 Image(systemName: "chevron.down")
                     .font(.system(size: 12, weight: .semibold))
-                    .foregroundStyle(Color(hex: 0x98A2B3))
+                    .foregroundStyle(Color.appTertiaryText)
             }
             .font(.system(size: 15, weight: .medium))
             .padding(.horizontal, 16)

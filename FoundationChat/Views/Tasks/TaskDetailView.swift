@@ -17,7 +17,7 @@ struct TaskDetailView: View {
 
     var body: some View {
         ZStack(alignment: .bottom) {
-            Color(hex: 0xF9FAFB).ignoresSafeArea()
+            Color.appFieldBackground.ignoresSafeArea()
 
             VStack(spacing: 0) {
                 if let task {
@@ -60,7 +60,7 @@ struct TaskDetailView: View {
         }
         .navigationTitle("Task Overview")
         .navigationBarTitleDisplayMode(.inline)
-        .toolbarBackground(Color.white, for: .navigationBar)
+        .toolbarBackground(Color.appElevatedSurface, for: .navigationBar)
         .toolbarBackground(.visible, for: .navigationBar)
         .toolbar(.hidden, for: .tabBar)
         .toolbar {
@@ -84,13 +84,13 @@ struct TaskDetailView: View {
                     await onChange()
                 }
                 .appLibraryNativeSheet([.height(720), .large])
-                .presentationBackground(Color.white)
+                .presentationBackground(Color.appElevatedSurface)
             }
         }
         .sheet(isPresented: $showTimelineSheet) {
             TaskTimelineSheet(taskId: taskId)
                 .appLibraryNativeSheet([.height(720), .large])
-                .presentationBackground(Color.white)
+                .presentationBackground(Color.appElevatedSurface)
         }
         .alert("Error", isPresented: errorAlertBinding) {
             Button("OK", role: .cancel) { errorMessage = nil }
@@ -108,7 +108,7 @@ struct TaskDetailView: View {
 
                 Text(task.displayTitle)
                     .font(.system(size: 20, weight: .bold))
-                    .foregroundStyle(Color(hex: 0x101828))
+                    .foregroundStyle(Color.appPrimaryText)
                     .lineLimit(2)
 
                 Spacer(minLength: 8)
@@ -129,7 +129,7 @@ struct TaskDetailView: View {
                 GeometryReader { proxy in
                     ZStack(alignment: .leading) {
                         Capsule()
-                            .fill(Color.white)
+                            .fill(Color.appSurface)
                             .shadow(color: .black.opacity(0.02), radius: 6)
                         Capsule()
                             .fill(Color(hex: 0x0B61CA))
@@ -140,7 +140,7 @@ struct TaskDetailView: View {
 
                 Text("\(task.displayProgress)%")
                     .font(.system(size: 16, weight: .bold))
-                    .foregroundStyle(Color(hex: 0x101828))
+                    .foregroundStyle(Color.appPrimaryText)
                     .monospacedDigit()
             }
         }
@@ -157,7 +157,7 @@ struct TaskDetailView: View {
         VStack(alignment: .leading, spacing: 8) {
             Text(title)
                 .font(.system(size: 13, weight: .medium))
-                .foregroundStyle(Color(hex: 0x667085))
+                .foregroundStyle(Color.appSecondaryText)
 
             HStack(spacing: 7) {
                 Image(systemName: "calendar")
@@ -165,17 +165,17 @@ struct TaskDetailView: View {
                     .foregroundStyle(Color(hex: 0x0B61CA))
                 Text(value)
                     .font(.system(size: 15, weight: .semibold))
-                    .foregroundStyle(Color(hex: 0x101828))
+                    .foregroundStyle(Color.appPrimaryText)
                     .lineLimit(1)
                     .minimumScaleFactor(0.72)
             }
         }
         .frame(maxWidth: .infinity, alignment: .leading)
         .padding(12)
-        .background(Color.white, in: RoundedRectangle(cornerRadius: 14, style: .continuous))
+        .background(Color.appSurface, in: RoundedRectangle(cornerRadius: 14, style: .continuous))
         .overlay {
             RoundedRectangle(cornerRadius: 14, style: .continuous)
-                .stroke(Color(hex: 0xE5E7EB), lineWidth: 1)
+                .stroke(Color.appSeparator, lineWidth: 1)
         }
     }
 
@@ -183,12 +183,12 @@ struct TaskDetailView: View {
         VStack(alignment: .leading, spacing: 8) {
             Text("Task Description")
                 .font(.system(size: 15, weight: .bold))
-                .foregroundStyle(Color(hex: 0x101828))
+                .foregroundStyle(Color.appPrimaryText)
 
             Text(task.displayDescription ?? "No description provided.")
                 .font(.system(size: 14, weight: .regular))
                 .lineSpacing(4)
-                .foregroundStyle(Color(hex: 0x475467))
+                .foregroundStyle(Color.appSecondaryText)
                 .lineLimit(descriptionExpanded ? nil : 3)
 
             Button {
@@ -212,14 +212,14 @@ struct TaskDetailView: View {
             VStack(alignment: .leading, spacing: 9) {
                 Text("Work Category")
                     .font(.system(size: 15, weight: .bold))
-                    .foregroundStyle(Color(hex: 0x101828))
+                    .foregroundStyle(Color.appPrimaryText)
                 HStack(spacing: 8) {
                     Image(systemName: "person.2")
                         .font(.system(size: 17, weight: .semibold))
                         .foregroundStyle(Color(hex: 0x0B61CA))
                     Text("\(task.workCategory?.taskNilIfBlank ?? "Project")  •  \(task.taskId?.taskNilIfBlank ?? "-")")
                         .font(.system(size: 14, weight: .medium))
-                        .foregroundStyle(Color(hex: 0x475467))
+                        .foregroundStyle(Color.appSecondaryText)
                 }
             }
 
@@ -228,10 +228,10 @@ struct TaskDetailView: View {
             VStack(alignment: .trailing, spacing: 9) {
                 Text("Assigned To")
                     .font(.system(size: 15, weight: .bold))
-                    .foregroundStyle(Color(hex: 0x101828))
+                    .foregroundStyle(Color.appPrimaryText)
                 Text(task.assignedToDisplay?.taskNilIfBlank ?? "")
                     .font(.system(size: 14, weight: .medium))
-                    .foregroundStyle(Color(hex: 0x475467))
+                    .foregroundStyle(Color.appSecondaryText)
             }
         }
     }
@@ -250,10 +250,10 @@ struct TaskDetailView: View {
                 VStack(alignment: .leading, spacing: 4) {
                     Text("Task Timeline")
                         .font(.system(size: 17, weight: .bold))
-                        .foregroundStyle(Color(hex: 0x101828))
+                        .foregroundStyle(Color.appPrimaryText)
                     Text(timelineSubtitle(task))
                         .font(.system(size: 13, weight: .medium))
-                        .foregroundStyle(Color(hex: 0x667085))
+                        .foregroundStyle(Color.appSecondaryText)
                         .lineLimit(1)
                 }
 
@@ -261,13 +261,13 @@ struct TaskDetailView: View {
 
                 Image(systemName: "chevron.right")
                     .font(.system(size: 14, weight: .bold))
-                    .foregroundStyle(Color(hex: 0x98A2B3))
+                    .foregroundStyle(Color.appTertiaryText)
             }
             .padding(14)
-            .background(Color.white, in: RoundedRectangle(cornerRadius: 14, style: .continuous))
+            .background(Color.appSurface, in: RoundedRectangle(cornerRadius: 14, style: .continuous))
             .overlay {
                 RoundedRectangle(cornerRadius: 14, style: .continuous)
-                    .stroke(Color(hex: 0xE5E7EB), lineWidth: 1)
+                    .stroke(Color.appSeparator, lineWidth: 1)
             }
         }
         .buttonStyle(.plain)
@@ -278,7 +278,7 @@ struct TaskDetailView: View {
         VStack(alignment: .leading, spacing: 12) {
             Text("Resource Summary")
                 .font(.system(size: 15, weight: .bold))
-                .foregroundStyle(Color(hex: 0x101828))
+                .foregroundStyle(Color.appPrimaryText)
 
             LazyVGrid(columns: [GridItem(.flexible(), spacing: 12), GridItem(.flexible(), spacing: 12)], spacing: 12) {
                 resourceTile(icon: "wallet.pass", iconColor: Color(hex: 0x16A34A), title: "Est. Cost", value: "-")
@@ -301,12 +301,12 @@ struct TaskDetailView: View {
             VStack(alignment: .leading, spacing: 3) {
                 Text(title)
                     .font(.system(size: 13, weight: .medium))
-                    .foregroundStyle(Color(hex: 0x667085))
+                    .foregroundStyle(Color.appSecondaryText)
                     .lineLimit(1)
                     .minimumScaleFactor(0.76)
                 Text(value)
                     .font(.system(size: 15, weight: .bold))
-                    .foregroundStyle(Color(hex: 0x101828))
+                    .foregroundStyle(Color.appPrimaryText)
                     .lineLimit(1)
                     .minimumScaleFactor(0.72)
             }
@@ -314,10 +314,10 @@ struct TaskDetailView: View {
         }
         .padding(12)
         .frame(minHeight: 74)
-        .background(Color.white, in: RoundedRectangle(cornerRadius: 14, style: .continuous))
+        .background(Color.appSurface, in: RoundedRectangle(cornerRadius: 14, style: .continuous))
         .overlay {
             RoundedRectangle(cornerRadius: 14, style: .continuous)
-                .stroke(Color(hex: 0xE5E7EB), lineWidth: 1)
+                .stroke(Color.appSeparator, lineWidth: 1)
         }
     }
 
@@ -428,7 +428,7 @@ private struct TaskTimelineSheet: View {
                 } else if updates.isEmpty {
                     Text(errorMessage ?? "No timeline yet.")
                         .font(.system(size: 14, weight: .medium))
-                        .foregroundStyle(Color(hex: 0x667085))
+                        .foregroundStyle(Color.appSecondaryText)
                         .frame(maxWidth: .infinity)
                         .padding(.top, 40)
                 } else {
@@ -449,13 +449,13 @@ private struct TaskTimelineSheet: View {
             .padding(.bottom, 28)
         }
         .scrollBounceBehavior(.basedOnSize)
-        .background(Color.white)
+        .background(Color.appSurface)
         .task { await loadTimeline() }
         .refreshable { await loadTimeline() }
         .sheet(item: $selectedImagePreview) { item in
             TaskTimelineImagePreview(url: item.url)
                 .appLibraryNativeSheet([.height(720), .large])
-                .presentationBackground(Color.white)
+                .presentationBackground(Color.appElevatedSurface)
         }
     }
 
@@ -463,10 +463,10 @@ private struct TaskTimelineSheet: View {
         VStack(spacing: 8) {
             Text("Time Line")
                 .font(.system(size: 24, weight: .bold))
-                .foregroundStyle(Color(hex: 0x101828))
+                .foregroundStyle(Color.appPrimaryText)
             Text("Here you can able to history of time line")
                 .font(.system(size: 14, weight: .medium))
-                .foregroundStyle(Color(hex: 0x667085))
+                .foregroundStyle(Color.appSecondaryText)
         }
         .frame(maxWidth: .infinity)
         .padding(.top, 6)
@@ -516,23 +516,23 @@ private struct TimelineEntryView: View {
                     HStack {
                         Text(update.displayAuthor)
                             .font(.system(size: 15, weight: .bold))
-                            .foregroundStyle(Color(hex: 0x101828))
+                            .foregroundStyle(Color.appPrimaryText)
                         Spacer()
                         Text(formatTime(update))
                             .font(.system(size: 13, weight: .medium))
-                            .foregroundStyle(Color(hex: 0x98A2B3))
+                            .foregroundStyle(Color.appTertiaryText)
                     }
 
                     if let progress = update.displayProgress {
                         Text("Progress: \(progress)%")
                             .font(.system(size: 13, weight: .medium))
-                            .foregroundStyle(Color(hex: 0x667085))
+                            .foregroundStyle(Color.appSecondaryText)
                     }
 
                     if let notes = update.displayNotes {
                         Text(notes)
                             .font(.system(size: 15, weight: .regular))
-                            .foregroundStyle(Color(hex: 0x344054))
+                            .foregroundStyle(Color.appPrimaryText)
                     }
 
                     if let images = update.images, !images.isEmpty {
@@ -547,16 +547,16 @@ private struct TimelineEntryView: View {
 
                     Text(update.blocker?.taskNilIfBlank ?? "No issues")
                         .font(.system(size: 13, weight: .medium))
-                        .foregroundStyle(update.blocker?.taskNilIfBlank == nil ? Color(hex: 0x667085) : Color(hex: 0xB42318))
+                        .foregroundStyle(update.blocker?.taskNilIfBlank == nil ? Color.appSecondaryText : Color(hex: 0xB42318))
 
                     if let plan = update.tomorrowsPlan?.taskNilIfBlank {
                         Text(plan)
                             .font(.system(size: 13, weight: .medium))
-                            .foregroundStyle(Color(hex: 0x667085))
+                            .foregroundStyle(Color.appSecondaryText)
                     }
                 }
                 .padding(16)
-                .background(Color.white, in: RoundedRectangle(cornerRadius: 14, style: .continuous))
+                .background(Color.appSurface, in: RoundedRectangle(cornerRadius: 14, style: .continuous))
                 .shadow(color: .black.opacity(0.08), radius: 4, x: 0, y: 1)
             }
         }
@@ -644,7 +644,7 @@ private struct TaskTimelineImageThumbnail: View {
         .clipShape(RoundedRectangle(cornerRadius: 14, style: .continuous))
         .overlay {
             RoundedRectangle(cornerRadius: 14, style: .continuous)
-                .stroke(Color(hex: 0xE5E7EB), lineWidth: 1)
+                .stroke(Color.appSeparator, lineWidth: 1)
         }
         .overlay(alignment: .bottomTrailing) {
             if resolvedURL != nil {
@@ -662,13 +662,13 @@ private struct TaskTimelineImageThumbnail: View {
     @ViewBuilder
     private func placeholder(systemImage: String?) -> some View {
         ZStack {
-            Color(hex: 0xF2F4F7)
+            Color.appFieldBackground
             if isResolving {
                 ProgressView()
             } else if let systemImage {
                 Image(systemName: systemImage)
                     .font(.system(size: 19, weight: .semibold))
-                    .foregroundStyle(Color(hex: 0x98A2B3))
+                    .foregroundStyle(Color.appTertiaryText)
             }
         }
     }
@@ -704,7 +704,7 @@ private struct TaskTimelineImagePreview: View {
             HStack {
                 Text("Photo")
                     .font(.system(size: 20, weight: .bold))
-                    .foregroundStyle(Color(hex: 0x101828))
+                    .foregroundStyle(Color.appPrimaryText)
 
                 Spacer()
 
@@ -713,15 +713,15 @@ private struct TaskTimelineImagePreview: View {
                 } label: {
                     Image(systemName: "xmark")
                         .font(.system(size: 15, weight: .bold))
-                        .foregroundStyle(Color(hex: 0x101828))
+                        .foregroundStyle(Color.appPrimaryText)
                         .frame(width: 38, height: 38)
-                        .background(Color(hex: 0xF2F4F7), in: Circle())
+                        .background(Color.appFieldBackground, in: Circle())
                 }
                 .buttonStyle(.plain)
             }
 
             ZStack {
-                Color(hex: 0xF8FAFC)
+                Color.appFieldBackground
                     .clipShape(RoundedRectangle(cornerRadius: 18, style: .continuous))
 
                 AsyncImage(url: url) { phase in
@@ -737,7 +737,7 @@ private struct TaskTimelineImagePreview: View {
                             Text("Unable to load photo")
                                 .font(.system(size: 14, weight: .medium))
                         }
-                        .foregroundStyle(Color(hex: 0x667085))
+                        .foregroundStyle(Color.appSecondaryText)
                     case .empty:
                         ProgressView()
                     @unknown default:
@@ -751,7 +751,7 @@ private struct TaskTimelineImagePreview: View {
         .padding(.horizontal, 20)
         .padding(.top, 22)
         .padding(.bottom, 28)
-        .background(Color.white)
+        .background(Color.appSurface)
     }
 }
 

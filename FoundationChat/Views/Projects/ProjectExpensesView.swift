@@ -69,7 +69,7 @@ struct ProjectExpensesView: View {
                 Task { await refreshExpenses() }
             }
             .appLibraryNativeSheet([.height(520)])
-            .presentationBackground(Color.white)
+            .presentationBackground(Color.appElevatedSurface)
         }
         .sheet(isPresented: $showingProjectPicker) {
             NativeSearchableSelectionSheet(
@@ -88,7 +88,7 @@ struct ProjectExpensesView: View {
                 }
             )
             .appLibraryNativeSheet([.medium, .large])
-            .presentationBackground(Color.white)
+            .presentationBackground(Color.appElevatedSurface)
         }
         .sheet(isPresented: $showingCreateExpense) {
             if let selectedProject {
@@ -97,7 +97,7 @@ struct ProjectExpensesView: View {
                 }
                 .appFormActivity()
                 .appLibraryNativeSheet([.height(720), .large])
-                .presentationBackground(Color.white)
+                .presentationBackground(Color.appElevatedSurface)
             }
         }
         .sheet(item: $selectedExpenseForDetail) { expense in
@@ -105,7 +105,7 @@ struct ProjectExpensesView: View {
                 await refreshExpenses()
             }
             .appLibraryNativeSheet([.height(390), .medium])
-            .presentationBackground(Color.white)
+            .presentationBackground(Color.appElevatedSurface)
         }
         .alert("Error", isPresented: errorAlertBinding, actions: {
             Button("OK", role: .cancel) { errorMessage = nil }
@@ -157,7 +157,7 @@ struct ProjectExpensesView: View {
                         HStack(spacing: 8) {
                             Text(selectedProject?.displayName ?? (projects.isEmpty ? "Choose a project" : "Choose a project"))
                                 .font(.system(size: 14, weight: .semibold))
-                                .foregroundStyle(Color(hex: 0x101828))
+                                .foregroundStyle(Color.appPrimaryText)
                                 .lineLimit(1)
                                 .truncationMode(.tail)
                                 .frame(maxWidth: .infinity, alignment: .leading)
@@ -170,11 +170,11 @@ struct ProjectExpensesView: View {
 
                             Image(systemName: "chevron.down")
                                 .font(.system(size: 14, weight: .semibold))
-                                .foregroundStyle(Color(hex: 0x667085))
+                                .foregroundStyle(Color.appSecondaryText)
                         }
                         .padding(.horizontal, 14)
                         .frame(maxWidth: .infinity, minHeight: 46, maxHeight: 46)
-                        .background(.white, in: RoundedRectangle(cornerRadius: 10, style: .continuous))
+                        .background(Color.appSurface, in: RoundedRectangle(cornerRadius: 10, style: .continuous))
                         .contentShape(RoundedRectangle(cornerRadius: 10, style: .continuous))
                     }
                     .buttonStyle(.plain)
@@ -188,7 +188,7 @@ struct ProjectExpensesView: View {
                             .font(.system(size: 22, weight: .semibold))
                             .foregroundStyle(Color(hex: 0x0B61CA))
                             .frame(width: 46, height: 46)
-                            .background(.white, in: RoundedRectangle(cornerRadius: 10, style: .continuous))
+                            .background(Color.appSurface, in: RoundedRectangle(cornerRadius: 10, style: .continuous))
                     }
                     .buttonStyle(.plain)
                     .accessibilityLabel("Date filter")
@@ -209,7 +209,7 @@ struct ProjectExpensesView: View {
         HStack(spacing: 12) {
             Text(project.displayName)
                 .font(.system(size: 15, weight: .semibold))
-                .foregroundStyle(Color(hex: 0x101828))
+                .foregroundStyle(Color.appPrimaryText)
                 .lineLimit(2)
             Spacer()
             if isSelected {
@@ -226,17 +226,17 @@ struct ProjectExpensesView: View {
                 VStack(alignment: .leading, spacing: 4) {
                     Text("Total Expenses")
                         .font(.system(size: 12, weight: .medium))
-                        .foregroundStyle(Color(hex: 0x667085))
+                        .foregroundStyle(Color.appSecondaryText)
 
                     Text(formatRsUpper(totals.total))
                         .font(.system(size: 27, weight: .bold))
-                        .foregroundStyle(Color(hex: 0x101828))
+                        .foregroundStyle(Color.appPrimaryText)
                         .minimumScaleFactor(0.72)
                         .lineLimit(1)
 
                     Text(dateRangeText)
                         .font(.system(size: 12, weight: .medium))
-                        .foregroundStyle(Color(hex: 0x98A2B3))
+                        .foregroundStyle(Color.appTertiaryText)
                 }
 
                 Spacer(minLength: 16)
@@ -252,7 +252,7 @@ struct ProjectExpensesView: View {
             }
         }
         .padding(16)
-        .background(Color.white, in: RoundedRectangle(cornerRadius: 16, style: .continuous))
+        .background(Color.appSurface, in: RoundedRectangle(cornerRadius: 16, style: .continuous))
         .shadow(color: .black.opacity(0.04), radius: 4, x: 0, y: 2)
         .opacity(didAnimateIn ? 1 : 0)
         .offset(y: didAnimateIn ? 0 : 40)
@@ -271,11 +271,11 @@ struct ProjectExpensesView: View {
                     } label: {
                         Text(category.title)
                             .font(.system(size: 14, weight: .medium))
-                            .foregroundStyle(selectedCategory == category ? .white : Color(hex: 0x475467))
+                            .foregroundStyle(selectedCategory == category ? .white : Color.appSecondaryText)
                             .padding(.horizontal, 14)
                             .frame(height: 34)
                             .background(
-                                selectedCategory == category ? Color(hex: 0x0B61CA) : Color(hex: 0xF2F4F7),
+                                selectedCategory == category ? Color(hex: 0x0B61CA) : Color.appFieldBackground,
                                 in: Capsule()
                             )
                     }
@@ -448,14 +448,14 @@ private struct ExpenseLegendItem: View {
                     .frame(width: 10, height: 10)
                 Text(title)
                     .font(.system(size: 12, weight: .medium))
-                    .foregroundStyle(Color(hex: 0x101828))
+                    .foregroundStyle(Color.appPrimaryText)
                     .lineLimit(1)
                     .minimumScaleFactor(0.74)
             }
 
             Text(value)
                 .font(.system(size: 14, weight: .bold))
-                .foregroundStyle(Color(hex: 0x101828))
+                .foregroundStyle(Color.appPrimaryText)
                 .lineLimit(1)
                 .minimumScaleFactor(0.72)
         }
@@ -504,7 +504,7 @@ private struct ExpenseDonutChart: View {
             }
 
             Circle()
-                .fill(Color.white)
+                .fill(Color.appSurface)
                 .frame(width: 58, height: 58)
         }
     }
@@ -533,11 +533,11 @@ private struct ProjectExpenseCard: View {
                 VStack(alignment: .leading, spacing: 3) {
                     Text(category.title == "All" ? expense.category.capitalized : category.title)
                         .font(.system(size: 17, weight: .bold))
-                        .foregroundStyle(Color(hex: 0x101828))
+                        .foregroundStyle(Color.appPrimaryText)
 
                     Text(monthYear(expense.date))
                         .font(.system(size: 13, weight: .medium))
-                        .foregroundStyle(Color(hex: 0x667085))
+                        .foregroundStyle(Color.appSecondaryText)
                 }
 
                 Spacer(minLength: 8)
@@ -545,7 +545,7 @@ private struct ProjectExpenseCard: View {
                 VStack(alignment: .trailing, spacing: 5) {
                     Text(formatRs(expense.amount))
                         .font(.system(size: 17, weight: .bold))
-                        .foregroundStyle(Color(hex: 0x101828))
+                        .foregroundStyle(Color.appPrimaryText)
 
                     Text(expense.paid ? "Paid" : "Pending")
                         .font(.system(size: 11, weight: .semibold))
@@ -557,23 +557,23 @@ private struct ProjectExpenseCard: View {
             }
 
             Divider()
-                .overlay(Color(hex: 0xF2F4F7))
+                .overlay(Color.appFieldBackground)
                 .padding(.top, 12)
 
             HStack(spacing: 4) {
                 Text("View Details")
                     .font(.system(size: 14, weight: .semibold))
-                    .foregroundStyle(Color(hex: 0x101828))
+                    .foregroundStyle(Color.appPrimaryText)
 
                 Image(systemName: "chevron.right")
                     .font(.system(size: 13, weight: .semibold))
-                    .foregroundStyle(Color(hex: 0x101828))
+                    .foregroundStyle(Color.appPrimaryText)
             }
             .frame(maxWidth: .infinity)
             .padding(.top, 12)
         }
         .padding(14)
-        .background(Color.white, in: RoundedRectangle(cornerRadius: 14, style: .continuous))
+        .background(Color.appSurface, in: RoundedRectangle(cornerRadius: 14, style: .continuous))
         .shadow(color: .black.opacity(0.05), radius: 3, x: 0, y: 1)
     }
 
@@ -617,10 +617,10 @@ private struct ExpenseDateFilterSheet: View {
             VStack(alignment: .leading, spacing: 6) {
                 Text("Date Filter")
                     .font(.system(size: 20, weight: .bold))
-                    .foregroundStyle(Color(hex: 0x101828))
+                    .foregroundStyle(Color.appPrimaryText)
                 Text("Select Date Filter")
                     .font(.system(size: 14, weight: .regular))
-                    .foregroundStyle(Color(hex: 0x667085))
+                    .foregroundStyle(Color.appSecondaryText)
             }
 
             HStack {
@@ -636,7 +636,7 @@ private struct ExpenseDateFilterSheet: View {
 
                 Text(monthTitle)
                     .font(.system(size: 17, weight: .bold))
-                    .foregroundStyle(Color(hex: 0x101828))
+                    .foregroundStyle(Color.appPrimaryText)
 
                 Spacer()
 
@@ -654,7 +654,7 @@ private struct ExpenseDateFilterSheet: View {
                 ForEach(weekdays, id: \.self) { day in
                     Text(day)
                         .font(.system(size: 14, weight: .medium))
-                        .foregroundStyle(Color(hex: 0x101828))
+                        .foregroundStyle(Color.appPrimaryText)
                         .frame(maxWidth: .infinity)
                         .frame(height: 33)
                         .background(Color(hex: 0xEAECF0), in: RoundedRectangle(cornerRadius: 4, style: .continuous))
@@ -699,7 +699,7 @@ private struct ExpenseDateFilterSheet: View {
         .padding(.top, 24)
         .padding(.bottom, 20)
         .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
-        .background(Color.white)
+        .background(Color.appSurface)
         .appCompactSheetCTAContainer()
         .onAppear {
             draftFrom = fromDate ?? Date()
@@ -755,7 +755,7 @@ private struct ExpenseDateFilterSheet: View {
 
     private func dayTextColor(_ item: (date: Date, isCurrentMonth: Bool)) -> Color {
         if isSelectedEndpoint(item.date) { return .white }
-        return item.isCurrentMonth ? Color(hex: 0x101828) : Color(hex: 0x98A2B3)
+        return item.isCurrentMonth ? Color.appPrimaryText : Color.appTertiaryText
     }
 
     @ViewBuilder
@@ -890,9 +890,9 @@ private struct ExpenseCreationSheet: View {
             .padding(.horizontal, 20)
             .padding(.top, 4)
             .padding(.bottom, 24)
-            .background(Color.white)
+            .background(Color.appSurface)
         }
-        .background(Color.white)
+        .background(Color.appSurface)
         .appCompactSheetCTAContainer()
         .onAppear {
             if selectedProject == nil {
@@ -903,7 +903,7 @@ private struct ExpenseCreationSheet: View {
             VStack(alignment: .leading, spacing: 18) {
                 Text("Select Date")
                     .font(.system(size: 22, weight: .bold))
-                    .foregroundStyle(Color(hex: 0x101828))
+                    .foregroundStyle(Color.appPrimaryText)
                     .padding(.top, 26)
 
                 DatePicker("", selection: $date, displayedComponents: .date)
@@ -923,7 +923,7 @@ private struct ExpenseCreationSheet: View {
             }
             .padding(.horizontal, 20)
             .padding(.bottom, 20)
-            .background(Color.white)
+            .background(Color.appSurface)
             .appCompactSheetCTAContainer()
             .appLibraryNativeSheet([.height(470)])
         }
@@ -938,7 +938,7 @@ private struct ExpenseCreationSheet: View {
                 .padding(.bottom, 4)
             Text(subtitle)
                 .font(.system(size: 13, weight: .medium))
-                .foregroundStyle(Color(hex: 0x667085))
+                .foregroundStyle(Color.appSecondaryText)
                 .multilineTextAlignment(.center)
         }
         .frame(maxWidth: .infinity)
@@ -947,20 +947,20 @@ private struct ExpenseCreationSheet: View {
     private func fieldLabel(_ text: String) -> some View {
         Text(text)
             .font(.system(size: 12, weight: .medium))
-            .foregroundStyle(Color(hex: 0x667085))
+            .foregroundStyle(Color.appSecondaryText)
     }
 
     private func readOnlyField(title: String) -> some View {
         Text(title)
             .font(.system(size: 15, weight: .medium))
-            .foregroundStyle(Color(hex: 0x101828))
+            .foregroundStyle(Color.appPrimaryText)
             .padding(.horizontal, 16)
             .frame(maxWidth: .infinity, alignment: .leading)
             .frame(height: 46)
-            .background(Color(hex: 0xF8FAFC), in: RoundedRectangle(cornerRadius: 8, style: .continuous))
+            .background(Color.appFieldBackground, in: RoundedRectangle(cornerRadius: 8, style: .continuous))
             .overlay {
                 RoundedRectangle(cornerRadius: 8, style: .continuous)
-                    .stroke(Color(hex: 0xD0D5DD), lineWidth: 1)
+                    .stroke(Color.appSeparator, lineWidth: 1)
             }
     }
 
@@ -972,21 +972,21 @@ private struct ExpenseCreationSheet: View {
                 .frame(width: 22)
             Text(title)
                 .font(.system(size: 14, weight: .medium))
-                .foregroundStyle(Color(hex: 0x101828))
+                .foregroundStyle(Color.appPrimaryText)
                 .lineLimit(1)
             Spacer()
             if showsChevron {
                 Image(systemName: "chevron.down")
                     .font(.system(size: 14, weight: .medium))
-                    .foregroundStyle(Color(hex: 0x101828))
+                    .foregroundStyle(Color.appPrimaryText)
             }
         }
         .padding(.horizontal, 14)
         .frame(height: 54)
-        .background(.white, in: RoundedRectangle(cornerRadius: 12, style: .continuous))
+        .background(Color.appSurface, in: RoundedRectangle(cornerRadius: 12, style: .continuous))
         .overlay {
             RoundedRectangle(cornerRadius: 12, style: .continuous)
-                .stroke(Color(hex: 0xD0D5DD), lineWidth: 1)
+                .stroke(Color.appSeparator, lineWidth: 1)
         }
     }
 
@@ -1010,10 +1010,10 @@ private struct ExpenseCreationSheet: View {
             }
             .padding(.horizontal, 14)
             .frame(height: 54)
-            .background(.white, in: RoundedRectangle(cornerRadius: 12, style: .continuous))
+            .background(Color.appSurface, in: RoundedRectangle(cornerRadius: 12, style: .continuous))
             .overlay {
                 RoundedRectangle(cornerRadius: 12, style: .continuous)
-                    .stroke(Color(hex: 0xD0D5DD), lineWidth: 1)
+                    .stroke(Color.appSeparator, lineWidth: 1)
             }
         }
     }
@@ -1031,7 +1031,7 @@ private struct ExpenseCreationSheet: View {
                     if text.wrappedValue.isEmpty {
                         Text(placeholder)
                             .font(.system(size: 14, weight: .medium))
-                            .foregroundStyle(Color(hex: 0x98A2B3))
+                            .foregroundStyle(Color.appTertiaryText)
                             .padding(.top, 10)
                             .padding(.leading, 4)
                     }
@@ -1043,10 +1043,10 @@ private struct ExpenseCreationSheet: View {
             }
             .padding(.horizontal, 14)
             .frame(height: 92)
-            .background(.white, in: RoundedRectangle(cornerRadius: 12, style: .continuous))
+            .background(Color.appSurface, in: RoundedRectangle(cornerRadius: 12, style: .continuous))
             .overlay {
                 RoundedRectangle(cornerRadius: 12, style: .continuous)
-                    .stroke(Color(hex: 0xD0D5DD), lineWidth: 1)
+                    .stroke(Color.appSeparator, lineWidth: 1)
             }
         }
     }
@@ -1079,16 +1079,16 @@ private struct ExpenseCreationSheet: View {
                     } label: {
                         ZStack {
                             RoundedRectangle(cornerRadius: 16, style: .continuous)
-                                .fill(Color(hex: 0xF8FAFC))
+                                .fill(Color.appFieldBackground)
                             RoundedRectangle(cornerRadius: 16, style: .continuous)
-                                .stroke(Color(hex: 0x98A2B3), style: StrokeStyle(lineWidth: 1, dash: [5, 4]))
+                                .stroke(Color.appTertiaryText, style: StrokeStyle(lineWidth: 1, dash: [5, 4]))
 
                             if isLoadingPhotos {
                                 ProgressView()
                             } else {
                                 Image(systemName: "plus")
                                     .font(.system(size: 28, weight: .semibold))
-                                    .foregroundStyle(Color(hex: 0x667085))
+                                    .foregroundStyle(Color.appSecondaryText)
                             }
                         }
                         .frame(width: 72, height: 72)
@@ -1109,17 +1109,17 @@ private struct ExpenseCreationSheet: View {
                         .resizable()
                         .scaledToFill()
                 } else {
-                    Color(hex: 0xF8FAFC)
+                    Color.appFieldBackground
                 }
                 #else
-                Color(hex: 0xF8FAFC)
+                Color.appFieldBackground
                 #endif
             }
             .frame(width: 72, height: 72)
             .clipShape(RoundedRectangle(cornerRadius: 16, style: .continuous))
             .overlay {
                 RoundedRectangle(cornerRadius: 16, style: .continuous)
-                    .stroke(Color(hex: 0xE5E7EB), lineWidth: 1)
+                    .stroke(Color.appSeparator, lineWidth: 1)
             }
 
             Button(action: onRemove) {
@@ -1223,7 +1223,7 @@ private struct ExpenseDetailSheet: View {
         VStack(alignment: .leading, spacing: 0) {
             Text("Expense Details")
                 .font(.system(size: 22, weight: .bold))
-                .foregroundStyle(Color(hex: 0x101828))
+                .foregroundStyle(Color.appPrimaryText)
                 .padding(.bottom, 20)
 
             HStack(alignment: .center, spacing: 14) {
@@ -1239,7 +1239,7 @@ private struct ExpenseDetailSheet: View {
                 VStack(alignment: .leading, spacing: 6) {
                     Text(category.title)
                         .font(.system(size: 20, weight: .bold))
-                        .foregroundStyle(Color(hex: 0x101828))
+                        .foregroundStyle(Color.appPrimaryText)
                     Text(displayExpense.paid ? "Paid" : "Pending")
                         .font(.system(size: 11, weight: .semibold))
                         .foregroundStyle(displayExpense.paid ? Color(hex: 0x16A34A) : Color(hex: 0xF97316))
@@ -1260,10 +1260,10 @@ private struct ExpenseDetailSheet: View {
                 VStack(alignment: .leading, spacing: 10) {
                     Text("Notes")
                         .font(.system(size: 15, weight: .semibold))
-                        .foregroundStyle(Color(hex: 0x101828))
+                        .foregroundStyle(Color.appPrimaryText)
                     Text(notes)
                         .font(.system(size: 14, weight: .regular))
-                        .foregroundStyle(Color(hex: 0x475467))
+                        .foregroundStyle(Color.appSecondaryText)
                         .lineSpacing(4)
                         .fixedSize(horizontal: false, vertical: true)
                 }
@@ -1282,7 +1282,7 @@ private struct ExpenseDetailSheet: View {
         .padding(.horizontal, 20)
         .padding(.top, 8)
         .padding(.bottom, 24)
-        .background(Color.white)
+        .background(Color.appSurface)
         .task { await loadExpense() }
     }
 
@@ -1290,11 +1290,11 @@ private struct ExpenseDetailSheet: View {
         HStack(alignment: .center) {
             Text(title)
                 .font(.system(size: 15, weight: .semibold))
-                .foregroundStyle(Color(hex: 0x101828))
+                .foregroundStyle(Color.appPrimaryText)
             Spacer()
             Text(value)
                 .font(.system(size: title == "Amount" ? 16 : 14, weight: title == "Amount" ? .bold : .medium))
-                .foregroundStyle(title == "Amount" ? Color(hex: 0x101828) : Color(hex: 0x475467))
+                .foregroundStyle(title == "Amount" ? Color.appPrimaryText : Color.appSecondaryText)
                 .multilineTextAlignment(.trailing)
         }
         .padding(.bottom, 20)

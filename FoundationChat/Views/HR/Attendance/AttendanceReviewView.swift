@@ -43,7 +43,7 @@ struct AttendanceReviewView: View {
                             VStack(spacing: 8) {
                                 ForEach(0..<2, id: \.self) { _ in
                                     RoundedRectangle(cornerRadius: 16)
-                                        .fill(Color(hex: 0xF8FAFC))
+                                        .fill(Color.appFieldBackground)
                                         .frame(height: 112)
                                         .redacted(reason: .placeholder)
                                 }
@@ -65,7 +65,7 @@ struct AttendanceReviewView: View {
                     }
                     .padding(.horizontal, 12)
                     .padding(.vertical, 14)
-                    .background(Color.white, in: RoundedRectangle(cornerRadius: 20, style: .continuous))
+                    .background(Color.appSurface, in: RoundedRectangle(cornerRadius: 20, style: .continuous))
                     .padding(.horizontal, 12)
                     .padding(.top, -32)
                     .padding(.bottom, 24)
@@ -168,19 +168,19 @@ struct AttendanceReviewView: View {
             HStack(spacing: 10) {
                 Text(staffInitial(for: record))
                     .font(.system(size: 14, weight: .semibold))
-                    .foregroundStyle(Color(hex: 0x98A2B3))
+                    .foregroundStyle(Color.appTertiaryText)
                     .frame(width: 36, height: 36)
-                    .background(Color(hex: 0xF2F4F7), in: Circle())
+                    .background(Color.appFieldBackground, in: Circle())
 
                 VStack(alignment: .leading, spacing: 2) {
                     Text(nonBlank(record.staffName) ?? "Staff")
                         .font(.system(size: 14, weight: .semibold))
-                        .foregroundStyle(Color(hex: 0x101828))
+                        .foregroundStyle(Color.appPrimaryText)
                         .lineLimit(1)
 
                     Text(staffMeta(for: record))
                         .font(.system(size: 11))
-                        .foregroundStyle(Color(hex: 0x667085))
+                        .foregroundStyle(Color.appSecondaryText)
                         .lineLimit(1)
                 }
                 .frame(maxWidth: .infinity, alignment: .leading)
@@ -201,7 +201,7 @@ struct AttendanceReviewView: View {
                 VStack(alignment: .leading, spacing: 10) {
                     Text(formattedDate(record.date) ?? record.date ?? "-")
                         .font(.system(size: 13, weight: .medium))
-                        .foregroundStyle(Color(hex: 0x344054))
+                        .foregroundStyle(Color.appPrimaryText)
                         .frame(maxWidth: .infinity, alignment: .leading)
 
                     HStack(alignment: .top, spacing: 8) {
@@ -211,7 +211,7 @@ struct AttendanceReviewView: View {
                     }
                 }
                 .padding(12)
-                .background(Color(hex: 0xF8FAFC), in: RoundedRectangle(cornerRadius: 12, style: .continuous))
+                .background(Color.appFieldBackground, in: RoundedRectangle(cornerRadius: 12, style: .continuous))
                 .overlay(
                     RoundedRectangle(cornerRadius: 12, style: .continuous)
                         .stroke(Color(hex: 0xEAECF0), lineWidth: 1)
@@ -250,7 +250,7 @@ struct AttendanceReviewView: View {
         }
         .padding(.horizontal, 12)
         .padding(.vertical, 14)
-        .background(Color.white, in: RoundedRectangle(cornerRadius: 16, style: .continuous))
+        .background(Color.appSurface, in: RoundedRectangle(cornerRadius: 16, style: .continuous))
         .overlay(
             RoundedRectangle(cornerRadius: 16, style: .continuous)
                 .stroke(Color(hex: 0xEAECF0), lineWidth: 1)
@@ -262,10 +262,10 @@ struct AttendanceReviewView: View {
         VStack(alignment: .leading, spacing: 2) {
             Text(title)
                 .font(.system(size: 11))
-                .foregroundStyle(Color(hex: 0x667085))
+                .foregroundStyle(Color.appSecondaryText)
             Text(value)
                 .font(.system(size: 14, weight: .semibold))
-                .foregroundStyle(Color(hex: 0x101828))
+                .foregroundStyle(Color.appPrimaryText)
                 .lineLimit(1)
                 .minimumScaleFactor(0.75)
         }

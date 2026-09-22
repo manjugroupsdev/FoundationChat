@@ -123,7 +123,7 @@ struct CollectionsView: View {
                 await load()
             }
             .appLibraryNativeSheet([.height(320), .medium])
-            .presentationBackground(Color.white)
+            .presentationBackground(Color.appElevatedSurface)
         }
         .sheet(isPresented: $showingDateFilter) {
             PostSalesCollectionDateFilterSheet(
@@ -545,7 +545,7 @@ struct LoanDeskView: View {
                 await load()
             }
             .appLibraryNativeSheet([.large])
-            .presentationBackground(Color.white)
+            .presentationBackground(Color.appElevatedSurface)
         }
     }
 
@@ -855,7 +855,7 @@ struct PostSalesSegmentedFilter: View {
                 } label: {
                     Text(item.title)
                         .font(.system(size: 14, weight: selection == item ? .bold : .semibold))
-                        .foregroundStyle(selection == item ? .white : Color(hex: 0x667085))
+                        .foregroundStyle(selection == item ? .white : Color.appSecondaryText)
                         .frame(maxWidth: .infinity)
                         .frame(height: 48)
                         .background(
@@ -885,7 +885,7 @@ struct PostSalesSummaryCard: View {
                 .font(.system(size: 19, weight: .semibold))
                 .foregroundStyle(Color.white.opacity(0.92))
                 .frame(width: 40, height: 40)
-                .background(Color.white.opacity(0.13), in: Circle())
+                .background(Color.appSurface.opacity(0.13), in: Circle())
 
             Text(leadingTitle)
                 .font(.system(size: 15, weight: .bold))
@@ -1446,7 +1446,7 @@ private struct LoanDeskCaseCard: View {
                         .foregroundStyle(Color(hex: 0xB42318))
                     Text(remarks)
                         .font(.system(size: 12, weight: .medium))
-                        .foregroundStyle(Color(hex: 0x667085))
+                        .foregroundStyle(Color.appSecondaryText)
                 }
                 .padding(12)
                 .frame(maxWidth: .infinity, alignment: .leading)
@@ -2221,7 +2221,7 @@ private struct EditCollectionAmountSheet: View {
                 Section {
                     Text("Correct the amount before it reaches Accounts.")
                         .font(.system(size: 13, weight: .medium))
-                        .foregroundStyle(Color(hex: 0x667085))
+                        .foregroundStyle(Color.appSecondaryText)
                 }
                 Section("Corrected Amount (₹)") {
                     TextField("Amount", text: $amountText)
@@ -2458,7 +2458,7 @@ private struct LoanCaseDocumentsSheet: View {
         return VStack(alignment: .leading, spacing: 10) {
             HStack(spacing: 12) {
                 Image(systemName: value.storageId == nil ? "doc.badge.plus" : "doc.fill")
-                    .foregroundStyle(value.storageId == nil ? Color(hex: 0x667085) : Color(hex: 0x16A34A))
+                    .foregroundStyle(value.storageId == nil ? Color.appSecondaryText : Color(hex: 0x16A34A))
                 VStack(alignment: .leading, spacing: 3) {
                     Text(value.label)
                     Text(value.fileName?.nonBlank ?? value.pendingFileURL?.lastPathComponent ?? "No file selected")

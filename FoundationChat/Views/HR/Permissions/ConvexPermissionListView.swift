@@ -75,7 +75,7 @@ struct ConvexPermissionListView: View {
             Color(hex: 0x0B61CA)
                 .ignoresSafeArea(edges: .top)
 
-            Color(hex: 0xF1F3F8)
+            Color.appScreenBackground
                 .ignoresSafeArea(edges: .bottom)
             permissionHeader
                 .ignoresSafeArea(edges: .top)
@@ -94,7 +94,7 @@ struct ConvexPermissionListView: View {
                             .padding(.horizontal, 16)
                             .padding(.top, 14)
                     }
-                    .background(Color(hex: 0xF1F3F8))
+                    .background(Color.appScreenBackground)
                     .clipShape(
                         UnevenRoundedRectangle(
                             cornerRadii: .init(topLeading: 30, bottomLeading: 0, bottomTrailing: 0, topTrailing: 30),
@@ -139,7 +139,7 @@ struct ConvexPermissionListView: View {
             .frame(maxWidth: .infinity)
             .background {
                 ZStack {
-                    Color(hex: 0xF1F3F8).opacity(0.96)
+                    Color.appScreenBackground.opacity(0.96)
                     if cancelingPermission != nil {
                         Rectangle()
                             .fill(.ultraThinMaterial)
@@ -236,10 +236,10 @@ struct ConvexPermissionListView: View {
                 VStack(alignment: .leading, spacing: 2) {
                     Text(activeScope.balanceTitle)
                         .font(.system(size: 18, weight: .bold))
-                        .foregroundStyle(Color(hex: 0x101828))
+                        .foregroundStyle(Color.appPrimaryText)
                     Text("Period 1 Jan \(Calendar.current.component(.year, from: Date())) - 30 Dec \(Calendar.current.component(.year, from: Date()))")
                         .font(.system(size: 14))
-                        .foregroundStyle(Color(hex: 0x667085))
+                        .foregroundStyle(Color.appSecondaryText)
                         .fixedSize(horizontal: false, vertical: true)
                 }
 
@@ -282,7 +282,7 @@ struct ConvexPermissionListView: View {
                 cornerRadii: .init(topLeading: 30, bottomLeading: 0, bottomTrailing: 0, topTrailing: 30),
                 style: .continuous
             )
-            .fill(Color.white)
+            .fill(Color.appSurface)
         }
     }
 
@@ -297,10 +297,10 @@ struct ConvexPermissionListView: View {
         }
         .foregroundStyle(Color(hex: 0x061D3D))
         .frame(width: 156, height: 48)
-        .background(Color.white, in: RoundedRectangle(cornerRadius: 12, style: .continuous))
+        .background(Color.appSurface, in: RoundedRectangle(cornerRadius: 12, style: .continuous))
         .overlay {
             RoundedRectangle(cornerRadius: 12, style: .continuous)
-                .stroke(Color(hex: 0xE5E7EB), lineWidth: 2)
+                .stroke(Color.appSeparator, lineWidth: 2)
         }
         .shadow(color: Color.black.opacity(0.02), radius: 4, y: 1)
     }
@@ -313,13 +313,13 @@ struct ConvexPermissionListView: View {
                     .frame(width: 8, height: 8)
                 Text(title)
                     .font(.system(size: 13, weight: .semibold))
-                    .foregroundStyle(Color(hex: 0x667085))
+                    .foregroundStyle(Color.appSecondaryText)
                     .lineLimit(1)
                     .minimumScaleFactor(0.72)
             }
             Text(value)
                 .font(.system(size: 30, weight: .bold))
-                .foregroundStyle(Color(hex: 0x101828))
+                .foregroundStyle(Color.appPrimaryText)
                 .lineLimit(1)
                 .minimumScaleFactor(0.72)
         }
@@ -340,7 +340,7 @@ struct ConvexPermissionListView: View {
                 } label: {
                     Text(filter.title(with: scopedPermissions))
                         .font(.system(size: 14, weight: .semibold))
-                        .foregroundStyle(historyFilter == filter ? .white : Color(hex: 0x667085))
+                        .foregroundStyle(historyFilter == filter ? .white : Color.appSecondaryText)
                         .frame(maxWidth: .infinity)
                         .frame(height: 32)
                         .background {
@@ -395,7 +395,7 @@ struct ConvexPermissionListView: View {
 
                 Text("This permission request will be cancelled and removed from your visible permission history.")
                     .font(.system(size: 14, weight: .regular))
-                    .foregroundStyle(Color(hex: 0x475467))
+                    .foregroundStyle(Color.appSecondaryText)
                     .multilineTextAlignment(.center)
                     .lineSpacing(3)
                     .padding(.top, 12)
@@ -406,13 +406,13 @@ struct ConvexPermissionListView: View {
                     } label: {
                         Text("No, Go Back")
                             .font(.system(size: 14, weight: .semibold))
-                            .foregroundStyle(Color(hex: 0x344054))
+                            .foregroundStyle(Color.appPrimaryText)
                             .frame(maxWidth: .infinity)
                             .frame(height: 48)
-                            .background(Color.white, in: RoundedRectangle(cornerRadius: 12, style: .continuous))
+                            .background(Color.appSurface, in: RoundedRectangle(cornerRadius: 12, style: .continuous))
                             .overlay {
                                 RoundedRectangle(cornerRadius: 12, style: .continuous)
-                                    .stroke(Color(hex: 0xD0D5DD), lineWidth: 1)
+                                    .stroke(Color.appSeparator, lineWidth: 1)
                             }
                     }
                     .buttonStyle(.plain)
@@ -434,7 +434,7 @@ struct ConvexPermissionListView: View {
                 .padding(.top, 24)
             }
             .padding(24)
-            .background(Color.white, in: RoundedRectangle(cornerRadius: 20, style: .continuous))
+            .background(Color.appSurface, in: RoundedRectangle(cornerRadius: 20, style: .continuous))
             .padding(.horizontal, 24)
         }
     }
@@ -457,15 +457,15 @@ struct ConvexPermissionListView: View {
     private var permissionSkeleton: some View {
         VStack(alignment: .leading, spacing: 10) {
             RoundedRectangle(cornerRadius: 5)
-                .fill(Color(hex: 0xE5E7EB))
+                .fill(Color.appSeparator)
                 .frame(width: 140, height: 16)
             RoundedRectangle(cornerRadius: 12)
-                .fill(Color(hex: 0xE5E7EB))
+                .fill(Color.appSeparator)
                 .frame(height: 110)
         }
         .padding(14)
         .frame(maxWidth: .infinity, alignment: .leading)
-        .background(Color.white, in: RoundedRectangle(cornerRadius: 12, style: .continuous))
+        .background(Color.appSurface, in: RoundedRectangle(cornerRadius: 12, style: .continuous))
         .redacted(reason: .placeholder)
     }
 
@@ -478,18 +478,18 @@ struct ConvexPermissionListView: View {
                 .opacity(0.78)
             Text("No Permission Submitted!")
                 .font(.system(size: 22, weight: .bold))
-                .foregroundStyle(Color(hex: 0x101828))
+                .foregroundStyle(Color.appPrimaryText)
                 .multilineTextAlignment(.center)
             Text("Ready to catch some fresh air? Click “Submit Permission” and take that well-deserved break!")
                 .font(.system(size: 15))
-                .foregroundStyle(Color(hex: 0x667085))
+                .foregroundStyle(Color.appSecondaryText)
                 .multilineTextAlignment(.center)
                 .lineSpacing(3)
                 .padding(.horizontal, 20)
         }
         .frame(maxWidth: .infinity)
         .padding(.vertical, 48)
-        .background(Color.white, in: RoundedRectangle(cornerRadius: 12, style: .continuous))
+        .background(Color.appSurface, in: RoundedRectangle(cornerRadius: 12, style: .continuous))
     }
 
     private func permissionCard(_ permission: ConvexPermission, approvalMode: Bool) -> some View {
@@ -502,7 +502,7 @@ struct ConvexPermissionListView: View {
                     .foregroundStyle(Color(hex: 0x0B61CA))
                 Text(dateHeading(for: permission))
                     .font(.system(size: 16, weight: .bold))
-                    .foregroundStyle(Color(hex: 0x101828))
+                    .foregroundStyle(Color.appPrimaryText)
                     .lineLimit(1)
                     .minimumScaleFactor(0.8)
                 Spacer()
@@ -514,7 +514,7 @@ struct ConvexPermissionListView: View {
                             .font(.system(size: 15, weight: .semibold))
                             .foregroundStyle(Color(hex: 0xEF4444))
                             .frame(width: 34, height: 34)
-                            .background(Color.white, in: RoundedRectangle(cornerRadius: 8, style: .continuous))
+                            .background(Color.appSurface, in: RoundedRectangle(cornerRadius: 8, style: .continuous))
                             .overlay {
                                 RoundedRectangle(cornerRadius: 8, style: .continuous)
                                     .stroke(Color(hex: 0xFCA5A5), lineWidth: 1)
@@ -528,11 +528,11 @@ struct ConvexPermissionListView: View {
                 VStack(alignment: .leading, spacing: 6) {
                     Text(permission.reason?.nonBlank ?? "Permission Time")
                         .font(.system(size: 12))
-                        .foregroundStyle(Color(hex: 0x667085))
+                        .foregroundStyle(Color.appSecondaryText)
                         .lineLimit(1)
                     Text(permission.timeRange.replacingOccurrences(of: "–", with: "-"))
                         .font(.system(size: 16, weight: .medium))
-                        .foregroundStyle(Color(hex: 0x344054))
+                        .foregroundStyle(Color.appPrimaryText)
                         .lineLimit(1)
                         .minimumScaleFactor(0.78)
                 }
@@ -540,18 +540,18 @@ struct ConvexPermissionListView: View {
                 VStack(alignment: .leading, spacing: 6) {
                     Text("Total Hours")
                         .font(.system(size: 12))
-                        .foregroundStyle(Color(hex: 0x667085))
+                        .foregroundStyle(Color.appSecondaryText)
                     Text(hoursText(for: permission))
                         .font(.system(size: 16, weight: .medium))
-                        .foregroundStyle(Color(hex: 0x344054))
+                        .foregroundStyle(Color.appPrimaryText)
                 }
                 .frame(width: 88, alignment: .leading)
             }
             .padding(12)
-            .background(Color(hex: 0xF8FAFC), in: RoundedRectangle(cornerRadius: 8, style: .continuous))
+            .background(Color.appFieldBackground, in: RoundedRectangle(cornerRadius: 8, style: .continuous))
             .overlay {
                 RoundedRectangle(cornerRadius: 8, style: .continuous)
-                    .stroke(Color(hex: 0xE5E7EB), lineWidth: 1)
+                    .stroke(Color.appSeparator, lineWidth: 1)
             }
 
             HStack(spacing: 7) {
@@ -559,18 +559,18 @@ struct ConvexPermissionListView: View {
                 Spacer(minLength: 8)
                 Text("By")
                     .font(.system(size: 12, weight: .medium))
-                    .foregroundStyle(Color(hex: 0x101828))
+                    .foregroundStyle(Color.appPrimaryText)
                 Circle()
-                    .fill(Color(hex: 0xF2F4F7))
+                    .fill(Color.appFieldBackground)
                     .frame(width: 24, height: 24)
                     .overlay {
                         Text(authorName(for: permission).prefix(1).uppercased())
                             .font(.system(size: 11, weight: .bold))
-                            .foregroundStyle(Color(hex: 0x98A2B3))
+                            .foregroundStyle(Color.appTertiaryText)
                     }
                 Text(authorName(for: permission))
                     .font(.system(size: 12, weight: .medium))
-                    .foregroundStyle(Color(hex: 0x101828))
+                    .foregroundStyle(Color.appPrimaryText)
                     .lineLimit(1)
                     .minimumScaleFactor(0.72)
             }
@@ -581,7 +581,7 @@ struct ConvexPermissionListView: View {
         }
         .padding(.horizontal, 12)
         .padding(.vertical, 16)
-        .background(Color.white, in: RoundedRectangle(cornerRadius: 12, style: .continuous))
+        .background(Color.appSurface, in: RoundedRectangle(cornerRadius: 12, style: .continuous))
     }
 
     private func statusInline(_ status: String) -> some View {
@@ -606,7 +606,7 @@ struct ConvexPermissionListView: View {
                     .foregroundStyle(Color(hex: 0xD92D20))
                     .frame(maxWidth: .infinity)
                     .frame(height: 48)
-                    .background(Color.white, in: Capsule())
+                    .background(Color.appSurface, in: Capsule())
                     .overlay {
                         Capsule().stroke(Color(hex: 0xFCA5A5), lineWidth: 1)
                     }

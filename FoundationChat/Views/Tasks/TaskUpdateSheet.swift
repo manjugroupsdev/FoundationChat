@@ -63,7 +63,7 @@ struct TaskUpdateSheet: View {
             submitButton
         }
         .scrollBounceBehavior(.basedOnSize)
-        .background(Color.white)
+        .background(Color.appSurface)
         .appCompactSheetCTAContainer()
         .onChange(of: progress) { _, value in
             progressText = "\(Int(value.rounded()))%"
@@ -72,7 +72,7 @@ struct TaskUpdateSheet: View {
         .sheet(isPresented: $showingDatePicker) {
             taskUpdateDatePicker
                 .appLibraryNativeSheet([.height(470)])
-                .presentationBackground(Color.white)
+                .presentationBackground(Color.appElevatedSurface)
         }
         .appFormActivity()
     }
@@ -104,18 +104,18 @@ struct TaskUpdateSheet: View {
             .padding(.horizontal, 24)
             .padding(.bottom, 20)
         }
-        .background(Color.white.opacity(0.98))
+        .background(Color.appSurface.opacity(0.98))
     }
 
     private var header: some View {
         VStack(alignment: .center, spacing: 7) {
             Text("Today’s Update")
                 .font(.system(size: 22, weight: .bold))
-                .foregroundStyle(Color(hex: 0x101828))
+                .foregroundStyle(Color.appPrimaryText)
 
             Text("Update your daily tasks in this form")
                 .font(.system(size: 13, weight: .medium))
-                .foregroundStyle(Color(hex: 0x667085))
+                .foregroundStyle(Color.appSecondaryText)
         }
         .frame(maxWidth: .infinity)
         .padding(.bottom, 8)
@@ -125,7 +125,7 @@ struct TaskUpdateSheet: View {
         VStack(alignment: .leading, spacing: 8) {
             Text("Date")
                 .font(.system(size: 12, weight: .medium))
-                .foregroundStyle(Color(hex: 0x667085))
+                .foregroundStyle(Color.appSecondaryText)
 
             Button {
                 showingDatePicker = true
@@ -137,16 +137,16 @@ struct TaskUpdateSheet: View {
 
                     Text(didSelectDate ? selectedDate.formatted(.dateTime.month(.abbreviated).day().year()) : "Select Date")
                         .font(.system(size: 14, weight: .medium))
-                        .foregroundStyle(Color(hex: 0x101828))
+                        .foregroundStyle(Color.appPrimaryText)
 
                     Spacer()
                 }
                 .padding(.horizontal, 16)
                 .frame(height: 54)
-                .background(Color(hex: 0xFCFCFD), in: RoundedRectangle(cornerRadius: 14, style: .continuous))
+                .background(Color.appSurface, in: RoundedRectangle(cornerRadius: 14, style: .continuous))
                 .overlay {
                     RoundedRectangle(cornerRadius: 14, style: .continuous)
-                        .stroke(Color(hex: 0xD7DDE8), lineWidth: 1)
+                        .stroke(Color.appSeparator, lineWidth: 1)
                 }
             }
             .buttonStyle(.plain)
@@ -163,7 +163,7 @@ struct TaskUpdateSheet: View {
 
                 Text("\(Int(progress.rounded()))%")
                     .font(.system(size: 14, weight: .bold))
-                    .foregroundStyle(Color(hex: 0x101828))
+                    .foregroundStyle(Color.appPrimaryText)
                     .monospacedDigit()
                     .frame(width: 52, alignment: .trailing)
             }
@@ -176,7 +176,7 @@ struct TaskUpdateSheet: View {
                 TextField("Select or Type Progress", text: $progressText)
                     .font(.system(size: 14, weight: .medium))
                     .keyboardType(.numberPad)
-                    .foregroundStyle(Color(hex: 0x101828))
+                    .foregroundStyle(Color.appPrimaryText)
                     .onChange(of: progressText) { _, value in
                         applyTypedProgress(value)
                     }
@@ -190,16 +190,16 @@ struct TaskUpdateSheet: View {
                 } label: {
                     Image(systemName: "chevron.down")
                         .font(.system(size: 18, weight: .semibold))
-                        .foregroundStyle(Color(hex: 0x101828))
+                        .foregroundStyle(Color.appPrimaryText)
                 }
                 .buttonStyle(.plain)
             }
             .padding(.horizontal, 16)
             .frame(height: 54)
-            .background(Color(hex: 0xFCFCFD), in: RoundedRectangle(cornerRadius: 14, style: .continuous))
+            .background(Color.appSurface, in: RoundedRectangle(cornerRadius: 14, style: .continuous))
             .overlay {
                 RoundedRectangle(cornerRadius: 14, style: .continuous)
-                    .stroke(Color(hex: 0xD7DDE8), lineWidth: 1)
+                    .stroke(Color.appSeparator, lineWidth: 1)
             }
         }
     }
@@ -227,18 +227,18 @@ struct TaskUpdateSheet: View {
                         .foregroundStyle(Color(hex: 0x0B61CA))
                     Text(status.label)
                         .font(.system(size: 18, weight: .regular))
-                        .foregroundStyle(Color(hex: 0x101828))
+                        .foregroundStyle(Color.appPrimaryText)
                     Spacer()
                     Image(systemName: "chevron.down")
                         .font(.system(size: 15, weight: .semibold))
-                        .foregroundStyle(Color(hex: 0x101828))
+                        .foregroundStyle(Color.appPrimaryText)
                 }
                 .padding(.horizontal, 16)
                 .frame(height: 46)
-                .background(Color.white, in: RoundedRectangle(cornerRadius: 9, style: .continuous))
+                .background(Color.appSurface, in: RoundedRectangle(cornerRadius: 9, style: .continuous))
                 .overlay {
                     RoundedRectangle(cornerRadius: 9, style: .continuous)
-                        .stroke(Color(hex: 0x98A2B3), lineWidth: 1)
+                        .stroke(Color.appTertiaryText, lineWidth: 1)
                 }
             }
             .buttonStyle(.bordered)
@@ -252,7 +252,7 @@ struct TaskUpdateSheet: View {
             } else {
                 Text(title)
                     .font(.system(size: 12, weight: .medium))
-                    .foregroundStyle(Color(hex: 0x667085))
+                    .foregroundStyle(Color.appSecondaryText)
             }
 
             HStack(alignment: .top, spacing: 16) {
@@ -264,16 +264,16 @@ struct TaskUpdateSheet: View {
 
                 TextField(placeholder, text: text, axis: .vertical)
                     .font(.system(size: 15, weight: .medium))
-                    .foregroundStyle(Color(hex: 0x101828))
+                    .foregroundStyle(Color.appPrimaryText)
                     .lineLimit(1...4)
                     .padding(.vertical, 16)
             }
             .padding(.horizontal, 16)
             .frame(minHeight: minHeight)
-            .background(Color(hex: 0xFCFCFD), in: RoundedRectangle(cornerRadius: 14, style: .continuous))
+            .background(Color.appSurface, in: RoundedRectangle(cornerRadius: 14, style: .continuous))
             .overlay {
                 RoundedRectangle(cornerRadius: 14, style: .continuous)
-                    .stroke(Color(hex: 0xD7DDE8), lineWidth: 1)
+                    .stroke(Color.appSeparator, lineWidth: 1)
             }
         }
     }
@@ -285,7 +285,7 @@ struct TaskUpdateSheet: View {
             } else {
                 Text(title)
                     .font(.system(size: 12, weight: .medium))
-                    .foregroundStyle(Color(hex: 0x667085))
+                    .foregroundStyle(Color.appSecondaryText)
             }
 
             HStack(spacing: 16) {
@@ -296,14 +296,14 @@ struct TaskUpdateSheet: View {
 
                 TextField(placeholder, text: text)
                     .font(.system(size: 14, weight: .medium))
-                    .foregroundStyle(Color(hex: 0x101828))
+                    .foregroundStyle(Color.appPrimaryText)
             }
             .padding(.horizontal, 16)
             .frame(height: 54)
-            .background(Color(hex: 0xFCFCFD), in: RoundedRectangle(cornerRadius: 14, style: .continuous))
+            .background(Color.appSurface, in: RoundedRectangle(cornerRadius: 14, style: .continuous))
             .overlay {
                 RoundedRectangle(cornerRadius: 14, style: .continuous)
-                    .stroke(Color(hex: 0xD7DDE8), lineWidth: 1)
+                    .stroke(Color.appSeparator, lineWidth: 1)
             }
         }
     }
@@ -329,7 +329,7 @@ struct TaskUpdateSheet: View {
         .padding(.top, 26)
         .padding(.bottom, 20)
         .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .top)
-        .background(Color.white)
+        .background(Color.appSurface)
         .appCompactSheetCTAContainer()
     }
 
@@ -338,7 +338,7 @@ struct TaskUpdateSheet: View {
             HStack {
                 Text("Photos")
                     .font(.system(size: 12, weight: .medium))
-                    .foregroundStyle(Color(hex: 0x667085))
+                    .foregroundStyle(Color.appSecondaryText)
                 Spacer()
                 Text("\(selectedPhotoData.count) \(selectedPhotoData.count == 1 ? "Photo" : "Photos")")
                     .font(.system(size: 13, weight: .semibold))
@@ -363,9 +363,9 @@ struct TaskUpdateSheet: View {
                     } label: {
                         ZStack {
                             RoundedRectangle(cornerRadius: 18, style: .continuous)
-                                .fill(Color(hex: 0xF8FAFC))
+                                .fill(Color.appFieldBackground)
                             RoundedRectangle(cornerRadius: 18, style: .continuous)
-                                .stroke(Color(hex: 0xE5E7EB), lineWidth: 1)
+                                .stroke(Color.appSeparator, lineWidth: 1)
 
                             if isLoadingPhotos {
                                 ProgressView()
@@ -396,7 +396,7 @@ struct TaskUpdateSheet: View {
     private func requiredLabel(_ title: String) -> some View {
         HStack(spacing: 3) {
             Text(title)
-                .foregroundStyle(Color(hex: 0x667085))
+                .foregroundStyle(Color.appSecondaryText)
             Text("*")
                 .foregroundStyle(Color.red)
         }
@@ -461,17 +461,17 @@ struct TaskUpdateSheet: View {
                         .resizable()
                         .scaledToFill()
                 } else {
-                    Color(hex: 0xF8FAFC)
+                    Color.appFieldBackground
                 }
                 #else
-                Color(hex: 0xF8FAFC)
+                Color.appFieldBackground
                 #endif
             }
             .frame(width: 76, height: 76)
             .clipShape(RoundedRectangle(cornerRadius: 18, style: .continuous))
             .overlay {
                 RoundedRectangle(cornerRadius: 18, style: .continuous)
-                    .stroke(Color(hex: 0xE5E7EB), lineWidth: 1)
+                    .stroke(Color.appSeparator, lineWidth: 1)
             }
 
             Button(action: onRemove) {

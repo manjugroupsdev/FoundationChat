@@ -194,12 +194,12 @@ struct LogoutConfirmationSheet: View {
 
         Text("Log out of FoundationChat?")
           .font(.system(size: 20, weight: .bold))
-          .foregroundStyle(Color(hex: 0x101828))
+          .foregroundStyle(Color.appPrimaryText)
           .multilineTextAlignment(.center)
 
         Text("Your local session will be cleared and you will return to Login.")
           .font(.system(size: 15))
-          .foregroundStyle(Color(hex: 0x667085))
+          .foregroundStyle(Color.appSecondaryText)
           .multilineTextAlignment(.center)
           .lineSpacing(2)
       }
@@ -225,7 +225,7 @@ struct LogoutConfirmationSheet: View {
         }
         .buttonStyle(.bordered)
         .controlSize(.large)
-        .tint(Color(hex: 0x667085))
+        .tint(Color.appSecondaryText)
       }
     }
     .padding(.horizontal, 24)
@@ -329,7 +329,7 @@ private struct ProfileMenuRow: View {
 private struct ProfileDivider: View {
   var body: some View {
     Rectangle()
-      .fill(Color(hex: 0xF2F4F7))
+      .fill(Color.appFieldBackground)
       .frame(height: 1)
   }
 }

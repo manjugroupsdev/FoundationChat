@@ -101,7 +101,7 @@ struct ForcePasswordChangeView: View {
             .padding(.horizontal, 32)
             .padding(.top, 40)
             .padding(.bottom, 40)
-            .background(Color.white, in: RoundedRectangle(cornerRadius: 28, style: .continuous))
+            .background(Color.appSurface, in: RoundedRectangle(cornerRadius: 28, style: .continuous))
         }
         .ignoresSafeArea()
         .onAppear { focusedField = .newPassword }
@@ -146,7 +146,7 @@ struct ForcePasswordChangeView: View {
             }
             .padding(.horizontal, 12)
             .frame(height: 48)
-            .background(Color.white)
+            .background(Color.appSurface)
             .overlay(
                 RoundedRectangle(cornerRadius: 8, style: .continuous)
                     .strokeBorder(

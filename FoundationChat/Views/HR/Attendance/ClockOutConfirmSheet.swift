@@ -15,13 +15,13 @@ struct ClockOutConfirmSheet: View {
                 VStack(spacing: 0) {
                     Text("Confirm Clockout")
                         .font(.system(size: 20, weight: .semibold))
-                        .foregroundStyle(Color(hex: 0x101828))
+                        .foregroundStyle(Color.appPrimaryText)
                         .frame(maxWidth: .infinity)
                         .padding(.top, 50)
 
                     Text("Once you clock out, you won't be able to edit this time. Please double-check your hours before proceeding.")
                         .font(.system(size: 13, weight: .medium))
-                        .foregroundStyle(Color(hex: 0x475467))
+                        .foregroundStyle(Color.appSecondaryText)
                         .multilineTextAlignment(.center)
                         .lineSpacing(4)
                         .padding(.top, 12)
@@ -52,7 +52,7 @@ struct ClockOutConfirmSheet: View {
                             .foregroundStyle(androidGreen)
                             .frame(maxWidth: .infinity)
                             .frame(height: 48)
-                            .background(Color.white, in: Capsule())
+                            .background(Color.appSurface, in: Capsule())
                             .overlay(Capsule().stroke(androidGreen, lineWidth: 1.5))
                     }
                     .buttonStyle(.plain)
@@ -60,7 +60,7 @@ struct ClockOutConfirmSheet: View {
                     .padding(.horizontal, 20)
                     .padding(.bottom, 20)
                 }
-                .background(Color.white, in: UnevenRoundedRectangle(
+                .background(Color.appSurface, in: UnevenRoundedRectangle(
                     topLeadingRadius: 28,
                     bottomLeadingRadius: 0,
                     bottomTrailingRadius: 0,
@@ -88,11 +88,11 @@ struct ClockOutConfirmSheet: View {
             Label {
                 Text(title)
                     .font(.system(size: 12, weight: .medium))
-                    .foregroundStyle(Color(hex: 0x475467))
+                    .foregroundStyle(Color.appSecondaryText)
             } icon: {
                 Image(systemName: "clock.fill")
                     .font(.system(size: 13, weight: .semibold))
-                    .foregroundStyle(Color(hex: 0x475467))
+                    .foregroundStyle(Color.appSecondaryText)
             }
 
             Text(value)
@@ -104,7 +104,7 @@ struct ClockOutConfirmSheet: View {
         .frame(maxWidth: .infinity)
         .frame(height: 72)
         .padding(.horizontal, 11)
-        .background(Color.white, in: RoundedRectangle(cornerRadius: 10, style: .continuous))
+        .background(Color.appSurface, in: RoundedRectangle(cornerRadius: 10, style: .continuous))
         .overlay(RoundedRectangle(cornerRadius: 10, style: .continuous).stroke(Color(hex: 0xEAECF0), lineWidth: 1))
     }
 

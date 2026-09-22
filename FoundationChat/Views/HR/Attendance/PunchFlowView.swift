@@ -555,11 +555,11 @@ private struct PunchSuccessSheet: View {
 
             Text(title)
                 .font(.system(size: 19, weight: .bold))
-                .foregroundStyle(Color(hex: 0x101828))
+                .foregroundStyle(Color.appPrimaryText)
 
             Text(message)
                 .font(.system(size: 12))
-                .foregroundStyle(Color(hex: 0x475467))
+                .foregroundStyle(Color.appSecondaryText)
                 .multilineTextAlignment(.center)
                 .frame(maxWidth: 280)
 
@@ -572,7 +572,7 @@ private struct PunchSuccessSheet: View {
                 }
             }
             .font(.system(size: 12, weight: .medium))
-            .foregroundStyle(Color(hex: 0x344054))
+            .foregroundStyle(Color.appPrimaryText)
             .padding(.horizontal, 18)
 
             Button(action: onDone) {
@@ -589,7 +589,7 @@ private struct PunchSuccessSheet: View {
             Spacer(minLength: 0)
         }
         .padding(.bottom, 14)
-        .background(.white)
+        .background(Color.appSurface)
     }
 }
 

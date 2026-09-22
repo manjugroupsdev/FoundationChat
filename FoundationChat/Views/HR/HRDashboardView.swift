@@ -1464,7 +1464,7 @@ private struct OnDutyStartSheet: View {
         VStack(spacing: 0) {
             Text(subtitle)
                 .font(.system(size: 13, weight: .medium))
-                .foregroundStyle(Color(hex: 0x667085))
+                .foregroundStyle(Color.appSecondaryText)
                 .frame(maxWidth: .infinity, alignment: .leading)
                 .padding(.horizontal, 20)
                 .padding(.top, 8)
@@ -1489,9 +1489,9 @@ private struct OnDutyStartSheet: View {
                 .padding(.horizontal, 20)
                 .padding(.top, 12)
                 .padding(.bottom, 20)
-                .background(Color(hex: 0xF8FAFC))
+                .background(Color.appFieldBackground)
         }
-        .background(Color(hex: 0xF8FAFC).ignoresSafeArea())
+        .background(Color.appFieldBackground.ignoresSafeArea())
         .appCompactSheetCTAContainer()
         .navigationTitle(title)
         .navigationBarTitleDisplayMode(.inline)
@@ -1676,7 +1676,7 @@ private struct OnDutyStartSheet: View {
             .frame(height: 48)
         }
         .buttonStyle(.borderedProminent)
-        .tint((step == .vehicle ? canSubmit : canGoNext) ? Color(hex: 0x0B61CA) : Color(hex: 0xD0D5DD))
+        .tint((step == .vehicle ? canSubmit : canGoNext) ? Color(hex: 0x0B61CA) : Color.appSeparator)
         .disabled(isSubmitting || (step == .vehicle ? !canSubmit : !canGoNext))
         .opacity(step == .category ? 0 : 1)
         .allowsHitTesting(step != .category)

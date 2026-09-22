@@ -126,7 +126,7 @@ struct LoginView: View {
                         height: sheetHeight(geo) + 60
                     ))
             )
-            .background(Color.white, in: RoundedRectangle(cornerRadius: 28, style: .continuous))
+            .background(Color.appSurface, in: RoundedRectangle(cornerRadius: 28, style: .continuous))
             .overlay(alignment: .top) {
                 if step == .otp {
                     shieldBadge
@@ -207,7 +207,7 @@ struct LoginView: View {
         }
         .padding(.horizontal, 12)
         .frame(height: 48)
-        .background(Color.white)
+        .background(Color.appSurface)
         .overlay(
             RoundedRectangle(cornerRadius: 8, style: .continuous)
                 .strokeBorder(
@@ -358,7 +358,7 @@ struct LoginView: View {
             }
             .padding(.horizontal, 12)
             .frame(height: 48)
-            .background(Color.white)
+            .background(Color.appSurface)
             .overlay(
                 RoundedRectangle(cornerRadius: 8, style: .continuous)
                     .strokeBorder(
@@ -408,7 +408,7 @@ struct LoginView: View {
             }
             .padding(.horizontal, 12)
             .frame(height: 48)
-            .background(Color.white)
+            .background(Color.appSurface)
             .overlay(
                 RoundedRectangle(cornerRadius: 8, style: .continuous)
                     .strokeBorder(
@@ -662,7 +662,7 @@ private struct AuthPulsingLoadingCircle: View {
 
     var body: some View {
         Circle()
-            .fill(Color.white.opacity(0.66))
+            .fill(Color.appSurface.opacity(0.66))
             .frame(width: 22, height: 22)
             .opacity(isBright ? 1 : 0.35)
             .onAppear {
@@ -691,7 +691,7 @@ private struct OtpBox: View {
                 )
                 .background(
                     RoundedRectangle(cornerRadius: 8, style: .continuous)
-                        .fill(Color.white)
+                        .fill(Color.appSurface)
                 )
 
             Text(digit.isEmpty ? "0" : digit)

@@ -463,7 +463,7 @@ private struct FleetTripsEmptyState: View {
         VStack(spacing: 12) {
             Image(systemName: "car.rear.road.lane")
                 .font(.system(size: 54, weight: .semibold))
-                .foregroundStyle(Color(hex: 0x98A2B3))
+                .foregroundStyle(Color.appTertiaryText)
 
             Text(title)
                 .font(.system(size: 20, weight: .bold))
@@ -506,7 +506,7 @@ private struct FleetTripCardState {
     }
 
     var statusTextColor: Color {
-        if isCompleted { return Color(hex: 0x475467) }
+        if isCompleted { return Color.appSecondaryText }
         if isInProgress { return Color(hex: 0xB54708) }
         if isUpcoming { return Color(hex: 0x0B63C6) }
         return Color(hex: 0x169B2F)
@@ -541,7 +541,7 @@ private struct FleetTripCardState {
     }
 
     var actionTextColor: Color {
-        if isCompleted { return Color(hex: 0x667085) }
+        if isCompleted { return Color.appSecondaryText }
         if isUpcoming { return Color(hex: 0x0B63C6) }
         return .white
     }

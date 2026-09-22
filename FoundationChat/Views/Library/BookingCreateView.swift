@@ -149,7 +149,7 @@ struct BookingCreateView: View {
                     if let draftMessage {
                         Label(draftMessage, systemImage: "doc.text.clock")
                             .font(.caption)
-                            .foregroundStyle(Color(hex: 0x667085))
+                            .foregroundStyle(Color.appSecondaryText)
                     }
                 }
                 .padding(.horizontal, 16)
@@ -159,7 +159,7 @@ struct BookingCreateView: View {
 
             fixedFooterAction
         }
-        .background(Color.white.ignoresSafeArea())
+        .background(Color.appSurface.ignoresSafeArea())
         .appCompactSheetCTAContainer()
     }
 
@@ -330,7 +330,7 @@ struct BookingCreateView: View {
                 .padding(.top, 12)
                 .padding(.bottom, 20)
         }
-        .background(Color.white)
+        .background(Color.appSurface)
     }
 
     private var header: some View {
@@ -343,7 +343,7 @@ struct BookingCreateView: View {
             HStack {
                 Text("Booking form")
                     .font(.system(size: 12, weight: .medium))
-                    .foregroundStyle(Color(hex: 0x667085))
+                    .foregroundStyle(Color.appSecondaryText)
 
                 Spacer()
 
@@ -570,7 +570,7 @@ struct BookingCreateView: View {
             VStack(alignment: .leading, spacing: 8) {
                 Label("Location on map", systemImage: "mappin.and.ellipse")
                     .font(.system(size: 13, weight: .semibold))
-                    .foregroundStyle(Color(hex: 0x475467))
+                    .foregroundStyle(Color.appSecondaryText)
 
                 if let coordinate = homeAddressCoordinate {
                     Map(initialPosition: .region(MKCoordinateRegion(
@@ -587,7 +587,7 @@ struct BookingCreateView: View {
                         if isGeocodingHomeAddress {
                             Label("Updating", systemImage: "location.magnifyingglass")
                                 .font(.system(size: 11, weight: .semibold))
-                                .foregroundStyle(Color(hex: 0x475467))
+                                .foregroundStyle(Color.appSecondaryText)
                                 .padding(.horizontal, 9)
                                 .padding(.vertical, 6)
                                 .background(.ultraThinMaterial, in: Capsule())
@@ -606,14 +606,14 @@ struct BookingCreateView: View {
                         }
                     }
                     .font(.system(size: 12, weight: .medium))
-                    .foregroundStyle(Color(hex: 0x667085))
+                    .foregroundStyle(Color.appSecondaryText)
                     .frame(maxWidth: .infinity, minHeight: 76)
                     .padding(.horizontal, 12)
-                    .background(Color(hex: 0xF8FAFC), in: RoundedRectangle(cornerRadius: 12))
+                    .background(Color.appFieldBackground, in: RoundedRectangle(cornerRadius: 12))
                     .overlay(
                         RoundedRectangle(cornerRadius: 12)
                             .stroke(style: StrokeStyle(lineWidth: 1, dash: [5, 4]))
-                            .foregroundStyle(Color(hex: 0xD0D5DD))
+                            .foregroundStyle(Color.appSeparator)
                     )
                 }
             }
@@ -632,7 +632,7 @@ struct BookingCreateView: View {
         VStack(alignment: .leading, spacing: 6) {
             Text("Client Image")
                 .font(.system(size: 13, weight: .semibold))
-                .foregroundStyle(Color(hex: 0x475467))
+                .foregroundStyle(Color.appSecondaryText)
 
             if booking.clientImageStorageId.directBookingNilIfBlank != nil {
                 HStack(spacing: 12) {
@@ -652,11 +652,11 @@ struct BookingCreateView: View {
                     VStack(alignment: .leading, spacing: 3) {
                         Text(isUploadingClientImage ? "Uploading client image..." : (booking.clientImageFileName.directBookingNilIfBlank ?? "Client photo"))
                             .font(.system(size: 14, weight: .semibold))
-                            .foregroundStyle(Color(hex: 0x101828))
+                            .foregroundStyle(Color.appPrimaryText)
                             .lineLimit(1)
                         Text(clientImageURL == nil ? "Preparing preview..." : "Tap the photo to preview")
                             .font(.system(size: 12, weight: .medium))
-                            .foregroundStyle(Color(hex: 0x667085))
+                            .foregroundStyle(Color.appSecondaryText)
                             .lineLimit(1)
                     }
 
@@ -679,7 +679,7 @@ struct BookingCreateView: View {
                         } label: {
                             Image(systemName: "xmark.circle.fill")
                                 .font(.system(size: 20, weight: .semibold))
-                                .foregroundStyle(Color(hex: 0x98A2B3))
+                                .foregroundStyle(Color.appTertiaryText)
                         }
                         .buttonStyle(.plain)
                         .accessibilityLabel("Remove client image")
@@ -687,10 +687,10 @@ struct BookingCreateView: View {
                 }
                 .padding(.horizontal, 14)
                 .padding(.vertical, 12)
-                .background(Color.white, in: RoundedRectangle(cornerRadius: 14))
+                .background(Color.appSurface, in: RoundedRectangle(cornerRadius: 14))
                 .overlay(
                     RoundedRectangle(cornerRadius: 14)
-                        .stroke(Color(hex: 0xD0D5DD), lineWidth: 1)
+                        .stroke(Color.appSeparator, lineWidth: 1)
                 )
             } else {
                 PhotosPicker(selection: $clientImagePickerItem, matching: .images) {
@@ -701,10 +701,10 @@ struct BookingCreateView: View {
                         VStack(alignment: .leading, spacing: 3) {
                             Text(isUploadingClientImage ? "Uploading client image..." : "Upload client photo")
                                 .font(.system(size: 14, weight: .semibold))
-                                .foregroundStyle(Color(hex: 0x101828))
+                                .foregroundStyle(Color.appPrimaryText)
                             Text("Optional profile photo for the client")
                                 .font(.system(size: 12, weight: .medium))
-                                .foregroundStyle(Color(hex: 0x667085))
+                                .foregroundStyle(Color.appSecondaryText)
                         }
                         Spacer()
                         if isUploadingClientImage {
@@ -714,11 +714,11 @@ struct BookingCreateView: View {
                     }
                     .padding(.horizontal, 14)
                     .padding(.vertical, 14)
-                    .background(Color.white, in: RoundedRectangle(cornerRadius: 14))
+                    .background(Color.appSurface, in: RoundedRectangle(cornerRadius: 14))
                     .overlay(
                         RoundedRectangle(cornerRadius: 14)
                             .stroke(style: StrokeStyle(lineWidth: 1.2, dash: [6, 5]))
-                            .foregroundStyle(Color(hex: 0xD0D5DD))
+                            .foregroundStyle(Color.appSeparator)
                     )
                 }
                 .disabled(isUploadingClientImage)
@@ -730,7 +730,7 @@ struct BookingCreateView: View {
     private var clientImageThumbnail: some View {
         ZStack {
             RoundedRectangle(cornerRadius: 12, style: .continuous)
-                .fill(Color(hex: 0xF2F4F7))
+                .fill(Color.appFieldBackground)
 
             if let clientImageURL {
                 AsyncImage(url: clientImageURL) { phase in
@@ -742,7 +742,7 @@ struct BookingCreateView: View {
                     case .failure:
                         Image(systemName: "photo")
                             .font(.system(size: 22, weight: .semibold))
-                            .foregroundStyle(Color(hex: 0x98A2B3))
+                            .foregroundStyle(Color.appTertiaryText)
                     case .empty:
                         ProgressView()
                             .controlSize(.small)
@@ -756,7 +756,7 @@ struct BookingCreateView: View {
             } else {
                 Image(systemName: "photo")
                     .font(.system(size: 22, weight: .semibold))
-                    .foregroundStyle(Color(hex: 0x98A2B3))
+                    .foregroundStyle(Color.appTertiaryText)
             }
         }
         .frame(width: 58, height: 58)
@@ -791,7 +791,7 @@ struct BookingCreateView: View {
                     .foregroundStyle(isUploaded ? Color(hex: 0x18B400) : Color(hex: 0x0B61CA))
                 Text(fileName.directBookingNilIfBlank ?? (isUploadingDocument ? "Uploading..." : "Select image or PDF"))
                     .font(.system(size: 14, weight: .medium))
-                    .foregroundStyle(Color(hex: 0x101828))
+                    .foregroundStyle(Color.appPrimaryText)
                     .lineLimit(1)
                 Spacer()
                 if isUploadingDocument {
@@ -809,7 +809,7 @@ struct BookingCreateView: View {
             }
             .padding(.horizontal, 12)
             .frame(minHeight: 48)
-            .background(Color.white, in: RoundedRectangle(cornerRadius: 12))
+            .background(Color.appSurface, in: RoundedRectangle(cornerRadius: 12))
             .overlay(RoundedRectangle(cornerRadius: 12).stroke(Color(hex: 0xE4E7EC), lineWidth: 1))
         }
     }
@@ -1102,7 +1102,7 @@ struct BookingCreateView: View {
                 Text(booking.bookingType == "CONVERSION" ? "Finding previous booking..." : "Finding confirmed property...")
             }
             .font(.system(size: 12, weight: .medium))
-            .foregroundStyle(Color(hex: 0x667085))
+            .foregroundStyle(Color.appSecondaryText)
         } else if let bookingTypeAutofillError {
             Label(bookingTypeAutofillError, systemImage: "exclamationmark.triangle")
                 .font(.system(size: 12, weight: .medium))
@@ -1119,14 +1119,14 @@ struct BookingCreateView: View {
                   exchangeSourceCandidates.isEmpty {
             Label("No confirmed property found for this mobile", systemImage: "info.circle")
                 .font(.system(size: 12, weight: .medium))
-                .foregroundStyle(Color(hex: 0x667085))
+                .foregroundStyle(Color.appSecondaryText)
         } else if booking.bookingType == "INTERNAL EXCHANGE",
                   !booking.exchangeManualEntry,
                   AppModuleFormatters.normalizePhone(booking.exchangeConnectedMobileNumber).count == 10,
                   internalExchangePlotCandidates.isEmpty {
             Label("No available confirmed booking matches these details", systemImage: "info.circle")
                 .font(.system(size: 12, weight: .medium))
-                .foregroundStyle(Color(hex: 0x667085))
+                .foregroundStyle(Color.appSecondaryText)
         }
     }
 
@@ -1237,7 +1237,7 @@ struct BookingCreateView: View {
     private func bookingHelperText(_ text: String) -> some View {
         Text(text)
             .font(.system(size: 11, weight: .regular))
-            .foregroundStyle(Color(hex: 0x667085))
+            .foregroundStyle(Color.appSecondaryText)
             .fixedSize(horizontal: false, vertical: true)
     }
 
@@ -1249,7 +1249,7 @@ struct BookingCreateView: View {
                 Text("Loading available plots...")
             }
             .font(.system(size: 12, weight: .medium))
-            .foregroundStyle(Color(hex: 0x667085))
+            .foregroundStyle(Color.appSecondaryText)
         } else if selectedUnit == nil, let unitLoadError {
             Label(unitLoadError, systemImage: "exclamationmark.triangle")
                 .font(.system(size: 12, weight: .medium))
@@ -1265,7 +1265,7 @@ struct BookingCreateView: View {
                 Text("Loading plot pricing...")
             }
             .font(.system(size: 12, weight: .medium))
-            .foregroundStyle(Color(hex: 0x667085))
+            .foregroundStyle(Color.appSecondaryText)
         } else if plotPrefill?.plot.id == selectedUnit?.id {
             Label("Plot pricing filled from project settings", systemImage: "checkmark.circle.fill")
                 .font(.system(size: 12, weight: .medium))
@@ -1642,7 +1642,7 @@ struct BookingCreateView: View {
                     .font(.system(size: 14, weight: .medium))
                 Spacer()
             }
-            .foregroundStyle(isOn.wrappedValue ? Color(hex: 0x218C54) : Color(hex: 0x667085))
+            .foregroundStyle(isOn.wrappedValue ? Color(hex: 0x218C54) : Color.appSecondaryText)
             .contentShape(Rectangle())
         }
         .buttonStyle(.plain)
@@ -1761,7 +1761,7 @@ struct BookingCreateView: View {
                         )
                     }
                     .padding(12)
-                    .background(Color(hex: 0xF8FAFC), in: RoundedRectangle(cornerRadius: 12))
+                    .background(Color.appFieldBackground, in: RoundedRectangle(cornerRadius: 12))
                 }
             } else {
                 DirectBookingTextField(
@@ -1891,7 +1891,7 @@ struct BookingCreateView: View {
     private func sectionTitle(_ title: String) -> some View {
         Text(title)
             .font(.system(size: 15, weight: .bold))
-            .foregroundStyle(Color(hex: 0x101828))
+            .foregroundStyle(Color.appPrimaryText)
             .padding(.top, 10)
     }
 
@@ -1902,15 +1902,15 @@ struct BookingCreateView: View {
             HStack(spacing: 10) {
                 Image(systemName: isOn.wrappedValue ? "checkmark.square.fill" : "square")
                     .font(.system(size: 22, weight: .semibold))
-                    .foregroundStyle(isOn.wrappedValue ? Color(hex: 0x0B8F43) : Color(hex: 0x667085))
+                    .foregroundStyle(isOn.wrappedValue ? Color(hex: 0x0B8F43) : Color.appSecondaryText)
                 Text(title)
                     .font(.system(size: 15, weight: .semibold))
-                    .foregroundStyle(Color(hex: 0x101828))
+                    .foregroundStyle(Color.appPrimaryText)
                 Spacer()
             }
             .padding(.horizontal, 14)
             .frame(minHeight: 50)
-            .background(Color(hex: 0xF8FAFC), in: RoundedRectangle(cornerRadius: 12))
+            .background(Color.appFieldBackground, in: RoundedRectangle(cornerRadius: 12))
             .overlay(RoundedRectangle(cornerRadius: 12).stroke(Color(hex: 0xE4E7EC), lineWidth: 1))
         }
         .buttonStyle(.plain)
@@ -1931,11 +1931,11 @@ struct BookingCreateView: View {
                     Spacer()
                 }
                 .buttonStyle(.plain)
-            .foregroundStyle(isOn.wrappedValue ? Color(hex: 0x2DAE12) : Color(hex: 0x475467))
+            .foregroundStyle(isOn.wrappedValue ? Color(hex: 0x2DAE12) : Color.appSecondaryText)
             }
             .padding(.horizontal, 12)
             .frame(minHeight: 46)
-            .background(Color.white, in: RoundedRectangle(cornerRadius: 12))
+            .background(Color.appSurface, in: RoundedRectangle(cornerRadius: 12))
             .overlay(RoundedRectangle(cornerRadius: 12).stroke(Color(hex: 0xE4E7EC), lineWidth: 1))
         }
     }
@@ -2216,7 +2216,7 @@ struct BookingCreateView: View {
             VStack(alignment: .leading, spacing: 4) {
                 Text(title)
                     .font(.system(size: 15, weight: .semibold))
-                    .foregroundStyle(Color(hex: 0x101828))
+                    .foregroundStyle(Color.appPrimaryText)
                 if let subtitle, !subtitle.isEmpty {
                     Text(subtitle)
                         .font(AppModuleFont.rowMeta)
@@ -4055,7 +4055,7 @@ private struct DirectBookingFieldLabel: View {
             }
         }
         .font(.system(size: 13, weight: .semibold))
-        .foregroundStyle(Color(hex: 0x475467))
+        .foregroundStyle(Color.appSecondaryText)
     }
 }
 
@@ -4650,7 +4650,7 @@ private struct DirectBookingClientImagePreview: View {
                             .font(.system(size: 15, weight: .bold))
                             .foregroundStyle(.white)
                             .frame(width: 34, height: 34)
-                            .background(.white.opacity(0.14), in: Circle())
+                            .background(Color.appSurface.opacity(0.14), in: Circle())
                     }
                     .accessibilityLabel("Close preview")
                 }
@@ -4695,7 +4695,7 @@ private struct DirectBookingPayableSummaryCard: View {
         VStack(alignment: .leading, spacing: 14) {
             Label("Client Payable Summary", systemImage: "list.bullet.rectangle.portrait")
                 .font(.system(size: 15, weight: .bold))
-                .foregroundStyle(Color(hex: 0x101828))
+                .foregroundStyle(Color.appPrimaryText)
 
             VStack(spacing: 10) {
                 DirectBookingMoneySummaryRow(label: "Total land cost", value: landCost)
@@ -4724,11 +4724,11 @@ private struct DirectBookingPayableSummaryCard: View {
                 Text("PAYMENT POSITION")
                     .font(.system(size: 11, weight: .bold))
                     .tracking(0.8)
-                    .foregroundStyle(Color(hex: 0x667085))
+                    .foregroundStyle(Color.appSecondaryText)
 
                 Text("Enter the advance below. The client may pay more than the project minimum.")
                     .font(.system(size: 12, weight: .regular))
-                    .foregroundStyle(Color(hex: 0x667085))
+                    .foregroundStyle(Color.appSecondaryText)
                     .fixedSize(horizontal: false, vertical: true)
 
                 VStack(spacing: 10) {
@@ -4746,11 +4746,11 @@ private struct DirectBookingPayableSummaryCard: View {
                     )
                 }
                 .padding(12)
-                .background(Color.white, in: RoundedRectangle(cornerRadius: 10))
+                .background(Color.appSurface, in: RoundedRectangle(cornerRadius: 10))
             }
         }
         .padding(14)
-        .background(Color(hex: 0xF8FAFC), in: RoundedRectangle(cornerRadius: 14))
+        .background(Color.appFieldBackground, in: RoundedRectangle(cornerRadius: 14))
         .overlay(RoundedRectangle(cornerRadius: 14).stroke(Color(hex: 0xDDE3EA), lineWidth: 1))
     }
 }
@@ -4763,10 +4763,10 @@ private struct DirectBookingMoneySummaryRow: View {
     var body: some View {
         HStack(alignment: .firstTextBaseline, spacing: 12) {
             Text(label)
-                .foregroundStyle(isStrong ? Color(hex: 0x101828) : Color(hex: 0x667085))
+                .foregroundStyle(isStrong ? Color.appPrimaryText : Color.appSecondaryText)
             Spacer(minLength: 12)
             Text(AppModuleFormatters.rupees(value))
-                .foregroundStyle(Color(hex: 0x101828))
+                .foregroundStyle(Color.appPrimaryText)
                 .multilineTextAlignment(.trailing)
         }
         .font(.system(size: isStrong ? 14 : 13, weight: isStrong ? .bold : .medium))
@@ -4796,18 +4796,18 @@ private struct DirectBookingReadOnlyField: View {
             DirectBookingFieldLabel(title)
             HStack(spacing: 10) {
                 Image(systemName: icon)
-                    .foregroundStyle(Color(hex: 0x98A2B3))
+                    .foregroundStyle(Color.appTertiaryText)
                     .font(.system(size: 15, weight: .medium))
                     .frame(width: 18)
                 Text(value.directBookingNilIfBlank ?? placeholder)
-                    .foregroundStyle(value.directBookingNilIfBlank == nil ? Color(hex: 0x98A2B3) : Color(hex: 0x475467))
+                    .foregroundStyle(value.directBookingNilIfBlank == nil ? Color.appTertiaryText : Color.appSecondaryText)
                     .lineLimit(2)
                 Spacer(minLength: 0)
             }
             .font(.system(size: 14, weight: .medium))
             .padding(.horizontal, 12)
             .frame(minHeight: 46)
-            .background(Color(hex: 0xF2F4F7), in: RoundedRectangle(cornerRadius: 12))
+            .background(Color.appFieldBackground, in: RoundedRectangle(cornerRadius: 12))
             .overlay(RoundedRectangle(cornerRadius: 12).stroke(Color(hex: 0xE4E7EC), lineWidth: 1))
         }
     }
@@ -4835,7 +4835,7 @@ private struct DirectBookingLeadLookupStatus: View {
                     Text("Searching client details...")
                         .font(.system(size: 12, weight: .medium))
                 }
-                .foregroundStyle(Color(hex: 0x667085))
+                .foregroundStyle(Color.appSecondaryText)
             }
 
             if let matchedClientName {
@@ -4874,18 +4874,18 @@ private struct DirectBookingTypeSummaryCard: View {
             ForEach(items) { item in
                 HStack(alignment: .firstTextBaseline, spacing: 12) {
                     Text(item.label)
-                        .foregroundStyle(Color(hex: 0x667085))
+                        .foregroundStyle(Color.appSecondaryText)
                     Spacer(minLength: 12)
                     Text(item.value)
                         .fontWeight(.semibold)
-                        .foregroundStyle(Color(hex: 0x101828))
+                        .foregroundStyle(Color.appPrimaryText)
                         .multilineTextAlignment(.trailing)
                 }
             }
         }
         .font(.system(size: 13, weight: .medium))
         .padding(14)
-        .background(Color(hex: 0xF8FAFC), in: RoundedRectangle(cornerRadius: 12))
+        .background(Color.appFieldBackground, in: RoundedRectangle(cornerRadius: 12))
         .overlay(RoundedRectangle(cornerRadius: 12).stroke(Color(hex: 0xDDE3EA), lineWidth: 1))
     }
 }
@@ -4912,7 +4912,7 @@ private struct DirectBookingTextField: View {
             DirectBookingFieldLabel(title)
             HStack(alignment: axis == .vertical ? .top : .center, spacing: 10) {
                 Image(systemName: icon)
-                    .foregroundStyle(Color(hex: 0x98A2B3))
+                    .foregroundStyle(Color.appTertiaryText)
                     .font(.system(size: 15, weight: .medium))
                     .frame(width: 18)
                 TextField(placeholder, text: $text, axis: axis)
@@ -4925,7 +4925,7 @@ private struct DirectBookingTextField: View {
             .padding(.horizontal, 12)
             .padding(.vertical, axis == .vertical ? 11 : 0)
             .frame(minHeight: axis == .vertical ? 72 : 46)
-            .background(Color.white, in: RoundedRectangle(cornerRadius: 12))
+            .background(Color.appSurface, in: RoundedRectangle(cornerRadius: 12))
             .overlay(RoundedRectangle(cornerRadius: 12).stroke(Color(hex: 0xE4E7EC), lineWidth: 1))
         }
     }
@@ -5025,22 +5025,22 @@ private struct DirectBookingPickerShell: View {
             DirectBookingFieldLabel(title)
             HStack(spacing: 10) {
                 Image(systemName: icon)
-                    .foregroundStyle(Color(hex: 0x98A2B3))
+                    .foregroundStyle(Color.appTertiaryText)
                     .font(.system(size: 15, weight: .medium))
                     .frame(width: 18)
                 Text(value)
-                    .foregroundStyle(isPlaceholder ? Color(hex: 0x98A2B3) : Color(hex: 0x101828))
+                    .foregroundStyle(isPlaceholder ? Color.appTertiaryText : Color.appPrimaryText)
                     .lineLimit(1)
                     .minimumScaleFactor(0.85)
                 Spacer()
                 Image(systemName: "chevron.down")
                     .font(.system(size: 12, weight: .semibold))
-                    .foregroundStyle(Color(hex: 0x98A2B3))
+                    .foregroundStyle(Color.appTertiaryText)
             }
             .font(.system(size: 14, weight: .medium))
             .padding(.horizontal, 12)
             .frame(height: 46)
-            .background(Color.white, in: RoundedRectangle(cornerRadius: 12))
+            .background(Color.appSurface, in: RoundedRectangle(cornerRadius: 12))
             .overlay(RoundedRectangle(cornerRadius: 12).stroke(Color(hex: 0xE4E7EC), lineWidth: 1))
         }
     }

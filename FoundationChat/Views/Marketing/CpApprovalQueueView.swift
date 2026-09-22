@@ -55,16 +55,16 @@ struct CpApprovalQueueView: View {
             }
         }
         .refreshable { await load() }
-        .background(Color(hex: 0xF1F3F8).ignoresSafeArea())
+        .background(Color.appScreenBackground.ignoresSafeArea())
         .navigationTitle("CP Approvals")
         .navigationBarTitleDisplayMode(.inline)
-        .toolbarBackground(Color.white, for: .navigationBar)
+        .toolbarBackground(Color.appElevatedSurface, for: .navigationBar)
         .toolbarBackground(.visible, for: .navigationBar)
         .toolbar {
             ToolbarItem(placement: .principal) {
                 Text("CP Approvals")
                     .font(.system(size: 20, weight: .bold))
-                    .foregroundStyle(Color(hex: 0x101828))
+                    .foregroundStyle(Color.appPrimaryText)
             }
         }
         .task { if !hasLoaded { await load() } }
@@ -91,15 +91,15 @@ struct CpApprovalQueueView: View {
         VStack(spacing: 0) {
             Image(systemName: "checkmark.seal")
                 .font(.system(size: 54, weight: .regular))
-                .foregroundStyle(Color(hex: 0x98A2B3))
+                .foregroundStyle(Color.appTertiaryText)
                 .padding(.top, 72)
             Text(errorMessage == nil ? "Nothing to Approve" : "Couldn't Load")
                 .font(.system(size: 18, weight: .semibold))
-                .foregroundStyle(Color(hex: 0x101828))
+                .foregroundStyle(Color.appPrimaryText)
                 .padding(.top, 16)
             Text(errorMessage ?? "Out-of-geofence CP completions waiting on your approval will appear here.")
                 .font(.system(size: 13))
-                .foregroundStyle(Color(hex: 0x667085))
+                .foregroundStyle(Color.appSecondaryText)
                 .multilineTextAlignment(.center)
                 .lineSpacing(2)
                 .padding(.horizontal, 32)
@@ -188,10 +188,24 @@ private struct CpApprovalCard: View {
                 VStack(alignment: .leading, spacing: 3) {
                     Text(item.clientName?.blankToNil ?? "Client")
                         .font(.system(size: 16, weight: .semibold))
-                        .foregroundStyle(Color(hex: 0x101828))
+                        .foregroundStyle(Color.appPrimaryText)
                     Text(item.staffName?.blankToNil ?? "Field staff")
                         .font(.system(size: 12))
-                        .foregroundStyle(Color(hex: 0x667085))
+                        .foregroundStyle(Color.appSecondaryText)
+                    // Which kind of work this is. It used to sit only in the
+                    // small "CP type" fact below, among six others, so a
+                    // reviewer could not tell a site visit from a plain CP
+                    // without reading the whole card.
+                    Text(ApprovalFormatting.kindLabel(item.cpType))
+                        .font(.system(size: 11, weight: .bold))
+                        .foregroundStyle(ApprovalFormatting.kindTint(item.cpType))
+                        .padding(.horizontal, 8)
+                        .padding(.vertical, 3)
+                        .background(
+                            ApprovalFormatting.kindTint(item.cpType).opacity(0.12),
+                            in: RoundedRectangle(cornerRadius: 6)
+                        )
+                        .padding(.top, 2)
                 }
                 Spacer(minLength: 4)
                 Text("Pending review")
@@ -225,16 +239,16 @@ private struct CpApprovalCard: View {
                         VStack(alignment: .leading, spacing: 2) {
                             Text(row.label)
                                 .font(.system(size: 11, weight: .medium))
-                                .foregroundStyle(Color(hex: 0x667085))
+                                .foregroundStyle(Color.appSecondaryText)
                             Text(row.value)
                                 .font(.system(size: 12))
-                                .foregroundStyle(row.label == "Location" ? Color(hex: 0xB54708) : Color(hex: 0x101828))
+                                .foregroundStyle(row.label == "Location" ? Color(hex: 0xB54708) : Color.appPrimaryText)
                         }
                     }
                 }
                 .padding(12)
                 .frame(maxWidth: .infinity, alignment: .leading)
-                .background(Color(hex: 0xF8FAFC), in: RoundedRectangle(cornerRadius: 10))
+                .background(Color.appFieldBackground, in: RoundedRectangle(cornerRadius: 10))
                 .overlay(RoundedRectangle(cornerRadius: 10).stroke(Color(hex: 0xEAECF0)))
             }
 
@@ -244,9 +258,9 @@ private struct CpApprovalCard: View {
                     case .success(let image):
                         image.resizable().scaledToFill()
                     case .failure:
-                        Color(hex: 0xF2F4F7).overlay(Image(systemName: "photo").foregroundStyle(Color(hex: 0x98A2B3)))
+                        Color.appFieldBackground.overlay(Image(systemName: "photo").foregroundStyle(Color.appTertiaryText))
                     default:
-                        Color(hex: 0xF2F4F7).overlay(ProgressView())
+                        Color.appFieldBackground.overlay(ProgressView())
                     }
                 }
                 .frame(width: 120, height: 120)
@@ -300,7 +314,7 @@ private struct CpApprovalCard: View {
         .frame(maxWidth: .infinity, alignment: .leading)
         .background(
             RoundedRectangle(cornerRadius: 12)
-                .fill(.white)
+                .fill(Color.appSurface)
                 .stroke(Color(hex: 0xE4E7EC), lineWidth: 1)
         )
     }
@@ -309,15 +323,15 @@ private struct CpApprovalCard: View {
         VStack(alignment: .leading, spacing: 3) {
             Text(label)
                 .font(.system(size: 10, weight: .medium))
-                .foregroundStyle(Color(hex: 0x667085))
+                .foregroundStyle(Color.appSecondaryText)
             Text(value)
                 .font(.system(size: 12, weight: .semibold))
-                .foregroundStyle(Color(hex: 0x101828))
+                .foregroundStyle(Color.appPrimaryText)
                 .lineLimit(2)
         }
         .padding(10)
         .frame(maxWidth: .infinity, minHeight: 58, alignment: .topLeading)
-        .background(Color(hex: 0xF8FAFC), in: RoundedRectangle(cornerRadius: 10))
+        .background(Color.appFieldBackground, in: RoundedRectangle(cornerRadius: 10))
         .overlay(RoundedRectangle(cornerRadius: 10).stroke(Color(hex: 0xEAECF0)))
     }
 
@@ -366,10 +380,10 @@ private struct CpApprovalTripDetailSheet: View {
                     VStack(alignment: .leading, spacing: 4) {
                         Text(item.clientName?.blankToNil ?? "CP trip details")
                             .font(.system(size: 22, weight: .bold))
-                            .foregroundStyle(Color(hex: 0x101828))
+                            .foregroundStyle(Color.appPrimaryText)
                         Text(item.placeName?.blankToNil ?? item.placeAddress?.blankToNil ?? "Client place")
                             .font(.system(size: 13))
-                            .foregroundStyle(Color(hex: 0x667085))
+                            .foregroundStyle(Color.appSecondaryText)
                     }
 
                     VStack(alignment: .leading, spacing: 12) {
@@ -385,11 +399,11 @@ private struct CpApprovalTripDetailSheet: View {
                     }
                     .padding(14)
                     .frame(maxWidth: .infinity, alignment: .leading)
-                    .background(Color(hex: 0xF8FAFC), in: RoundedRectangle(cornerRadius: 12))
+                    .background(Color.appFieldBackground, in: RoundedRectangle(cornerRadius: 12))
 
                     Text("Travelled path")
                         .font(.system(size: 16, weight: .semibold))
-                        .foregroundStyle(Color(hex: 0x101828))
+                        .foregroundStyle(Color.appPrimaryText)
 
                     Map(position: $mapPosition) {
                         if let startCoordinate {
@@ -397,7 +411,7 @@ private struct CpApprovalTripDetailSheet: View {
                                 Image(systemName: "play.circle.fill")
                                     .font(.title2)
                                     .foregroundStyle(.green)
-                                    .background(.white, in: Circle())
+                                    .background(Color.appSurface, in: Circle())
                             }
                         }
                         if let endCoordinate {
@@ -405,7 +419,7 @@ private struct CpApprovalTripDetailSheet: View {
                                 Image(systemName: "flag.circle.fill")
                                     .font(.title2)
                                     .foregroundStyle(.red)
-                                    .background(.white, in: Circle())
+                                    .background(Color.appSurface, in: Circle())
                             }
                         }
                         if recordedCoordinates.count >= 2, let roadMatchedTrail {
@@ -451,11 +465,11 @@ private struct CpApprovalTripDetailSheet: View {
                                 .overlay { ProgressView("Loading GPS trail…") }
                         } else if displayCoordinates.isEmpty {
                             RoundedRectangle(cornerRadius: 14)
-                                .fill(Color(hex: 0xF2F4F7))
+                                .fill(Color.appFieldBackground)
                                 .overlay {
                                     Text(errorMessage ?? "No GPS coordinates were recorded for this trip.")
                                         .font(.system(size: 13))
-                                        .foregroundStyle(Color(hex: 0x667085))
+                                        .foregroundStyle(Color.appSecondaryText)
                                         .multilineTextAlignment(.center)
                                         .padding(24)
                                 }
@@ -464,11 +478,11 @@ private struct CpApprovalTripDetailSheet: View {
 
                     Text(routeCaption)
                         .font(.system(size: 12))
-                        .foregroundStyle(Color(hex: 0x667085))
+                        .foregroundStyle(Color.appSecondaryText)
                 }
                 .padding(16)
             }
-            .background(Color.white)
+            .background(Color.appSurface)
             .navigationTitle("Trip details")
             .navigationBarTitleDisplayMode(.inline)
             .toolbar {
@@ -528,8 +542,8 @@ private struct CpApprovalTripDetailSheet: View {
     @ViewBuilder
     private func detail(_ label: String, _ value: String) -> some View {
         VStack(alignment: .leading, spacing: 2) {
-            Text(label).font(.system(size: 11)).foregroundStyle(Color(hex: 0x667085))
-            Text(value).font(.system(size: 14, weight: .medium)).foregroundStyle(Color(hex: 0x101828))
+            Text(label).font(.system(size: 11)).foregroundStyle(Color.appSecondaryText)
+            Text(value).font(.system(size: 14, weight: .medium)).foregroundStyle(Color.appPrimaryText)
         }
     }
 
@@ -573,6 +587,26 @@ private enum ApprovalFormatting {
             .filter { $0 != "Not recorded" }
             .joined(separator: " · ")
             .blankToNil ?? "Not recorded"
+    }
+
+    /// True when the queued row is site-visit work rather than a plain CP
+    /// call. Both live in `clientPlaceVisits`, so the kind is only knowable
+    /// from `cpType`.
+    static func isSiteVisit(_ value: String?) -> Bool {
+        guard let v = value?.blankToNil?.lowercased() else { return false }
+        return v.contains("sv") || v.contains("site")
+    }
+
+    /// Short label for the card badge. An SV-cum-CP row is called out as both
+    /// rather than being flattened into one or the other.
+    static func kindLabel(_ value: String?) -> String {
+        guard let v = value?.blankToNil?.lowercased() else { return "CP Visit" }
+        if v.contains("cum") { return "SV + CP" }
+        return isSiteVisit(v) ? "Site Visit" : "CP Visit"
+    }
+
+    static func kindTint(_ value: String?) -> Color {
+        isSiteVisit(value) ? Color(hex: 0x7A5AF8) : Color(hex: 0x0B61CA)
     }
 
     static func cpType(_ value: String?) -> String {
