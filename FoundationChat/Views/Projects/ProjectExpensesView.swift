@@ -49,7 +49,7 @@ struct ProjectExpensesView: View {
 
                         addExpenseButton
                     }
-                    .background(Color(hex: 0xF4F6F9))
+                    .background(Color.appScreenBackground)
                     .clipShape(
                         UnevenRoundedRectangle(
                             topLeadingRadius: 24,

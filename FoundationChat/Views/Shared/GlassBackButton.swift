@@ -21,5 +21,5 @@ struct GlassBackButton: View {
 #Preview {
     GlassBackButton {}
         .padding()
-        .background(Color(hex: 0xF6F7FB))
+        .background(Color.appFieldBackground)
 }

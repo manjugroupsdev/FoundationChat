@@ -471,7 +471,7 @@ struct SiteVisitOutcomeSheet: View {
         }
         .padding(14)
         .frame(maxWidth: .infinity, alignment: .leading)
-        .background(Color(hex: 0xF8F9FB), in: RoundedRectangle(cornerRadius: 14))
+        .background(Color.appSurface, in: RoundedRectangle(cornerRadius: 14))
     }
 
     private var notInterestedSection: some View {

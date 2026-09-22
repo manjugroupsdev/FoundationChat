@@ -15,6 +15,7 @@ struct CpApprovalQueueView: View {
     @State private var isLoading = false
     @State private var hasLoaded = false
     @State private var errorMessage: String?
+    @State private var actionErrorMessage: String?
     @State private var busyItemId: String?
 
     @State private var rejectTarget: CpApprovalItem?
@@ -56,13 +57,13 @@ struct CpApprovalQueueView: View {
         }
         .refreshable { await load() }
         .background(Color.appScreenBackground.ignoresSafeArea())
-        .navigationTitle("CP Approvals")
+        .navigationTitle("CP / SV Approvals")
         .navigationBarTitleDisplayMode(.inline)
         .toolbarBackground(Color.appElevatedSurface, for: .navigationBar)
         .toolbarBackground(.visible, for: .navigationBar)
         .toolbar {
             ToolbarItem(placement: .principal) {
-                Text("CP Approvals")
+                Text("CP / SV Approvals")
                     .font(.system(size: 20, weight: .bold))
                     .foregroundStyle(Color.appPrimaryText)
             }
@@ -85,6 +86,14 @@ struct CpApprovalQueueView: View {
         } message: {
             Text("This reopens the visit for \(rejectTarget?.staffName ?? "the staff") with your remark.")
         }
+        .alert("Approval couldn't be completed", isPresented: Binding(
+            get: { actionErrorMessage != nil },
+            set: { if !$0 { actionErrorMessage = nil } }
+        )) {
+            Button("OK", role: .cancel) { actionErrorMessage = nil }
+        } message: {
+            Text(actionErrorMessage ?? "Please try again.")
+        }
     }
 
     private var emptyState: some View {
@@ -97,7 +106,7 @@ struct CpApprovalQueueView: View {
                 .font(.system(size: 18, weight: .semibold))
                 .foregroundStyle(Color.appPrimaryText)
                 .padding(.top, 16)
-            Text(errorMessage ?? "Out-of-geofence CP completions waiting on your approval will appear here.")
+            Text(errorMessage ?? "Out-of-geofence CP and SV cum CP completions waiting on your approval will appear here.")
                 .font(.system(size: 13))
                 .foregroundStyle(Color.appSecondaryText)
                 .multilineTextAlignment(.center)
@@ -149,9 +158,10 @@ struct CpApprovalQueueView: View {
         defer { busyItemId = nil }
         do {
             try await MarketingConvexAPIService.approveCpCompletion(token: token, id: item.id)
+            LocalCache.remove(cacheKey)
             await load()
         } catch {
-            errorMessage = error.localizedDescription
+            actionErrorMessage = error.localizedDescription
         }
     }
 
@@ -168,9 +178,10 @@ struct CpApprovalQueueView: View {
         defer { busyItemId = nil }
         do {
             try await MarketingConvexAPIService.rejectCpCompletion(token: token, id: item.id, remark: trimmed)
+            LocalCache.remove(cacheKey)
             await load()
         } catch {
-            errorMessage = error.localizedDescription
+            actionErrorMessage = error.localizedDescription
         }
     }
 }
@@ -594,14 +605,14 @@ private enum ApprovalFormatting {
     /// from `cpType`.
     static func isSiteVisit(_ value: String?) -> Bool {
         guard let v = value?.blankToNil?.lowercased() else { return false }
-        return v.contains("sv") || v.contains("site")
+        return v == "sv_cum_cp" || v == "site_visit" || v.contains("site visit")
     }
 
     /// Short label for the card badge. An SV-cum-CP row is called out as both
     /// rather than being flattened into one or the other.
     static func kindLabel(_ value: String?) -> String {
         guard let v = value?.blankToNil?.lowercased() else { return "CP Visit" }
-        if v.contains("cum") { return "SV + CP" }
+        if v == "sv_cum_cp" || v.contains("sv cum cp") { return "SV cum CP" }
         return isSiteVisit(v) ? "Site Visit" : "CP Visit"
     }
 

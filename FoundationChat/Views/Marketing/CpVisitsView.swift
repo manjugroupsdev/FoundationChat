@@ -206,7 +206,7 @@ struct CpVisitsView: View {
                 Image(systemName: "checkmark.seal")
                     .font(.system(size: 19, weight: .semibold))
             }
-            .accessibilityLabel("CP approvals")
+            .accessibilityLabel("CP and SV approvals")
         }
 
         ToolbarItem(placement: .topBarTrailing) {
@@ -375,9 +375,16 @@ struct CpVisitsView: View {
                             .padding(.horizontal, 16)
                             .frame(height: 34)
                             .background(
-                                activeOwnershipScope == nil && selectedFilter == filter ? Color(hex: 0x0B61CA) : .white,
+                                activeOwnershipScope == nil && selectedFilter == filter ? Color(hex: 0x0B61CA) : Color.appSurface,
                                 in: Capsule()
                             )
+                            .overlay {
+                                Capsule()
+                                    .stroke(
+                                        activeOwnershipScope == nil && selectedFilter == filter ? Color.clear : Color.appSeparator,
+                                        lineWidth: 1
+                                    )
+                            }
                     }
                     .buttonStyle(.plain)
                 }
@@ -402,7 +409,11 @@ struct CpVisitsView: View {
                 .foregroundStyle(isActive ? .white : Color.appSecondaryText)
                 .padding(.horizontal, 16)
                 .frame(height: 34)
-                .background(isActive ? Color(hex: 0x0B61CA) : .white, in: Capsule())
+                .background(isActive ? Color(hex: 0x0B61CA) : Color.appSurface, in: Capsule())
+                .overlay {
+                    Capsule()
+                        .stroke(isActive ? Color.clear : Color.appSeparator, lineWidth: 1)
+                }
         }
         .buttonStyle(.plain)
     }
@@ -1209,7 +1220,7 @@ private struct CpVisitCard: View {
         .background(
             RoundedRectangle(cornerRadius: 12)
                 .fill(Color.appSurface)
-                .stroke(Color(red: 0.95, green: 0.96, blue: 0.97), lineWidth: 1)
+                .stroke(Color.appSeparator, lineWidth: 1)
         )
         .contentShape(RoundedRectangle(cornerRadius: 12))
     }
@@ -1220,7 +1231,7 @@ private struct CpVisitCard: View {
                 .font(.system(size: 18, weight: .semibold))
                 .foregroundStyle(textSecondary)
                 .frame(width: 44, height: 44)
-                .background(Color(red: 0.95, green: 0.96, blue: 0.98), in: Circle())
+                .background(Color.appFieldBackground, in: Circle())
 
             VStack(alignment: .leading, spacing: 3) {
                 Text(title)
@@ -1331,7 +1342,7 @@ private struct CpVisitCard: View {
                 .font(.system(size: 18, weight: .medium))
                 .foregroundStyle(Color(hex: 0x0B61CA))
                 .frame(width: 40, height: 40)
-                .background(Color(red: 0.95, green: 0.97, blue: 1.0), in: RoundedRectangle(cornerRadius: 12))
+                .background(Color(hex: 0x0B61CA).opacity(0.12), in: RoundedRectangle(cornerRadius: 12))
 
             VStack(alignment: .leading, spacing: 3) {
                 Text(label)

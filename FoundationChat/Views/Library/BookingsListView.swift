@@ -633,14 +633,14 @@ private struct BookingDetailView: View {
                             .padding(.top, 16)
                             .padding(.bottom, isEditing ? 104 : 28)
                     }
-                    .background(Color(hex: 0xF6F8FB))
+                    .background(Color.appScreenBackground)
                     .refreshable { await load() }
 
                     fixedSaveFooter
                 }
             }
         }
-        .background(Color(hex: 0xF6F8FB).ignoresSafeArea())
+        .background(Color.appScreenBackground.ignoresSafeArea())
         .appCompactSheetCTAContainer()
         .task { await load() }
         .alert("Reject Booking", isPresented: $showReject) {

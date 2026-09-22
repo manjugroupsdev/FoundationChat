@@ -62,7 +62,7 @@ struct FinesDeductionsView: View {
             }
             .refreshable { await loadFines() }
         }
-        .background(Color(hex: 0xF5F6FA).ignoresSafeArea())
+        .background(Color.appScreenBackground.ignoresSafeArea())
         .navigationTitle("Fines & Deductions")
         .navigationBarTitleDisplayMode(.inline)
         .searchable(

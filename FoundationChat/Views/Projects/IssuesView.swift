@@ -208,7 +208,7 @@ private struct IssueCard: View {
             }
 
             Divider()
-                .background(Color(hex: 0xF1F5F9))
+                .background(Color.appScreenBackground)
 
             if let description {
                 Text(description)

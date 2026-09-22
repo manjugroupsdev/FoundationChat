@@ -134,16 +134,13 @@ struct FoundationChatApp: App {
     }
 
     private static func configureBrandInputAppearance() {
-        let textColor = UIColor.label
         let tintColor = UIColor(red: 0.043, green: 0.380, blue: 0.792, alpha: 1)
 
         UITextField.appearance().overrideUserInterfaceStyle = .unspecified
-        UITextField.appearance().textColor = textColor
         UITextField.appearance().tintColor = tintColor
         UITextField.appearance().keyboardAppearance = .default
 
         UITextView.appearance().overrideUserInterfaceStyle = .unspecified
-        UITextView.appearance().textColor = textColor
         UITextView.appearance().tintColor = tintColor
     }
 

@@ -93,11 +93,11 @@ struct LoginView: View {
                 VStack(spacing: 6) {
                     Text(title)
                         .font(.system(size: 24, weight: .semibold))
-                        .foregroundStyle(Color(red: 0.063, green: 0.094, blue: 0.157))
+                        .foregroundStyle(Color.appPrimaryText)
 
                     Text(subtitle)
                         .font(.system(size: 14, weight: .medium))
-                        .foregroundStyle(Color(red: 0.278, green: 0.329, blue: 0.400))
+                        .foregroundStyle(Color.appSecondaryText)
                         .multilineTextAlignment(.center)
                 }
                 .frame(maxWidth: .infinity)
@@ -118,7 +118,7 @@ struct LoginView: View {
             .padding(.top, step == .otp ? 44 : 40)
             .padding(.bottom, geo.safeAreaInsets.bottom + 28)
             .background(
-                .white,
+                Color.appElevatedSurface,
                 in: RoundedRectangle(cornerRadius: 28, style: .continuous)
                     .path(in: CGRect(
                         x: 0, y: 0,
@@ -126,7 +126,6 @@ struct LoginView: View {
                         height: sheetHeight(geo) + 60
                     ))
             )
-            .background(Color.appSurface, in: RoundedRectangle(cornerRadius: 28, style: .continuous))
             .overlay(alignment: .top) {
                 if step == .otp {
                     shieldBadge
@@ -145,7 +144,7 @@ struct LoginView: View {
             // Phone Number label
             Text("Phone Number")
                 .font(.system(size: 12, weight: .regular))
-                .foregroundStyle(Color(red: 0.278, green: 0.329, blue: 0.400))
+                .foregroundStyle(Color.appSecondaryText)
                 .padding(.bottom, 4)
 
             // Phone input
@@ -191,7 +190,7 @@ struct LoginView: View {
 
             Text("+91")
                 .font(.system(size: 14))
-                .foregroundStyle(Color(red: 0.012, green: 0.016, blue: 0.027))
+                .foregroundStyle(Color.appPrimaryText)
 
             Rectangle()
                 .fill(Color(red: 0.596, green: 0.635, blue: 0.702).opacity(0.4))
@@ -201,13 +200,13 @@ struct LoginView: View {
                 .keyboardType(.numberPad)
                 .textContentType(.telephoneNumber)
                 .font(.system(size: 14))
-                .foregroundStyle(Color(red: 0.012, green: 0.016, blue: 0.027))
+                .foregroundStyle(Color.appPrimaryText)
                 .tint(Color(red: 0.10, green: 0.45, blue: 0.96))
                 .focused($phoneFieldFocused)
         }
         .padding(.horizontal, 12)
         .frame(height: 48)
-        .background(Color.appSurface)
+        .background(Color.appFieldBackground)
         .overlay(
             RoundedRectangle(cornerRadius: 8, style: .continuous)
                 .strokeBorder(
@@ -252,13 +251,13 @@ struct LoginView: View {
     private var orDivider: some View {
         HStack(spacing: 16) {
             Rectangle()
-                .fill(Color(red: 0.816, green: 0.835, blue: 0.867))
+                .fill(Color.appSeparator)
                 .frame(height: 1)
             Text("OR")
                 .font(.system(size: 12, weight: .medium))
                 .foregroundStyle(Color(red: 0.596, green: 0.635, blue: 0.702))
             Rectangle()
-                .fill(Color(red: 0.816, green: 0.835, blue: 0.867))
+                .fill(Color.appSeparator)
                 .frame(height: 1)
         }
     }
@@ -323,7 +322,7 @@ struct LoginView: View {
                     Text("Use mobile number instead")
                         .font(.system(size: 12, weight: .medium))
                 }
-                .foregroundStyle(Color(red: 0.278, green: 0.329, blue: 0.400))
+                .foregroundStyle(Color.appSecondaryText)
             }
             .buttonStyle(.plain)
             .frame(maxWidth: .infinity)
@@ -340,7 +339,7 @@ struct LoginView: View {
         VStack(alignment: .leading, spacing: 4) {
             Text("Employee ID")
                 .font(.system(size: 12, weight: .regular))
-                .foregroundStyle(Color(red: 0.278, green: 0.329, blue: 0.400))
+                .foregroundStyle(Color.appSecondaryText)
 
             HStack(spacing: 10) {
                 Image(systemName: "person")
@@ -352,13 +351,13 @@ struct LoginView: View {
                     .textInputAutocapitalization(.characters)
                     .autocorrectionDisabled()
                     .font(.system(size: 14))
-                    .foregroundStyle(Color(red: 0.012, green: 0.016, blue: 0.027))
+                    .foregroundStyle(Color.appPrimaryText)
                     .tint(Color(red: 0.10, green: 0.45, blue: 0.96))
                     .focused($employeeFieldFocused, equals: .employeeId)
             }
             .padding(.horizontal, 12)
             .frame(height: 48)
-            .background(Color.appSurface)
+            .background(Color.appFieldBackground)
             .overlay(
                 RoundedRectangle(cornerRadius: 8, style: .continuous)
                     .strokeBorder(
@@ -376,7 +375,7 @@ struct LoginView: View {
         VStack(alignment: .leading, spacing: 4) {
             Text("Password")
                 .font(.system(size: 12, weight: .regular))
-                .foregroundStyle(Color(red: 0.278, green: 0.329, blue: 0.400))
+                .foregroundStyle(Color.appSecondaryText)
 
             HStack(spacing: 10) {
                 Image(systemName: "lock")
@@ -393,7 +392,7 @@ struct LoginView: View {
                 }
                 .textContentType(.password)
                 .font(.system(size: 14))
-                .foregroundStyle(Color(red: 0.012, green: 0.016, blue: 0.027))
+                .foregroundStyle(Color.appPrimaryText)
                 .tint(Color(red: 0.10, green: 0.45, blue: 0.96))
                 .focused($employeeFieldFocused, equals: .password)
 
@@ -408,7 +407,7 @@ struct LoginView: View {
             }
             .padding(.horizontal, 12)
             .frame(height: 48)
-            .background(Color.appSurface)
+            .background(Color.appFieldBackground)
             .overlay(
                 RoundedRectangle(cornerRadius: 8, style: .continuous)
                     .strokeBorder(
@@ -483,7 +482,7 @@ struct LoginView: View {
             HStack(spacing: 4) {
                 Text("Haven't received the code?")
                     .font(.system(size: 12, weight: .medium))
-                    .foregroundStyle(Color(red: 0.012, green: 0.016, blue: 0.027))
+                    .foregroundStyle(Color.appPrimaryText)
                 Button("Resend it.") {
                     Task { await handleSendOtp() }
                 }
@@ -507,7 +506,7 @@ struct LoginView: View {
                     Text("Change +91 \(verifiedPhone)")
                         .font(.system(size: 12, weight: .medium))
                 }
-                .foregroundStyle(Color(red: 0.278, green: 0.329, blue: 0.400))
+                .foregroundStyle(Color.appSecondaryText)
             }
             .buttonStyle(.plain)
             .frame(maxWidth: .infinity)
@@ -686,19 +685,19 @@ private struct OtpBox: View {
                 .strokeBorder(
                     isFocused
                         ? Color(red: 0.102, green: 0.792, blue: 0.043)
-                        : Color(red: 0.918, green: 0.925, blue: 0.941),
+                        : Color.appSeparator,
                     lineWidth: 1.5
                 )
                 .background(
                     RoundedRectangle(cornerRadius: 8, style: .continuous)
-                        .fill(Color.appSurface)
+                        .fill(Color.appFieldBackground)
                 )
 
             Text(digit.isEmpty ? "0" : digit)
                 .font(.system(size: 20, weight: .semibold))
                 .foregroundStyle(digit.isEmpty
-                                 ? Color(red: 0.918, green: 0.925, blue: 0.941)
-                                 : Color(red: 0.063, green: 0.094, blue: 0.157))
+                                 ? Color.appTertiaryText
+                                 : Color.appPrimaryText)
 
             // Hidden text field for input capture
             OtpTextField(

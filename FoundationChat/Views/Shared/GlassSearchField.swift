@@ -8,11 +8,11 @@ struct GlassSearchField: View {
     HStack(spacing: 8) {
       Image(systemName: "magnifyingglass")
         .font(.system(size: 15, weight: .regular))
-        .foregroundStyle(Color.black.opacity(0.28))
+        .foregroundStyle(Color.appTertiaryText)
 
       TextField(placeholder, text: $text)
         .font(.system(size: 13, weight: .regular))
-        .foregroundStyle(Color.black.opacity(0.85))
+        .foregroundStyle(Color.appPrimaryText)
         .textInputAutocapitalization(.never)
         .autocorrectionDisabled()
 
@@ -24,7 +24,7 @@ struct GlassSearchField: View {
         } label: {
           Image(systemName: "xmark.circle.fill")
             .font(.system(size: 14, weight: .regular))
-            .foregroundStyle(Color.black.opacity(0.25))
+            .foregroundStyle(Color.appTertiaryText)
         }
         .buttonStyle(.plain)
       }
@@ -34,7 +34,7 @@ struct GlassSearchField: View {
     .background(Color.appSurface, in: RoundedRectangle(cornerRadius: 8, style: .continuous))
     .overlay(
       RoundedRectangle(cornerRadius: 8, style: .continuous)
-        .stroke(Color.black.opacity(0.10), lineWidth: 1)
+        .stroke(Color.appSeparator, lineWidth: 1)
     )
   }
 }

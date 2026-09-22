@@ -1046,7 +1046,7 @@ private struct ChannelAttachmentOptionRow: View {
 
         Text(title)
           .font(.system(size: 24, weight: .regular))
-          .foregroundStyle(Color.black.opacity(0.92))
+          .foregroundStyle(Color.appPrimaryText)
 
         Spacer()
       }
@@ -1144,13 +1144,13 @@ private struct ChannelMessageRow: View {
           if total > 1 {
             Text("\(total)")
               .font(.system(size: 10, weight: .semibold))
-              .foregroundStyle(Color.black.opacity(0.55))
+              .foregroundStyle(Color.appSecondaryText)
           }
         }
         .padding(.horizontal, 7)
         .padding(.vertical, 4)
         .background(Color.appSurface, in: Capsule())
-        .overlay(Capsule().stroke(Color.black.opacity(0.08), lineWidth: 1))
+        .overlay(Capsule().stroke(Color.appSeparator, lineWidth: 1))
       }
 
       Text(message.createdDate.formatted(date: .omitted, time: .shortened))

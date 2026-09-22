@@ -326,7 +326,7 @@ struct ConvexPermissionListView: View {
         .frame(maxWidth: .infinity, alignment: .leading)
         .padding(.horizontal, 14)
         .padding(.vertical, 12)
-        .background(Color(hex: 0xF8F9FC), in: RoundedRectangle(cornerRadius: 10, style: .continuous))
+        .background(Color.appSurface, in: RoundedRectangle(cornerRadius: 10, style: .continuous))
     }
 
     private var filterRow: some View {

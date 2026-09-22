@@ -1327,12 +1327,12 @@ private struct HRShortcutCard: View {
             VStack(alignment: .leading, spacing: 3) {
                 Text(shortcut.title)
                     .font(.system(size: 13, weight: .semibold))
-                    .foregroundStyle(Color(red: 0.063, green: 0.094, blue: 0.157))
+                    .foregroundStyle(Color.appPrimaryText)
                     .lineLimit(1)
                     .minimumScaleFactor(0.78)
                 Text(shortcut.subtitle)
                     .font(.system(size: 11, weight: .medium))
-                    .foregroundStyle(Color(red: 0.278, green: 0.329, blue: 0.404))
+                    .foregroundStyle(Color.appSecondaryText)
                     .lineLimit(1)
             }
 
@@ -1340,10 +1340,10 @@ private struct HRShortcutCard: View {
         }
         .padding(12)
         .frame(minHeight: 64)
-        .background(Color(red: 0.976, green: 0.976, blue: 0.976), in: RoundedRectangle(cornerRadius: 12, style: .continuous))
+        .background(Color.appSurface, in: RoundedRectangle(cornerRadius: 12, style: .continuous))
         .overlay(
             RoundedRectangle(cornerRadius: 12, style: .continuous)
-                .stroke(Color(red: 0.922, green: 0.925, blue: 0.933), lineWidth: 1)
+                .stroke(Color.appSeparator, lineWidth: 1)
         )
     }
 }
@@ -1354,7 +1354,7 @@ private struct HRDashboardLoadingStrip: View {
     var body: some View {
         ZStack(alignment: .leading) {
             Rectangle()
-                .fill(Color(red: 0.945, green: 0.953, blue: 0.973))
+                .fill(Color.appFieldBackground)
 
             if isLoading {
                 ProgressView()

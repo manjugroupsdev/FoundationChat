@@ -441,7 +441,7 @@ struct ConvexAttendanceListView: View {
                     .frame(maxWidth: .infinity)
                     .frame(height: 34)
                     .background(
-                        approvalSubTab == tab ? Color(hex: 0x0B61CA) : Color.white,
+                        approvalSubTab == tab ? Color(hex: 0x0B61CA) : Color.appSurface,
                         in: RoundedRectangle(cornerRadius: 8, style: .continuous)
                     )
                 }
@@ -2955,7 +2955,7 @@ private enum AttendanceDecisionButtonStyle {
                 )
             )
         case .outlined, .plain:
-            return AnyShapeStyle(Color.white)
+            return AnyShapeStyle(Color.appSurface)
         }
     }
 

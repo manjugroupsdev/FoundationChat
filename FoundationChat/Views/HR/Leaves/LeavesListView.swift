@@ -568,7 +568,7 @@ struct LeavesListView: View {
         .frame(maxWidth: .infinity, alignment: .leading)
         .frame(height: 104)
         .padding(.horizontal, 16)
-        .background(Color(hex: 0xF8F9FC), in: RoundedRectangle(cornerRadius: 10, style: .continuous))
+        .background(Color.appSurface, in: RoundedRectangle(cornerRadius: 10, style: .continuous))
     }
 
     private var leaveEmptyState: some View {
@@ -653,7 +653,7 @@ struct LeavesListView: View {
         }
         .frame(maxWidth: .infinity)
         .padding(.vertical, 10)
-        .background(Color(hex: 0xF4F6FB), in: RoundedRectangle(cornerRadius: 14, style: .continuous))
+        .background(Color.appSurface, in: RoundedRectangle(cornerRadius: 14, style: .continuous))
     }
 
     private func androidLeaveCard(_ leave: ConvexLeave, approvalMode: Bool) -> some View {

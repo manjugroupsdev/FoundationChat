@@ -73,7 +73,7 @@ struct AttendanceReviewView: View {
             }
             .ignoresSafeArea(edges: .top)
         }
-        .background(Color(hex: 0xF4F6FB).ignoresSafeArea())
+        .background(Color.appScreenBackground.ignoresSafeArea())
         .navigationBarBackButtonHidden(true)
         .toolbar(.hidden, for: .navigationBar)
         .toolbar(.hidden, for: .tabBar)

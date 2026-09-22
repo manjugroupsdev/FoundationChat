@@ -1141,7 +1141,7 @@ enum MarketingConvexAPIService {
         return visit
     }
 
-    static func getJointCpWorkflow(token: String, id: String) async throws -> JointCpWorkflow {
+    static func getJointCpWorkflowSnapshot(token: String, id: String) async throws -> JointCpWorkflowResponse {
         let data = try await get(
             path: "/api/marketing/clientPlaceVisits/joint-workflow",
             token: token,
@@ -1149,7 +1149,15 @@ enum MarketingConvexAPIService {
         )
         let wrapper = try await decode(JointCpWorkflowResponse.self, from: data)
         guard wrapper.success else { throw MarketingAPIError.server(wrapper.error ?? "Failed to load Joint CP workflow") }
-        guard let workflow = wrapper.workflow else { throw MarketingAPIError.server("Joint CP workflow missing") }
+        guard wrapper.workflow != nil else { throw MarketingAPIError.server("Joint CP workflow missing") }
+        return wrapper
+    }
+
+    static func getJointCpWorkflow(token: String, id: String) async throws -> JointCpWorkflow {
+        let snapshot = try await getJointCpWorkflowSnapshot(token: token, id: id)
+        guard let workflow = snapshot.workflow else {
+            throw MarketingAPIError.server("Joint CP workflow missing")
+        }
         return workflow
     }
 

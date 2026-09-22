@@ -1077,17 +1077,19 @@ struct TripNavigationView: View {
 
     private func verifiedJointActorRole(_ workflow: JointCpWorkflow) -> String? {
         let user = authStore.currentSession?.user
-        let actorIds = Set([user?.staffId, user?._id].compactMap { $0?.nilIfBlank })
+        // Match Android's SessionManager contract: staffId is authoritative;
+        // _id is only a compatibility fallback when staffId is unavailable.
+        let actorId = user?.staffId?.nilIfBlank ?? user?._id.nilIfBlank
         let participantIDs = resolvedJointParticipantIDs(workflow)
-        guard !actorIds.isEmpty,
+        guard let actorId,
               let ownerId = participantIDs.owner,
               let reviewerId = participantIDs.reviewer,
               ownerId != reviewerId else { return nil }
 
         let expectedRole: String?
-        if actorIds.contains(ownerId) {
+        if actorId == ownerId {
             expectedRole = "outcome_owner"
-        } else if actorIds.contains(reviewerId) {
+        } else if actorId == reviewerId {
             expectedRole = "reviewer"
         } else {
             expectedRole = nil
@@ -1159,6 +1161,9 @@ struct TripNavigationView: View {
         else { return }
 
         resolvedJointSummary = detail.joint ?? resolvedJointSummary
+        if let workflow = detail.joint?.workflow {
+            jointWorkflow = workflow
+        }
         let actorStaffId = authStore.currentSession?.user.staffId?.nilIfBlank
             ?? authStore.currentSession?.user._id.nilIfBlank
         let actorParticipant = detail.joint?.participants?
@@ -1694,7 +1699,11 @@ struct TripNavigationView: View {
               let cpId = clientPlaceVisitId
         else { return }
         do {
-            let workflow = try await MarketingConvexAPIService.getJointCpWorkflow(token: token, id: cpId)
+            let snapshot = try await MarketingConvexAPIService.getJointCpWorkflowSnapshot(token: token, id: cpId)
+            guard let workflow = snapshot.workflow else { return }
+            if let joint = snapshot.visit?.joint {
+                resolvedJointSummary = joint
+            }
             if (workflow.outcomeOwnerStaffId?.nilIfBlank == nil
                     || workflow.reviewerStaffId?.nilIfBlank == nil),
                let detail = try? await MarketingConvexAPIService.getCpVisitDetail(token: token, id: cpId) {

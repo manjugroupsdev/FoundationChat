@@ -677,7 +677,11 @@ private struct TaskManagerChip: View {
             .foregroundStyle(isSelected ? .white : Color.appSecondaryText)
             .padding(.horizontal, 14)
             .frame(height: 36)
-            .background(isSelected ? Color(hex: 0x0B61CA) : Color(hex: 0xE8EEF6), in: RoundedRectangle(cornerRadius: 10, style: .continuous))
+            .background(isSelected ? Color(hex: 0x0B61CA) : Color.appSurface, in: RoundedRectangle(cornerRadius: 10, style: .continuous))
+            .overlay {
+                RoundedRectangle(cornerRadius: 10, style: .continuous)
+                    .stroke(isSelected ? Color.clear : Color.appSeparator, lineWidth: 1)
+            }
         }
         .buttonStyle(.plain)
     }

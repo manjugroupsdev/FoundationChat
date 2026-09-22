@@ -151,7 +151,7 @@ struct ProjectDailyLogView: View {
         }
         .padding(.bottom, 28)
         .frame(maxWidth: .infinity, alignment: .top)
-        .background(Color(hex: 0xF5F7FB))
+        .background(Color.appScreenBackground)
         .clipShape(.rect(topLeadingRadius: 32, topTrailingRadius: 32))
     }
 
@@ -657,7 +657,7 @@ private struct DailyLogEntryCard: View {
         }
         .padding(12)
         .frame(maxWidth: .infinity, alignment: .leading)
-        .background(Color(hex: 0xF8F9FC), in: RoundedRectangle(cornerRadius: 12, style: .continuous))
+        .background(Color.appSurface, in: RoundedRectangle(cornerRadius: 12, style: .continuous))
         .overlay(
             RoundedRectangle(cornerRadius: 12, style: .continuous)
                 .stroke(Color(hex: 0xEEF0F4), lineWidth: 1)
@@ -852,7 +852,7 @@ private struct DprReportRow: View {
                 )
         }
         .padding(12)
-        .background(Color(hex: 0xF8F9FC), in: RoundedRectangle(cornerRadius: 12, style: .continuous))
+        .background(Color.appSurface, in: RoundedRectangle(cornerRadius: 12, style: .continuous))
         .overlay(RoundedRectangle(cornerRadius: 12).stroke(Color(hex: 0xEEF0F4), lineWidth: 1))
     }
 }
