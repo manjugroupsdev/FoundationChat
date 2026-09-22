@@ -315,7 +315,7 @@ private struct CreateFineDeductionSheet: View {
                 VStack(alignment: .leading, spacing: 16) {
                     Text("Create Fine")
                         .font(.system(size: 18, weight: .bold))
-                        .foregroundStyle(Color(hex: 0x0F172A))
+                        .foregroundStyle(Color.appPrimaryText)
                         .frame(maxWidth: .infinity)
                         .padding(.top, 16)
                         .padding(.bottom, 10)

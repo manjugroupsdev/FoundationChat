@@ -928,7 +928,7 @@ private struct CreateDailyLogSheet: View {
                     VStack(spacing: 4) {
                         Text("New Entry")
                             .font(.system(size: 18, weight: .bold))
-                            .foregroundStyle(Color(hex: 0x0F172A))
+                            .foregroundStyle(Color.appPrimaryText)
                             .frame(maxWidth: .infinity)
                             .padding(.top, 12)
                             .padding(.bottom, 4)
@@ -1395,7 +1395,7 @@ private struct DprAddRecipientSheet: View {
                 VStack(alignment: .leading, spacing: 14) {
                     Text("Add DPR Recipient")
                         .font(.system(size: 18, weight: .bold))
-                        .foregroundStyle(Color(hex: 0x0F172A))
+                        .foregroundStyle(Color.appPrimaryText)
                         .frame(maxWidth: .infinity)
                         .padding(.top, 12)
                         .padding(.bottom, 4)
@@ -1565,7 +1565,7 @@ private struct DailyLogDetailSheet: View {
             VStack(alignment: .leading, spacing: 12) {
                 Text(displayDate(log.date))
                     .font(.system(size: 18, weight: .bold))
-                    .foregroundStyle(Color(hex: 0x0F172A))
+                    .foregroundStyle(Color.appPrimaryText)
                     .frame(maxWidth: .infinity)
                     .padding(.top, 12)
                     .padding(.bottom, 4)

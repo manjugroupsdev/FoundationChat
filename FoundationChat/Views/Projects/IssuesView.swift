@@ -122,7 +122,7 @@ struct IssuesView: View {
 
             Text(searchText.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty ? "No Issues Yet" : "No Issues Found")
                 .font(.system(size: 20, weight: .bold))
-                .foregroundStyle(Color(hex: 0x0F172A))
+                .foregroundStyle(Color.appPrimaryText)
 
             Text("Stay organized by creating or joining teams. Groups help you manage tasks, track progress, and collaborate with your team in one place.")
                 .font(.system(size: 14, weight: .regular))
@@ -193,7 +193,7 @@ private struct IssueCard: View {
                 VStack(alignment: .leading, spacing: 2) {
                     Text(title)
                         .font(.system(size: 16, weight: .bold))
-                        .foregroundStyle(Color(hex: 0x0F172A))
+                        .foregroundStyle(Color.appPrimaryText)
                         .lineLimit(1)
 
                     Text(issue.projectId?.nonBlank ?? "Reported by me")
@@ -307,7 +307,7 @@ private struct CreateIssueSheet: View {
                 VStack(alignment: .leading, spacing: 20) {
                     Text("New Issue")
                         .font(.system(size: 18, weight: .bold))
-                        .foregroundStyle(Color(hex: 0x0F172A))
+                        .foregroundStyle(Color.appPrimaryText)
                         .frame(maxWidth: .infinity)
                         .padding(.top, 12)
                         .padding(.bottom, 4)
@@ -333,7 +333,7 @@ private struct CreateIssueSheet: View {
                             .foregroundStyle(Color(hex: 0x334155))
                         TextEditor(text: $description)
                             .font(.system(size: 14, weight: .regular))
-                            .foregroundStyle(Color(hex: 0x0F172A))
+                            .foregroundStyle(Color.appPrimaryText)
                             .frame(minHeight: 100)
                             .padding(12)
                             .scrollContentBackground(.hidden)
@@ -412,7 +412,7 @@ private struct CreateIssueSheet: View {
                         VStack(alignment: .leading, spacing: 2) {
                             Text(project.displayName)
                                 .font(.system(size: 15, weight: .semibold))
-                                .foregroundStyle(Color(hex: 0x0F172A))
+                                .foregroundStyle(Color.appPrimaryText)
                             if let status = project.status?.nonBlank {
                                 Text(status.capitalized)
                                     .font(.system(size: 12, weight: .regular))
@@ -446,7 +446,7 @@ private struct CreateIssueSheet: View {
                 .foregroundStyle(Color(hex: 0x334155))
                 TextField(placeholder, text: text)
                     .font(.system(size: 14, weight: .regular))
-                    .foregroundStyle(Color(hex: 0x0F172A))
+                    .foregroundStyle(Color.appPrimaryText)
                     .textInputAutocapitalization(.sentences)
                     .autocorrectionDisabled()
                     .padding(.horizontal, 16)
@@ -465,7 +465,7 @@ private struct CreateIssueSheet: View {
                 HStack(spacing: 10) {
                     Text(value)
                         .font(.system(size: 14, weight: .regular))
-                        .foregroundStyle(isPlaceholder ? Color(hex: 0x94A3B8) : Color(hex: 0x0F172A))
+                        .foregroundStyle(isPlaceholder ? Color.appTertiaryText : Color.appPrimaryText)
                         .lineLimit(1)
                     Spacer()
                     Image(systemName: "chevron.down")

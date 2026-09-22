@@ -1157,7 +1157,7 @@ private struct LandInspectionSheet: View {
         VStack(spacing: 8) {
             Text("Site Inspection")
                 .font(.system(size: 18, weight: .bold))
-                .foregroundStyle(Color(hex: 0x0F172A))
+                .foregroundStyle(Color.appPrimaryText)
                 .frame(maxWidth: .infinity)
                 .padding(.top, 12)
                 .padding(.bottom, 4)
@@ -2111,7 +2111,7 @@ private struct LandQueryDetailSheet: View {
                 VStack(alignment: .leading, spacing: 14) {
                     Text("Query Details")
                         .font(.system(size: 18, weight: .bold))
-                        .foregroundStyle(Color(hex: 0x0F172A))
+                        .foregroundStyle(Color.appPrimaryText)
                         .frame(maxWidth: .infinity)
                         .padding(.top, 12)
                         .padding(.bottom, 4)

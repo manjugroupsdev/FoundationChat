@@ -183,7 +183,7 @@ struct BookingsListView: View {
                             .foregroundStyle(selectedStatus == status ? .white : Color.appSecondaryText)
                             .padding(.horizontal, 16)
                             .frame(height: 34)
-                            .background(selectedStatus == status ? Color(hex: 0x0B61CA) : Color.white, in: Capsule())
+                            .background(selectedStatus == status ? Color(hex: 0x0B61CA) : Color.appSurface, in: Capsule())
                             .overlay(
                                 Capsule()
                                     .stroke(Color.appSeparator, lineWidth: selectedStatus == status ? 0 : 1)

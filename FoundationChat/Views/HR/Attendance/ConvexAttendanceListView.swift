@@ -1746,7 +1746,7 @@ private struct AttendanceApprovalReviewSheet: View {
                     .padding(.top, 8)
                     .padding(.bottom, 10)
                     .background {
-                        Color.white.ignoresSafeArea(.container, edges: .bottom)
+                        Color.appSurface.ignoresSafeArea(.container, edges: .bottom)
                     }
             }
             .background(Color.appSurface)

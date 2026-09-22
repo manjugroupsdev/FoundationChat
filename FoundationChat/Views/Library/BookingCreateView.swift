@@ -337,7 +337,7 @@ struct BookingCreateView: View {
         VStack(spacing: 8) {
             Text("New Booking")
                 .font(.system(size: 18, weight: .bold))
-                .foregroundStyle(Color(hex: 0x0F172A))
+                .foregroundStyle(Color.appPrimaryText)
                 .frame(maxWidth: .infinity)
 
             HStack {
@@ -368,7 +368,7 @@ struct BookingCreateView: View {
                         .foregroundStyle(selectedTab == tab ? .white : Color(hex: 0x20B40B))
                         .padding(.horizontal, 14)
                         .frame(height: 32)
-                        .background(selectedTab == tab ? Color(hex: 0x20B40B) : Color.white, in: Capsule())
+                        .background(selectedTab == tab ? Color(hex: 0x20B40B) : Color.appSurface, in: Capsule())
                         .overlay(
                             Capsule()
                                 .stroke(selectedTab == tab ? Color.clear : Color(hex: 0xDDEFE0), lineWidth: 1)

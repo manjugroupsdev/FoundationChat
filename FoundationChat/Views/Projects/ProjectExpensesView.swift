@@ -933,7 +933,7 @@ private struct ExpenseCreationSheet: View {
         VStack(spacing: 8) {
             Text(title)
                 .font(.system(size: 18, weight: .bold))
-                .foregroundStyle(Color(hex: 0x0F172A))
+                .foregroundStyle(Color.appPrimaryText)
                 .padding(.top, 12)
                 .padding(.bottom, 4)
             Text(subtitle)

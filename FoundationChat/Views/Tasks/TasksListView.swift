@@ -702,7 +702,7 @@ private struct TaskCategoryChip: View {
             .foregroundStyle(isSelected ? .white : Color.appPrimaryText)
             .padding(.horizontal, 13)
             .frame(height: 34)
-            .background(isSelected ? Color(hex: 0x0B61CA) : Color.white, in: Capsule())
+            .background(isSelected ? Color(hex: 0x0B61CA) : Color.appSurface, in: Capsule())
             .overlay {
                 Capsule()
                     .stroke(isSelected ? Color(hex: 0x0B61CA) : Color(hex: 0xD9E2F0), lineWidth: 1)

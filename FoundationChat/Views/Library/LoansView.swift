@@ -1062,13 +1062,13 @@ private struct LoanRequestSheet: View {
 
     var body: some View {
         ZStack(alignment: .bottom) {
-            Color.white.ignoresSafeArea()
+            Color.appSurface.ignoresSafeArea()
 
             ScrollView(showsIndicators: false) {
                 VStack(alignment: .leading, spacing: 0) {
                     Text("Request Loan")
                         .font(.system(size: 18, weight: .bold))
-                        .foregroundStyle(Color(hex: 0x0F172A))
+                        .foregroundStyle(Color.appPrimaryText)
                         .frame(maxWidth: .infinity)
                         .padding(.top, 16)
                         .padding(.bottom, 10)
@@ -1497,13 +1497,13 @@ private struct SalaryAdvanceRequestSheet: View {
 
     var body: some View {
         ZStack(alignment: .bottom) {
-            Color.white.ignoresSafeArea()
+            Color.appSurface.ignoresSafeArea()
 
             ScrollView(showsIndicators: false) {
                 VStack(alignment: .leading, spacing: 0) {
                     Text("Request Advance")
                         .font(.system(size: 18, weight: .bold))
-                        .foregroundStyle(Color(hex: 0x0F172A))
+                        .foregroundStyle(Color.appPrimaryText)
                         .frame(maxWidth: .infinity)
                         .padding(.top, 16)
                         .padding(.bottom, 10)
