@@ -15,6 +15,16 @@ struct SiteVisitsListView: View {
     @State private var hasLoadedOnce = false
     @State private var selectedVisit: ConvexSiteVisit?
     @State private var bdoNamesByVisitId: [String: String] = [:]
+    /// Client name/phone recovered from the visit detail.
+    ///
+    /// The list endpoint resolves the client through lead -> CP.client ->
+    /// CP.clientPlace only; it never reads the site visit's own clientId, so a
+    /// visit a BDO created directly arrives with leadName and leadPhone both
+    /// null and the card showed "-" while its detail sheet showed the client.
+    /// The BDO hydration below already fetches each of those details, so this
+    /// costs no extra requests.
+    @State private var clientNamesByVisitId: [String: String] = [:]
+    @State private var clientPhonesByVisitId: [String: String] = [:]
     @State private var searchText = ""
     @State private var selectedFilter: SiteVisitListFilter = .all
     @State private var listScope: SiteVisitListScope = .all
@@ -193,7 +203,9 @@ struct SiteVisitsListView: View {
                                 // read as the logged-in staffer. Em-dash when the
                                 // backend has no BDO on the row.
                                 visit: visit,
-                                resolvedBdoName: bdoNamesByVisitId[visit.id]
+                                resolvedBdoName: bdoNamesByVisitId[visit.id],
+                                resolvedClientName: clientNamesByVisitId[visit.id],
+                                resolvedClientPhone: clientPhonesByVisitId[visit.id]
                             )
                         }
                         .buttonStyle(.plain)
@@ -531,6 +543,8 @@ struct SiteVisitsListView: View {
             ? ((try? await HRConvexAPIService.listAllStaff(token: token)) ?? [])
             : []
 
+        var clientNames = clientNamesByVisitId
+        var clientPhones = clientPhonesByVisitId
         for visit in unresolved {
             guard let detail = detailsByVisitId[visit.id] else { continue }
             let bdoId = detail.proposedSiteVisit?.bdoStaffId?.nilIfBlank
@@ -539,8 +553,23 @@ struct SiteVisitsListView: View {
                 ?? detail.assignedStaff?.displayName
                 ?? assignedId.flatMap { id in directory.first { $0.id == id }?.displayName.nilIfBlank }
             if let name { resolved[visit.id] = name }
+
+            // Same detail, same resolution order the detail sheet uses.
+            if visit.leadName?.nilIfBlank == nil,
+               let clientName = detail.lead?.contactName?.nilIfBlank
+                ?? detail.lead?.manualProfile?.clientName?.nilIfBlank
+                ?? detail.client?.clientName?.nilIfBlank {
+                clientNames[visit.id] = clientName
+            }
+            if visit.leadPhone?.nilIfBlank == nil,
+               let clientPhone = detail.lead?.mobileNumber?.nilIfBlank
+                ?? detail.client?.mobileNumber?.nilIfBlank {
+                clientPhones[visit.id] = clientPhone
+            }
         }
         bdoNamesByVisitId = resolved
+        clientNamesByVisitId = clientNames
+        clientPhonesByVisitId = clientPhones
     }
 
     private var advancedFilterCategories: [AdvancedFilterCategory] {
@@ -745,6 +774,10 @@ private struct SiteVisitSkeletonRow: View {
 struct SiteVisitRow: View {
     let visit: ConvexSiteVisit
     let resolvedBdoName: String?
+    /// Filled in when the list response carried no client; see
+    /// clientNamesByVisitId on the list.
+    var resolvedClientName: String? = nil
+    var resolvedClientPhone: String? = nil
 
     var body: some View {
         HStack(alignment: .top, spacing: 12) {
@@ -757,7 +790,7 @@ struct SiteVisitRow: View {
 
             VStack(alignment: .leading, spacing: 10) {
                 HStack(spacing: 8) {
-                    Text(visit.leadName?.nilIfBlank ?? "—")
+                    Text(visit.leadName?.nilIfBlank ?? resolvedClientName?.nilIfBlank ?? "—")
                         .font(.system(size: 17, weight: .bold))
                         .foregroundStyle(.primary)
                         .lineLimit(1)
@@ -774,7 +807,7 @@ struct SiteVisitRow: View {
 
                 HStack(spacing: 8) {
                     Label {
-                        Text(visit.leadPhone?.nilIfBlank ?? "—")
+                        Text(visit.leadPhone?.nilIfBlank ?? resolvedClientPhone?.nilIfBlank ?? "—")
                             .lineLimit(1)
                     } icon: {
                         Image(systemName: "phone.fill")
