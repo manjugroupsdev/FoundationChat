@@ -2254,6 +2254,7 @@ private struct CreateCpVisitSheet: View {
     @State private var isSubmitting = false
     @State private var errorMessage: String?
     @State private var showStaffPicker = false
+    @State private var showStatePicker = false
     @State private var showLmoPicker = false
     @State private var showProjectPicker = false
     @State private var showMapPinPicker = false
@@ -2387,9 +2388,26 @@ private struct CreateCpVisitSheet: View {
                             .padding(.top, 6)
                     }
                     cpTextField("Landmark / Address Line 2", placeholder: "Enter Landmark", text: $addressLine2, systemImage: "signpost.right")
-                    cpTextField("City *", placeholder: "Enter City", text: $city, systemImage: "building")
-                    cpTextField("State", placeholder: "Enter State", text: $state, systemImage: "map.fill")
+                    // Pincode comes FIRST of the three: it is what the India
+                    // Post lookup keys on, and it fills City and State below
+                    // it. While it sat last, staff filling the form top to
+                    // bottom reached City with nothing in it yet.
                     cpTextField("Pincode *", placeholder: "6 digits", text: $pincode, systemImage: "checkmark.circle", keyboard: .numberPad)
+                    cpTextField("City *", placeholder: "Enter City", text: $city, systemImage: "building")
+                    // Picked from the 36 states/UTs rather than typed: the
+                    // same place used to arrive as "TN", "Tamilnadu" and
+                    // "tamil nadu", splitting every report grouped by state.
+                    // District and City stay free text - no list of those can
+                    // be verified complete, and a missing entry would block a
+                    // real address.
+                    pickerShell(title: "State", icon: "map.fill") {
+                        Button {
+                            showStatePicker = true
+                        } label: {
+                            pickerLabel(state.blankToNil ?? "Select State")
+                        }
+                        .buttonStyle(.plain)
+                    }
 
                     Button {
                         showMapPinPicker = true
@@ -2499,6 +2517,32 @@ private struct CreateCpVisitSheet: View {
                 }
             }
             Button("Cancel", role: .cancel) {}
+        }
+        .sheet(isPresented: $showStatePicker) {
+            NativeSearchableSelectionSheet(
+                title: "Select State",
+                prompt: "Search state",
+                items: IndianStates.options,
+                selectedId: IndianStates.canonical(state),
+                searchText: { $0.name },
+                rowContent: { item, isSelected in
+                    HStack {
+                        Text(item.name)
+                            .font(.system(size: 15, weight: isSelected ? .semibold : .regular))
+                            .foregroundStyle(Color.appPrimaryText)
+                        Spacer()
+                        if isSelected {
+                            Image(systemName: "checkmark")
+                                .font(.system(size: 13, weight: .semibold))
+                                .foregroundStyle(Color.accentColor)
+                        }
+                    }
+                },
+                onSelect: { item in
+                    state = item.name
+                    showStatePicker = false
+                }
+            )
         }
         .sheet(isPresented: $showStaffPicker) {
             NativeSearchableSelectionSheet(
@@ -3184,7 +3228,7 @@ private struct CreateCpVisitSheet: View {
             }
             fillIfBlank($addressLine2, fields.addressLine2)
             fillIfBlank($city, fields.city)
-            fillIfBlank($state, fields.state)
+            fillIfBlank($state, IndianStates.canonical(fields.state))
             fillIfBlank($pincode, fields.pincode)
             addressParseStatus = "Address auto-filled"
         } catch {
@@ -3227,7 +3271,7 @@ private struct CreateCpVisitSheet: View {
         fillIfBlank($addressLine1, analysis?.address ?? place?.address ?? place?.formattedAddress ?? manual?.address ?? fallbackAddress)
         fillIfBlank($addressLine2, place?.landmark ?? analysis?.landmark ?? manual?.landmark)
         fillIfBlank($city, place?.city ?? lead.clientCity)
-        fillIfBlank($state, place?.state ?? analysis?.state ?? manual?.state)
+        fillIfBlank($state, IndianStates.canonical(place?.state ?? analysis?.state ?? manual?.state))
         fillIfBlank($pincode, place?.pincode ?? analysis?.pincode ?? manual?.pincode ?? fallbackPincode)
 
         if latitude.blankToNil == nil, let lat = lead.suggestedVisitLat {
@@ -3257,7 +3301,7 @@ private struct CreateCpVisitSheet: View {
         fillIfBlank($addressLine1, client.addressLine1 ?? client.homeAddress ?? client.formattedAddress)
         fillIfBlank($addressLine2, client.addressLine2 ?? client.landmark)
         fillIfBlank($city, client.district ?? client.location)
-        fillIfBlank($state, client.state)
+        fillIfBlank($state, IndianStates.canonical(client.state))
         fillIfBlank($pincode, client.pincode)
         fillIfBlank($mapsLink, client.googleMapsLink)
         if latitude.blankToNil == nil, let lat = client.lat { latitude = String(lat) }

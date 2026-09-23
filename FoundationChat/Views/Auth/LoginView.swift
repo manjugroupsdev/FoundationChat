@@ -14,6 +14,7 @@ struct LoginView: View {
     @State private var otpDigits = Array(repeating: "", count: 6)
     @FocusState private var phoneFieldFocused: Bool
     @FocusState private var focusedOtpBox: Int?
+    @Environment(\.scenePhase) private var scenePhase
     @FocusState private var employeeFieldFocused: EmployeeField?
 
     private enum EmployeeField {
@@ -117,14 +118,24 @@ struct LoginView: View {
             .padding(.horizontal, 32)
             .padding(.top, step == .otp ? 44 : 40)
             .padding(.bottom, geo.safeAreaInsets.bottom + 28)
+            // Keeps the sheet's designed proportion when the content is short,
+            // and the full screen width, both of which the fixed background
+            // rect used to provide. It is a MINIMUM now, so taller content
+            // grows the card instead of overflowing it.
+            .frame(maxWidth: .infinity, minHeight: sheetHeight(geo), alignment: .top)
+            // The surface used to be painted into a FIXED rect - a fraction
+            // of the screen height (sheetHeight + 60) rather than the card's
+            // own size. Whenever the content ran taller than that guess, with
+            // the keyboard up or at larger text sizes, the last control spilled
+            // below the white area onto the dark backdrop: the Employee ID
+            // button appeared to hang outside the sheet. Filling the card's
+            // real bounds tracks the content instead, and the negative bottom
+            // padding keeps the lower corners off-screen so only the top two
+            // are ever seen, exactly as before.
             .background(
-                Color.appElevatedSurface,
-                in: RoundedRectangle(cornerRadius: 28, style: .continuous)
-                    .path(in: CGRect(
-                        x: 0, y: 0,
-                        width: geo.size.width,
-                        height: sheetHeight(geo) + 60
-                    ))
+                RoundedRectangle(cornerRadius: 28, style: .continuous)
+                    .fill(Color.appElevatedSurface)
+                    .padding(.bottom, -60)
             )
             .overlay(alignment: .top) {
                 if step == .otp {
@@ -460,7 +471,7 @@ struct LoginView: View {
                     OtpBox(
                         digit: $otpDigits[i],
                         isFocused: focusedOtpBox == i,
-                        onTap: { focusedOtpBox = i },
+                        onTap: { refocusOtp(at: i) },
                         onInput: { handleOtpInput(at: i, value: $0) },
                         onDelete: { handleOtpDelete(at: i) }
                     )
@@ -515,7 +526,30 @@ struct LoginView: View {
             // Verify button
             verifyButton
         }
-        .onAppear { focusedOtpBox = 0 }
+        .onAppear { refocusOtp() }
+        .onChange(of: scenePhase) { _, phase in
+            // Returning from Messages after copying the code.
+            if phase == .active { refocusOtp() }
+        }
+    }
+
+    /// Puts the caret back in an OTP box, re-asserting it even when the box is
+    /// already the focused one.
+    ///
+    /// Leaving the app to copy the code made the boxes look dead. iOS resigns
+    /// first responder when the app goes to the background, but
+    /// `focusedOtpBox` still pointed at the same box, so SwiftUI saw no state
+    /// change, `updateUIView` never ran, and the field never became first
+    /// responder again. Tapping that same box assigned the identical value,
+    /// which is also not a change - so nothing happened, however many times
+    /// the staff member tapped. Clearing the value first guarantees the
+    /// transition that actually re-attaches the keyboard.
+    private func refocusOtp(at index: Int? = nil) {
+        let target = index
+            ?? otpDigits.firstIndex(where: { $0.isEmpty })
+            ?? max(otpDigits.count - 1, 0)
+        focusedOtpBox = nil
+        DispatchQueue.main.async { focusedOtpBox = target }
     }
 
     private var verifyButton: some View {
