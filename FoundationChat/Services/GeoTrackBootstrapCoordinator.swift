@@ -207,14 +207,20 @@ final class GeoTrackBootstrapCoordinator {
            now.timeIntervalSince(last) < 30 * 60 {
             return
         }
-        userDefaults.set(now, forKey: DefaultsKey.lastPermissionClearedAt)
         UIDevice.current.isBatteryMonitoringEnabled = true
         let level = UIDevice.current.batteryLevel
         let version = Bundle.main.infoDictionary?["CFBundleShortVersionString"] as? String ?? "1.0"
-        try? await geoAPI.heartbeat(
-            batteryPct: level >= 0 ? Int(level * 100) : 100,
-            appVersion: "\(version)-ios"
-        )
+        do {
+            try await geoAPI.heartbeat(
+                batteryPct: level >= 0 ? Int(level * 100) : 100,
+                appVersion: "\(version)-ios",
+                includeSessionState: false
+            )
+            userDefaults.set(now, forKey: DefaultsKey.lastPermissionClearedAt)
+        } catch {
+            // Retry on the next bootstrap sync instead of suppressing the
+            // permission-clear signal for 30 minutes after a network failure.
+        }
     }
 
     /// Stops local capture. With no tracker in this process (the app was

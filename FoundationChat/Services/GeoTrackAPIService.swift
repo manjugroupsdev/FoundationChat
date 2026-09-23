@@ -423,16 +423,20 @@ final class GeoTrackAPIService {
         appVersion: String,
         recordedAt: Int64? = nil,
         sessionId: String? = nil,
-        deviceId: String? = nil
+        deviceId: String? = nil,
+        includeSessionState: Bool = true
     ) async throws {
         await retryPendingTrackingControl()
         let coordinator = GeoTrackBootstrapCoordinator.shared
         let timestamp = recordedAt ?? Int64(Date().timeIntervalSince1970 * 1_000)
         let resolvedDeviceId = deviceId ?? coordinator.deviceId
+        let resolvedSessionId = includeSessionState
+            ? (sessionId ?? coordinator.activeSessionId)
+            : nil
         let requestId = "heartbeat-\(resolvedDeviceId)-\(timestamp)"
         let context = TrackingContextStore.current()
         let body = GeoTrackHeartbeatRequest(
-            sessionId: sessionId ?? coordinator.activeSessionId,
+            sessionId: resolvedSessionId,
             deviceId: resolvedDeviceId,
             requestId: requestId,
             deviceSequence: timestamp,
@@ -454,7 +458,7 @@ final class GeoTrackAPIService {
             networkAvailable: nil,
             permissionState: Self.locationServicesUsable() ? "granted" : "location_missing",
             movementMode: nil,
-            trackingActive: (sessionId ?? coordinator.activeSessionId) != nil,
+            trackingActive: includeSessionState ? resolvedSessionId != nil : nil,
             backgroundRestricted: nil,
             // Read live: a heartbeat is always sent now, and it is what tells
             // the backend a trip is still open when the point stream is quiet.
