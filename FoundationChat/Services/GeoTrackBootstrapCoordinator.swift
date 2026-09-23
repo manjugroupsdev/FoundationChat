@@ -1,3 +1,4 @@
+import CoreLocation
 import SwiftUI
 import UIKit
 
@@ -11,6 +12,7 @@ final class GeoTrackBootstrapCoordinator {
         static let activeSessionId = "geotrack.activeTrackingSessionId"
         static let shouldTrackNow = "geotrack.shouldTrackNow"
         static let trackingEnabled = "geotrack.trackingEnabled"
+        static let lastPermissionClearedAt = "geotrack.lastPermissionClearedAt"
     }
 
     private let geoAPI: GeoTrackAPIService
@@ -95,6 +97,8 @@ final class GeoTrackBootstrapCoordinator {
             return
         }
 
+        await reportPermissionsHealthy()
+
         let attendanceOpen = await currentAttendanceOpenState()
         if attendanceOpen == false {
             await geoAPI.retryPendingTrackingControl(discardStart: true)
@@ -178,6 +182,39 @@ final class GeoTrackBootstrapCoordinator {
         guard sessionId == nil || activeSessionId == sessionId else { return }
         userDefaults.removeObject(forKey: DefaultsKey.activeSessionId)
         userDefaults.set(false, forKey: DefaultsKey.shouldTrackNow)
+    }
+
+    /// Tells the backend the permissions are healthy again, so an open
+    /// PERMISSION_MISSING / GPS_DISABLED alert stops following the staff
+    /// member around.
+    ///
+    /// The backend clears those only when a heartbeat arrives carrying
+    /// `locationEnabled = true`, and heartbeats are otherwise sent only by the
+    /// tracking loop, which runs only between clock-in and clock-out. Someone
+    /// who granted the permission outside a shift kept the alert until their
+    /// next clock-in, and the live board showed a problem already fixed.
+    ///
+    /// Only sent when location really is authorised, so the flag is never a
+    /// lie, and at most once every 30 minutes. A failure is ignored: this is
+    /// housekeeping and must never interrupt a sync.
+    private func reportPermissionsHealthy() async {
+        switch CLLocationManager().authorizationStatus {
+        case .authorizedAlways, .authorizedWhenInUse: break
+        default: return
+        }
+        let now = Date()
+        if let last = userDefaults.object(forKey: DefaultsKey.lastPermissionClearedAt) as? Date,
+           now.timeIntervalSince(last) < 30 * 60 {
+            return
+        }
+        userDefaults.set(now, forKey: DefaultsKey.lastPermissionClearedAt)
+        UIDevice.current.isBatteryMonitoringEnabled = true
+        let level = UIDevice.current.batteryLevel
+        let version = Bundle.main.infoDictionary?["CFBundleShortVersionString"] as? String ?? "1.0"
+        try? await geoAPI.heartbeat(
+            batteryPct: level >= 0 ? Int(level * 100) : 100,
+            appVersion: "\(version)-ios"
+        )
     }
 
     /// Stops local capture. With no tracker in this process (the app was
