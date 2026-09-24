@@ -518,12 +518,17 @@ extension LocationTracker: CLLocationManagerDelegate {
 
     nonisolated func locationManagerDidChangeAuthorization(_ manager: CLLocationManager) {
         let current = manager.authorizationStatus
+        // iOS fires this for accuracy changes too, so it is also where
+        // "Precise Location" being switched off has to be noticed.
+        let accuracy = manager.accuracyAuthorization
         Task { @MainActor in
             let previous = previousAuthStatus
             previousAuthStatus = current
             authorizationStatus = current
             // Forward to tamper monitor for GPS_DISABLED and PERMISSION_DOWNGRADE checks
-            tamperMonitor.handleAuthorizationChange(previous: previous, current: current)
+            tamperMonitor.handleAuthorizationChange(
+                previous: previous, current: current, accuracy: accuracy
+            )
         }
     }
 

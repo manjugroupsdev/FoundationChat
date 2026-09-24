@@ -143,9 +143,12 @@ final class GeoTrackTamperMonitor {
     /// - Parameters:
     ///   - previous: The status **before** the change.
     ///   - current: The status **after** the change.
+    ///   - accuracy: The accuracy authorization after the change. Defaults to
+    ///     `.fullAccuracy` so existing callers and tests are unaffected.
     func handleAuthorizationChange(
         previous: CLAuthorizationStatus,
-        current: CLAuthorizationStatus
+        current: CLAuthorizationStatus,
+        accuracy: CLAccuracyAuthorization = .fullAccuracy
     ) {
         guard isRunning else { return }
 
@@ -161,6 +164,32 @@ final class GeoTrackTamperMonitor {
             report(.permissionDowngrade, metadata: [
                 "from": "authorizedAlways",
                 "to": "authorizedWhenInUse",
+            ])
+        } else if current == .authorizedWhenInUse {
+            // Steady state, not a transition. Someone who never granted Always
+            // in the first place — a fresh install where "While Using the App"
+            // is the easy answer — never crossed the branch above, so nothing
+            // ever reported that this phone cannot track in the background.
+            report(.permissionDowngrade, metadata: [
+                "from": statusLabel(previous),
+                "to": "authorizedWhenInUse",
+                "reason": "neverGrantedAlways",
+            ])
+        } else if accuracy == .reducedAccuracy, current == .authorizedAlways {
+            // "Precise Location: Off". Authorised, and useless for tracking:
+            // kilometre-scale fixes fail the capture gate, so the staff member
+            // shows Live with a pin frozen where they clocked in. This is the
+            // same defect the Android gate had (allGranted accepted a
+            // coarse-only grant); iOS never checked accuracy here at all.
+            //
+            // Only .authorizedAlways reaches this branch — every WhenInUse case
+            // is caught above, which is the right precedence: without Always
+            // there is no background tracking to be accurate about. report() is
+            // deduplicated per event type, so only one could land regardless.
+            report(.permissionDowngrade, metadata: [
+                "from": statusLabel(current),
+                "to": "reducedAccuracy",
+                "reason": "preciseLocationOff",
             ])
         }
 

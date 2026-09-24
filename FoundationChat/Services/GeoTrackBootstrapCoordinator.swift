@@ -198,10 +198,17 @@ final class GeoTrackBootstrapCoordinator {
     /// lie, and at most once every 30 minutes. A failure is ignored: this is
     /// housekeeping and must never interrupt a sync.
     private func reportPermissionsHealthy() async {
-        switch CLLocationManager().authorizationStatus {
-        case .authorizedAlways, .authorizedWhenInUse: break
-        default: return
-        }
+        // "Healthy" has to mean tracking can really run, or this clears a
+        // server-side PERMISSION_MISSING that is still true.
+        //
+        // .authorizedWhenInUse is NOT enough: iOS stops delivering locations
+        // once the app leaves the foreground, which is most of a shift.
+        // .reducedAccuracy is not enough either — the fixes are kilometre-scale
+        // and fail the capture gate, so the phone shows Live with a pin frozen
+        // where it clocked in. Both used to pass here and silence the alert.
+        let manager = CLLocationManager()
+        guard manager.authorizationStatus == .authorizedAlways,
+              manager.accuracyAuthorization == .fullAccuracy else { return }
         let now = Date()
         if let last = userDefaults.object(forKey: DefaultsKey.lastPermissionClearedAt) as? Date,
            now.timeIntervalSince(last) < 30 * 60 {
