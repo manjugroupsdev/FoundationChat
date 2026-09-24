@@ -143,7 +143,14 @@ final class GeoTrackBootstrapCoordinator {
             self.tracker = tracker
             try await tracker.resumeServerBackedTracking()
             lastError = nil
-            shouldPresentPermissionHelp = false
+            // Starting the tracker succeeding is NOT the same as tracking being
+            // able to work. It only throws when location is denied outright, so
+            // When-In-Use, Precise Location off, Motion denied and Background
+            // App Refresh off all reached this line — and the sheet was cleared.
+            // The staff member saw nothing while their phone stopped capturing
+            // the moment it left the screen. Show the sheet whenever anything
+            // the checklist lists is missing.
+            shouldPresentPermissionHelp = !(await GeoTrackPermissionGuide.isTrackingReady())
         } catch {
             lastError = error.localizedDescription
             shouldPresentPermissionHelp = isPermissionError(error)

@@ -235,6 +235,14 @@ struct GeoTrackPermissionHelpView: View {
             .onAppear {
                 permissionGuide.refresh()
             }
+            // Every row here sends the staff member to iPhone Settings. When
+            // they come back the rows must update, or a permission they just
+            // granted keeps showing as missing.
+            .onReceive(NotificationCenter.default.publisher(
+                for: UIApplication.didBecomeActiveNotification
+            )) { _ in
+                permissionGuide.refresh()
+            }
         }
     }
 }
@@ -248,6 +256,16 @@ private struct GeoTrackPermissionChecklist: View {
                 .font(.headline)
 
             permissionRow(
+                icon: "location.slash.fill",
+                title: "Location Services",
+                subtitle: "The iPhone-wide switch. Nothing below works while it is off.",
+                status: guide.locationServicesStatusLabel,
+                isReady: guide.locationServicesOn
+            ) {
+                guide.openSettings()
+            }
+
+            permissionRow(
                 icon: "location.fill",
                 title: "Always Location",
                 subtitle: "Required for background route capture and final sync.",
@@ -258,6 +276,16 @@ private struct GeoTrackPermissionChecklist: View {
             }
 
             permissionRow(
+                icon: "scope",
+                title: "Precise Location",
+                subtitle: "Without it fixes are too rough to record and your route stays frozen.",
+                status: guide.preciseStatusLabel,
+                isReady: guide.hasPreciseLocation
+            ) {
+                guide.openSettings()
+            }
+
+            permissionRow(
                 icon: "figure.walk.motion",
                 title: "Motion Activity",
                 subtitle: "Required to detect walking, driving, running and still states.",
@@ -265,6 +293,16 @@ private struct GeoTrackPermissionChecklist: View {
                 isReady: guide.hasMotionAccess
             ) {
                 guide.requestMotionAccess()
+            }
+
+            permissionRow(
+                icon: "arrow.clockwise.circle.fill",
+                title: "Background App Refresh",
+                subtitle: "Lets tracking keep sending while the app is not on screen.",
+                status: guide.backgroundRefreshStatusLabel,
+                isReady: guide.hasBackgroundRefresh
+            ) {
+                guide.openSettings()
             }
         }
         .padding()
@@ -320,10 +358,18 @@ final class GeoTrackPermissionGuide: NSObject, CLLocationManagerDelegate {
 
     private(set) var locationStatus: CLAuthorizationStatus
     private(set) var motionStatus: CMAuthorizationStatus
+    // The three below used to go unchecked. Each one stops background capture
+    // on its own, and none of them makes starting the tracker throw — so the
+    // sheet, which only appeared on a thrown error, never mentioned them.
+    private(set) var accuracy: CLAccuracyAuthorization
+    private(set) var backgroundRefresh: UIBackgroundRefreshStatus
+    private(set) var locationServicesOn = true
 
     override init() {
         locationStatus = locationManager.authorizationStatus
         motionStatus = CMMotionActivityManager.authorizationStatus()
+        accuracy = locationManager.accuracyAuthorization
+        backgroundRefresh = UIApplication.shared.backgroundRefreshStatus
         super.init()
         locationManager.delegate = self
     }
@@ -334,6 +380,63 @@ final class GeoTrackPermissionGuide: NSObject, CLLocationManagerDelegate {
 
     var hasMotionAccess: Bool {
         motionStatus == .authorized || !CMMotionActivityManager.isActivityAvailable()
+    }
+
+    /// "Precise Location: Off" gives kilometre-scale fixes that fail the
+    /// capture gate, so the staff member shows Live with a pin frozen where
+    /// they clocked in. Authorised, and useless for tracking.
+    var hasPreciseLocation: Bool { accuracy == .fullAccuracy }
+
+    /// With Background App Refresh off, iOS will not wake the app to deliver
+    /// or upload anything once it leaves the screen.
+    var hasBackgroundRefresh: Bool { backgroundRefresh == .available }
+
+    var preciseStatusLabel: String {
+        hasPreciseLocation
+            ? "Ready"
+            : "Precise Location is off. Turn it on for this app in iPhone Settings."
+    }
+
+    var backgroundRefreshStatusLabel: String {
+        switch backgroundRefresh {
+        case .available:
+            return "Ready"
+        case .denied:
+            return "Off. Enable Background App Refresh for this app in iPhone Settings."
+        case .restricted:
+            return "Restricted by Low Power Mode or a device policy."
+        @unknown default:
+            return "Unknown status."
+        }
+    }
+
+    var locationServicesStatusLabel: String {
+        locationServicesOn
+            ? "Ready"
+            : "Location Services are off for the whole iPhone. Turn them on in Settings > Privacy."
+    }
+
+    /// Everything GeoTrack needs to keep capturing after the app leaves the
+    /// screen — the same set the checklist rows show, so the sheet and this
+    /// check can never disagree about whether something is missing.
+    static func isTrackingReady() async -> Bool {
+        let manager = CLLocationManager()
+        let motionOK = !CMMotionActivityManager.isActivityAvailable()
+            || CMMotionActivityManager.authorizationStatus() == .authorized
+        let servicesOn = await locationServicesEnabled()
+        return servicesOn
+            && manager.authorizationStatus == .authorizedAlways
+            && manager.accuracyAuthorization == .fullAccuracy
+            && UIApplication.shared.backgroundRefreshStatus == .available
+            && motionOK
+    }
+
+    /// `locationServicesEnabled()` is synchronous and Apple warns it can stall
+    /// the main thread, so it is always asked off the main actor.
+    nonisolated static func locationServicesEnabled() async -> Bool {
+        await Task.detached(priority: .utility) {
+            CLLocationManager.locationServicesEnabled()
+        }.value
     }
 
     var locationStatusLabel: String {
@@ -370,6 +473,12 @@ final class GeoTrackPermissionGuide: NSObject, CLLocationManagerDelegate {
     func refresh() {
         locationStatus = locationManager.authorizationStatus
         motionStatus = CMMotionActivityManager.authorizationStatus()
+        accuracy = locationManager.accuracyAuthorization
+        backgroundRefresh = UIApplication.shared.backgroundRefreshStatus
+        Task { [weak self] in
+            let on = await Self.locationServicesEnabled()
+            self?.locationServicesOn = on
+        }
     }
 
     func requestAlwaysLocation() {
