@@ -56,7 +56,8 @@ struct AuthRootView: View {
                 },
                 onDismiss: {
                     geoTrackBootstrap.dismissPermissionHelp()
-                }
+                },
+                tracked: geoTrackBootstrap.permissionHelpTracked
             )
         }
         .onReceive(NotificationCenter.default.publisher(for: .didRegisterForRemoteNotificationsToken)) {

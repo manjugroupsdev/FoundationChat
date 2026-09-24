@@ -24,6 +24,9 @@ final class GeoTrackBootstrapCoordinator {
     private(set) var lastError: String?
     private(set) var shouldPresentConsent = false
     private(set) var shouldPresentPermissionHelp = false
+    /// Which list the permission sheet shows: the full tracking set, or the
+    /// short one for staff who are not geo-tracked.
+    private(set) var permissionHelpTracked = true
 
     var deviceId: String {
         if let existing = userDefaults.string(forKey: DefaultsKey.deviceId), !existing.isEmpty {
@@ -78,6 +81,14 @@ final class GeoTrackBootstrapCoordinator {
         if userDefaults.object(forKey: DefaultsKey.trackingEnabled) != nil,
            !userDefaults.bool(forKey: DefaultsKey.trackingEnabled) {
             await endDirectSession(reason: "tracking_not_enabled")
+            // Not tracked, but still held on the sheet until what the app
+            // uses for them — location while open, precise, notifications —
+            // is granted. This branch used to return having asked nothing.
+            permissionHelpTracked = false
+            // Any error text left from an earlier tracked attempt would be
+            // wrong on this sheet.
+            lastError = nil
+            shouldPresentPermissionHelp = !(await GeoTrackPermissionGuide.isReady(tracked: false))
             return
         }
 
@@ -150,9 +161,11 @@ final class GeoTrackBootstrapCoordinator {
             // The staff member saw nothing while their phone stopped capturing
             // the moment it left the screen. Show the sheet whenever anything
             // the checklist lists is missing.
+            permissionHelpTracked = true
             shouldPresentPermissionHelp = !(await GeoTrackPermissionGuide.isTrackingReady())
         } catch {
             lastError = error.localizedDescription
+            permissionHelpTracked = true
             shouldPresentPermissionHelp = isPermissionError(error)
         }
     }

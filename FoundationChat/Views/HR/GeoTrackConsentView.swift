@@ -2,6 +2,7 @@ import CoreLocation
 import CoreMotion
 import SwiftUI
 import UIKit
+import UserNotifications
 
 // MARK: - GeoTrackConsentView
 
@@ -171,6 +172,9 @@ struct GeoTrackPermissionHelpView: View {
     let errorMessage: String?
     var onRetry: () -> Void = {}
     var onDismiss: () -> Void = {}
+    /// False for staff who are not geo-tracked: they are asked only for
+    /// what the app uses for them, never for Always location.
+    var tracked: Bool = true
 
     @State private var permissionGuide = GeoTrackPermissionGuide()
 
@@ -182,16 +186,18 @@ struct GeoTrackPermissionHelpView: View {
                         Image(systemName: "location.badge.exclamationmark")
                             .font(.system(size: 54, weight: .semibold))
                             .foregroundStyle(.orange)
-                        Text("GeoTrack Needs Permissions")
+                        Text(tracked ? "GeoTrack Needs Permissions" : "M-connect Needs a Few Permissions")
                             .font(.title3.bold())
-                        Text(errorMessage ?? "Enable the required iPhone permissions so GeoTrack can continue background tracking.")
+                        Text(errorMessage ?? (tracked
+                            ? "Enable the required iPhone permissions so GeoTrack can continue background tracking."
+                            : "Turn these on to keep using the app. They are what punch-in and your alerts need."))
                             .font(.subheadline)
                             .foregroundStyle(.secondary)
                             .multilineTextAlignment(.center)
                     }
                     .frame(maxWidth: .infinity)
 
-                    GeoTrackPermissionChecklist(guide: permissionGuide)
+                    GeoTrackPermissionChecklist(guide: permissionGuide, tracked: tracked)
 
                     VStack(spacing: 12) {
                         Button {
@@ -205,11 +211,12 @@ struct GeoTrackPermissionHelpView: View {
                                 .foregroundStyle(.white)
                         }
 
+                        // Closes only once everything is granted. It used to
+                        // dismiss unconditionally, which was a way out.
                         Button {
-                            onRetry()
-                            dismiss()
+                            Task { await closeIfReady() }
                         } label: {
-                            Text("Retry GeoTrack")
+                            Text(tracked ? "Retry GeoTrack" : "Check again")
                                 .font(.headline)
                                 .frame(maxWidth: .infinity)
                                 .padding()
@@ -222,18 +229,15 @@ struct GeoTrackPermissionHelpView: View {
                 }
                 .padding()
             }
-            .navigationTitle("GeoTrack")
+            .navigationTitle(tracked ? "GeoTrack" : "Permissions")
             .navigationBarTitleDisplayMode(.inline)
-            .toolbar {
-                ToolbarItem(placement: .cancellationAction) {
-                    Button("Close") {
-                        onDismiss()
-                        dismiss()
-                    }
-                }
-            }
+            // No Close button and no swipe-down: the sheet stays until what
+            // it lists is granted, and closes itself the moment it is. A
+            // status the user cannot change (.restricted) never blocks — see
+            // GeoTrackPermissionGuide.isReady — so nobody is locked out.
+            .interactiveDismissDisabled(true)
             .onAppear {
-                permissionGuide.refresh()
+                Task { await closeIfReady() }
             }
             // Every row here sends the staff member to iPhone Settings. When
             // they come back the rows must update, or a permission they just
@@ -241,14 +245,24 @@ struct GeoTrackPermissionHelpView: View {
             .onReceive(NotificationCenter.default.publisher(
                 for: UIApplication.didBecomeActiveNotification
             )) { _ in
-                permissionGuide.refresh()
+                Task { await closeIfReady() }
             }
+        }
+    }
+
+    @MainActor
+    private func closeIfReady() async {
+        permissionGuide.refresh()
+        if await GeoTrackPermissionGuide.isReady(tracked: tracked) {
+            onRetry()
+            dismiss()
         }
     }
 }
 
 private struct GeoTrackPermissionChecklist: View {
     @Bindable var guide: GeoTrackPermissionGuide
+    var tracked: Bool = true
 
     var body: some View {
         VStack(alignment: .leading, spacing: 14) {
@@ -265,14 +279,26 @@ private struct GeoTrackPermissionChecklist: View {
                 guide.openSettings()
             }
 
-            permissionRow(
-                icon: "location.fill",
-                title: "Always Location",
-                subtitle: "Required for background route capture and final sync.",
-                status: guide.locationStatusLabel,
-                isReady: guide.hasAlwaysLocation
-            ) {
-                guide.requestAlwaysLocation()
+            if tracked {
+                permissionRow(
+                    icon: "location.fill",
+                    title: "Always Location",
+                    subtitle: "Required for background route capture and final sync.",
+                    status: guide.locationStatusLabel,
+                    isReady: guide.hasAlwaysLocation
+                ) {
+                    guide.requestAlwaysLocation()
+                }
+            } else {
+                permissionRow(
+                    icon: "location.fill",
+                    title: "Location",
+                    subtitle: "Needed while the app is open, for punch-in.",
+                    status: guide.inUseStatusLabel,
+                    isReady: guide.hasLocationInUse
+                ) {
+                    guide.requestLocationInUse()
+                }
             }
 
             permissionRow(
@@ -285,24 +311,39 @@ private struct GeoTrackPermissionChecklist: View {
                 guide.openSettings()
             }
 
-            permissionRow(
-                icon: "figure.walk.motion",
-                title: "Motion Activity",
-                subtitle: "Required to detect walking, driving, running and still states.",
-                status: guide.motionStatusLabel,
-                isReady: guide.hasMotionAccess
-            ) {
-                guide.requestMotionAccess()
+            // Motion and Background App Refresh only keep tracking alive.
+            if tracked {
+                permissionRow(
+                    icon: "figure.walk.motion",
+                    title: "Motion Activity",
+                    subtitle: "Required to detect walking, driving, running and still states.",
+                    status: guide.motionStatusLabel,
+                    isReady: guide.hasMotionAccess
+                ) {
+                    guide.requestMotionAccess()
+                }
+
+                permissionRow(
+                    icon: "arrow.clockwise.circle.fill",
+                    title: "Background App Refresh",
+                    subtitle: "Lets tracking keep sending while the app is not on screen.",
+                    status: guide.backgroundRefreshStatusLabel,
+                    isReady: guide.hasBackgroundRefresh
+                ) {
+                    guide.openSettings()
+                }
             }
 
             permissionRow(
-                icon: "arrow.clockwise.circle.fill",
-                title: "Background App Refresh",
-                subtitle: "Lets tracking keep sending while the app is not on screen.",
-                status: guide.backgroundRefreshStatusLabel,
-                isReady: guide.hasBackgroundRefresh
+                icon: "bell.badge.fill",
+                title: "Notifications",
+                subtitle: tracked
+                    ? "So the app can tell you the moment tracking stops working."
+                    : "So you get approvals, tasks and alerts on time.",
+                status: guide.notificationStatusLabel,
+                isReady: guide.hasNotifications
             ) {
-                guide.openSettings()
+                guide.requestNotifications()
             }
         }
         .padding()
@@ -364,6 +405,7 @@ final class GeoTrackPermissionGuide: NSObject, CLLocationManagerDelegate {
     private(set) var accuracy: CLAccuracyAuthorization
     private(set) var backgroundRefresh: UIBackgroundRefreshStatus
     private(set) var locationServicesOn = true
+    private(set) var notificationStatus: UNAuthorizationStatus = .notDetermined
 
     override init() {
         locationStatus = locationManager.authorizationStatus
@@ -386,6 +428,41 @@ final class GeoTrackPermissionGuide: NSObject, CLLocationManagerDelegate {
     /// capture gate, so the staff member shows Live with a pin frozen where
     /// they clocked in. Authorised, and useless for tracking.
     var hasPreciseLocation: Bool { accuracy == .fullAccuracy }
+
+    /// What an untracked staffer needs: location while the app is open.
+    var hasLocationInUse: Bool {
+        locationStatus == .authorizedWhenInUse || locationStatus == .authorizedAlways
+    }
+
+    var hasNotifications: Bool { Self.notificationsOK(notificationStatus) }
+
+    var inUseStatusLabel: String {
+        switch locationStatus {
+        case .authorizedAlways, .authorizedWhenInUse:
+            return "Ready"
+        case .denied:
+            return "Denied. Enable Location for this app in iPhone Settings."
+        case .restricted:
+            return "Restricted on this iPhone."
+        case .notDetermined:
+            return "Not requested yet."
+        @unknown default:
+            return "Unknown status."
+        }
+    }
+
+    var notificationStatusLabel: String {
+        switch notificationStatus {
+        case .authorized, .provisional, .ephemeral:
+            return "Ready"
+        case .denied:
+            return "Off. Enable Notifications for this app in iPhone Settings."
+        case .notDetermined:
+            return "Not requested yet."
+        @unknown default:
+            return "Unknown status."
+        }
+    }
 
     /// With Background App Refresh off, iOS will not wake the app to deliver
     /// or upload anything once it leaves the screen.
@@ -420,15 +497,39 @@ final class GeoTrackPermissionGuide: NSObject, CLLocationManagerDelegate {
     /// screen — the same set the checklist rows show, so the sheet and this
     /// check can never disagree about whether something is missing.
     static func isTrackingReady() async -> Bool {
+        await isReady(tracked: true)
+    }
+
+    /// Whether every row the sheet shows for this mode is satisfied.
+    ///
+    /// A status the user CANNOT change (.restricted — parental controls or
+    /// a device policy) counts as satisfied: the sheet cannot be closed any
+    /// other way, so blocking on it would lock that person out of the app.
+    static func isReady(tracked: Bool) async -> Bool {
         let manager = CLLocationManager()
-        let motionOK = !CMMotionActivityManager.isActivityAvailable()
-            || CMMotionActivityManager.authorizationStatus() == .authorized
+        let status = manager.authorizationStatus
         let servicesOn = await locationServicesEnabled()
-        return servicesOn
-            && manager.authorizationStatus == .authorizedAlways
-            && manager.accuracyAuthorization == .fullAccuracy
-            && UIApplication.shared.backgroundRefreshStatus == .available
-            && motionOK
+        let notifications = await UNUserNotificationCenter.current()
+            .notificationSettings().authorizationStatus
+        let locationOK: Bool = status == .restricted || (tracked
+            ? status == .authorizedAlways
+            : status == .authorizedAlways || status == .authorizedWhenInUse)
+        let preciseOK = status == .restricted || manager.accuracyAuthorization == .fullAccuracy
+        let base = servicesOn && locationOK && preciseOK && notificationsOK(notifications)
+        guard tracked else { return base }
+        let motion = CMMotionActivityManager.authorizationStatus()
+        let motionOK = !CMMotionActivityManager.isActivityAvailable()
+            || motion == .authorized || motion == .restricted
+        let refresh = UIApplication.shared.backgroundRefreshStatus
+        let refreshOK = refresh == .available || refresh == .restricted
+        return base && motionOK && refreshOK
+    }
+
+    nonisolated static func notificationsOK(_ status: UNAuthorizationStatus) -> Bool {
+        switch status {
+        case .authorized, .provisional, .ephemeral: return true
+        default: return false
+        }
     }
 
     /// `locationServicesEnabled()` is synchronous and Apple warns it can stall
@@ -478,6 +579,8 @@ final class GeoTrackPermissionGuide: NSObject, CLLocationManagerDelegate {
         Task { [weak self] in
             let on = await Self.locationServicesEnabled()
             self?.locationServicesOn = on
+            let settings = await UNUserNotificationCenter.current().notificationSettings()
+            self?.notificationStatus = settings.authorizationStatus
         }
     }
 
@@ -509,6 +612,35 @@ final class GeoTrackPermissionGuide: NSObject, CLLocationManagerDelegate {
         let start = Date().addingTimeInterval(-5)
         motionManager.queryActivityStarting(from: start, to: Date(), to: .main) { [weak self] _, _ in
             Task { @MainActor [weak self] in
+                self?.refresh()
+            }
+        }
+    }
+
+    func requestLocationInUse() {
+        switch locationManager.authorizationStatus {
+        case .notDetermined:
+            locationManager.requestWhenInUseAuthorization()
+        case .denied:
+            openSettings()
+        default:
+            break
+        }
+        refresh()
+    }
+
+    /// Same request AuthStore already makes, so granting here also
+    /// registers for push the way the rest of the app expects.
+    func requestNotifications() {
+        guard notificationStatus == .notDetermined else {
+            openSettings()
+            return
+        }
+        UNUserNotificationCenter.current().requestAuthorization(
+            options: [.alert, .badge, .sound]
+        ) { granted, _ in
+            Task { @MainActor [weak self] in
+                if granted { UIApplication.shared.registerForRemoteNotifications() }
                 self?.refresh()
             }
         }
