@@ -20,6 +20,7 @@ final class GeoTrackBootstrapCoordinator {
     private var tracker: LocationTracker?
     private var lastSyncDate: Date?
     private var isSyncing = false
+    private var queuedForcedSync: (() async -> Void)?
 
     private(set) var lastError: String?
     private(set) var shouldPresentConsent = false
@@ -55,9 +56,52 @@ final class GeoTrackBootstrapCoordinator {
         contextId: String? = nil,
         occurredAt: Int64? = nil,
         lat: Double? = nil,
-        lng: Double? = nil
+        lng: Double? = nil,
+        attendanceOpen knownAttendanceOpen: Bool? = nil
     ) async {
-        guard !isSyncing else { return }
+        guard !isSyncing else {
+            // A punch landing while another sync ran (push token, foreground)
+            // was dropped here, so tracking never started or stopped for it.
+            if force {
+                queuedForcedSync = { [weak self] in
+                    await self?.sync(
+                        reason: reason,
+                        force: true,
+                        allowConsentPresentation: allowConsentPresentation,
+                        contextId: contextId,
+                        occurredAt: occurredAt,
+                        lat: lat,
+                        lng: lng,
+                        attendanceOpen: knownAttendanceOpen
+                    )
+                }
+            }
+            return
+        }
+        await runSync(
+            force: force,
+            allowConsentPresentation: allowConsentPresentation,
+            contextId: contextId,
+            occurredAt: occurredAt,
+            lat: lat,
+            lng: lng,
+            knownAttendanceOpen: knownAttendanceOpen
+        )
+        if let next = queuedForcedSync {
+            queuedForcedSync = nil
+            await next()
+        }
+    }
+
+    private func runSync(
+        force: Bool,
+        allowConsentPresentation: Bool,
+        contextId: String?,
+        occurredAt: Int64?,
+        lat: Double?,
+        lng: Double?,
+        knownAttendanceOpen: Bool?
+    ) async {
         // The default replay only permits a queued end. Queued starts wait
         // until the attendance gate below explicitly allows them.
         await geoAPI.retryPendingTrackingControl()
@@ -124,7 +168,16 @@ final class GeoTrackBootstrapCoordinator {
         permissionHelpTracked = true
         shouldPresentPermissionHelp = !(await GeoTrackPermissionGuide.isTrackingReady())
 
-        let attendanceOpen = await currentAttendanceOpenState()
+        // A punch the server just acknowledged is authoritative. The attendance
+        // reads are cached server-side for up to 2 min, so right after a punch
+        // they still return the pre-punch state: punch-in ended tracking
+        // instead of starting it, and punch-out kept it running.
+        let attendanceOpen: Bool?
+        if let knownAttendanceOpen {
+            attendanceOpen = knownAttendanceOpen
+        } else {
+            attendanceOpen = await currentAttendanceOpenState()
+        }
         if attendanceOpen == false {
             await geoAPI.retryPendingTrackingControl(discardStart: true)
             await endDirectSession(

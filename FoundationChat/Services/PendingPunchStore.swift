@@ -357,7 +357,8 @@ actor PendingPunchSyncCoordinator {
                     contextId: attendanceId,
                     occurredAt: punch.createdAt,
                     lat: punch.latitude,
-                    lng: punch.longitude
+                    lng: punch.longitude,
+                    attendanceOpen: punch.isPunchIn
                 )
                 // Landed — drop the row and its selfie file.
                 await PendingPunchStore.shared.delete(id: punch.id)

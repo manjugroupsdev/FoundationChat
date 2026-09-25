@@ -377,7 +377,8 @@ struct PunchFlowView: View {
                     contextId: attendanceId,
                     occurredAt: Int64(tapTime.timeIntervalSince1970 * 1_000),
                     lat: loc.coordinate.latitude,
-                    lng: loc.coordinate.longitude
+                    lng: loc.coordinate.longitude,
+                    attendanceOpen: mode == .punchIn
                 )
                 await loadCurrentAttendanceStatus()
                 didQueueOffline = false
