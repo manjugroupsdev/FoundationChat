@@ -63,7 +63,20 @@ final class LocationTracker: NSObject {
         locationManager.delegate = self
         locationManager.desiredAccuracy = kCLLocationAccuracyNearestTenMeters
         locationManager.distanceFilter = Self.foregroundDistanceFilter
-        locationManager.pausesLocationUpdatesAutomatically = true
+        // NEVER let iOS pause the session. With automatic pausing on, a phone
+        // that sat still for a few minutes (a desk, a site office, a client's
+        // sofa) had its location updates paused by the system — and an app
+        // with no active location session is suspended, which stops the
+        // 75-second heartbeat. The web board marks a phone Offline five
+        // minutes after its last heartbeat, so every iPhone that stopped
+        // moving dropped off the board and, because paused updates are only
+        // restarted by the app itself, stayed off until the person next
+        // opened M-Chat. Android keeps its process alive with a foreground
+        // service and an alarm-driven heartbeat; on iOS the continuous
+        // location session is the only thing that keeps the process alive,
+        // so it has to stay running for the whole shift. Battery is bounded
+        // by the 100 m filter / 100 m accuracy applied in the background.
+        locationManager.pausesLocationUpdatesAutomatically = false
         locationManager.activityType = .automotiveNavigation
 
         // Reuse the authoritative MMS login bearer for direct GeoTrack auth.
@@ -536,6 +549,17 @@ extension LocationTracker: CLLocationManagerDelegate {
         _ manager: CLLocationManager,
         didFailWithError error: Error
     ) {}
+
+    /// Belt and braces for the `pausesLocationUpdatesAutomatically = false`
+    /// above: should the system pause the session anyway, restart it at once
+    /// while the process is still awake. Once suspended there is nobody left
+    /// to do this, which is why the pause is disabled in the first place.
+    nonisolated func locationManagerDidPauseLocationUpdates(_ manager: CLLocationManager) {
+        Task { @MainActor in
+            guard isTracking else { return }
+            manager.startUpdatingLocation()
+        }
+    }
 }
 
 struct GPSSessionEndResult {
