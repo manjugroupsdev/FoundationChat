@@ -1,5 +1,6 @@
 import CoreLocation
 import Foundation
+import UIKit
 
 // MARK: - HTTP session protocol (enables lightweight mocking without URLProtocol)
 
@@ -406,16 +407,38 @@ final class GeoTrackAPIService {
     // MARK: - Heartbeat
 
     /// POST /api/tracking/heartbeat
-    /// Whether the app can currently get a location at all. Uses the
-    /// authorization status rather than `locationServicesEnabled()`, which
-    /// blocks the calling thread and is deprecated on the main actor.
-    private static func locationServicesUsable() -> Bool {
-        switch CLLocationManager().authorizationStatus {
-        case .authorizedAlways, .authorizedWhenInUse:
-            return true
+    /// Mirrors Android's heartbeat permission fields. Location Services is a
+    /// device switch; precise/background authorization is reported separately
+    /// so a heartbeat cannot mark a phone healthy while its route is frozen.
+    private static func heartbeatPermissionSnapshot() async -> (
+        locationEnabled: Bool,
+        permissionState: String,
+        backgroundRestricted: Bool
+    ) {
+        let manager = CLLocationManager()
+        let locationEnabled = await Task.detached(priority: .utility) {
+            CLLocationManager.locationServicesEnabled()
+        }.value
+
+        let permissionState: String
+        switch manager.authorizationStatus {
+        case .authorizedAlways:
+            permissionState = manager.accuracyAuthorization == .fullAccuracy
+                ? "granted"
+                : "fine_location_missing"
+        case .authorizedWhenInUse:
+            permissionState = manager.accuracyAuthorization == .fullAccuracy
+                ? "background_location_missing"
+                : "fine_location_missing"
         default:
-            return false
+            permissionState = "fine_location_missing"
         }
+
+        return (
+            locationEnabled,
+            permissionState,
+            UIApplication.shared.backgroundRefreshStatus != .available
+        )
     }
 
     func heartbeat(
@@ -435,6 +458,7 @@ final class GeoTrackAPIService {
             : nil
         let requestId = "heartbeat-\(resolvedDeviceId)-\(timestamp)"
         let context = TrackingContextStore.current()
+        let permissions = await Self.heartbeatPermissionSnapshot()
         let body = GeoTrackHeartbeatRequest(
             sessionId: resolvedSessionId,
             deviceId: resolvedDeviceId,
@@ -452,14 +476,14 @@ final class GeoTrackAPIService {
             airplaneMode: nil,
             // This one IS knowable, and was being sent as nil — so every gap on
             // an iPhone reached the backend with no device state to explain it.
-            locationEnabled: Self.locationServicesUsable(),
+            locationEnabled: permissions.locationEnabled,
             lat: nil,
             lng: nil,
             networkAvailable: nil,
-            permissionState: Self.locationServicesUsable() ? "granted" : "location_missing",
+            permissionState: permissions.permissionState,
             movementMode: nil,
             trackingActive: includeSessionState ? resolvedSessionId != nil : nil,
-            backgroundRestricted: nil,
+            backgroundRestricted: permissions.backgroundRestricted,
             // Read live: a heartbeat is always sent now, and it is what tells
             // the backend a trip is still open when the point stream is quiet.
             contextType: context.contextType,
