@@ -21,8 +21,17 @@ final class LocationTracker: NSObject {
     private static let foregroundDistanceFilter: CLLocationDistance = 30
     private static let backgroundDistanceFilter: CLLocationDistance = 100
     private static let minimumPointInterval: TimeInterval = 10
+    /// Fence around the spot where iOS auto-paused GPS; leaving it restarts
+    /// GPS. ~100 m is the smallest radius iOS region monitoring handles well.
+    private static let resumeRegionIdentifier = "geotrack-resume-on-exit"
+    private static let resumeRegionRadius: CLLocationDistance = 100
     private var lastRecordedDate: Date?
     private var verifiedAttendanceDay: String?
+    /// Upload the next stored point right away instead of on the 30 s tick:
+    /// the day's first point, and the first point after GPS resumes.
+    private var needsImmediateFlush = false
+    /// iOS paused standard updates (`pausesLocationUpdatesAutomatically`).
+    private var isLocationUpdatesPaused = false
 
     private let persistence: GeoTrackPersistence
     private let geoAPI: GeoTrackAPIService
@@ -101,6 +110,10 @@ final class LocationTracker: NSObject {
     static func stopSystemLocationServices() {
         shutdownManager.stopUpdatingLocation()
         shutdownManager.stopMonitoringSignificantLocationChanges()
+        // The resume fence also outlives the tracker and would relaunch the app.
+        for region in shutdownManager.monitoredRegions where region.identifier == resumeRegionIdentifier {
+            shutdownManager.stopMonitoring(for: region)
+        }
     }
 
     // MARK: - Trip Lifecycle
@@ -159,6 +172,17 @@ final class LocationTracker: NSObject {
         tripStartTime = Date()
         verifiedAttendanceDay = Self.indiaDayKey()
         previousAuthStatus = status
+        // The fix taken for the session start is the day's first point: store
+        // and upload it now. A stationary phone may never report again (30 m
+        // distance filter), so waiting for the next fix could leave the day
+        // with no points at all. Without a usable fix yet, the first one that
+        // arrives is uploaded the same way.
+        clearResumeRegion()
+        isLocationUpdatesPaused = false
+        needsImmediateFlush = true
+        if let firstFix = lastLocation {
+            addLocationPoint(firstFix)
+        }
         heartbeat.shouldSend = { [weak self] in
             self?.isInsideVerifiedAttendanceDay == true
         }
@@ -268,6 +292,9 @@ final class LocationTracker: NSObject {
         activityMonitor.stop()
         locationManager.stopUpdatingLocation()
         locationManager.stopMonitoringSignificantLocationChanges()
+        clearResumeRegion()
+        isLocationUpdatesPaused = false
+        needsImmediateFlush = false
         if Bundle.main.object(forInfoDictionaryKey: "UIBackgroundModes") != nil {
             locationManager.allowsBackgroundLocationUpdates = false
             locationManager.showsBackgroundLocationIndicator = false
@@ -364,11 +391,58 @@ final class LocationTracker: NSObject {
         let coordinator = GeoTrackBootstrapCoordinator.shared
         let sessionId = coordinator.activeSessionId
         let deviceId = coordinator.deviceId
+        let uploadNow = needsImmediateFlush
+        needsImmediateFlush = false
         Task {
             try? await persistence.insert(point: point, sessionId: sessionId, deviceId: deviceId)
-            if let count = try? await persistence.getUnsentCount(), count >= Self.batchSize {
+            if uploadNow {
+                await flushWaypoints()
+            } else if let count = try? await persistence.getUnsentCount(), count >= Self.batchSize {
                 await flushWaypoints()
             }
+        }
+    }
+
+    // MARK: - Auto-pause recovery
+
+    /// iOS paused GPS because the phone stopped moving, and it never restarts
+    /// it on its own. Watch a fence around the stop and restart GPS once the
+    /// phone leaves it; a significant-change update restarts it too. While the
+    /// phone stays put nothing is sent, same as with the distance filter.
+    private func handleLocationUpdatesPaused() {
+        guard isTracking else { return }
+        isLocationUpdatesPaused = true
+        guard let center = lastLocation?.coordinate,
+              CLLocationManager.isMonitoringAvailable(for: CLCircularRegion.self) else { return }
+        clearResumeRegion()
+        let region = CLCircularRegion(
+            center: center,
+            radius: min(Self.resumeRegionRadius, locationManager.maximumRegionMonitoringDistance),
+            identifier: Self.resumeRegionIdentifier
+        )
+        region.notifyOnEntry = false
+        region.notifyOnExit = true
+        locationManager.startMonitoring(for: region)
+    }
+
+    /// The phone moved again: restart GPS and upload the first new point now.
+    private func resumeLocationUpdates() {
+        clearResumeRegion()
+        guard isTracking, isLocationUpdatesPaused else { return }
+        isLocationUpdatesPaused = false
+        needsImmediateFlush = true
+        locationManager.startUpdatingLocation()
+    }
+
+    /// iOS resumed GPS by itself (it only does that in the foreground).
+    private func handleLocationUpdatesResumed() {
+        isLocationUpdatesPaused = false
+        clearResumeRegion()
+    }
+
+    private func clearResumeRegion() {
+        for region in locationManager.monitoredRegions where region.identifier == Self.resumeRegionIdentifier {
+            locationManager.stopMonitoring(for: region)
         }
     }
 
@@ -526,7 +600,27 @@ extension LocationTracker: CLLocationManagerDelegate {
         didUpdateLocations locations: [CLLocation]
     ) {
         guard let location = locations.last else { return }
-        Task { @MainActor in addLocationPoint(location) }
+        Task { @MainActor in
+            // A significant-change update while GPS is paused means the phone
+            // moved: bring GPS back before recording.
+            if isLocationUpdatesPaused { resumeLocationUpdates() }
+            addLocationPoint(location)
+        }
+    }
+
+    nonisolated func locationManagerDidPauseLocationUpdates(_ manager: CLLocationManager) {
+        Task { @MainActor in handleLocationUpdatesPaused() }
+    }
+
+    nonisolated func locationManagerDidResumeLocationUpdates(_ manager: CLLocationManager) {
+        Task { @MainActor in handleLocationUpdatesResumed() }
+    }
+
+    nonisolated func locationManager(_ manager: CLLocationManager, didExitRegion region: CLRegion) {
+        let identifier = region.identifier
+        Task { @MainActor in
+            if identifier == Self.resumeRegionIdentifier { resumeLocationUpdates() }
+        }
     }
 
     nonisolated func locationManagerDidChangeAuthorization(_ manager: CLLocationManager) {
