@@ -1860,7 +1860,7 @@ struct TripNavigationView: View {
                 token: token,
                 request: SetCpVisitOutcomeRequest(
                     id: cpVisitId,
-                    outcome: specialCpCompletionKind?.terminalOutcome ?? "other",
+                    outcome: specialCpCompletionKind?.clientNotSeenOutcome ?? "other",
                     postponeReasons: nil,
                     notes: specialCpCompletionKind?.clientNotSeenNotes ?? "Client not seen",
                     arrivalPhotoStorageId: storageId
@@ -1868,7 +1868,7 @@ struct TripNavigationView: View {
             )
             pendingCpTripCompletion = CpTripCompletionPayload(
                 clientMet: false,
-                outcome: specialCpCompletionKind?.terminalOutcome ?? "other",
+                outcome: specialCpCompletionKind?.clientNotSeenOutcome ?? "other",
                 notes: specialCpCompletionKind?.clientNotSeenNotes ?? "Client not seen",
                 postponeReasons: nil,
                 followUpDate: nil,
@@ -3364,6 +3364,18 @@ private enum CpSpecialCompletionKind: String, Identifiable {
         case .collection: return "collection_done"
         case .oldClient: return "old_client_visited"
         case .giftDistribution: return "gift_distributed"
+        }
+    }
+
+    /// Outcome for the "client not seen" close. Collection must not reuse
+    /// terminalOutcome: that recorded "collection_done" for a visit where
+    /// nobody was home, so reports showed money collected when none was.
+    /// Android sends "not_collected" here; the backend accepts it without a
+    /// follow-up date when the client was not met.
+    var clientNotSeenOutcome: String {
+        switch self {
+        case .collection: return "not_collected"
+        case .oldClient, .giftDistribution: return terminalOutcome
         }
     }
 

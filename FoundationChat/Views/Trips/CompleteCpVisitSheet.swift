@@ -376,12 +376,6 @@ struct CompleteCpVisitSheet: View {
         .overlay(alignment: .top) { Divider() }
     }
 
-    /// SV-cum-CP completions use the SV-style outcome set (which retains "Others").
-    /// Mirrors Android `svStyle = isSiteVisitMode || cpType == "sv_cum_cp"`.
-    private var svStyle: Bool {
-        isLockedSvMode || effectiveCpType.normalizedCpMarker == "sv_cum_cp"
-    }
-
     private var effectiveCpType: String? {
         cpType ?? cpVisitDetail?.cpType
     }
@@ -432,7 +426,12 @@ struct CompleteCpVisitSheet: View {
         if isSvCumCp {
             list.append(.cancel)
         }
-        if svStyle || cpTypeSupportsOtherOutcome(effectiveCpType) {
+        // Only the approved CP types (Booking, Gift, Old Client, Other CP).
+        // This used to add "Others" for SV cum CP / locked SV mode too, which
+        // the backend rejects when the client was met — the staffer picked it
+        // and got an error. Android offers it only for a pure site visit,
+        // which this CP sheet never handles.
+        if cpTypeSupportsOtherOutcome(effectiveCpType) {
             list.append(.other)
         }
         return list

@@ -874,15 +874,18 @@ enum MarketingConvexAPIService {
     static func rejectCpVisitOutcome(
         token: String,
         request: SetCpVisitOutcomeRequest
-    ) async throws -> String {
+    ) async throws -> String? {
         let data = try await post(path: "/api/marketing/clientPlaceVisits/setOutcome", token: token, body: request)
         let wrapper = try await decode(BaseMutationResponse.self, from: data)
         guard wrapper.success else { throw MarketingAPIError.server(wrapper.error ?? "Failed to reject visit") }
-        guard let followUpTaskId = wrapper.followUpTaskId?.trimmingCharacters(in: .whitespacesAndNewlines),
-              !followUpTaskId.isEmpty else {
-            throw MarketingAPIError.server("Visit was not closed with the required follow-up task. Please retry.")
-        }
-        return followUpTaskId
+        // The LMO follow-up task exists only when an SV cum CP rejection
+        // completes on the spot; one held for GM approval (beyond the
+        // geofence) creates it on approval, and other CPs never get one. The
+        // backend refuses the rejection outright if it cannot assign the task,
+        // so success is the confirmation. Demanding the id here reported
+        // saved rejections as failures. Parity with Mconnect.
+        let followUpTaskId = wrapper.followUpTaskId?.trimmingCharacters(in: .whitespacesAndNewlines)
+        return followUpTaskId?.isEmpty == false ? followUpTaskId : nil
     }
 
     /// Idempotently creates/links a referred client discovered during a New
