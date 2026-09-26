@@ -207,6 +207,23 @@ struct TasksListView: View {
         }
     }
 
+    /// Open SV approvals waiting on this person (out-of-station / same-day
+    /// site visits the GM must approve) always sit at the top, in every
+    /// filter; everything else keeps newest-first. Parity with Mconnect
+    /// TaskManagerFragment.
+    private func isPendingSvApproval(_ task: DailyTask) -> Bool {
+        guard let me = currentStaffId, task.assignedTo == me else { return false }
+        return task.sourceReferenceType == "out_of_station_handoff"
+            && (task.status == "pending" || task.status == "in-progress")
+    }
+
+    private func displayOrder(_ lhs: DailyTask, _ rhs: DailyTask) -> Bool {
+        let lhsPinned = isPendingSvApproval(lhs)
+        let rhsPinned = isPendingSvApproval(rhs)
+        if lhsPinned != rhsPinned { return lhsPinned }
+        return (lhs.creationTime ?? 0) > (rhs.creationTime ?? 0)
+    }
+
     private func tasksCacheKey() -> String {
         let staff = currentStaffId?.nonBlank ?? "anon"
         return "tasks.manager.\(staff)"
@@ -221,7 +238,7 @@ struct TasksListView: View {
            let cached = LocalCache.get(tasksCacheKey(), as: DailyTaskManagerCacheSnapshot.self) {
             let cachedTeamIds = Set(cached.teamIds)
             let scoped = scopedTaskManagerTasks(cached.tasks, teamIds: cachedTeamIds)
-                .sorted { ($0.creationTime ?? 0) > ($1.creationTime ?? 0) }
+                .sorted(by: displayOrder)
             tasks = scoped
             teamIds = cachedTeamIds
             scope = cached.scope
@@ -235,7 +252,7 @@ struct TasksListView: View {
         do {
             let payload = try await TasksConvexAPIService.getTaskManagerTasks(token: token, today: todayString)
             let scoped = scopedTaskManagerTasks(payload.tasks, teamIds: payload.teamIds)
-                .sorted { ($0.creationTime ?? 0) > ($1.creationTime ?? 0) }
+                .sorted(by: displayOrder)
             tasks = scoped
             teamIds = payload.teamIds
             scope = payload.scope
