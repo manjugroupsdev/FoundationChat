@@ -35,8 +35,28 @@ final class GeoTrackConsentManager {
 
     // MARK: - Derived
 
+    /// When this process last saw a decline. In memory on purpose: a relaunch
+    /// asks again at once.
+    private var lastDeclinedAt: Date?
+
+    /// How long a decline keeps the screen away, so it cannot reopen the
+    /// moment the person leaves it.
+    static let declineGrace: TimeInterval = 120
+
     /// Whether the user needs to see the consent screen.
-    var needsConsent: Bool { !hasConsented && !hasDeclined }
+    ///
+    /// A decline is honoured for the moment, never for good. It used to be
+    /// stored and silence this screen permanently — surviving logout, cleared
+    /// only by a reinstall — so a tracked staffer who tapped Decline once
+    /// clocked in every day with tracking off. The server shows exactly that
+    /// cohort. They are now asked again on the next app open.
+    var needsConsent: Bool {
+        if hasConsented { return false }
+        if let lastDeclinedAt, Date().timeIntervalSince(lastDeclinedAt) < Self.declineGrace {
+            return false
+        }
+        return true
+    }
 
     // MARK: - Init
 
@@ -68,6 +88,7 @@ final class GeoTrackConsentManager {
         userDefaults.set(true,  forKey: Self.consentDeclinedKey)
         hasConsented = false
         hasDeclined  = true
+        lastDeclinedAt = Date()
 
         isRecording = true
         defer { isRecording = false }
