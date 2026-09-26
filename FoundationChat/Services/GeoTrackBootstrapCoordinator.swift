@@ -110,6 +110,15 @@ final class GeoTrackBootstrapCoordinator {
 
         await reportPermissionsHealthy()
 
+        // Hold a tracked staffer on the sheet whether or not they are clocked
+        // in. This used to be decided only after the attendance check below,
+        // so anyone not yet clocked in (or during an attendance outage)
+        // returned early, was never asked, clocked in, and started the shift
+        // with tracking unable to run. Android's gate has never depended on
+        // attendance; this matches it.
+        permissionHelpTracked = true
+        shouldPresentPermissionHelp = !(await GeoTrackPermissionGuide.isTrackingReady())
+
         let attendanceOpen = await currentAttendanceOpenState()
         if attendanceOpen == false {
             await geoAPI.retryPendingTrackingControl(discardStart: true)
@@ -166,7 +175,10 @@ final class GeoTrackBootstrapCoordinator {
         } catch {
             lastError = error.localizedDescription
             permissionHelpTracked = true
-            shouldPresentPermissionHelp = isPermissionError(error)
+            // A network or server failure must not hide the sheet while a
+            // permission is still missing — only a readiness check may.
+            let ready = await GeoTrackPermissionGuide.isTrackingReady()
+            shouldPresentPermissionHelp = isPermissionError(error) || !ready
         }
     }
 

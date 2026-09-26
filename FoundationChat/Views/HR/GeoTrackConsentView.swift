@@ -521,7 +521,13 @@ final class GeoTrackPermissionGuide: NSObject, CLLocationManagerDelegate {
         let motionOK = !CMMotionActivityManager.isActivityAvailable()
             || motion == .authorized || motion == .restricted
         let refresh = UIApplication.shared.backgroundRefreshStatus
+        // Low Power Mode switches Background App Refresh off for every app and
+        // greys the toggle out, so nothing on this sheet can fix it. Counting
+        // it as missing would hold the person on an unclosable sheet until
+        // they leave Low Power Mode; the location session itself keeps
+        // running without it.
         let refreshOK = refresh == .available || refresh == .restricted
+            || (refresh == .denied && ProcessInfo.processInfo.isLowPowerModeEnabled)
         return base && motionOK && refreshOK
     }
 
