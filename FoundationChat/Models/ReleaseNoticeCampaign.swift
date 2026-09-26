@@ -12,20 +12,9 @@ struct ReleaseNoticeCampaign: Identifiable, Equatable {
 
     // Set to nil for releases that should not present a notice. Change the ID
     // only when a newly requested release banner must appear once per install.
-    static let active: ReleaseNoticeCampaign? = ReleaseNoticeCampaign(
-        id: "2026-09-10-service-apology-v1",
-        label: "SERVICE UPDATE",
-        title: "Sorry for the inconvenience",
-        tamilTitle: "தடங்கல்களுக்கு வருந்துகிறோம்",
-        transliteratedTamilTitle: "Thadangalukku varundhugindrom",
-        message: "Thank you for your patience. We have improved MConnect and will continue making your daily work faster and more reliable.",
-        highlights: [
-            "Improved CP and OTP handling",
-            "More reliable visit completion and syncing",
-            "General stability improvements",
-        ],
-        attribution: "MMS IT Team"
-    )
+    // The 10 Sep "Sorry for the inconvenience" apology notice is retired
+    // (26 Sep); no release notice is shown until a new campaign is set here.
+    static let active: ReleaseNoticeCampaign? = nil
 }
 
 enum ReleaseNoticeStore {
