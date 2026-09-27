@@ -109,6 +109,9 @@ struct TripNavigationView: View {
     @State private var otpLng: Double = 0
 
     @State private var errorMessage: String?
+    /// A CP proof photo whose upload failed, kept so the staffer retries only
+    /// the upload instead of re-swiping and re-taking the photo.
+    @State private var photoUploadRetry: PhotoUploadRetry?
     @State private var jointWorkflow: JointCpWorkflow?
     @State private var resolvedJointSummary: JointCpSummary?
     @State private var isJointMutationInProgress = false
@@ -431,6 +434,25 @@ struct TripNavigationView: View {
             Button("Done") { dismiss() }
         } message: {
             Text("The visit outcome was saved. It will be completed after GM approval.")
+        }
+        .alert(
+            "Photo didn't upload",
+            isPresented: Binding(
+                get: { photoUploadRetry != nil },
+                set: { if !$0 { photoUploadRetry = nil } }
+            ),
+            presenting: photoUploadRetry
+        ) { retry in
+            Button("Retry upload") {
+                photoUploadRetry = nil
+                Task { await retryPhotoUpload(retry) }
+            }
+            Button("Cancel", role: .cancel) {
+                photoUploadRetry = nil
+                abandonPhotoUpload(retry)
+            }
+        } message: { retry in
+            Text(retry.message)
         }
         .sheet(isPresented: $showDriverStartTripSheet) {
             DriverOdometerSheet(
@@ -1813,22 +1835,48 @@ struct TripNavigationView: View {
 
     private func uploadPhotoThenShowOtp(image: UIImage) async {
         arrivalStatusText = "Uploading photo…"
+        guard let storageId = await uploadProofPhoto(image, next: .showOtp) else { return }
+        pendingStorageId = storageId
+        arrivalStatusText = nil
+        showOtpSheet = true
+    }
+
+    /// Uploads a CP proof photo. On failure the photo is KEPT and the staffer
+    /// is offered "Retry upload"; every failure used to throw the photo away
+    /// and reset the swipe, so on a weak signal staff redid the whole arrival.
+    /// Returns nil when the retry prompt has been shown.
+    private func uploadProofPhoto(_ image: UIImage, next: PhotoUploadRetry.Next) async -> String? {
         do {
             let token = try requireToken()
             guard let jpeg = await optimizedArrivalImageData(image) else {
                 throw TripError.message("Could not encode photo")
             }
-            let storageId = try await HRConvexAPIService.uploadPhoto(token: token, imageData: jpeg)
-            pendingStorageId = storageId
-            arrivalStatusText = nil
-            showOtpSheet = true
+            return try await HRConvexAPIService.uploadPhoto(token: token, imageData: jpeg)
         } catch {
-            arrivalInProgress = false
-            arrivalStatusText = nil
-            errorMessage = error.localizedDescription
-            capturedImage = nil
-            resetArrivalSwipe()
+            arrivalStatusText = "Photo not uploaded yet"
+            photoUploadRetry = PhotoUploadRetry(
+                image: image,
+                next: next,
+                message: "\(error.localizedDescription) Your photo is saved on this phone, so you don't need to take it again."
+            )
+            return nil
         }
+    }
+
+    private func retryPhotoUpload(_ retry: PhotoUploadRetry) async {
+        switch retry.next {
+        case .showOtp: await uploadPhotoThenShowOtp(image: retry.image)
+        case .completeWithoutClient: await uploadPhotoThenCompleteWithoutClient(image: retry.image)
+        }
+    }
+
+    /// Cancel on the retry prompt: the old failure behaviour.
+    private func abandonPhotoUpload(_ retry: PhotoUploadRetry) {
+        arrivalInProgress = false
+        if retry.next == .completeWithoutClient { cpNoPathPhotoCapture = false }
+        arrivalStatusText = nil
+        capturedImage = nil
+        resetArrivalSwipe()
     }
 
     private func uploadPhotoThenCompleteWithoutClient(image: UIImage) async {
@@ -1839,12 +1887,9 @@ struct TripNavigationView: View {
             return
         }
         arrivalStatusText = "Uploading photo…"
+        guard let storageId = await uploadProofPhoto(image, next: .completeWithoutClient) else { return }
         do {
             let token = try requireToken()
-            guard let jpeg = await optimizedArrivalImageData(image) else {
-                throw TripError.message("Could not encode photo")
-            }
-            let storageId = try await HRConvexAPIService.uploadPhoto(token: token, imageData: jpeg)
             pendingStorageId = storageId
 
             arrivalStatusText = "Completing visit…"
@@ -1895,13 +1940,16 @@ struct TripNavigationView: View {
     private func optimizedArrivalImageData(_ image: UIImage) async -> Data? {
         await Task.detached(priority: .userInitiated) {
             let longest = max(image.size.width, image.size.height)
-            let scale = longest > 0 ? min(1, 1_600 / longest) : 1
+            // Proof photos are viewed on a phone or web card, not printed.
+            // 1024 px / 0.7 keeps faces and text readable at roughly a third
+            // of the old 1600 px / 0.8 size — what was timing out on weak uplinks.
+            let scale = longest > 0 ? min(1, 1_024 / longest) : 1
             let target = CGSize(width: image.size.width * scale, height: image.size.height * scale)
             let renderer = UIGraphicsImageRenderer(size: target)
             let resized = renderer.image { _ in
                 image.draw(in: CGRect(origin: .zero, size: target))
             }
-            return resized.jpegData(compressionQuality: 0.8)
+            return resized.jpegData(compressionQuality: 0.7)
         }.value
     }
 
@@ -3317,6 +3365,16 @@ private struct CpTripCompletedSheet: View {
         .padding(.bottom, 14)
         .background(Color.appSurface)
     }
+}
+
+/// A CP proof photo waiting for its upload to be retried, and what to do
+/// once it is uploaded.
+private struct PhotoUploadRetry: Identifiable {
+    enum Next { case showOtp, completeWithoutClient }
+    let id = UUID()
+    let image: UIImage
+    let next: Next
+    let message: String
 }
 
 private enum CpSpecialCompletionKind: String, Identifiable {
