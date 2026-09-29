@@ -1413,6 +1413,11 @@ enum HRConvexAPIService {
         var request = URLRequest(url: url)
         request.httpMethod = "GET"
         request.setValue("Bearer \(token)", forHTTPHeaderField: "Authorization")
+        // The server marks these `private, max-age=15`; honouring that served a
+        // pre-punch answer right after a clock-in or clock-out.
+        if path.hasPrefix("/api/hr/attendance/today") || path.hasPrefix("/api/hr/attendance/day-sessions") {
+            request.cachePolicy = .reloadIgnoringLocalCacheData
+        }
         let (data, response) = try await URLSession.shared.data(for: request)
         try checkHTTPError(data: data, response: response, request: request)
         return data

@@ -346,7 +346,7 @@ private struct MandatoryAppUpdateView: View {
             Spacer()
 
             Button(action: onUpdate) {
-                Text("Update now")
+                Text("Update in TestFlight")
                     .font(.system(size: 17, weight: .semibold))
                     .foregroundStyle(.white)
                     .frame(maxWidth: .infinity, minHeight: 54)
@@ -362,10 +362,9 @@ private struct MandatoryAppUpdateView: View {
         .accessibilityAddTraits(.isModal)
     }
 
+    // The marketing version is "1.0" on every build, so naming it ("M-Chat
+    // 1.0 is required") read as nonsense to someone already on 1.0.
     private var message: String {
-        if let version {
-            return "M-Chat \(version) is required. Please update to keep using the app."
-        }
-        return "A new version of M-Chat is available. Please update to keep using the app."
+        "A newer version of M-Chat is required to keep using the app. Open TestFlight and tap Update for M-Chat."
     }
 }

@@ -368,6 +368,7 @@ struct PunchFlowView: View {
                     )
                 }
 
+                LocalPunchState.record(isPunchIn: mode == .punchIn, token: token)
                 statusText = mode == .punchIn ? "Starting tracking..." : "Stopping tracking..."
                 await GeoTrackBootstrapCoordinator.shared.sync(
                     reason: mode == .punchIn ? "attendance-punch-in" : "attendance-punch-out",
@@ -403,6 +404,7 @@ struct PunchFlowView: View {
                     deviceId: deviceId
                 )
                 if queued {
+                    LocalPunchState.record(isPunchIn: mode == .punchIn, token: token)
                     didQueueOffline = true
                     onComplete?()
                     completedAt = tapTime

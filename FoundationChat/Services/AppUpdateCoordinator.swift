@@ -64,9 +64,22 @@ final class AppUpdateCoordinator {
         }
     }
 
+    /// M-Chat ships through TestFlight — it has no App Store listing, so the
+    /// App Store lookup below never finds a version. When the server policy
+    /// requires an update but carries no link, the update screen opens the
+    /// TestFlight app itself; if TestFlight is not installed, its App Store
+    /// page, so the staff member can install it and then update.
+    private static let testFlightAppURL = URL(string: "itms-beta://")!
+    private static let testFlightInstallURL = URL(string: "https://apps.apple.com/app/testflight/id899247664")!
+
     func openAppStore() {
-        guard let storeURL else { return }
-        UIApplication.shared.open(storeURL)
+        let target = storeURL ?? Self.testFlightAppURL
+        Task {
+            let opened = await UIApplication.shared.open(target)
+            if !opened {
+                _ = await UIApplication.shared.open(Self.testFlightInstallURL)
+            }
+        }
     }
 
     private func fetchLatestStoreVersion() async {
@@ -129,13 +142,15 @@ final class AppUpdateCoordinator {
                 ?? (policy.updateRequired == true ? policy.latestBuildNumber : nil)
             let belowMinimumBuild = candidateBuild.map { Self.currentBuildNumber < $0 } == true
             guard (policy.updateRequired == true || belowMinimumBuild),
-                  let candidateBuild,
-                  let rawURL = policy.updateUrl,
-                  let url = URL(string: rawURL)
+                  let candidateBuild
             else {
                 clearKnownUpdate()
                 return false
             }
+            // A TestFlight join link from Settings → Mobile App Version wins;
+            // without one the screen still appears and opens TestFlight. It
+            // used to require the link, so no iPhone was ever told to update.
+            let url = policy.updateUrl.flatMap { URL(string: $0) } ?? Self.testFlightAppURL
             saveKnownUpdate(
                 version: candidateVersion ?? Self.currentVersion,
                 build: candidateBuild,

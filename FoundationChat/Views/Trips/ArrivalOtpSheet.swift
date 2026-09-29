@@ -9,6 +9,7 @@ import SwiftUI
 struct ArrivalOtpSheet: View {
     @Environment(AuthStore.self) private var authStore
     @Environment(\.dismiss) private var dismiss
+    @Environment(\.scenePhase) private var scenePhase
 
     let visitId: String
     let phoneMasked: String?
@@ -76,22 +77,29 @@ struct ArrivalOtpSheet: View {
             }
 
             otpBoxes
-                .padding(.top, 4)
-
-            // Hidden TextField receives keyboard input; boxes are display-only.
-            TextField("", text: $otp)
-                .keyboardType(.numberPad)
-                .textContentType(.oneTimeCode)
-                .focused($fieldFocused)
-                .frame(width: 1, height: 1)
-                .opacity(0.01)
-                .accessibilityHidden(true)
-                .onChange(of: otp) { _, newValue in
-                    let digits = newValue.filter { $0.isNumber }
-                    if digits != newValue { otp = digits }
-                    if digits.count > 4 { otp = String(digits.prefix(4)) }
-                    errorText = nil
+                // The field that actually takes the keyboard sits ON the
+                // boxes (near-transparent but still hit-testable), so a tap on
+                // a box lands on the text field itself. It used to be a
+                // detached 1x1 view reachable only through focus state, and
+                // when that state went stale the boxes could not be typed in.
+                .overlay {
+                    TextField("", text: $otp)
+                        .keyboardType(.numberPad)
+                        .textContentType(.oneTimeCode)
+                        .focused($fieldFocused)
+                        .foregroundStyle(.clear)
+                        .tint(.clear)
+                        .frame(maxWidth: .infinity, maxHeight: .infinity)
+                        .opacity(0.02)
+                        .accessibilityHidden(true)
+                        .onChange(of: otp) { _, newValue in
+                            let digits = newValue.filter { $0.isNumber }
+                            if digits != newValue { otp = digits }
+                            if digits.count > 4 { otp = String(digits.prefix(4)) }
+                            errorText = nil
+                        }
                 }
+                .padding(.top, 4)
 
             if let errorText {
                 Label(errorText, systemImage: "exclamationmark.triangle.fill")
@@ -147,8 +155,21 @@ struct ArrivalOtpSheet: View {
         .padding(.bottom, 16)
         .frame(maxWidth: .infinity)
         .appLibraryNativeSheet([.medium, .large])
-        .onAppear { fieldFocused = true }
-        .onTapGesture { fieldFocused = true }
+        // A focus request made while the sheet is still animating in is
+        // dropped, and focus state is left saying "focused" — after which
+        // every tap assigned the same value, SwiftUI saw no change and never
+        // re-attached the keyboard. Parity with LoginView.refocusOtp.
+        .onAppear { refocusField(after: 0.35) }
+        // Taps on the boxes reach the text field directly (see the overlay);
+        // a tap anywhere else brings the keyboard back if it was dismissed.
+        .onTapGesture { if !fieldFocused { refocusField() } }
+        .onChange(of: scenePhase) { _, phase in
+            // Back from reading the OTP elsewhere (e.g. the GM's chat).
+            if phase == .active { refocusField() }
+        }
+        .onChange(of: showAssistancePrompt) { _, showing in
+            if !showing { refocusField(after: 0.3) }
+        }
         .alert("Request GM for OTP", isPresented: $showAssistancePrompt) {
             TextField("Remark (optional)", text: $assistanceRemark, axis: .vertical)
             Button("Cancel", role: .cancel) {}
@@ -173,7 +194,15 @@ struct ArrivalOtpSheet: View {
                 otpBox(at: index)
             }
         }
-        .onTapGesture { fieldFocused = true }
+    }
+
+    /// Clears focus, then sets it again on a later runloop turn, so SwiftUI
+    /// always sees a real change and re-attaches the keyboard.
+    private func refocusField(after delay: TimeInterval = 0.05) {
+        fieldFocused = false
+        DispatchQueue.main.asyncAfter(deadline: .now() + delay) {
+            fieldFocused = true
+        }
     }
 
     private func otpBox(at index: Int) -> some View {

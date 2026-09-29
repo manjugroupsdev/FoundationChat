@@ -1,4 +1,79 @@
+import CryptoKit
 import Foundation
+
+/// The punch THIS phone just made, remembered locally.
+///
+/// The attendance read endpoints are cached on the server for 2 minutes (and
+/// were cached by URLSession for 15 s). A read made right after a clock-in could
+/// therefore still say "not punched in": the CP list flipped straight back to
+/// "Need to Clock In", a trip refused to start, and GeoTrack's post-punch sync
+/// read "closed" and discarded the tracking start. Android never hit this — its
+/// screens follow the shared attendance state, which flips the moment the punch
+/// succeeds (or is queued offline). This is the iOS equivalent.
+enum LocalPunchState {
+    struct Punch: Codable, Equatable {
+        let isPunchIn: Bool
+        let at: Date
+        /// India calendar day ("yyyy-MM-dd") the punch belongs to.
+        let day: String
+        /// One-way fingerprint of the session that punched, so a second
+        /// staff member signing in on the same phone never inherits it.
+        let owner: String
+    }
+
+    /// Longer than the server's attendance read cache (120 s), so a stale
+    /// cached answer can never outlive the local override.
+    static let freshWindow: TimeInterval = 180
+
+    private static let key = "attendance.lastLocalPunch.v1"
+
+    /// Call only once the server accepted the punch, or it was queued offline.
+    static func record(isPunchIn: Bool, token: String, at date: Date = Date()) {
+        let punch = Punch(isPunchIn: isPunchIn, at: date, day: indiaDay(date), owner: fingerprint(token))
+        if let data = try? JSONEncoder().encode(punch) {
+            UserDefaults.standard.set(data, forKey: key)
+        }
+    }
+
+    static func latest(token: String) -> Punch? {
+        guard let data = UserDefaults.standard.data(forKey: key),
+              let punch = try? JSONDecoder().decode(Punch.self, from: data),
+              punch.owner == fingerprint(token)
+        else { return nil }
+        return punch
+    }
+
+    /// Today's latest local punch, when it is recent enough that the server's
+    /// cached answer may not include it yet.
+    static func freshPunch(token: String, now: Date = Date()) -> Punch? {
+        guard let punch = latest(token: token), punch.day == indiaDay(now) else { return nil }
+        let age = now.timeIntervalSince(punch.at)
+        return (age >= -60 && age <= freshWindow) ? punch : nil
+    }
+
+    /// True when this phone punched in at any time today (a lenient day gate,
+    /// like the server's firstPunchIn).
+    static func punchedInToday(token: String, now: Date = Date()) -> Bool {
+        guard let punch = latest(token: token), punch.day == indiaDay(now) else { return false }
+        return punch.isPunchIn
+    }
+
+    private static func fingerprint(_ token: String) -> String {
+        let digest = SHA256.hash(data: Data(token.utf8))
+        return digest.prefix(8).map { String(format: "%02x", $0) }.joined()
+    }
+
+    /// Attendance days are India days on the server; match them regardless of
+    /// the phone's calendar or region settings.
+    static func indiaDay(_ date: Date) -> String {
+        let formatter = DateFormatter()
+        formatter.calendar = Calendar(identifier: .gregorian)
+        formatter.locale = Locale(identifier: "en_US_POSIX")
+        formatter.timeZone = TimeZone(identifier: "Asia/Kolkata")
+        formatter.dateFormat = "yyyy-MM-dd"
+        return formatter.string(from: date)
+    }
+}
 
 enum AttendanceTrackingGate {
     static func isClockedInForToday(
@@ -39,9 +114,10 @@ enum AttendanceTrackingGate {
     }
 
     static func isClockedInForToday(token: String, date: Date = Date()) async -> Bool {
-        let formatter = DateFormatter()
-        formatter.dateFormat = "yyyy-MM-dd"
-        let today = formatter.string(from: date)
+        // A punch-in this phone made today counts even before the server's
+        // cached reads catch up (or while it is still queued offline).
+        if LocalPunchState.punchedInToday(token: token, now: date) { return true }
+        let today = LocalPunchState.indiaDay(date)
 
         // Avoid `async let` with optional-try here. On physical devices this
         // combination can trip Swift's async-let allocator when the parent
@@ -64,9 +140,8 @@ enum AttendanceTrackingGate {
     }
 
     static func hasOpenSessionForToday(token: String, date: Date = Date()) async -> Bool {
-        let formatter = DateFormatter()
-        formatter.dateFormat = "yyyy-MM-dd"
-        let today = formatter.string(from: date)
+        if let fresh = LocalPunchState.freshPunch(token: token, now: date) { return fresh.isPunchIn }
+        let today = LocalPunchState.indiaDay(date)
 
         // Keep these requests cancellation-safe. See `isClockedInForToday`.
         let todayAttendance = try? await HRConvexAPIService.getTodayAttendance(token: token)
@@ -116,9 +191,11 @@ enum AttendanceTrackingGate {
     /// as an in-app punch does.
     static func hasOpenSessionNow(token: String, date: Date = Date()) async -> Bool? {
         guard !token.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else { return nil }
-        let formatter = DateFormatter()
-        formatter.dateFormat = "yyyy-MM-dd"
-        let today = formatter.string(from: date)
+        // Within minutes of a punch on this phone, the punch is the truth: the
+        // server's cached read would otherwise tell GeoTrack "closed" right
+        // after a clock-in and the tracking start was discarded.
+        if let fresh = LocalPunchState.freshPunch(token: token, now: date) { return fresh.isPunchIn }
+        let today = LocalPunchState.indiaDay(date)
 
         var todayAnswered = false
         var dayAnswered = false
