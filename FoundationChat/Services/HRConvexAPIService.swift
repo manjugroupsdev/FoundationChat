@@ -587,7 +587,46 @@ enum HRConvexAPIService {
         let total: Int?
         let records: [ConvexAttendanceRecord]?
         let requests: [ConvexAttendanceRecord]?
+        let nextCursor: String?
+        let hasMore: Bool?
         let error: String?
+
+        var page: ConvexAttendancePage {
+            ConvexAttendancePage(
+                records: records ?? [],
+                requests: requests ?? [],
+                nextCursor: hasMore == false ? nil : nextCursor?.nilIfBlankAPI,
+                total: total
+            )
+        }
+    }
+
+    private struct AttendanceFilterOptionsResponse: Decodable, Sendable {
+        struct StaffOption: Decodable, Sendable {
+            let id: String?
+            let name: String?
+        }
+        let success: Bool
+        let staff: [StaffOption]?
+    }
+
+    /// Every staff member in a list's date range (not just the loaded page),
+    /// for the Staff filter. `view` is my / team / approval / all / hr_review.
+    static func getAttendanceFilterStaff(
+        token: String,
+        view: String,
+        fromDate: String,
+        toDate: String
+    ) async throws -> [(id: String, name: String)] {
+        let path = "/api/hr/attendance/filter-options" + querySuffix([
+            "view": view, "fromDate": fromDate, "toDate": toDate
+        ])
+        let data = try await get(path: path, token: token)
+        let wrapper = try await decode(AttendanceFilterOptionsResponse.self, from: data)
+        return (wrapper.staff ?? []).compactMap { option in
+            guard let id = option.id?.nilIfBlankAPI else { return nil }
+            return (id, option.name?.nilIfBlankAPI ?? id)
+        }
     }
 
     private struct AttendanceTeamScopeResponse: Decodable, Sendable {
@@ -646,13 +685,29 @@ enum HRConvexAPIService {
         search: String? = nil,
         pageSize: Int? = nil
     ) async throws -> [ConvexAttendanceRecord] {
+        try await getMyAttendancePage(
+            token: token, fromDate: fromDate, toDate: toDate, status: status,
+            staffId: staffId, search: search, pageSize: pageSize
+        ).records
+    }
+
+    static func getMyAttendancePage(
+        token: String,
+        fromDate: String,
+        toDate: String,
+        status: String? = nil,
+        staffId: String? = nil,
+        search: String? = nil,
+        pageSize: Int? = nil,
+        cursor: String? = nil
+    ) async throws -> ConvexAttendancePage {
         let path = "/api/hr/attendance/my" + querySuffix([
             "fromDate": fromDate, "toDate": toDate, "status": status,
-            "staffId": staffId, "search": search, "pageSize": pageSize.map { String($0) }
+            "staffId": staffId, "search": search, "pageSize": pageSize.map { String($0) },
+            "cursor": cursor
         ])
         let data = try await get(path: path, token: token)
-        let wrapper = try await decode(AttendanceListResponse.self, from: data)
-        return wrapper.records ?? []
+        return try await decode(AttendanceListResponse.self, from: data).page
     }
 
     static func hasReportingTeam(token: String) async throws -> Bool {
@@ -748,7 +803,29 @@ enum HRConvexAPIService {
         search: String? = nil,
         pageSize: Int? = nil
     ) async throws -> [ConvexAttendanceRecord] {
+        let page = try await getPendingAttendanceApprovalsPage(
+            token: token, all: all, scope: scope, includeRequests: includeRequests,
+            fromDate: fromDate, toDate: toDate, status: status, staffId: staffId,
+            search: search, pageSize: pageSize
+        )
+        return page.records + (includeRequests ? page.requests : [])
+    }
+
+    static func getPendingAttendanceApprovalsPage(
+        token: String,
+        all: Bool = false,
+        scope: String? = nil,
+        includeRequests: Bool = false,
+        fromDate: String? = nil,
+        toDate: String? = nil,
+        status: String? = nil,
+        staffId: String? = nil,
+        search: String? = nil,
+        pageSize: Int? = nil,
+        cursor: String? = nil
+    ) async throws -> ConvexAttendancePage {
         var queryItems: [URLQueryItem] = []
+        if let cursor { queryItems.append(URLQueryItem(name: "cursor", value: cursor)) }
         if all {
             queryItems.append(URLQueryItem(name: "all", value: "true"))
         }
@@ -769,8 +846,7 @@ enum HRConvexAPIService {
         components.queryItems = queryItems.isEmpty ? nil : queryItems
         let path = "/api/hr/attendance/pending-approvals\(components.percentEncodedQuery.map { "?\($0)" } ?? "")"
         let data = try await get(path: path, token: token)
-        let wrapper = try await decode(AttendanceListResponse.self, from: data)
-        return (wrapper.records ?? []) + (includeRequests ? wrapper.requests ?? [] : [])
+        return try await decode(AttendanceListResponse.self, from: data).page
     }
 
     static func getTeamAttendance(
@@ -782,13 +858,29 @@ enum HRConvexAPIService {
         search: String? = nil,
         pageSize: Int? = nil
     ) async throws -> [ConvexAttendanceRecord] {
+        try await getTeamAttendancePage(
+            token: token, fromDate: fromDate, toDate: toDate, status: status,
+            staffId: staffId, search: search, pageSize: pageSize
+        ).records
+    }
+
+    static func getTeamAttendancePage(
+        token: String,
+        fromDate: String,
+        toDate: String,
+        status: String? = nil,
+        staffId: String? = nil,
+        search: String? = nil,
+        pageSize: Int? = nil,
+        cursor: String? = nil
+    ) async throws -> ConvexAttendancePage {
         let path = "/api/hr/attendance/team-attendance" + querySuffix([
             "fromDate": fromDate, "toDate": toDate, "status": status,
-            "staffId": staffId, "search": search, "pageSize": pageSize.map { String($0) }
+            "staffId": staffId, "search": search, "pageSize": pageSize.map { String($0) },
+            "cursor": cursor
         ])
         let data = try await get(path: path, token: token)
-        let wrapper = try await decode(AttendanceListResponse.self, from: data)
-        return wrapper.records ?? []
+        return try await decode(AttendanceListResponse.self, from: data).page
     }
 
     static func getAllAttendance(
@@ -800,10 +892,27 @@ enum HRConvexAPIService {
         staffId: String? = nil,
         pageSize: Int? = nil
     ) async throws -> [ConvexAttendanceRecord] {
+        try await getAllAttendancePage(
+            token: token, fromDate: fromDate, toDate: toDate, search: search,
+            status: status, staffId: staffId, pageSize: pageSize
+        ).records
+    }
+
+    static func getAllAttendancePage(
+        token: String,
+        fromDate: String,
+        toDate: String,
+        search: String? = nil,
+        status: String? = nil,
+        staffId: String? = nil,
+        pageSize: Int? = nil,
+        cursor: String? = nil
+    ) async throws -> ConvexAttendancePage {
         var queryItems = [
             URLQueryItem(name: "fromDate", value: fromDate),
             URLQueryItem(name: "toDate", value: toDate)
         ]
+        if let cursor { queryItems.append(URLQueryItem(name: "cursor", value: cursor)) }
         if let search = search?.trimmingCharacters(in: .whitespacesAndNewlines), !search.isEmpty {
             queryItems.append(URLQueryItem(name: "search", value: search))
         }
@@ -815,8 +924,7 @@ enum HRConvexAPIService {
         components.queryItems = queryItems
         let path = "/api/hr/attendance/all?\(components.percentEncodedQuery ?? "")"
         let data = try await get(path: path, token: token)
-        let wrapper = try await decode(AttendanceListResponse.self, from: data)
-        return wrapper.records ?? []
+        return try await decode(AttendanceListResponse.self, from: data).page
     }
 
     static func getHrReview(
@@ -828,13 +936,29 @@ enum HRConvexAPIService {
         search: String? = nil,
         pageSize: Int? = nil
     ) async throws -> [ConvexAttendanceRecord] {
+        try await getHrReviewPage(
+            token: token, fromDate: fromDate, toDate: toDate, status: status,
+            staffId: staffId, search: search, pageSize: pageSize
+        ).records
+    }
+
+    static func getHrReviewPage(
+        token: String,
+        fromDate: String,
+        toDate: String,
+        status: String? = nil,
+        staffId: String? = nil,
+        search: String? = nil,
+        pageSize: Int? = nil,
+        cursor: String? = nil
+    ) async throws -> ConvexAttendancePage {
         let path = "/api/hr/attendance/hr-review" + querySuffix([
             "fromDate": fromDate, "toDate": toDate, "status": status,
-            "staffId": staffId, "search": search, "pageSize": pageSize.map { String($0) }
+            "staffId": staffId, "search": search, "pageSize": pageSize.map { String($0) },
+            "cursor": cursor
         ])
         let data = try await get(path: path, token: token)
-        let wrapper = try await decode(AttendanceListResponse.self, from: data)
-        return wrapper.records ?? []
+        return try await decode(AttendanceListResponse.self, from: data).page
     }
 
     static func approveAttendance(token: String, id: String, approvedAttendance: String, isRequest: Bool? = nil) async throws {
@@ -1495,5 +1619,20 @@ enum HRConvexAPIError: LocalizedError {
         case .server(let msg): return msg
         case .unexpected(let msg): return msg
         }
+    }
+}
+
+/// One page of an attendance list. `nextCursor` is nil on the last page.
+struct ConvexAttendancePage: Sendable {
+    let records: [ConvexAttendanceRecord]
+    let requests: [ConvexAttendanceRecord]
+    let nextCursor: String?
+    let total: Int?
+}
+
+private extension String {
+    var nilIfBlankAPI: String? {
+        let trimmed = trimmingCharacters(in: .whitespacesAndNewlines)
+        return trimmed.isEmpty ? nil : trimmed
     }
 }

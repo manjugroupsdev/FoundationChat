@@ -72,6 +72,12 @@ struct ConvexAttendanceListView: View {
     @State private var approvalReviewRecord: ConvexAttendanceRecord?
     @State private var requestReviewRecord: ConvexAttendanceRecord?
     @State private var displayedMyAttendanceCacheKey: String?
+    // Server paging. Every list used to stop at its first 100 rows, and the
+    // Staff filter only offered people inside those rows.
+    @State private var tabCursors: [AttendanceListTab: String] = [:]
+    @State private var tabQueryKeys: [AttendanceListTab: String] = [:]
+    @State private var loadingMoreTabs: Set<AttendanceListTab> = []
+    @State private var serverStaffOptions: [String: [AdvancedFilterOption]] = [:]
 
     private var visibleTabs: [AttendanceListTab] {
         var tabs: [AttendanceListTab] = [.my]
@@ -266,6 +272,7 @@ struct ConvexAttendanceListView: View {
             ToolbarItemGroup(placement: .topBarTrailing) {
                 Button {
                     showFilter = true
+                    Task { await loadServerStaffOptions(for: selectedTab) }
                 } label: {
                     Image(systemName: "line.3.horizontal.decrease")
                         .font(.system(size: 16, weight: .semibold))
@@ -615,6 +622,14 @@ struct ConvexAttendanceListView: View {
                             }
                         }
                     }
+                    // Appears only when the server has more rows; scrolling
+                    // it into view fetches the next page.
+                    if tabCursors[selectedTab] != nil {
+                        ProgressView()
+                            .frame(maxWidth: .infinity)
+                            .padding(.vertical, 14)
+                            .onAppear { loadMoreIfNeeded(selectedTab) }
+                    }
                 }
                 .padding(.horizontal, 12)
                 .padding(.top, 15)
@@ -678,7 +693,6 @@ struct ConvexAttendanceListView: View {
     @MainActor
     private func loadDataAsync() async {
         guard let token = authStore.currentSession?.token else { return }
-        let (from, to) = filter.apiRange
         loadedTabs.removeAll()
         refreshedTabs.removeAll()
         loadingTabs.removeAll()
@@ -687,19 +701,17 @@ struct ConvexAttendanceListView: View {
         allApprovalRecords = []
         hrReviewRecords = []
         allRecords = []
+        tabCursors.removeAll()
+        tabQueryKeys.removeAll()
         hydrateMyAttendanceCacheIfNeeded()
         isLoading = true
         do {
-            let loadedRecords = try await HRConvexAPIService.getMyAttendance(
-                token: token,
-                fromDate: from,
-                toDate: to,
-                status: advancedFilter.selected("status").first,
-                staffId: advancedFilter.selected("staff").first,
-                search: normalizedSearchText.nilIfBlank,
-                pageSize: 100
-            )
+            let queryKey = pagingQueryKey(for: .my)
+            let page = try await fetchAttendancePage(for: .my, token: token, cursor: nil)
+            let loadedRecords = page.records
             records = loadedRecords
+            tabCursors[.my] = page.nextCursor
+            tabQueryKeys[.my] = queryKey
             if let cacheKey = myAttendanceCacheKey {
                 LocalCache.put(cacheKey, loadedRecords)
             }
@@ -759,70 +771,16 @@ struct ConvexAttendanceListView: View {
         else { return }
 
         hydrateAttendanceTabCache(tab)
-        let (from, to) = filter.apiRange
         loadingTabs.insert(tab)
+        let queryKey = pagingQueryKey(for: tab)
         Task {
             do {
-                let loadedRecords: [ConvexAttendanceRecord]
-                switch tab {
-                case .my:
-                    loadedRecords = []
-                case .team:
-                    loadedRecords = try await HRConvexAPIService.getTeamAttendance(
-                        token: token,
-                        fromDate: from,
-                        toDate: to,
-                        status: advancedFilter.selected("status").first,
-                        staffId: advancedFilter.selected("staff").first,
-                        search: normalizedSearchText.nilIfBlank,
-                        pageSize: 100
-                    )
-                case .approval:
-                    loadedRecords = try await HRConvexAPIService.getPendingAttendanceApprovals(
-                        token: token,
-                        scope: "direct",
-                        includeRequests: true,
-                        fromDate: from,
-                        toDate: to,
-                        status: advancedFilter.selected("status").first,
-                        staffId: advancedFilter.selected("staff").first,
-                        search: normalizedSearchText.nilIfBlank,
-                        pageSize: 100
-                    )
-                case .allApproval:
-                    loadedRecords = try await HRConvexAPIService.getPendingAttendanceApprovals(
-                        token: token,
-                        all: true,
-                        fromDate: from,
-                        toDate: to,
-                        status: advancedFilter.selected("status").first,
-                        staffId: advancedFilter.selected("staff").first,
-                        search: normalizedSearchText.nilIfBlank,
-                        pageSize: 100
-                    )
-                case .hrReview:
-                    loadedRecords = try await HRConvexAPIService.getHrReview(
-                        token: token,
-                        fromDate: Self.allTimeReviewRange.from,
-                        toDate: Self.allTimeReviewRange.to,
-                        status: advancedFilter.selected("status").first,
-                        staffId: advancedFilter.selected("staff").first,
-                        search: normalizedSearchText.nilIfBlank,
-                        pageSize: 100
-                    )
-                case .all:
-                    loadedRecords = try await HRConvexAPIService.getAllAttendance(
-                        token: token,
-                        fromDate: from,
-                        toDate: to,
-                        search: normalizedSearchText.nilIfBlank,
-                        status: advancedFilter.selected("status").first,
-                        staffId: advancedFilter.selected("staff").first,
-                        pageSize: 100
-                    )
-                }
+                let page = try await fetchAttendancePage(for: tab, token: token, cursor: nil)
+                let loadedRecords = page.records
 
                 await MainActor.run {
+                    tabCursors[tab] = page.nextCursor
+                    tabQueryKeys[tab] = queryKey
                     assignAttendanceRecords(loadedRecords, to: tab)
                     if let cacheKey = attendanceCacheKey(for: tab) {
                         LocalCache.put(cacheKey, loadedRecords)
@@ -857,19 +815,18 @@ struct ConvexAttendanceListView: View {
               let token = authStore.currentSession?.token
         else { return }
 
-        let range = filter.apiRange
-        let query = normalizedSearchText.nilIfBlank
         hydrateAttendanceTabCache(.all)
         loadingTabs.insert(.all)
         do {
-            let loadedRecords = try await HRConvexAPIService.getAllAttendance(
-                token: token,
-                fromDate: range.from,
-                toDate: range.to,
-                search: query
-            )
+            // Same paged request as the tab's first load, so its cursor can be
+            // followed (the unpaged form returns a cursor the paged form can't read).
+            let queryKey = pagingQueryKey(for: .all)
+            let page = try await fetchAttendancePage(for: .all, token: token, cursor: nil)
+            let loadedRecords = page.records
             guard !Task.isCancelled else { return }
             allRecords = loadedRecords
+            tabCursors[.all] = page.nextCursor
+            tabQueryKeys[.all] = queryKey
             if let cacheKey = attendanceCacheKey(for: .all) {
                 LocalCache.put(cacheKey, loadedRecords)
             }
@@ -895,6 +852,142 @@ struct ConvexAttendanceListView: View {
         else { return }
         assignAttendanceRecords(cached, to: tab)
         loadedTabs.insert(tab)
+    }
+
+    /// Identifies what a tab's rows were loaded for; a page fetched for an
+    /// older query is dropped instead of being appended to the new list.
+    private func pagingQueryKey(for tab: AttendanceListTab) -> String {
+        let (from, to) = filter.apiRange
+        let status = advancedFilter.selected("status").first ?? ""
+        let staff = advancedFilter.selected("staff").first ?? ""
+        return "\(tab.rawValue)|\(from)|\(to)|\(status)|\(staff)|\(normalizedSearchText)"
+    }
+
+    /// One page of a tab, with the same filters its list was loaded with.
+    private func fetchAttendancePage(
+        for tab: AttendanceListTab,
+        token: String,
+        cursor: String?
+    ) async throws -> ConvexAttendancePage {
+        let (from, to) = filter.apiRange
+        let status = advancedFilter.selected("status").first
+        let staffId = advancedFilter.selected("staff").first
+        let search = normalizedSearchText.nilIfBlank
+        switch tab {
+        case .my:
+            return try await HRConvexAPIService.getMyAttendancePage(
+                token: token, fromDate: from, toDate: to, status: status,
+                staffId: staffId, search: search, pageSize: 100, cursor: cursor
+            )
+        case .team:
+            return try await HRConvexAPIService.getTeamAttendancePage(
+                token: token, fromDate: from, toDate: to, status: status,
+                staffId: staffId, search: search, pageSize: 100, cursor: cursor
+            )
+        case .approval:
+            let page = try await HRConvexAPIService.getPendingAttendanceApprovalsPage(
+                token: token, scope: "direct", includeRequests: true,
+                fromDate: from, toDate: to, status: status, staffId: staffId,
+                search: search, pageSize: 100, cursor: cursor
+            )
+            return ConvexAttendancePage(
+                records: page.records + page.requests, requests: [],
+                nextCursor: page.nextCursor, total: page.total
+            )
+        case .allApproval:
+            return try await HRConvexAPIService.getPendingAttendanceApprovalsPage(
+                token: token, all: true, fromDate: from, toDate: to, status: status,
+                staffId: staffId, search: search, pageSize: 100, cursor: cursor
+            )
+        case .hrReview:
+            return try await HRConvexAPIService.getHrReviewPage(
+                token: token,
+                fromDate: Self.allTimeReviewRange.from,
+                toDate: Self.allTimeReviewRange.to,
+                status: status, staffId: staffId, search: search,
+                pageSize: 100, cursor: cursor
+            )
+        case .all:
+            return try await HRConvexAPIService.getAllAttendancePage(
+                token: token, fromDate: from, toDate: to, search: search,
+                status: status, staffId: staffId, pageSize: 100, cursor: cursor
+            )
+        }
+    }
+
+    private func loadedRecords(for tab: AttendanceListTab) -> [ConvexAttendanceRecord] {
+        switch tab {
+        case .my: return records
+        case .team: return teamRecords
+        case .approval: return approvalRecords
+        case .allApproval: return allApprovalRecords
+        case .hrReview: return hrReviewRecords
+        case .all: return allRecords
+        }
+    }
+
+    @MainActor
+    private func loadMoreIfNeeded(_ tab: AttendanceListTab) {
+        guard let cursor = tabCursors[tab],
+              !loadingMoreTabs.contains(tab),
+              !isTabLoading(tab),
+              let token = authStore.currentSession?.token
+        else { return }
+        let queryKey = pagingQueryKey(for: tab)
+        guard tabQueryKeys[tab] == queryKey else { return }
+        loadingMoreTabs.insert(tab)
+        Task {
+            let page = try? await fetchAttendancePage(for: tab, token: token, cursor: cursor)
+            await MainActor.run {
+                defer { _ = loadingMoreTabs.remove(tab) }
+                guard let page,
+                      tabQueryKeys[tab] == queryKey,
+                      tabCursors[tab] == cursor
+                else { return }
+                // Pages don't overlap, but a punch written between two
+                // requests can shift a boundary; never show a row twice.
+                let existing = loadedRecords(for: tab)
+                var seen = Set(existing.map(\.id))
+                let fresh = page.records.filter { seen.insert($0.id).inserted }
+                assignAttendanceRecords(existing + fresh, to: tab)
+                tabCursors[tab] = page.nextCursor
+            }
+        }
+    }
+
+    /// Everyone in the tab's date range, from the server, so the Staff filter
+    /// can find people beyond the rows loaded so far.
+    @MainActor
+    private func loadServerStaffOptions(for tab: AttendanceListTab) async {
+        let view: String
+        let range: (from: String, to: String)
+        switch tab {
+        case .my: return
+        case .team: view = "team"; range = filter.apiRange
+        case .approval: view = "approval"; range = filter.apiRange
+        case .allApproval, .all: view = "all"; range = filter.apiRange
+        case .hrReview: view = "hr_review"; range = Self.allTimeReviewRange
+        }
+        let key = "\(view)|\(range.from)|\(range.to)"
+        guard serverStaffOptions[key] == nil,
+              let token = authStore.currentSession?.token,
+              let staff = try? await HRConvexAPIService.getAttendanceFilterStaff(
+                  token: token, view: view, fromDate: range.from, toDate: range.to
+              )
+        else { return }
+        serverStaffOptions[key] = staff.map { AdvancedFilterOption(id: $0.id, label: $0.name) }
+    }
+
+    private var serverStaffOptionsForSelectedTab: [AdvancedFilterOption] {
+        let key: String
+        switch selectedTab {
+        case .my: return []
+        case .team: key = "team|\(filter.apiRange.from)|\(filter.apiRange.to)"
+        case .approval: key = "approval|\(filter.apiRange.from)|\(filter.apiRange.to)"
+        case .allApproval, .all: key = "all|\(filter.apiRange.from)|\(filter.apiRange.to)"
+        case .hrReview: key = "hr_review|\(Self.allTimeReviewRange.from)|\(Self.allTimeReviewRange.to)"
+        }
+        return serverStaffOptions[key] ?? []
     }
 
     @MainActor
@@ -988,7 +1081,12 @@ struct ConvexAttendanceListView: View {
             )
         ]
         if selectedTab != .my {
-            categories.append(AdvancedFilterCategory(id: "staff", title: "Staff", options: attendanceStaffOptions))
+            categories.append(AdvancedFilterCategory(
+                id: "staff",
+                title: "Staff",
+                options: attendanceStaffOptions,
+                selectionMode: .single
+            ))
         }
         return categories
     }
@@ -1003,10 +1101,15 @@ struct ConvexAttendanceListView: View {
 
     private var attendanceStaffOptions: [AdvancedFilterOption] {
         var seen = Set<String>()
-        return attendanceSourceRecords.compactMap { record -> AdvancedFilterOption? in
+        let local = attendanceSourceRecords.compactMap { record -> AdvancedFilterOption? in
             guard let id = record.staffId?.nilIfBlank, let name = record.staffName?.nilIfBlank else { return nil }
             return AdvancedFilterOption(id: id, label: name, subtitle: record.employeeId?.nilIfBlank)
-        }.filter { seen.insert($0.id).inserted }.sorted { $0.label < $1.label }
+        }
+        // Loaded rows first (they carry the employee id), then everyone else
+        // in the date range that the server reports.
+        return (local + serverStaffOptionsForSelectedTab)
+            .filter { seen.insert($0.id).inserted }
+            .sorted { $0.label.localizedCaseInsensitiveCompare($1.label) == .orderedAscending }
     }
 
     private func normalizedAttendanceStatus(_ record: ConvexAttendanceRecord) -> String? {
