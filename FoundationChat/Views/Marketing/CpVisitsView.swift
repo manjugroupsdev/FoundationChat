@@ -2634,6 +2634,8 @@ private struct CreateCpVisitSheet: View {
                 },
                 onSelect: { item in
                     selectedLmo = item
+                    // The user's own pick: never replaced by a default.
+                    autofilledLmoId = nil
                     showLmoPicker = false
                 }
             )
@@ -2802,18 +2804,38 @@ private struct CreateCpVisitSheet: View {
         }
     }
 
+    /// Exactly convex/marketing/lib/cpVisitLmo.ts (the web form and the create
+    /// endpoint): an active Telesales LMO, any Channel Partner, or ANY Sales &
+    /// Marketing staff member. It used to accept only BDO designations in
+    /// Sales & Marketing, so eligible staff were missing and never prefilled.
     private var eligibleLmoStaff: [ConvexStaffListItem] {
-        staff.filter { item in
+        func norm(_ value: String?) -> String {
+            var text = (value ?? "").trimmingCharacters(in: .whitespacesAndNewlines).lowercased()
+            text = text.replacingOccurrences(of: "&", with: " and ")
+            text = text.replacingOccurrences(of: "[^a-z0-9]+", with: " ", options: .regularExpression)
+            return text.trimmingCharacters(in: .whitespaces)
+        }
+        return staff.filter { item in
             guard (item.status ?? "active").caseInsensitiveCompare("active") == .orderedSame else { return false }
-            let department = (item.department ?? "").lowercased()
-            let designation = (item.designation ?? "").lowercased()
+            let department = norm(item.department)
+            let designation = norm(item.designation)
             let telesalesLmo = department.contains("telesales")
                 && (designation == "lmo" || designation.contains("lead management executive") || designation.contains("telecaller"))
             let channelPartner = department.contains("channel partner")
-            let salesMarketingBdo = department.contains("sales") && department.contains("marketing")
-                && (designation == "bdo" || designation.contains("business development officer") || designation.contains("business development executive"))
-            return telesalesLmo || channelPartner || salesMarketingBdo
+            let salesMarketing = department.contains("sales") && department.contains("marketing")
+            return telesalesLmo || channelPartner || salesMarketing
         }
+    }
+
+    /// With no lead owner to use, default the LMO to the logged-in staff
+    /// member when they are eligible — what the web CP form does.
+    private func prefillLmoFromSelf() {
+        guard selectedLmo == nil,
+              let myId = (authStore.currentSession?.user.staffId ?? authStore.currentSession?.user._id)?.blankToNil,
+              let me = eligibleLmoStaff.first(where: { $0.id == myId })
+        else { return }
+        selectedLmo = me
+        autofilledLmoId = me.id
     }
 
     private func staffSelectionRow(_ item: ConvexStaffListItem, isSelected: Bool) -> some View {
@@ -3116,6 +3138,7 @@ private struct CreateCpVisitSheet: View {
             if selectedStaff == nil, let sessionStaffId {
                 selectedStaff = staff.first { $0.id == sessionStaffId }
             }
+            prefillLmoFromSelf()
         } catch {
             errorMessage = error.localizedDescription
         }
@@ -3243,7 +3266,8 @@ private struct CreateCpVisitSheet: View {
     /// or missing owner leaves the field empty so the required check still
     /// asks the user to pick one.
     private func prefillLmoFromLead(_ lead: TelecallerLeadSearchData) {
-        guard selectedLmo == nil,
+        let holdsDefault = selectedLmo == nil || selectedLmo?.id == autofilledLmoId
+        guard holdsDefault,
               let ownerId = lead.assignedToStaffId?.blankToNil,
               let owner = eligibleLmoStaff.first(where: { $0.id == ownerId })
         else { return }
