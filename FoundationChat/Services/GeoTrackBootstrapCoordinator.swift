@@ -78,6 +78,10 @@ final class GeoTrackBootstrapCoordinator {
             }
             return
         }
+        // Claim the coordinator before the first suspension point. Setting
+        // this inside runSync left a window where two callers could both pass
+        // the guard while retryPendingTrackingControl was awaiting network.
+        isSyncing = true
         await runSync(
             force: force,
             allowConsentPresentation: allowConsentPresentation,
@@ -87,6 +91,7 @@ final class GeoTrackBootstrapCoordinator {
             lng: lng,
             knownAttendanceOpen: knownAttendanceOpen
         )
+        isSyncing = false
         if let next = queuedForcedSync {
             queuedForcedSync = nil
             await next()
@@ -114,9 +119,7 @@ final class GeoTrackBootstrapCoordinator {
             return
         }
 
-        isSyncing = true
         defer {
-            isSyncing = false
             lastSyncDate = Date()
         }
 
