@@ -62,6 +62,11 @@ final class GeoTrackBootstrapCoordinator {
         // until the attendance gate below explicitly allows them.
         await geoAPI.retryPendingTrackingControl()
         if !force, let lastSyncDate, Date().timeIntervalSince(lastSyncDate) < 30 {
+            // The full sync is throttled, the permission check is not: a
+            // permission switched off in Settings and the app reopened within
+            // 30 s used to go unnoticed until a later sync (Android re-checks
+            // on every resume).
+            await raisePermissionHelpIfNeeded()
             return
         }
 
@@ -191,6 +196,26 @@ final class GeoTrackBootstrapCoordinator {
         shouldPresentConsent = false
         userDefaults.set(false, forKey: DefaultsKey.shouldTrackNow)
         tracker?.cancelTrip()
+    }
+
+    /// Raises the permission sheet when something is missing. Never lowers
+    /// it: the sheet closes through the full sync once everything is granted.
+    private func raisePermissionHelpIfNeeded() async {
+        guard !shouldPresentPermissionHelp else { return }
+        let trackingOff = userDefaults.object(forKey: DefaultsKey.trackingEnabled) != nil
+            && !userDefaults.bool(forKey: DefaultsKey.trackingEnabled)
+        if trackingOff {
+            if !(await GeoTrackPermissionGuide.isReady(tracked: false)) {
+                permissionHelpTracked = false
+                lastError = nil
+                shouldPresentPermissionHelp = true
+            }
+        } else if GeoTrackConsentManager.shared.hasConsented {
+            if !(await GeoTrackPermissionGuide.isTrackingReady()) {
+                permissionHelpTracked = true
+                shouldPresentPermissionHelp = true
+            }
+        }
     }
 
     func dismissPermissionHelp() {
