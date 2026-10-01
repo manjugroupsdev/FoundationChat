@@ -244,39 +244,49 @@ private struct CpApprovalCard: View {
                 ApprovalFormatting.distance(item.travelledDistanceMeters)
             )
 
-            if !evidenceRows.isEmpty {
-                VStack(alignment: .leading, spacing: 8) {
-                    ForEach(Array(evidenceRows.enumerated()), id: \.offset) { _, row in
-                        VStack(alignment: .leading, spacing: 2) {
-                            Text(row.label)
-                                .font(.system(size: 11, weight: .medium))
-                                .foregroundStyle(Color.appSecondaryText)
-                            Text(row.value)
-                                .font(.system(size: 12))
-                                .foregroundStyle(row.label == "Location" ? Color(hex: 0xB54708) : Color.appPrimaryText)
+            // Proof photo on the left, the location / outcome / reason box on
+            // the right, side by side; either one alone takes the full width.
+            let photoURL = item.photoUrl?.blankToNil.flatMap { URL(string: $0) }
+            if !evidenceRows.isEmpty || photoURL != nil {
+                HStack(alignment: .top, spacing: 10) {
+                    if let photoURL {
+                        AsyncImage(url: photoURL) { phase in
+                            switch phase {
+                            case .success(let image):
+                                image.resizable().scaledToFill()
+                            case .failure:
+                                Color.appFieldBackground.overlay(Image(systemName: "photo").foregroundStyle(Color.appTertiaryText))
+                            default:
+                                Color.appFieldBackground.overlay(ProgressView())
+                            }
                         }
+                        .frame(width: 112, height: 112)
+                        .clipShape(RoundedRectangle(cornerRadius: 10))
+                        .accessibilityLabel("Visit photo")
                     }
-                }
-                .padding(12)
-                .frame(maxWidth: .infinity, alignment: .leading)
-                .background(Color.appFieldBackground, in: RoundedRectangle(cornerRadius: 10))
-                .overlay(RoundedRectangle(cornerRadius: 10).stroke(Color(hex: 0xEAECF0)))
-            }
 
-            if let photoUrl = item.photoUrl?.blankToNil, let url = URL(string: photoUrl) {
-                AsyncImage(url: url) { phase in
-                    switch phase {
-                    case .success(let image):
-                        image.resizable().scaledToFill()
-                    case .failure:
-                        Color.appFieldBackground.overlay(Image(systemName: "photo").foregroundStyle(Color.appTertiaryText))
-                    default:
-                        Color.appFieldBackground.overlay(ProgressView())
+                    if !evidenceRows.isEmpty {
+                        VStack(alignment: .leading, spacing: 8) {
+                            ForEach(Array(evidenceRows.enumerated()), id: \.offset) { _, row in
+                                VStack(alignment: .leading, spacing: 2) {
+                                    Text(row.label)
+                                        .font(.system(size: 11, weight: .medium))
+                                        .foregroundStyle(Color.appSecondaryText)
+                                    Text(row.value)
+                                        .font(.system(size: 12))
+                                        .foregroundStyle(row.label == "Location" ? Color(hex: 0xB54708) : Color.appPrimaryText)
+                                        .lineLimit(3)
+                                }
+                            }
+                        }
+                        .padding(12)
+                        // Same height as the photo beside it, so the pair reads
+                        // as one block.
+                        .frame(maxWidth: .infinity, minHeight: photoURL == nil ? nil : 112, alignment: .leading)
+                        .background(Color.appFieldBackground, in: RoundedRectangle(cornerRadius: 10))
+                        .overlay(RoundedRectangle(cornerRadius: 10).stroke(Color(hex: 0xEAECF0)))
                     }
                 }
-                .frame(width: 120, height: 120)
-                .clipShape(RoundedRectangle(cornerRadius: 12))
-                .padding(.top, 10)
             }
 
             Button(action: onViewRoute) {
