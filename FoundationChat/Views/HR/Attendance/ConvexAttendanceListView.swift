@@ -1304,10 +1304,17 @@ private struct AttendanceHistoryCard: View {
     }
 
     private var statusBadge: (title: String, color: Color)? {
+        if record.isOnHold {
+            return ("On Hold", Color(hex: 0xB54708))
+        }
         if record.hasAbsentPenalty {
             return ("Absent · Penalty", Color(hex: 0xB42318))
         }
         guard !Self.isToday(record.date) else { return nil }
+        // Web order: still with an approver wins over the proposed verdict.
+        if let awaiting = record.awaitingApprovalLabel {
+            return (awaiting, Color(hex: 0xB54708))
+        }
         let raw = (record.approvedAttendance ?? record.status)?.lowercased()
         switch raw {
         case "present", "approved", "auto-approved":
@@ -1725,8 +1732,15 @@ private struct TeamAttendanceCard: View {
     }
 
     private var statusBadge: (title: String, color: Color)? {
+        if record.isOnHold {
+            return ("On Hold", Color(hex: 0xB54708))
+        }
         if record.hasAbsentPenalty {
             return ("Absent · Penalty", Color(hex: 0xB42318))
+        }
+        // Web order: still with an approver wins over the proposed verdict.
+        if let awaiting = record.awaitingApprovalLabel {
+            return (awaiting, Color(hex: 0xB54708))
         }
         let raw = (record.approvedAttendance ?? record.status)?.lowercased()
         switch raw {

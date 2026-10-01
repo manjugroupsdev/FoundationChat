@@ -255,6 +255,12 @@ struct ConvexAttendanceRecord: Codable, Identifiable, Equatable, Sendable {
     let fineAmount: Double?
     let lateFineDeduction: Double?
     let otherFines: [ConvexAttendanceFine]?
+    // Where the day's approval stands. While it is "pending-hr" / "hr_review"
+    // (or "pending-manager" / "manager_review") approvedAttendance is only a
+    // PROPOSED verdict. `var` with a default so existing memberwise
+    // initialisers (placeholder, previews) keep compiling.
+    var approvalStage: String? = nil
+    var holdStatus: String? = nil
 
     var id: String {
         if let _id = _id?.trimmingCharacters(in: .whitespacesAndNewlines), !_id.isEmpty {
@@ -300,6 +306,21 @@ struct ConvexAttendanceRecord: Codable, Identifiable, Equatable, Sendable {
         let candidate = lastPunchOut ?? sessions?.last?.punchOutTime
         guard let candidate, candidate != firstIn else { return nil }
         return candidate
+    }
+
+    /// Web parity: while a day is still with an approver the web shows
+    /// "Awaiting for HR/RO", not the proposed Present/Absent. The app showed
+    /// the proposed verdict as final, so an undecided day read "Absent".
+    var awaitingApprovalLabel: String? {
+        switch approvalStage?.trimmingCharacters(in: .whitespacesAndNewlines).lowercased() {
+        case "pending-hr", "hr_review": return "Awaiting HR"
+        case "pending-manager", "manager_review": return "Awaiting RO"
+        default: return nil
+        }
+    }
+
+    var isOnHold: Bool {
+        holdStatus?.trimmingCharacters(in: .whitespacesAndNewlines).lowercased() == "on-hold"
     }
 
     /// Mirrors the web attendance badge rule. A regular absence must remain a
