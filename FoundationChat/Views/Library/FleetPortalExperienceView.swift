@@ -161,6 +161,7 @@ private struct FleetPortalTripsView: View {
     @State private var allocationTrip: FleetDispatchTrip?
     @State private var allotTrip: FleetDispatchTrip?
     @State private var unassignTrip: FleetDispatchTrip?
+    @State private var cancelTrip: FleetDispatchTrip?
     @State private var offlineTrip: FleetDispatchTrip?
     @State private var mutationTripIDs: Set<String> = []
     @State private var heroHeaderOpacity = 1.0
@@ -279,6 +280,23 @@ private struct FleetPortalTripsView: View {
         } message: {
             Text("The trip returns to Pending so another vehicle and driver can be allocated.")
         }
+        .confirmationDialog(
+            "Cancel this visit?",
+            isPresented: Binding(
+                get: { cancelTrip != nil },
+                set: { if !$0 { cancelTrip = nil } }
+            ),
+            titleVisibility: .visible
+        ) {
+            Button("Cancel visit", role: .destructive) {
+                guard let trip = cancelTrip else { return }
+                cancelTrip = nil
+                Task { await cancelPending(trip) }
+            }
+            Button("Keep trip", role: .cancel) { cancelTrip = nil }
+        } message: {
+            Text("The site visit is cancelled and removed from the agency's trips.")
+        }
         .alert("Fleet Trips", isPresented: Binding(
             get: { errorMessage != nil },
             set: { if !$0 { errorMessage = nil } }
@@ -318,7 +336,10 @@ private struct FleetPortalTripsView: View {
                         onAllocate: { allocationTrip = trip },
                         onAllotAgency: { allotTrip = trip },
                         onUnassign: { unassignTrip = trip },
-                        onCompleteOffline: { offlineTrip = trip }
+                        onCompleteOffline: { offlineTrip = trip },
+                        onCancelPending: scope == .agency
+                            ? { cancelTrip = trip }
+                            : nil
                     )
                 }
             }
@@ -396,6 +417,25 @@ private struct FleetPortalTripsView: View {
         do {
             try await FleetDispatchAPIService.unassign(token: token, scope: scope, tripId: trip.id)
             filter = .pending
+            await load()
+        } catch {
+            errorMessage = error.localizedDescription
+        }
+    }
+
+    @MainActor
+    private func cancelPending(_ trip: FleetDispatchTrip) async {
+        guard let token = authStore.currentSession?.token else { return }
+        mutationTripIDs.insert(trip.id)
+        defer { mutationTripIDs.remove(trip.id) }
+        do {
+            try await FleetDispatchAPIService.updateTripStatus(
+                token: token,
+                draft: FleetStatusUpdateDraft(
+                    siteVisitId: trip.id,
+                    reasonCode: "cancelled"
+                )
+            )
             await load()
         } catch {
             errorMessage = error.localizedDescription
@@ -591,6 +631,9 @@ private struct FleetPortalTripCard: View {
     let onAllotAgency: () -> Void
     let onUnassign: () -> Void
     let onCompleteOffline: () -> Void
+    // External (agency) scope only: call off a pending trip before any vehicle
+    // is allocated. nil (and hidden) for the MMS scope.
+    var onCancelPending: (() -> Void)? = nil
 
     var body: some View {
         HStack(alignment: .top, spacing: 12) {
@@ -630,6 +673,15 @@ private struct FleetPortalTripCard: View {
                 if status == .pending {
                     HStack(spacing: 10) {
                         Spacer()
+                        // A pending trip can be called off before a vehicle is
+                        // assigned (external agency only). Mirrors the web
+                        // portal's "Cancel visit" on the Pending tab.
+                        if let onCancelPending {
+                            Button("Cancel", role: .destructive, action: onCancelPending)
+                                .buttonStyle(.bordered)
+                                .tint(.red)
+                                .font(.system(size: 13, weight: .semibold))
+                        }
                         // MMS dispatchers can hand a pending trip to an external
                         // travel agency instead of an in-house vehicle (mirrors
                         // Android's allocate sheet "External agency" path).
