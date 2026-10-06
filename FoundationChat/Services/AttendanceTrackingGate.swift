@@ -98,7 +98,7 @@ enum AttendanceTrackingGate {
         daySessions: [ConvexDaySession]?,
         attendanceSessions: [ConvexAttendanceSession]?
     ) -> Bool {
-        if let daySessions {
+        if let daySessions, !daySessions.isEmpty {
             return computeClockedOutOnMobile(
                 daySessions.map {
                     ($0.punchInTime, $0.punchOutTime, $0.punchOutSource)
@@ -190,7 +190,7 @@ enum AttendanceTrackingGate {
         daySessions: [ConvexDaySession]?,
         attendanceSessions: [ConvexAttendanceSession]?
     ) -> Bool {
-        if let daySessions {
+        if let daySessions, !daySessions.isEmpty {
             return daySessions.contains { $0.punchInTime.nilIfBlank != nil && $0.punchOutTime.nilIfBlank == nil }
         }
         return (attendanceSessions ?? []).contains {
@@ -203,6 +203,9 @@ enum AttendanceTrackingGate {
     /// punch-out). Lets a trip start explain itself instead of opening a
     /// Clock In screen that cannot succeed.
     static func mobileClockOutToday(token: String, date: Date = Date()) async -> Date? {
+        if let localPunch = LocalPunchState.freshPunch(token: token, now: date), !localPunch.isPunchIn {
+            return localPunch.at
+        }
         let today = LocalPunchState.indiaDay(date)
         let todayAttendance = try? await HRConvexAPIService.getTodayAttendance(token: token)
         let daySessions = try? await HRConvexAPIService.getDaySessions(token: token, date: today)
@@ -214,7 +217,7 @@ enum AttendanceTrackingGate {
               isClockedOutOnMobile(daySessions: daySessions?.sessions, attendanceSessions: todayAttendance?.sessions)
         else { return nil }
         let mobileOuts: [String?]
-        if let sessions = daySessions?.sessions {
+        if let sessions = daySessions?.sessions, !sessions.isEmpty {
             mobileOuts = sessions
                 .filter { $0.punchOutSource?.trimmingCharacters(in: .whitespacesAndNewlines).lowercased() == "mobile" }
                 .map(\.punchOutTime)
