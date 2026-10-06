@@ -151,19 +151,90 @@ enum AttendanceTrackingGate {
             ?? todayAttendance?.firstPunchIn.nilIfBlank
             ?? todayAttendance?.punchInTime.nilIfBlank
             ?? daySessions?.sessions?.compactMap { $0.punchInTime.nilIfBlank }.first
-        let lastPunchOut = daySessions?.lastPunchOut.nilIfBlank
-            ?? todayAttendance?.lastPunchOut.nilIfBlank
-            ?? todayAttendance?.punchOutTime.nilIfBlank
-            ?? daySessions?.sessions?.compactMap { $0.punchOutTime.nilIfBlank }.last
         let hasOpenSession = todayAttendance?.hasOpenSession == true
             || daySessions?.hasOpenSession == true
             || todayAttendance?.isOpen == true
+            || hasOpenPunch(daySessions: daySessions?.sessions, attendanceSessions: todayAttendance?.sessions)
 
-        return hasOpenSessionForToday(
+        // Android parity (AttendanceTrackingGate.isMobileWorkSessionActive): a
+        // biometric gate punch-out closes the raw attendance pair but does NOT
+        // end the mobile work day - only a Clock Out in the app does. This used
+        // to read any punch-out as "clocked out", so a staffer who badged out
+        // at the gate to go to the field could not start a trip, and the Clock
+        // In screen it sent them to refused a second clock-in.
+        return isMobileWorkSessionActive(
             firstPunchIn: firstPunchIn,
-            lastPunchOut: lastPunchOut,
-            hasOpenSession: hasOpenSession
+            hasOpenSession: hasOpenSession,
+            clockedOutOnMobile: isClockedOutOnMobile(
+                daySessions: daySessions?.sessions,
+                attendanceSessions: todayAttendance?.sessions
+            )
         )
+    }
+
+    /// Android `isMobileWorkSessionActive`: an open session, or a punch-in today
+    /// whose latest relevant event is not a Clock Out in the app.
+    static func isMobileWorkSessionActive(
+        firstPunchIn: String?,
+        hasOpenSession: Bool,
+        clockedOutOnMobile: Bool
+    ) -> Bool {
+        if hasOpenSession { return true }
+        guard firstPunchIn.nilIfBlank != nil else { return false }
+        return !clockedOutOnMobile
+    }
+
+    /// A session row with a punch-in and no punch-out (the canonical open
+    /// session, before a denormalised flag catches up).
+    private static func hasOpenPunch(
+        daySessions: [ConvexDaySession]?,
+        attendanceSessions: [ConvexAttendanceSession]?
+    ) -> Bool {
+        if let daySessions {
+            return daySessions.contains { $0.punchInTime.nilIfBlank != nil && $0.punchOutTime.nilIfBlank == nil }
+        }
+        return (attendanceSessions ?? []).contains {
+            $0.punchInTime.nilIfBlank != nil && $0.punchOutTime.nilIfBlank == nil
+        }
+    }
+
+    /// When today's work day was ended by a Clock Out in the app, its time;
+    /// otherwise nil (not clocked in, still working, or only a gate
+    /// punch-out). Lets a trip start explain itself instead of opening a
+    /// Clock In screen that cannot succeed.
+    static func mobileClockOutToday(token: String, date: Date = Date()) async -> Date? {
+        let today = LocalPunchState.indiaDay(date)
+        let todayAttendance = try? await HRConvexAPIService.getTodayAttendance(token: token)
+        let daySessions = try? await HRConvexAPIService.getDaySessions(token: token, date: today)
+        guard todayAttendance != nil || daySessions != nil else { return nil }
+        let open = todayAttendance?.hasOpenSession == true
+            || daySessions?.hasOpenSession == true
+            || hasOpenPunch(daySessions: daySessions?.sessions, attendanceSessions: todayAttendance?.sessions)
+        guard !open,
+              isClockedOutOnMobile(daySessions: daySessions?.sessions, attendanceSessions: todayAttendance?.sessions)
+        else { return nil }
+        let mobileOuts: [String?]
+        if let sessions = daySessions?.sessions {
+            mobileOuts = sessions
+                .filter { $0.punchOutSource?.trimmingCharacters(in: .whitespacesAndNewlines).lowercased() == "mobile" }
+                .map(\.punchOutTime)
+        } else {
+            mobileOuts = (todayAttendance?.sessions ?? [])
+                .filter { $0.punchOutSource?.trimmingCharacters(in: .whitespacesAndNewlines).lowercased() == "mobile" }
+                .map(\.punchOutTime)
+        }
+        return mobileOuts.compactMap { attendanceTimestamp($0) }.max()
+    }
+
+    /// The message for a refused trip start.
+    static func tripStartBlockedMessage(token: String) async -> String {
+        guard let clockOut = await mobileClockOutToday(token: token) else {
+            return "Please clock in before starting a trip."
+        }
+        let formatter = DateFormatter()
+        formatter.locale = Locale(identifier: "en_US_POSIX")
+        formatter.dateFormat = "h:mm a"
+        return "You clocked out at \(formatter.string(from: clockOut)). Trips can't be started after clocking out."
     }
 
     /// Live "is an attendance session open RIGHT NOW?" check. Mirrors Android
@@ -185,10 +256,10 @@ enum AttendanceTrackingGate {
     ///    never stop tracking on a `nil`, or a transient outage would drop a
     ///    legitimate in-window journey. Buffered points sync later.
     ///
-    /// Source-agnostic like the rest of the gate: the raw `hasOpenSession` flag is
-    /// set server-side for a mobile, biometric, manual, or csv-import punch alike,
-    /// so a biometric punch at the office gate opens the trip-start gate exactly
-    /// as an in-app punch does.
+    /// Source-agnostic for clocking IN: a biometric punch at the office gate opens
+    /// the trip-start gate exactly as an in-app punch does. For clocking OUT only
+    /// an in-app Clock Out ends the work day (Android parity); a gate punch-out
+    /// keeps it running.
     static func hasOpenSessionNow(token: String, date: Date = Date()) async -> Bool? {
         guard !token.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else { return nil }
         // Within minutes of a punch on this phone, the punch is the truth: the
@@ -200,9 +271,11 @@ enum AttendanceTrackingGate {
         var todayAnswered = false
         var dayAnswered = false
         var open = false
+        var attendance: ConvexTodayAttendance?
+        var daySessions: ConvexDaySessionsResponse?
 
         do {
-            let attendance = try await HRConvexAPIService.getTodayAttendance(token: token)
+            attendance = try await HRConvexAPIService.getTodayAttendance(token: token)
             todayAnswered = true
             if attendance?.hasOpenSession == true || attendance?.isOpen == true {
                 open = true
@@ -212,9 +285,9 @@ enum AttendanceTrackingGate {
         }
 
         do {
-            let daySessions = try await HRConvexAPIService.getDaySessions(token: token, date: today)
+            daySessions = try await HRConvexAPIService.getDaySessions(token: token, date: today)
             dayAnswered = true
-            if daySessions.hasOpenSession == true {
+            if daySessions?.hasOpenSession == true {
                 open = true
             }
         } catch {
@@ -223,7 +296,23 @@ enum AttendanceTrackingGate {
 
         // Neither endpoint answered → unknown; don't let callers act on a guess.
         if !todayAnswered && !dayAnswered { return nil }
-        return open
+        if open || hasOpenPunch(daySessions: daySessions?.sessions, attendanceSessions: attendance?.sessions) {
+            return true
+        }
+        // Android parity: after a biometric gate punch-out the mobile work day
+        // (and its tracking) continues until a Clock Out in the app.
+        let firstPunchIn = daySessions?.firstPunchIn.nilIfBlank
+            ?? attendance?.firstPunchIn.nilIfBlank
+            ?? attendance?.punchInTime.nilIfBlank
+            ?? daySessions?.sessions?.compactMap { $0.punchInTime.nilIfBlank }.first
+        return isMobileWorkSessionActive(
+            firstPunchIn: firstPunchIn,
+            hasOpenSession: false,
+            clockedOutOnMobile: isClockedOutOnMobile(
+                daySessions: daySessions?.sessions,
+                attendanceSessions: attendance?.sessions
+            )
+        )
     }
 
     private static func computeClockedOutOnMobile(

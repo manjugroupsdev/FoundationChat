@@ -1352,7 +1352,7 @@ struct TripNavigationView: View {
             if requiresOpenAttendance && !alreadyInFlight {
                 let canStart = await hasOpenAttendanceSession(token: token)
                 guard canStart else {
-                    throw TripError.message("Please clock in before starting a trip.")
+                    throw TripError.message(await AttendanceTrackingGate.tripStartBlockedMessage(token: token))
                 }
             }
 

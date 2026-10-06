@@ -31,6 +31,10 @@ struct HomeView: View {
     // so a clocked-out staffer must clock in first. Nil-on-error is absorbed in
     // loadAttendanceGate (a transient error never flips this false).
     @State private var hasOpenSessionNow = false
+    // Set when today's work day was ended by a Clock Out in the app: a new trip
+    // then explains itself instead of opening a Clock In that cannot succeed.
+    @State private var mobileClockOutAt: Date?
+    @State private var showClockedOutNotice = false
     @State private var unreadCount = 0
     @State private var isLoading = false
     @State private var isVisitsLoading = false
@@ -201,6 +205,11 @@ struct HomeView: View {
                 PunchFlowView(mode: .punchIn) {
                     Task { await reload() }
                 }
+            }
+            .alert("Clocked out for today", isPresented: $showClockedOutNotice) {
+                Button("OK", role: .cancel) {}
+            } message: {
+                Text(clockedOutNoticeText)
             }
             .sheet(isPresented: $showPunchOut) {
                 PunchFlowView(mode: .punchOut) {
@@ -1574,9 +1583,25 @@ struct HomeView: View {
         return .ready
     }
 
+    private var clockedOutNoticeText: String {
+        guard let mobileClockOutAt else {
+            return "Trips can't be started after clocking out."
+        }
+        let formatter = DateFormatter()
+        formatter.locale = Locale(identifier: "en_US_POSIX")
+        formatter.dateFormat = "h:mm a"
+        return "You clocked out at \(formatter.string(from: mobileClockOutAt)). Trips can't be started after clocking out."
+    }
+
     private func handleTripTap(_ visit: GeoTrackTodayVisit) {
         if tripState(for: visit) == .clockInFirst {
-            showPunchIn = true
+            // Clocked out in the app today: a second clock-in is not allowed
+            // (Android shows a disabled "Clocked Out"), so say so.
+            if mobileClockOutAt != nil {
+                showClockedOutNotice = true
+            } else {
+                showPunchIn = true
+            }
             return
         }
         visitToOpen = visit
@@ -1882,6 +1907,11 @@ struct HomeView: View {
         // transient outage never spuriously forces "Clock in first".
         if let openNow = await AttendanceTrackingGate.hasOpenSessionNow(token: token) {
             hasOpenSessionNow = openNow
+            if openNow {
+                mobileClockOutAt = nil
+            } else {
+                mobileClockOutAt = await AttendanceTrackingGate.mobileClockOutToday(token: token)
+            }
         }
     }
 
