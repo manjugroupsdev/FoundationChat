@@ -2225,6 +2225,9 @@ private struct CreateCpVisitSheet: View {
     @State private var selectedCpType: CpVisitCreateType?
     @State private var showCpTypePicker = false
     @State private var isJointCp = false
+    // SV cum CP only: the client is out of station, so it goes to the GM to
+    // confirm instead of becoming a CP (same as the telecaller Fix Site Visit).
+    @State private var isOutOfStation = false
     @State private var selectedReferralSource: NewClientReferralSource?
     @State private var selectedReferringClient: ReferralClientCandidate?
     @State private var showReferringClientPicker = false
@@ -2285,6 +2288,9 @@ private struct CreateCpVisitSheet: View {
 
                     jointCpToggle
                     cpTypePicker
+                    if canBeOutOfStation {
+                        outOfStationToggle
+                    }
                     if isNewClientCpPurpose {
                         referralSourcePicker
                         if selectedReferralSource == .clientReferral {
@@ -2473,7 +2479,7 @@ private struct CreateCpVisitSheet: View {
                             ProgressView()
                                 .tint(.white)
                         } else {
-                            Text("Create visit")
+                            Text(isOutOfStationHandoff ? "Send to GM" : "Create visit")
                         }
                     }
                     .font(.system(size: 15, weight: .bold))
@@ -2911,6 +2917,76 @@ private struct CreateCpVisitSheet: View {
                 .frame(maxWidth: .infinity)
                 .contentShape(Rectangle())
             }
+        }
+    }
+
+    private var canBeOutOfStation: Bool {
+        !isJointCp && selectedCpType == .svCumCp
+    }
+
+    private var isOutOfStationHandoff: Bool {
+        canBeOutOfStation && isOutOfStation
+    }
+
+    private var outOfStationToggle: some View {
+        Toggle(isOn: $isOutOfStation) {
+            VStack(alignment: .leading, spacing: 3) {
+                Text("Client is out of station")
+                    .font(.system(size: 14, weight: .semibold))
+                Text(isOutOfStation
+                     ? "No CP is created. The GM confirms on mobile and that creates the site visit."
+                     : "Send to the GM instead of creating a CP")
+                    .font(.system(size: 11))
+                    .foregroundStyle(.secondary)
+            }
+        }
+        .tint(Color(hex: 0x0B61CA))
+        .padding(.horizontal, 14)
+        .frame(minHeight: 58)
+        .background(Color.appFieldBackground, in: RoundedRectangle(cornerRadius: 12, style: .continuous))
+        .overlay(
+            RoundedRectangle(cornerRadius: 12, style: .continuous)
+                .stroke(Color.appSeparator, lineWidth: 1)
+        )
+        .padding(.top, 12)
+    }
+
+    /// Out-of-station SV cum CP: no CP is created. A pending handoff goes to
+    /// the GM, who confirms it on mobile and that creates the site visit. The
+    /// address and pin are passed on when given but not required, since the
+    /// client is not at home.
+    private func submitOutOfStationHandoff(
+        token: String,
+        clientName: String,
+        phone: String,
+        projectId: String,
+        lmoStaffId: String
+    ) async {
+        let address = [doorNo, street, addressLine1, addressLine2, city, state, pincode]
+            .compactMap(\.blankToNil)
+            .joined(separator: ", ")
+        let request = MarketingConvexAPIService.OutOfStationHandoffRequest(
+            clientName: clientName,
+            mobileNumber: phone,
+            leadId: selectedLead.flatMap {
+                AppModuleFormatters.normalizePhone($0.mobileNumber ?? "") == phone ? $0.id : nil
+            },
+            projectId: projectId,
+            scheduledDate: AppModuleFormatters.ymd.string(from: date),
+            scheduledTime: Self.timeFormatter.string(from: date),
+            lmoStaffId: lmoStaffId,
+            assignedStaffId: selectedStaff?.id.nilIfEmpty,
+            visitAddress: address.nilIfEmpty,
+            visitLat: coordinateValue(latitude),
+            visitLng: coordinateValue(longitude),
+            googleMapsLink: mapsLink.trimmingCharacters(in: .whitespacesAndNewlines).nilIfEmpty,
+            notes: notes.trimmingCharacters(in: .whitespacesAndNewlines).nilIfEmpty
+        )
+        do {
+            try await MarketingConvexAPIService.requestOutOfStationHandoff(token: token, request: request)
+            onCreated()
+        } catch {
+            errorMessage = error.localizedDescription
         }
     }
 
@@ -3489,6 +3565,19 @@ private struct CreateCpVisitSheet: View {
         guard selectedStaff != nil || !(staffId.isEmpty) else { errorMessage = "Field staff is required"; return }
         guard let lmoStaffId = selectedLmo?.id.nilIfEmpty else {
             errorMessage = "Select the LMO, Channel Partner, or BDO"
+            return
+        }
+        if isOutOfStationHandoff {
+            guard let token = authStore.currentSession?.token,
+                  let projectId = selectedProject?.id
+            else { return }
+            await submitOutOfStationHandoff(
+                token: token,
+                clientName: trimmedClientName,
+                phone: normalizedPhone,
+                projectId: projectId,
+                lmoStaffId: lmoStaffId
+            )
             return
         }
         let trimmedAddress = composedAddress

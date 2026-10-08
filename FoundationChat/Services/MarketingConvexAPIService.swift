@@ -805,6 +805,41 @@ enum MarketingConvexAPIService {
         return wrapper
     }
 
+    struct OutOfStationHandoffRequest: Encodable {
+        let clientName: String
+        let mobileNumber: String
+        let leadId: String?
+        let projectId: String
+        let scheduledDate: String
+        let scheduledTime: String?
+        // Owner of the visit, as on a CP.
+        let lmoStaffId: String?
+        // Proposed site incharge; the GM can change it before confirming.
+        let assignedStaffId: String?
+        let visitAddress: String?
+        let visitLat: Double?
+        let visitLng: Double?
+        let googleMapsLink: String?
+        let notes: String?
+    }
+
+    private struct OutOfStationHandoffResponse: Decodable {
+        let success: Bool
+        let handoffId: String?
+        let error: String?
+    }
+
+    /// SV cum CP for a client who is out of station: no CP is created, a
+    /// pending handoff goes to the GM to confirm on mobile (same as the
+    /// telecaller Fix Site Visit on web).
+    static func requestOutOfStationHandoff(token: String, request: OutOfStationHandoffRequest) async throws {
+        let data = try await post(path: "/api/marketing/outOfStationHandoffs/request", token: token, body: request)
+        let wrapper = try await decode(OutOfStationHandoffResponse.self, from: data)
+        guard wrapper.success else {
+            throw MarketingAPIError.server(wrapper.error ?? "Failed to send to the GM")
+        }
+    }
+
     static func createSiteVisit(token: String, request: CreateSiteVisitRequest) async throws -> CreateSiteVisitResponse {
         let data = try await post(path: "/api/marketing/siteVisits/create", token: token, body: request)
         let wrapper = try await decode(CreateSiteVisitResponse.self, from: data)
