@@ -232,7 +232,7 @@ struct LoginView: View {
 
     private var sendOtpButton: some View {
         Button {
-            Task { await handleSendOtp() }
+            handleSendOtp()
         } label: {
             ZStack {
                 if authStore.isRequestingOTP {
@@ -495,10 +495,11 @@ struct LoginView: View {
                     .font(.system(size: 12, weight: .medium))
                     .foregroundStyle(Color.appPrimaryText)
                 Button("Resend it.") {
-                    Task { await handleSendOtp() }
+                    handleSendOtp()
                 }
                 .font(.system(size: 12, weight: .bold))
                 .foregroundStyle(Color(red: 0.043, green: 0.380, blue: 0.792))
+                .disabled(authStore.isRequestingOTP)
             }
             .frame(maxWidth: .infinity)
             .padding(.bottom, 24)
@@ -527,6 +528,14 @@ struct LoginView: View {
             verifyButton
         }
         .onAppear { refocusOtp() }
+        .onChange(of: authStore.isRequestingOTP) { wasRequesting, isRequesting in
+            // Sending the code must never prevent staff from entering it. Once
+            // delivery setup finishes, restore the keyboard if they have not
+            // already completed the code.
+            if wasRequesting && !isRequesting, otpDigits.contains(where: \.isEmpty) {
+                refocusOtp()
+            }
+        }
         .onChange(of: scenePhase) { _, phase in
             // Returning from Messages after copying the code.
             if phase == .active { refocusOtp() }
@@ -576,23 +585,36 @@ struct LoginView: View {
                 in: RoundedRectangle(cornerRadius: 100, style: .continuous)
             )
         }
-        .disabled(otpDigits.joined().count < 6 || authStore.isAuthenticating)
-        .opacity(otpDigits.joined().count < 6 ? 0.6 : 1)
+        .disabled(otpDigits.joined().count < 6 || authStore.isAuthenticating || authStore.isRequestingOTP)
+        .opacity(otpDigits.joined().count < 6 || authStore.isRequestingOTP ? 0.6 : 1)
         .buttonStyle(.plain)
     }
 
     // MARK: - Logic
 
-    private func handleSendOtp() async {
-        do {
-            let phone = try await authStore.requestOTP(phoneNumber: phoneNumber)
-            await MainActor.run {
-                verifiedPhone = phone
-                otpDigits = Array(repeating: "", count: 6)
-                clearFocus()
-                withAnimation(.spring(response: 0.4)) { step = .otp }
+    private func handleSendOtp() {
+        let phone = phoneNumber.filter(\.isNumber)
+        guard phone.count == 10, !authStore.isRequestingOTP else { return }
+
+        let isResend = step == .otp
+        if !isResend {
+            // Do not make the input wait for the network request. SMS gateways
+            // may deliver the code before the API acknowledges it, and waiting
+            // here made the OTP screen appear frozen on slow connections.
+            verifiedPhone = phone
+            otpDigits = Array(repeating: "", count: 6)
+            clearFocus()
+            withAnimation(.spring(response: 0.4)) { step = .otp }
+        }
+
+        Task {
+            do {
+                _ = try await authStore.requestOTP(phoneNumber: phone)
+            } catch {
+                // AuthStore exposes the user-facing error. Keep the OTP view
+                // open so the staff can correct the number or resend.
             }
-        } catch {}
+        }
     }
 
     private func handleVerifyOtp() async {
@@ -650,7 +672,10 @@ struct LoginView: View {
     private var subtitle: String {
         switch step {
         case .phone: return "Sign in to my account"
-        case .otp: return "Code sent to +91 \(verifiedPhone)"
+        case .otp:
+            return authStore.isRequestingOTP
+                ? "Sending code to +91 \(verifiedPhone)"
+                : "Code sent to +91 \(verifiedPhone)"
         case .employee: return "Use the password HR created for your account."
         }
     }
@@ -670,7 +695,9 @@ struct LoginView: View {
             next += 1
         }
         focusedOtpBox = min(next, otpDigits.count - 1)
-        if otpDigits.allSatisfy({ !$0.isEmpty }), !authStore.isAuthenticating {
+        if otpDigits.allSatisfy({ !$0.isEmpty }),
+           !authStore.isAuthenticating,
+           !authStore.isRequestingOTP {
             focusedOtpBox = nil
             Task { await handleVerifyOtp() }
         }
