@@ -1585,9 +1585,9 @@ enum HRConvexAPIService {
         if http.statusCode >= 400 {
             if let json = try? JSONSerialization.jsonObject(with: data) as? [String: Any],
                let error = json["error"] as? String {
-                throw HRConvexAPIError.server(error)
+                throw HRConvexAPIError.httpStatus(http.statusCode, error)
             }
-            throw HRConvexAPIError.server("Request failed (\(http.statusCode))")
+            throw HRConvexAPIError.httpStatus(http.statusCode, "Request failed (\(http.statusCode))")
         }
     }
 }
@@ -1610,13 +1610,24 @@ enum HRConvexAPIError: LocalizedError {
     case badURL
     case unauthorized(String)
     case server(String)
+    case httpStatus(Int, String)
     case unexpected(String)
+
+    /// A response from the attendance host can still represent a temporary
+    /// outage. Keep locally saved punches for a later retry in that case.
+    var isRetriableAttendanceFailure: Bool {
+        if case .httpStatus(let status, _) = self {
+            return status >= 500
+        }
+        return false
+    }
 
     var errorDescription: String? {
         switch self {
         case .badURL: return "Invalid URL"
         case .unauthorized(let msg): return msg
         case .server(let msg): return msg
+        case .httpStatus(_, let msg): return msg
         case .unexpected(let msg): return msg
         }
     }

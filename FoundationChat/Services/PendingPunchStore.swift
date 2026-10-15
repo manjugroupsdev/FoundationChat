@@ -362,13 +362,16 @@ actor PendingPunchSyncCoordinator {
                 )
                 // Landed — drop the row and its selfie file.
                 await PendingPunchStore.shared.delete(id: punch.id)
-            } catch is HRConvexAPIError {
-                // Server was REACHED and rejected the punch (already-punched, blocked
-                // location, HTTP 4xx/5xx, unauthorized). Retrying a rejection would
-                // loop forever, and a duplicate-rejection means it already landed —
-                // so clear the row (matches Android PunchSyncWorker). Keep the selfie
-                // file only in case it's still referenced; harmless to leave.
-                await PendingPunchStore.shared.delete(id: punch.id, deletePhoto: false)
+            } catch let error as HRConvexAPIError {
+                if error.isRetriableAttendanceFailure {
+                    // A 5xx response is an outage, not a decision about this punch.
+                    // Preserve the complete locally captured record for the next flush.
+                    await PendingPunchStore.shared.bumpAttempt(id: punch.id, error: error.localizedDescription)
+                } else {
+                    // The server reached a permanent decision (duplicate punch,
+                    // validation, or auth failure). Retrying it would loop forever.
+                    await PendingPunchStore.shared.delete(id: punch.id, deletePhoto: false)
+                }
             } catch {
                 // Network / connectivity error — keep the row for the next flush.
                 await PendingPunchStore.shared.bumpAttempt(id: punch.id, error: error.localizedDescription)

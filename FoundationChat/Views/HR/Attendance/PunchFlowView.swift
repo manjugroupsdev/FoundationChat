@@ -385,10 +385,9 @@ struct PunchFlowView: View {
                 onComplete?()
                 completedAt = tapTime
                 showSuccessSheet = true
-            } catch let error as HRConvexAPIError {
-                // Server was REACHED and rejected the punch (already clocked in/out,
-                // HTTP error, unauthorized). Surface it — a genuine rejection must
-                // not be silently queued.
+            } catch let error as HRConvexAPIError where !error.isRetriableAttendanceFailure {
+                // The server reached a permanent decision (already clocked in/out,
+                // validation, or auth failure). Surface it; it must not be queued.
                 errorMessage = error.localizedDescription
             } catch {
                 // Network / connectivity failure — DON'T lose the punch. Queue it with
