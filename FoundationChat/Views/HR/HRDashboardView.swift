@@ -23,6 +23,11 @@ struct HRDashboardView: View {
     /// overlaying these, an offline clock-in reads as not-clocked-in until the
     /// sync worker flushes (Android parity: AttendanceFlowViewModel.mergePendingPunch).
     @State private var queuedPunchesToday: [PendingPunchValue] = []
+    /// All punches saved on the phone that the server doesn't have yet.
+    @State private var pendingPunchCount = 0
+    /// Shown for a few seconds after the last saved punch reached the server.
+    @State private var showSynced = false
+    @State private var isNetworkOnline = true
     @State private var todayShift: HRConvexAPIService.TodayShiftResponse?
     @State private var historyRecords: [ConvexAttendanceRecord] = []
     @State private var isLoading = false
@@ -183,6 +188,9 @@ struct HRDashboardView: View {
                 guard isActive else { return }
                 Task { await refreshAttendanceForExternalPunches() }
             }
+            .onReceive(NotificationCenter.default.publisher(for: .pendingPunchesChanged)) { _ in
+                Task { await refreshSavedPunches() }
+            }
             .sheet(isPresented: $showPunchIn) {
                 PunchFlowView(mode: .punchIn) { Task { await reloadAll() } }
             }
@@ -259,6 +267,14 @@ struct HRDashboardView: View {
                     .foregroundStyle(Color(red: 0.851, green: 0.839, blue: 0.996))
                     .lineLimit(1)
                     .minimumScaleFactor(0.7)
+                if let syncStatusText {
+                    Text(syncStatusText)
+                        .font(.system(size: 12, weight: .medium))
+                        .foregroundStyle(.white)
+                        .lineLimit(1)
+                        .minimumScaleFactor(0.7)
+                        .padding(.top, 2)
+                }
             }
             .frame(maxWidth: .infinity, alignment: .leading)
 
@@ -550,7 +566,7 @@ struct HRDashboardView: View {
                     Text("Total Hours")
                         .font(.system(size: 12, weight: .medium))
                         .foregroundStyle(Color.appSecondaryText)
-                    Text(historyTotalHMS(for: record))
+                    Text(record.date == todayDateKey ? todayTotalHMS : historyTotalHMS(for: record))
                         .font(.system(size: 16, weight: .medium).monospacedDigit())
                         .foregroundStyle(Color.appPrimaryText)
                         .lineLimit(1)
@@ -562,7 +578,11 @@ struct HRDashboardView: View {
                     Text("Clock in & Out")
                         .font(.system(size: 12, weight: .medium))
                         .foregroundStyle(Color.appSecondaryText)
-                    Text(formatAndroidTimeRange(in: firstPunchIn(for: record), out: resolvedPunchOut(for: record)))
+                    Text(
+                        record.date == todayDateKey
+                            ? formatAndroidTimeRange(in: todayFirstPunchInRaw, out: todayLastPunchOutRaw)
+                            : formatAndroidTimeRange(in: firstPunchIn(for: record), out: resolvedPunchOut(for: record))
+                    )
                         .font(.system(size: 16, weight: .medium))
                         .foregroundStyle(Color.appPrimaryText)
                         .lineLimit(1)
@@ -581,6 +601,34 @@ struct HRDashboardView: View {
         .padding(.vertical, 12)
         .background(Color.appSurface, in: RoundedRectangle(cornerRadius: 12, style: .continuous))
         .padding(.horizontal, 12)
+    }
+
+    /// Whether today's punches have reached the server yet, like a file that
+    /// is saved locally and still syncing.
+    private var syncStatusText: String? {
+        if pendingPunchCount > 0 {
+            return isNetworkOnline
+                ? "⟳ Saved on this phone · syncing…"
+                : "☁ Saved on this phone · will sync when online"
+        }
+        return showSynced ? "✓ Synced" : nil
+    }
+
+    /// Re-reads the saved-punch queue; when the last one has reached the server
+    /// the day is re-read from it and "Synced" is shown briefly.
+    @MainActor
+    private func refreshSavedPunches() async {
+        let previous = pendingPunchCount
+        let queued = await PendingPunchStore.shared.listAll()
+        queuedPunchesToday = queued.filter { $0.clientPunchTime.hasPrefix(todayDateKey) }
+        pendingPunchCount = queued.count
+        isNetworkOnline = await PendingPunchSyncCoordinator.shared.isOnline()
+        guard previous > 0, queued.isEmpty else { return }
+        showSynced = true
+        await loadToday()
+        await loadMonthHistory(showLoader: false)
+        try? await Task.sleep(nanoseconds: 4_000_000_000)
+        if pendingPunchCount == 0 { showSynced = false }
     }
 
     private var heroTitle: String {
@@ -680,9 +728,39 @@ struct HRDashboardView: View {
         return parseAttendanceDate(todayAttendance?.punchOutTime)
     }
 
+    /// A clock-out saved on the phone that the server doesn't have yet.
+    private var queuedPunchOutToday: PendingPunchValue? {
+        guard let latest = latestQueuedPunchToday, !latest.isPunchIn,
+              (parseAttendanceDate(latest.clientPunchTime) ?? .distantPast) >= max(
+                  parseAttendanceDate(todayFirstPunchIn) ?? .distantPast,
+                  lastPunchOutDate ?? .distantPast
+              )
+        else { return nil }
+        return latest
+    }
+
+    /// Today's clock-in as the phone knows it (server first, then a saved punch).
+    private var todayFirstPunchInRaw: String? {
+        todayFirstPunchIn ?? queuedPunchesToday
+            .filter { $0.isPunchIn }
+            .min { $0.clientPunchTime < $1.clientPunchTime }?
+            .clientPunchTime
+    }
+
+    /// Today's clock-out as the phone knows it (a saved punch, then the server).
+    private var todayLastPunchOutRaw: String? {
+        if isOpen { return nil }
+        return queuedPunchOutToday?.clientPunchTime ?? resolvedPunchOut(for: todayHistoryRecord)
+    }
+
     private var todayTotalSeconds: TimeInterval {
         if isOpen, let firstIn = firstPunchInDate {
             return max(0, nowTick.timeIntervalSince(firstIn))
+        }
+        // Clocked out on the phone and not synced yet: the day is in -> out.
+        if let out = queuedPunchOutToday.flatMap({ parseAttendanceDate($0.clientPunchTime) }),
+           let firstIn = firstPunchInDate, out >= firstIn {
+            return out.timeIntervalSince(firstIn)
         }
         let mins = todayHistoryRecord?.totalMinutes
             ?? todayAttendance?.cumulativeMinutes
@@ -729,6 +807,12 @@ struct HRDashboardView: View {
         let mins = record.totalMinutes ?? record.cumulativeMinutes ?? 0
         if mins <= 0 { return "--" }
         return formatHM(seconds: mins * 60)
+    }
+
+    /// Today's total in the history-card format, live while clocked in.
+    private var todayTotalHMS: String {
+        let seconds = Int(todayTotalSeconds)
+        return String(format: "%02d:%02d:%02d hrs", seconds / 3600, (seconds % 3600) / 60, seconds % 60)
     }
 
     private func historyTotalHMS(for record: ConvexAttendanceRecord) -> String {
@@ -987,6 +1071,7 @@ struct HRDashboardView: View {
         // fail (that failure is exactly when the queue matters).
         let queued = await PendingPunchStore.shared.listAll()
         queuedPunchesToday = queued.filter { $0.clientPunchTime.hasPrefix(todayDateKey) }
+        pendingPunchCount = queued.count
         let cacheKey = todayCacheKey()
         // Cache-first: on an OFFLINE cold start, paint the last-known today
         // status immediately instead of the empty default (which reads as

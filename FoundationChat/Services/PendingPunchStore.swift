@@ -159,6 +159,7 @@ final class PendingPunchStore {
                 entity.lastError = nil
                 try ctx.save()
             }
+            NotificationCenter.default.post(name: .pendingPunchesChanged, object: nil)
             return rowId
         } catch {
             return nil
@@ -201,6 +202,7 @@ final class PendingPunchStore {
             rows.forEach { ctx.delete($0) }
             if ctx.hasChanges { try ctx.save() }
         }
+        NotificationCenter.default.post(name: .pendingPunchesChanged, object: nil)
     }
 
     func bumpAttempt(id: UUID, error: String?) async {
@@ -284,6 +286,11 @@ final class PendingPunchStore {
         model.entities = [entity]
         return model
     }
+}
+
+extension Notification.Name {
+    /// A punch was saved on the phone or left the queue (synced or refused).
+    static let pendingPunchesChanged = Notification.Name("attendance.pendingPunchesChanged")
 }
 
 // MARK: - PunchTimestamp helper
@@ -388,6 +395,9 @@ actor PendingPunchSyncCoordinator {
         }
         monitor.start(queue: DispatchQueue(label: "attendance.punch.pathmonitor", qos: .utility))
     }
+
+    /// Whether the network looked reachable at the last change seen.
+    func isOnline() -> Bool { lastPathSatisfied }
 
     private func pathChanged(satisfied: Bool) async {
         let cameBack = satisfied && !lastPathSatisfied
