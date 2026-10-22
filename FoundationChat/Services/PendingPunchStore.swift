@@ -1,5 +1,7 @@
 import CoreData
 import Foundation
+import Network
+import UserNotifications
 
 // MARK: - PendingPunch (NSManagedObject)
 
@@ -112,12 +114,38 @@ final class PendingPunchStore {
         source: String = "mobile",
         createdAt: Int64 = Int64(Date().timeIntervalSince1970 * 1000)
     ) async -> Bool {
+        await save(
+            isPunchIn: isPunchIn,
+            clientPunchTime: clientPunchTime,
+            latitude: latitude,
+            longitude: longitude,
+            address: address,
+            photoData: photoData,
+            deviceId: deviceId,
+            source: source,
+            createdAt: createdAt
+        ) != nil
+    }
+
+    /// Same as `insert`, returning the saved row's id (nil if it couldn't be saved).
+    func save(
+        isPunchIn: Bool,
+        clientPunchTime: String,
+        latitude: Double?,
+        longitude: Double?,
+        address: String?,
+        photoData: Data?,
+        deviceId: String?,
+        source: String = "mobile",
+        createdAt: Int64 = Int64(Date().timeIntervalSince1970 * 1000)
+    ) async -> UUID? {
         let persistedPhotoPath = photoData.flatMap { Self.persistPhoto($0) }
         let ctx = container.newBackgroundContext()
+        let rowId = UUID()
         do {
             try await ctx.perform {
                 let entity = PendingPunch(context: ctx)
-                entity.localId = UUID()
+                entity.localId = rowId
                 entity.isPunchIn = isPunchIn
                 entity.clientPunchTime = clientPunchTime
                 entity.latitudeValue = latitude.map { NSNumber(value: $0) }
@@ -131,9 +159,9 @@ final class PendingPunchStore {
                 entity.lastError = nil
                 try ctx.save()
             }
-            return true
+            return rowId
         } catch {
-            return false
+            return nil
         }
     }
 
@@ -273,109 +301,224 @@ enum PunchTimestamp {
 
 // MARK: - PendingPunchSyncCoordinator (flush / replay)
 
-/// Flushes queued offline punches once connectivity returns. An `actor` so two
-/// flushes can never overlap (the iOS analogue of Android's unique-work
-/// `PunchSyncWorker` guarded by `ExistingWorkPolicy.KEEP`).
+/// What happened to one saved punch when it was sent.
+enum PunchSyncOutcome: Sendable {
+    /// The server recorded it.
+    case recorded(attendanceId: String?)
+    /// The server refused it (at home, already clocked in…). Row removed.
+    case rejected(String)
+    /// Not sent yet (offline, outage, selfie still uploading). Row kept.
+    case deferred
+}
+
+/// Sends saved attendance punches. The ONE place that does it: the punch
+/// screen calls `sendNow` straight after saving (so an online staff member
+/// still gets the server's real answer), and app open, Home and the network
+/// monitor call `flush` (Android `PunchReplayer` parity).
 ///
-/// Each pending punch already carries the staff's REAL tap time
-/// (`clientPunchTime`); the backend records that, so a punch taken offline at
-/// 09:00 and synced at 09:20 still lands at 09:00. Replays oldest-first with the
-/// original tap time, removes on success, and keeps the row on a network failure.
+/// Punches go oldest-first and a flush stops at the first one that can't be
+/// sent yet, so a clock-out never goes ahead of the clock-in it closes.
+/// Flushes run one after another, so the same row is never sent twice at once.
 actor PendingPunchSyncCoordinator {
     /// Flushes before a punch is recorded without its selfie.
     static let maxSelfieUploadAttempts = 20
 
     static let shared = PendingPunchSyncCoordinator()
 
-    private var isFlushing = false
+    /// The flush that runs last; the next one waits for it.
+    private var tail: Task<[UUID: PunchSyncOutcome], Never>?
 
-    /// Replays the offline punch queue. Safe to call on every Home appearance —
-    /// no-ops when the queue is empty or a flush is already running.
-    func flush(token: String) async {
-        guard !token.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else { return }
-        guard !isFlushing else { return }
-        isFlushing = true
-        defer { isFlushing = false }
+    /// Punches a screen is waiting on. The screen reports their result and runs
+    /// its own follow-up, so a flush neither notifies nor starts GeoTrack for them.
+    private var claimedIds: Set<UUID> = []
+    /// Outcomes of claimed punches, picked up by `sendNow`.
+    private var screenOutcomes: [UUID: PunchSyncOutcome] = [:]
+    /// Claimed punches whose send finished without reaching them.
+    private var finishedSends: Set<UUID> = []
 
+    private var pathMonitor: NWPathMonitor?
+    private var lastPathSatisfied = true
+
+    /// Sends the saved punches. Safe to call on every Home appearance; it waits
+    /// for a flush already running and then sends whatever is left.
+    @discardableResult
+    func flush(token: String) async -> [UUID: PunchSyncOutcome] {
+        guard !token.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else { return [:] }
+        let previous = tail
+        let task = Task { () -> [UUID: PunchSyncOutcome] in
+            _ = await previous?.value
+            return await self.runFlush(token: token)
+        }
+        tail = task
+        return await task.value
+    }
+
+    /// Sends the punch the screen just saved, waiting at most `timeout` seconds.
+    /// Returns its outcome, or nil when there was no answer in time; the send
+    /// keeps going and the flush does the follow-up itself, so a punch that
+    /// lands late still starts or stops tracking.
+    func sendNow(token: String, id: UUID, timeout: TimeInterval) async -> PunchSyncOutcome? {
+        claimedIds.insert(id)
+        Task {
+            _ = await self.flush(token: token)
+            if self.claimedIds.contains(id) { self.finishedSends.insert(id) }
+        }
+        let deadline = Date().addingTimeInterval(timeout)
+        while Date() < deadline {
+            if let outcome = screenOutcomes[id] {
+                release(id)
+                return outcome
+            }
+            if finishedSends.contains(id) { break }
+            try? await Task.sleep(nanoseconds: 200_000_000)
+        }
+        let late = screenOutcomes[id]
+        release(id)
+        return late
+    }
+
+    /// Sends saved punches whenever the network comes back while the app runs.
+    func startMonitoringConnectivity() {
+        guard pathMonitor == nil else { return }
+        let monitor = NWPathMonitor()
+        pathMonitor = monitor
+        monitor.pathUpdateHandler = { path in
+            let satisfied = path.status == .satisfied
+            Task { await PendingPunchSyncCoordinator.shared.pathChanged(satisfied: satisfied) }
+        }
+        monitor.start(queue: DispatchQueue(label: "attendance.punch.pathmonitor", qos: .utility))
+    }
+
+    private func pathChanged(satisfied: Bool) async {
+        let cameBack = satisfied && !lastPathSatisfied
+        lastPathSatisfied = satisfied
+        guard cameBack else { return }
+        let token = await MainActor.run { GeoTrackAPIService.shared.tokenProvider?() }
+        guard let token, !token.isEmpty else { return }
+        await flush(token: token)
+    }
+
+    private func release(_ id: UUID) {
+        claimedIds.remove(id)
+        screenOutcomes[id] = nil
+        finishedSends.remove(id)
+    }
+
+    /// True while a screen is waiting on `id`; stores its outcome for it.
+    private func keepForScreen(_ id: UUID, _ outcome: PunchSyncOutcome) -> Bool {
+        guard claimedIds.contains(id) else { return false }
+        screenOutcomes[id] = outcome
+        return true
+    }
+
+    private func runFlush(token: String) async -> [UUID: PunchSyncOutcome] {
         let pending = await PendingPunchStore.shared.listAll()
-        guard !pending.isEmpty else { return }
-
+        var outcomes: [UUID: PunchSyncOutcome] = [:]
         for punch in pending {
-            do {
-                // The selfie is part of the punch. Recording it with photo=nil
-                // whenever the upload failed is how punches reached the web
-                // with time and GPS but no selfie. Keep the row and retry; only
-                // after many failed attempts is it recorded without the photo,
-                // so the attendance itself is never lost. (Android parity.)
-                var storageId: String?
-                if let path = punch.photoPath,
-                   let data = try? Data(contentsOf: URL(fileURLWithPath: path)) {
-                    storageId = try? await HRConvexAPIService.uploadPhoto(
-                        token: token,
-                        imageData: data,
-                        fileName: "attendance-photo.jpg",
-                        purpose: .attendancePhoto
-                    )
-                    if storageId?.isEmpty != false,
-                       punch.attemptCount < Self.maxSelfieUploadAttempts {
-                        await PendingPunchStore.shared.bumpAttempt(
-                            id: punch.id,
-                            error: "Selfie upload failed"
-                        )
-                        continue
-                    }
+            let outcome = await send(punch, token: token)
+            outcomes[punch.id] = outcome
+            switch outcome {
+            case .deferred:
+                _ = keepForScreen(punch.id, outcome)
+                return outcomes
+            case .rejected(let message):
+                await PendingPunchStore.shared.delete(id: punch.id)
+                if !keepForScreen(punch.id, outcome) {
+                    notifyRejected(punch, message: message)
                 }
-
-                let attendanceId: String?
-                if punch.isPunchIn {
-                    attendanceId = try await HRConvexAPIService.punchIn(
-                        token: token,
-                        latitude: punch.latitude,
-                        longitude: punch.longitude,
-                        address: punch.address,
-                        source: punch.source,
-                        photo: storageId,
-                        deviceId: punch.deviceId,
-                        clientPunchTime: punch.clientPunchTime
-                    )
-                } else {
-                    attendanceId = nil
-                    try await HRConvexAPIService.punchOut(
-                        token: token,
-                        latitude: punch.latitude,
-                        longitude: punch.longitude,
-                        address: punch.address,
-                        source: punch.source,
-                        photo: storageId,
-                        deviceId: punch.deviceId,
-                        clientPunchTime: punch.clientPunchTime
-                    )
-                }
-                await GeoTrackBootstrapCoordinator.shared.sync(
-                    reason: punch.isPunchIn ? "offline-attendance-punch-in" : "offline-attendance-punch-out",
-                    force: true,
-                    contextId: attendanceId,
-                    occurredAt: punch.createdAt,
-                    lat: punch.latitude,
-                    lng: punch.longitude,
-                    attendanceOpen: punch.isPunchIn
-                )
+            case .recorded(let attendanceId):
                 // Landed — drop the row and its selfie file.
                 await PendingPunchStore.shared.delete(id: punch.id)
-            } catch let error as HRConvexAPIError {
-                if error.isRetriableAttendanceFailure {
-                    // A 5xx response is an outage, not a decision about this punch.
-                    // Preserve the complete locally captured record for the next flush.
-                    await PendingPunchStore.shared.bumpAttempt(id: punch.id, error: error.localizedDescription)
-                } else {
-                    // The server reached a permanent decision (duplicate punch,
-                    // validation, or auth failure). Retrying it would loop forever.
-                    await PendingPunchStore.shared.delete(id: punch.id, deletePhoto: false)
+                if !keepForScreen(punch.id, outcome) {
+                    await GeoTrackBootstrapCoordinator.shared.sync(
+                        reason: punch.isPunchIn ? "offline-attendance-punch-in" : "offline-attendance-punch-out",
+                        force: true,
+                        contextId: attendanceId,
+                        occurredAt: punch.createdAt,
+                        lat: punch.latitude,
+                        lng: punch.longitude,
+                        attendanceOpen: punch.isPunchIn
+                    )
                 }
-            } catch {
-                // Network / connectivity error — keep the row for the next flush.
-                await PendingPunchStore.shared.bumpAttempt(id: punch.id, error: error.localizedDescription)
             }
         }
+        return outcomes
+    }
+
+    private func send(_ punch: PendingPunchValue, token: String) async -> PunchSyncOutcome {
+        do {
+            // The selfie is part of the punch. Keep the row and retry rather
+            // than recording it without the photo; only after many failed
+            // attempts is it recorded without it, so the attendance itself is
+            // never lost. (Android parity.)
+            var storageId: String?
+            if let path = punch.photoPath,
+               let data = try? Data(contentsOf: URL(fileURLWithPath: path)) {
+                storageId = try? await HRConvexAPIService.uploadPhoto(
+                    token: token,
+                    imageData: data,
+                    fileName: "attendance-photo.jpg",
+                    purpose: .attendancePhoto
+                )
+                if storageId?.isEmpty != false,
+                   punch.attemptCount < Self.maxSelfieUploadAttempts {
+                    await PendingPunchStore.shared.bumpAttempt(id: punch.id, error: "Selfie upload failed")
+                    return .deferred
+                }
+            }
+            if punch.isPunchIn {
+                let attendanceId = try await HRConvexAPIService.punchIn(
+                    token: token,
+                    latitude: punch.latitude,
+                    longitude: punch.longitude,
+                    address: punch.address,
+                    source: punch.source,
+                    photo: storageId,
+                    deviceId: punch.deviceId,
+                    clientPunchTime: punch.clientPunchTime
+                )
+                return .recorded(attendanceId: attendanceId)
+            }
+            try await HRConvexAPIService.punchOut(
+                token: token,
+                latitude: punch.latitude,
+                longitude: punch.longitude,
+                address: punch.address,
+                source: punch.source,
+                photo: storageId,
+                deviceId: punch.deviceId,
+                clientPunchTime: punch.clientPunchTime
+            )
+            return .recorded(attendanceId: nil)
+        } catch let error as HRConvexAPIError where !error.isRetriableAttendanceFailure {
+            // The server decided (at home, already clocked in…). Retrying it
+            // would loop forever.
+            return .rejected(error.localizedDescription)
+        } catch {
+            // Offline, outage or expired session — keep the row for later.
+            await PendingPunchStore.shared.bumpAttempt(id: punch.id, error: error.localizedDescription)
+            return .deferred
+        }
+    }
+
+    /// Tells the staff a saved punch was refused, since the screen already said
+    /// "saved". A refusal saying the punch is already there means an earlier
+    /// attempt landed, so that one stays quiet.
+    private func notifyRejected(_ punch: PendingPunchValue, message: String) {
+        if message.range(of: "already", options: .caseInsensitive) != nil { return }
+        let content = UNMutableNotificationContent()
+        let what = punch.isPunchIn ? "Clock-in" : "Clock-out"
+        let date = Date(timeIntervalSince1970: TimeInterval(punch.createdAt) / 1_000)
+        let formatter = DateFormatter()
+        formatter.dateFormat = "h:mm a"
+        content.title = "\(what) at \(formatter.string(from: date)) was not recorded"
+        content.body = message
+        content.sound = .default
+        let request = UNNotificationRequest(
+            identifier: "attendance-punch-rejected-\(punch.id.uuidString)",
+            content: content,
+            trigger: nil
+        )
+        UNUserNotificationCenter.current().add(request) { _ in }
     }
 }

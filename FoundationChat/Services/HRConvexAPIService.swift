@@ -1587,7 +1587,7 @@ enum HRConvexAPIService {
                let error = json["error"] as? String {
                 throw HRConvexAPIError.httpStatus(http.statusCode, error)
             }
-            throw HRConvexAPIError.httpStatus(http.statusCode, "Request failed (\(http.statusCode))")
+            throw HRConvexAPIError.httpStatus(http.statusCode, HRConvexAPIError.noReasonMessage(http.statusCode))
         }
     }
 }
@@ -1613,13 +1613,28 @@ enum HRConvexAPIError: LocalizedError {
     case httpStatus(Int, String)
     case unexpected(String)
 
-    /// A response from the attendance host can still represent a temporary
-    /// outage. Keep locally saved punches for a later retry in that case.
+    /// Whether a saved punch should be kept and sent again later.
+    ///
+    /// The punch routes send every business refusal (at home, already clocked
+    /// in, no open session…) as HTTP 500 with an `error` reason, so a 5xx WITH
+    /// a reason is a decision, not an outage; retrying it loops forever and the
+    /// staff believes the punch landed. Kept for later: gateway/timeout errors,
+    /// answers with no reason, and an expired session (sent after sign-in).
     var isRetriableAttendanceFailure: Bool {
-        if case .httpStatus(let status, _) = self {
-            return status >= 500
+        switch self {
+        case .httpStatus(let status, let message):
+            if [408, 429, 502, 503, 504].contains(status) { return true }
+            return status >= 500 && message == HRConvexAPIError.noReasonMessage(status)
+        case .unauthorized:
+            return true
+        default:
+            return false
         }
-        return false
+    }
+
+    /// The text used when an HTTP error carried no reason.
+    static func noReasonMessage(_ status: Int) -> String {
+        "Request failed (\(status))"
     }
 
     var errorDescription: String? {

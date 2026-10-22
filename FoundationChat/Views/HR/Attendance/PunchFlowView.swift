@@ -307,6 +307,69 @@ struct PunchFlowView: View {
             // Encode the selfie once — reused for the online upload AND, on a network
             // failure, for the offline queue so the proof photo isn't lost either.
             let jpegData = image.attendanceUploadJPEGData(maxEdge: 1280, quality: 0.68)
+
+            // Attendance is save-first (Android parity): the punch is stored on
+            // the phone before it is sent, then sent straight away so an online
+            // staff member still gets the server's real answer. A weak network
+            // can no longer hold the staff on this screen or lose the punch.
+            if let jpegData {
+                statusText = "Checking attendance..."
+                if let blocked = await Self.clientRuleBlock(token: token, mode: mode) {
+                    errorMessage = blocked
+                    return
+                }
+                statusText = "Saving..."
+                if let savedId = await PendingPunchStore.shared.save(
+                    isPunchIn: mode == .punchIn,
+                    clientPunchTime: clientPunchTime,
+                    latitude: loc.coordinate.latitude,
+                    longitude: loc.coordinate.longitude,
+                    address: address,
+                    photoData: jpegData,
+                    deviceId: deviceId
+                ) {
+                    statusText = mode == .punchIn ? "Clocking in..." : "Clocking out..."
+                    let outcome = await PendingPunchSyncCoordinator.shared.sendNow(
+                        token: token,
+                        id: savedId,
+                        timeout: Self.inlineSyncTimeout
+                    )
+                    switch outcome {
+                    case .recorded(let attendanceId)?:
+                        LocalPunchState.record(isPunchIn: mode == .punchIn, token: token)
+                        statusText = mode == .punchIn ? "Starting tracking..." : "Stopping tracking..."
+                        await GeoTrackBootstrapCoordinator.shared.sync(
+                            reason: mode == .punchIn ? "attendance-punch-in" : "attendance-punch-out",
+                            force: true,
+                            allowConsentPresentation: false,
+                            contextId: attendanceId,
+                            occurredAt: Int64(tapTime.timeIntervalSince1970 * 1_000),
+                            lat: loc.coordinate.latitude,
+                            lng: loc.coordinate.longitude,
+                            attendanceOpen: mode == .punchIn
+                        )
+                        await loadCurrentAttendanceStatus()
+                        didQueueOffline = false
+                        onComplete?()
+                        completedAt = tapTime
+                        showSuccessSheet = true
+                    case .rejected(let message)?:
+                        // The server's real reason, exactly as before the punch
+                        // was saved first. The saved row is already removed.
+                        errorMessage = message
+                    case .deferred?, nil:
+                        // No answer in time: it stays saved and syncs on its own.
+                        LocalPunchState.record(isPunchIn: mode == .punchIn, token: token)
+                        didQueueOffline = true
+                        onComplete?()
+                        completedAt = tapTime
+                        showSuccessSheet = true
+                    }
+                    return
+                }
+            }
+
+            // The phone couldn't save it: send it live, as before.
             do {
                 statusText = "Checking attendance..."
                 let latestAttendance = try await HRConvexAPIService.getTodayAttendance(token: token)
@@ -413,6 +476,57 @@ struct PunchFlowView: View {
                     errorMessage = error.localizedDescription
                 }
             }
+        }
+    }
+
+    /// How long the screen waits for the server before saying "saved on this device".
+    private static let inlineSyncTimeout: TimeInterval = 15
+
+    /// The attendance rules checked on the phone (one clock-in a day, no
+    /// clock-out without a clock-in, one clock-out). Returns the reason when the
+    /// punch is not allowed. Gives up after a few seconds or when offline, and
+    /// then the server decides when the punch is sent.
+    private static func clientRuleBlock(token: String, mode: PunchMode) async -> String? {
+        await withTaskGroup(of: String?.self) { group in
+            group.addTask {
+                do {
+                    try await Self.checkClientRules(token: token, mode: mode)
+                    return nil
+                } catch let error as HRConvexAPIError where !error.isRetriableAttendanceFailure {
+                    return error.localizedDescription
+                } catch {
+                    return nil
+                }
+            }
+            group.addTask {
+                try? await Task.sleep(nanoseconds: 8_000_000_000)
+                return nil
+            }
+            let first = await group.next() ?? nil
+            group.cancelAll()
+            return first
+        }
+    }
+
+    private static func checkClientRules(token: String, mode: PunchMode) async throws {
+        let latestAttendance = try await HRConvexAPIService.getTodayAttendance(token: token)
+        let today = Self.dateKeyFormatter.string(from: Date())
+        let daySessions = try? await HRConvexAPIService.getDaySessions(token: token, date: today)
+        let firstPunchIn = daySessions?.firstPunchIn ?? latestAttendance?.firstPunchIn ?? latestAttendance?.punchInTime
+        let hasPunchedInToday = firstPunchIn?.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty == false
+        let clockedOutOnMobile = AttendanceTrackingGate.isClockedOutOnMobile(
+            daySessions: daySessions?.sessions,
+            attendanceSessions: latestAttendance?.sessions
+        )
+        switch mode {
+        case .punchIn where hasPunchedInToday:
+            throw HRConvexAPIError.server("You have already clocked in today.")
+        case .punchOut where !hasPunchedInToday:
+            throw HRConvexAPIError.server("No attendance found for today.")
+        case .punchOut where clockedOutOnMobile:
+            throw HRConvexAPIError.server("You are already clocked out today.")
+        default:
+            break
         }
     }
 

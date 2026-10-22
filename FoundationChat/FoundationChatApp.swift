@@ -166,6 +166,8 @@ struct FoundationChatApp: App {
     }
 
     private func flushPendingAttendancePunchesIfSignedIn() async {
+        // Also sends saved punches the moment the network comes back.
+        await PendingPunchSyncCoordinator.shared.startMonitoringConnectivity()
         guard let token = authStore.currentSession?.token else { return }
         await PendingPunchSyncCoordinator.shared.flush(token: token)
     }
