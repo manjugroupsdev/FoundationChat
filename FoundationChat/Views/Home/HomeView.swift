@@ -963,7 +963,20 @@ struct HomeView: View {
 
     @ViewBuilder
     private var homeAttendanceActions: some View {
-        if todayPunchInRaw != nil {
+        if needsMobileDayStart {
+            // Badged in at the gate: start the day in the app, never Clock Out.
+            Button {
+                Task { await startMobileDay() }
+            } label: {
+                Label("Clock In", systemImage: "clock.badge.checkmark.fill")
+                    .font(.system(size: 13, weight: .semibold))
+                    .foregroundStyle(.white)
+                    .frame(maxWidth: .infinity)
+                    .frame(height: 42)
+                    .background(HomePalette.headerBlue, in: Capsule())
+            }
+            .buttonStyle(.plain)
+        } else if todayPunchInRaw != nil {
             Button {
                 showClockOutConfirm = true
             } label: {
@@ -2173,6 +2186,27 @@ struct HomeView: View {
             guard let deadline = task.deadline?.nilIfBlank else { return false }
             return deadline <= todayDateKey
         }.count
+    }
+
+    /// Badged in at the gate, not started in the app yet.
+    private var needsMobileDayStart: Bool {
+        guard let token = authStore.currentSession?.token else { return false }
+        return AttendanceTrackingGate.needsMobileDayStart(
+            daySessions: nil,
+            attendanceSessions: todayAttendance?.sessions,
+            token: token
+        )
+    }
+
+    @MainActor
+    private func startMobileDay() async {
+        guard let token = authStore.currentSession?.token else { return }
+        if AttendanceTrackingGate.hasOpenPunchToday(daySessions: nil, attendanceSessions: todayAttendance?.sessions) {
+            await AttendanceTrackingGate.startMobileDayAfterGatePunch(token: token)
+            await reload()
+        } else {
+            showPunchIn = true
+        }
     }
 
     private var todayPunchInRaw: String? {
