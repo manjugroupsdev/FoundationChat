@@ -169,7 +169,7 @@ struct FoundationChatApp: App {
         // Also sends saved punches the moment the network comes back.
         await PendingPunchSyncCoordinator.shared.startMonitoringConnectivity()
         guard let token = authStore.currentSession?.token else { return }
-        await PendingPunchSyncCoordinator.shared.flush(token: token)
+        await PendingPunchSyncCoordinator.shared.syncSoon(token: token)
     }
 
     private func refreshMandatoryUpdate() async {

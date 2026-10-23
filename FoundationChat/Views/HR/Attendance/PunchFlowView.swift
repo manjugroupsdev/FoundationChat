@@ -358,8 +358,10 @@ struct PunchFlowView: View {
                         // was saved first. The saved row is already removed.
                         errorMessage = message
                     case .deferred?, nil:
-                        // No answer in time: it stays saved and syncs on its own.
+                        // No answer in time: it stays saved and syncs on its own,
+                        // retried within seconds while the network settles.
                         LocalPunchState.record(isPunchIn: mode == .punchIn, token: token)
+                        Task { await PendingPunchSyncCoordinator.shared.syncSoon(token: token) }
                         didQueueOffline = true
                         onComplete?()
                         completedAt = tapTime

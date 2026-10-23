@@ -391,9 +391,47 @@ struct HRDashboardView: View {
         }
     }
 
+    /// Badged in at the gate, not started in the app yet.
+    private var needsMobileDayStart: Bool {
+        guard let token = authStore.currentSession?.token else { return false }
+        return AttendanceTrackingGate.needsMobileDayStart(
+            daySessions: todayDaySessions?.sessions,
+            attendanceSessions: todayAttendance?.sessions,
+            token: token
+        )
+    }
+
+    /// The gate already clocked them in, so an open gate session only needs
+    /// the app day started; a closed one (badged in and out) needs a real
+    /// Clock In, which the server accepts.
+    @MainActor
+    private func startMobileDay() async {
+        guard let token = authStore.currentSession?.token else { return }
+        if AttendanceTrackingGate.hasOpenPunchToday(
+            daySessions: todayDaySessions?.sessions,
+            attendanceSessions: todayAttendance?.sessions
+        ) {
+            await AttendanceTrackingGate.startMobileDayAfterGatePunch(token: token)
+            await reloadAll()
+        } else {
+            await openClockInRespectingHomeFence()
+        }
+    }
+
     @ViewBuilder
     private var actionButtons: some View {
-        if isOpen {
+        if isOpen && needsMobileDayStart {
+            Button {
+                Task { await startMobileDay() }
+            } label: {
+                Text("Clock In")
+                    .font(.system(size: 14, weight: .medium))
+                    .frame(maxWidth: .infinity)
+            }
+            .buttonStyle(.borderedProminent)
+            .controlSize(.large)
+            .tint(androidGreen)
+        } else if isOpen {
             HStack(spacing: 10) {
                 Button {
                     if isOnDuty {
@@ -638,6 +676,10 @@ struct HRDashboardView: View {
     }
 
     private var heroSubtitle: String {
+        if isOpen && needsMobileDayStart,
+           let time = formatClockTimeLowercase(todayFirstPunchIn) {
+            return "Badged in at \(time) · tap Clock In to start your day"
+        }
         if isOpen { return "Have a productive day ahead" }
         if isClockedOut { return "Attendance completed for today" }
         return "Don't miss your clock in schedule"

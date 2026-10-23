@@ -76,6 +76,55 @@ enum LocalPunchState {
 }
 
 enum AttendanceTrackingGate {
+    /// The day was started at the biometric gate (or by HR) and not yet in the
+    /// app: punches exist today, none of them is a mobile punch-in, and the day
+    /// was not ended by a Clock Out in the app. Pressing the app's button then
+    /// means "start my day in the app", never "Clock Out" — that used to end the
+    /// day straight after the gate punch-in.
+    static func needsMobileDayStart(
+        daySessions: [ConvexDaySession]?,
+        attendanceSessions: [ConvexAttendanceSession]?,
+        token: String
+    ) -> Bool {
+        if LocalPunchState.punchedInToday(token: token) { return false }
+        let rows: [(punchIn: String?, source: String?, outSource: String?)]
+        if let daySessions, !daySessions.isEmpty {
+            rows = daySessions.map { ($0.punchInTime, $0.source, $0.punchOutSource) }
+        } else {
+            rows = (attendanceSessions ?? []).map { ($0.punchInTime, $0.source, $0.punchOutSource) }
+        }
+        let started = rows.filter { $0.punchIn.nilIfBlank != nil }
+        guard !started.isEmpty else { return false }
+        func isMobile(_ value: String?) -> Bool {
+            value?.trimmingCharacters(in: .whitespacesAndNewlines).caseInsensitiveCompare("mobile") == .orderedSame
+        }
+        if started.contains(where: { isMobile($0.source) || isMobile($0.outSource) }) { return false }
+        return true
+    }
+
+    /// True when a punch-in today has no punch-out yet (any source).
+    static func hasOpenPunchToday(
+        daySessions: [ConvexDaySession]?,
+        attendanceSessions: [ConvexAttendanceSession]?
+    ) -> Bool {
+        hasOpenPunch(daySessions: daySessions, attendanceSessions: attendanceSessions)
+    }
+
+    /// Starts the work day in the app after a gate punch-in. The server already
+    /// has the staff clocked in (a second punch-in is refused), so nothing is
+    /// sent to attendance: the phone records the start and tracking begins.
+    static func startMobileDayAfterGatePunch(token: String) async {
+        let now = Date()
+        LocalPunchState.record(isPunchIn: true, token: token, at: now)
+        await GeoTrackBootstrapCoordinator.shared.sync(
+            reason: "attendance-gate-day-start",
+            force: true,
+            allowConsentPresentation: true,
+            occurredAt: Int64(now.timeIntervalSince1970 * 1_000),
+            attendanceOpen: true
+        )
+    }
+
     static func isClockedInForToday(
         firstPunchIn: String?,
         hasOpenSession: Bool

@@ -405,7 +405,26 @@ actor PendingPunchSyncCoordinator {
         guard cameBack else { return }
         let token = await MainActor.run { GeoTrackAPIService.shared.tokenProvider?() }
         guard let token, !token.isEmpty else { return }
-        await flush(token: token)
+        await syncSoon(token: token)
+    }
+
+    private var isSyncingSoon = false
+
+    /// Sends saved punches now and, while the connection settles, again after
+    /// 3, 10 and 30 seconds until nothing is left waiting. A new connection
+    /// often fails its first request, which used to leave punches until the
+    /// next app open.
+    func syncSoon(token: String) async {
+        guard !isSyncingSoon else { return }
+        isSyncingSoon = true
+        defer { isSyncingSoon = false }
+        for wait in [0, 3, 10, 30] as [UInt64] {
+            if wait > 0 { try? await Task.sleep(nanoseconds: wait * 1_000_000_000) }
+            let outcomes = await flush(token: token)
+            if !outcomes.values.contains(where: { if case .deferred = $0 { return true } else { return false } }) {
+                return
+            }
+        }
     }
 
     private func release(_ id: UUID) {

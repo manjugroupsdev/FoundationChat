@@ -2242,6 +2242,10 @@ private struct CreateCpVisitSheet: View {
     // a stale partner can never ride along on another CP type.
     @State private var selectedJointPartner: ConvexStaffListItem?
     @State private var showJointPartnerPicker = false
+    /// Why the last Joint CP pick was not accepted, shown under the pickers.
+    /// (An alert raised while a picker sheet is closing was dropped by iOS
+    /// some of the time, leaving the form half-updated with no message.)
+    @State private var jointSelectionMessage: String?
     @State private var selectedLmo: ConvexStaffListItem?
     @State private var leadMatches: [TelecallerLeadSearchData] = []
     @State private var selectedLead: TelecallerLeadSearchData?
@@ -2563,15 +2567,16 @@ private struct CreateCpVisitSheet: View {
                     staffSelectionRow(item, isSelected: isSelected)
                 },
                 onSelect: { item in
-                    if let partner = selectedJointPartner,
-                       let validation = jointTemplateValidationError(primary: item, partner: partner) {
-                        selectedStaff = nil
-                        showStaffPicker = false
-                        DispatchQueue.main.async { errorMessage = validation }
-                        return
-                    }
                     selectedStaff = item
                     showStaffPicker = false
+                    if let partner = selectedJointPartner,
+                       let validation = jointTemplateValidationError(primary: item, partner: partner) {
+                        // Keep the staff just picked; the partner no longer fits.
+                        selectedJointPartner = nil
+                        jointSelectionMessage = "\(validation) Pick the second staff again."
+                    } else {
+                        jointSelectionMessage = nil
+                    }
                 }
             )
             .appLibraryNativeSheet([.medium, .large])
@@ -2580,7 +2585,7 @@ private struct CreateCpVisitSheet: View {
             NativeSearchableSelectionSheet(
                 title: "Select the second staff",
                 prompt: "Search staff",
-                items: staff,
+                items: staff.filter { $0.id != effectivePrimaryStaff?.id },
                 selectedId: selectedJointPartner?.id,
                 searchText: { item in
                     [
@@ -2594,13 +2599,14 @@ private struct CreateCpVisitSheet: View {
                     staffSelectionRow(item, isSelected: isSelected)
                 },
                 onSelect: { item in
-                    if let validation = jointTemplateValidationError(primary: selectedStaff, partner: item) {
-                        showJointPartnerPicker = false
-                        DispatchQueue.main.async { errorMessage = validation }
+                    showJointPartnerPicker = false
+                    if let validation = jointTemplateValidationError(primary: effectivePrimaryStaff, partner: item) {
+                        jointSelectionMessage = validation
                         return
                     }
+                    if selectedStaff == nil { selectedStaff = effectivePrimaryStaff }
                     selectedJointPartner = item
-                    showJointPartnerPicker = false
+                    jointSelectionMessage = nil
                 }
             )
             .appLibraryNativeSheet([.medium, .large])
@@ -2773,8 +2779,25 @@ private struct CreateCpVisitSheet: View {
         }
     }
 
+    /// The first staff for a Joint CP: the one picked, else the signed-in
+    /// staff member the form defaults to (the staff list may still be loading
+    /// when the partner is picked).
+    private var effectivePrimaryStaff: ConvexStaffListItem? {
+        if let selectedStaff { return selectedStaff }
+        let sessionStaffId = authStore.currentSession?.user.staffId ?? authStore.currentSession?.user._id
+        return staff.first { $0.id == sessionStaffId }
+    }
+
     @ViewBuilder
     private var jointRoleAssignment: some View {
+        if let jointSelectionMessage {
+            Label(jointSelectionMessage, systemImage: "exclamationmark.triangle.fill")
+                .font(.system(size: 12, weight: .medium))
+                .foregroundStyle(.red)
+                .frame(maxWidth: .infinity, alignment: .leading)
+                .padding(.horizontal, 14)
+                .padding(.top, 6)
+        }
         Text(
             selectedStaff != nil && selectedJointPartner != nil
                 ? "The server will assign OTP/outcome and review/completion from each staff member's effective IAM template."
@@ -3012,6 +3035,7 @@ private struct CreateCpVisitSheet: View {
         .onChange(of: isJointCp) { _, enabled in
             if !enabled {
                 selectedJointPartner = nil
+                jointSelectionMessage = nil
             }
         }
     }
@@ -3548,7 +3572,7 @@ private struct CreateCpVisitSheet: View {
         // requires exactly two different active staff.
         if isJointCp {
             if let validationError = jointTemplateValidationError(
-                primary: selectedStaff,
+                primary: effectivePrimaryStaff,
                 partner: selectedJointPartner
             ) {
                 errorMessage = validationError
