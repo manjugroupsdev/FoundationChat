@@ -1,4 +1,5 @@
 import SwiftUI
+import UIKit
 
 struct StaffDetailView: View {
     let staffId: String
@@ -378,10 +379,10 @@ private struct StaffSecuritySheet: View {
                 )
             }
             .sheet(isPresented: $showPasswordSheet) {
-                SetStaffPasswordSheet(staffName: staffName) { password in
-                    try await savePassword(password)
+                SetStaffPasswordSheet(staffName: staffName) { password, mustChange in
+                    try await savePassword(password, mustChangePassword: mustChange)
                 }
-                .appLibraryNativeSheet([.medium])
+                .appLibraryNativeSheet([.medium, .large])
             }
             .interactiveDismissDisabled(isActing)
         }
@@ -524,16 +525,19 @@ private struct StaffSecuritySheet: View {
     }
 
     @MainActor
-    private func savePassword(_ password: String) async throws {
+    private func savePassword(_ password: String, mustChangePassword: Bool) async throws {
         guard let token = authStore.currentSession?.token else {
             throw HRConvexAPIError.unexpected("Not signed in")
         }
         try await HRConvexAPIService.setStaffPassword(
             token: token,
             staffId: staffId,
-            newPassword: password
+            newPassword: password,
+            mustChangePassword: mustChangePassword
         )
-        statusMessage = "Password updated. They must change it at next login."
+        statusMessage = mustChangePassword
+            ? "Password updated. They must change it at next login."
+            : "Password updated."
         await load()
     }
 
@@ -578,20 +582,59 @@ private enum StaffSecurityConfirmation: String, Identifiable {
 private struct SetStaffPasswordSheet: View {
     @Environment(\.dismiss) private var dismiss
     let staffName: String
-    let onSave: (String) async throws -> Void
+    let onSave: (String, Bool) async throws -> Void
 
     @State private var password = ""
+    @State private var showPassword = false
+    @State private var mustChangePassword = true
     @State private var isSaving = false
     @State private var errorMessage: String?
+    /// The password just saved, shown once to copy (web parity).
+    @State private var savedPassword: String?
 
     var body: some View {
         NavigationStack {
             Form {
                 Section {
-                    SecureField("New password", text: $password)
+                    HStack {
+                        Group {
+                            if showPassword {
+                                TextField("Strong password", text: $password)
+                            } else {
+                                SecureField("Strong password", text: $password)
+                            }
+                        }
                         .textContentType(.newPassword)
+                        .textInputAutocapitalization(.never)
+                        .autocorrectionDisabled()
+                        Button {
+                            showPassword.toggle()
+                        } label: {
+                            Image(systemName: showPassword ? "eye.slash" : "eye")
+                                .foregroundStyle(.secondary)
+                        }
+                        .buttonStyle(.plain)
+                    }
+                    Button {
+                        password = PasswordPolicy.generate()
+                        showPassword = true
+                    } label: {
+                        Label("Generate strong password", systemImage: "sparkles")
+                    }
+                } header: {
+                    Text("Set password for \(staffName)")
                 } footer: {
-                    Text("Use at least 8 characters with upper and lower case letters, a number, and a symbol.")
+                    Text(PasswordPolicy.ruleText)
+                }
+                Section {
+                    Toggle(isOn: $mustChangePassword) {
+                        VStack(alignment: .leading, spacing: 2) {
+                            Text("Force change on next login")
+                            Text("Employee must pick a new password before continuing.")
+                                .font(.footnote)
+                                .foregroundStyle(.secondary)
+                        }
+                    }
                 }
                 if let errorMessage {
                     Section {
@@ -610,10 +653,26 @@ private struct SetStaffPasswordSheet: View {
                     Button(isSaving ? "Saving..." : "Save") {
                         Task { await save() }
                     }
-                    .disabled(isSaving || password.isEmpty)
+                    .disabled(isSaving || PasswordPolicy.problem(password) != nil)
                 }
             }
-            .interactiveDismissDisabled(isSaving)
+            .interactiveDismissDisabled(isSaving || savedPassword != nil)
+            .alert("Password ready to share", isPresented: Binding(
+                get: { savedPassword != nil },
+                set: { if !$0 { savedPassword = nil; dismiss() } }
+            )) {
+                Button("Copy") {
+                    UIPasteboard.general.string = savedPassword
+                    savedPassword = nil
+                    dismiss()
+                }
+                Button("Done", role: .cancel) {
+                    savedPassword = nil
+                    dismiss()
+                }
+            } message: {
+                Text("\(savedPassword ?? "")\n\nWe won't show it again.")
+            }
         }
     }
 
@@ -622,10 +681,14 @@ private struct SetStaffPasswordSheet: View {
         isSaving = true
         errorMessage = nil
         defer { isSaving = false }
+        if let problem = PasswordPolicy.problem(password) {
+            errorMessage = problem
+            return
+        }
         do {
-            try await onSave(password)
+            try await onSave(password, mustChangePassword)
+            savedPassword = password
             password = ""
-            dismiss()
         } catch {
             errorMessage = error.localizedDescription
         }

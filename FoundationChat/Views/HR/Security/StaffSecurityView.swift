@@ -1,5 +1,6 @@
 import Foundation
 import SwiftUI
+import UIKit
 
 struct StaffSecurityView: View {
     @Environment(AuthStore.self) private var authStore
@@ -827,6 +828,9 @@ private struct StaffSecurityDetailSheet: View {
     @State private var passwordStatus: StaffPasswordStatus?
     @State private var newPassword = ""
     @State private var mustChangePassword = true
+    @State private var showPassword = false
+    /// The password just saved, shown once to copy (web parity).
+    @State private var savedPassword: String?
     @State private var isLoading = false
     @State private var isActing = false
     @State private var message: String?
@@ -880,6 +884,18 @@ private struct StaffSecurityDetailSheet: View {
             )) {
                 Button("OK") { errorMessage = nil }
             } message: { Text(errorMessage ?? "") }
+            .alert("Password ready to share", isPresented: Binding(
+                get: { savedPassword != nil },
+                set: { if !$0 { savedPassword = nil } }
+            )) {
+                Button("Copy") {
+                    UIPasteboard.general.string = savedPassword
+                    savedPassword = nil
+                }
+                Button("Done", role: .cancel) { savedPassword = nil }
+            } message: {
+                Text("\(savedPassword ?? "")\n\nWe won't show it again.")
+            }
         }
     }
 
@@ -916,11 +932,44 @@ private struct StaffSecurityDetailSheet: View {
                     .foregroundStyle(.green)
             }
 
-            SecureField("New password", text: $newPassword)
+            HStack {
+                Group {
+                    if showPassword {
+                        TextField("Strong password", text: $newPassword)
+                    } else {
+                        SecureField("Strong password", text: $newPassword)
+                    }
+                }
                 .textContentType(.newPassword)
-            Toggle("Require change at next login", isOn: $mustChangePassword)
-            Button("Set new password") { Task { await savePassword() } }
-                .disabled(newPassword.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty || isActing)
+                .textInputAutocapitalization(.never)
+                .autocorrectionDisabled()
+                Button {
+                    showPassword.toggle()
+                } label: {
+                    Image(systemName: showPassword ? "eye.slash" : "eye")
+                        .foregroundStyle(.secondary)
+                }
+                .buttonStyle(.plain)
+            }
+            Button {
+                newPassword = PasswordPolicy.generate()
+                showPassword = true
+            } label: {
+                Label("Generate strong password", systemImage: "sparkles")
+            }
+            Text(PasswordPolicy.ruleText)
+                .font(.footnote)
+                .foregroundStyle(.secondary)
+            Toggle(isOn: $mustChangePassword) {
+                VStack(alignment: .leading, spacing: 2) {
+                    Text("Force change on next login")
+                    Text("Employee must pick a new password before continuing.")
+                        .font(.footnote)
+                        .foregroundStyle(.secondary)
+                }
+            }
+            Button("Save Password") { Task { await savePassword() } }
+                .disabled(PasswordPolicy.problem(newPassword) != nil || isActing)
             Button(passwordStatus?.passwordExpiryExempt == true ? "Re-enable password expiry" : "Exempt from password expiry") {
                 Task { await toggleExpiryExemption() }
             }
@@ -968,8 +1017,11 @@ private struct StaffSecurityDetailSheet: View {
     @MainActor
     private func savePassword() async {
         guard let token = authStore.currentSession?.token else { return }
-        let password = newPassword.trimmingCharacters(in: .whitespacesAndNewlines)
-        guard !password.isEmpty else { return }
+        let password = newPassword
+        if let problem = PasswordPolicy.problem(password) {
+            errorMessage = problem
+            return
+        }
         isActing = true
         defer { isActing = false }
         do {
@@ -980,7 +1032,11 @@ private struct StaffSecurityDetailSheet: View {
                 mustChangePassword: mustChangePassword
             )
             newPassword = ""
-            message = "Password updated."
+            showPassword = false
+            message = mustChangePassword
+                ? "Password updated. They must change it at next login."
+                : "Password updated."
+            savedPassword = password
             await load()
         } catch {
             errorMessage = error.localizedDescription
