@@ -362,6 +362,20 @@ struct PunchFlowView: View {
                         // retried within seconds while the network settles.
                         LocalPunchState.record(isPunchIn: mode == .punchIn, token: token)
                         Task { await PendingPunchSyncCoordinator.shared.syncSoon(token: token) }
+                        if mode == .punchOut {
+                            // A clock-out saved on the phone ends tracking now, not
+                            // when it syncs (possibly the next day): tracking would
+                            // otherwise run on to the midnight cut-off.
+                            await GeoTrackBootstrapCoordinator.shared.sync(
+                                reason: "attendance-punch-out-saved",
+                                force: true,
+                                allowConsentPresentation: false,
+                                occurredAt: Int64(tapTime.timeIntervalSince1970 * 1_000),
+                                lat: loc.coordinate.latitude,
+                                lng: loc.coordinate.longitude,
+                                attendanceOpen: false
+                            )
+                        }
                         didQueueOffline = true
                         onComplete?()
                         completedAt = tapTime
@@ -470,6 +484,20 @@ struct PunchFlowView: View {
                 )
                 if queued {
                     LocalPunchState.record(isPunchIn: mode == .punchIn, token: token)
+                    if mode == .punchOut {
+                        // A clock-out saved on the phone ends tracking now, not
+                        // when it syncs (possibly the next day): tracking would
+                        // otherwise run on to the midnight cut-off.
+                        await GeoTrackBootstrapCoordinator.shared.sync(
+                            reason: "attendance-punch-out-saved",
+                            force: true,
+                            allowConsentPresentation: false,
+                            occurredAt: Int64(tapTime.timeIntervalSince1970 * 1_000),
+                            lat: loc.coordinate.latitude,
+                            lng: loc.coordinate.longitude,
+                            attendanceOpen: false
+                        )
+                    }
                     didQueueOffline = true
                     onComplete?()
                     completedAt = tapTime
