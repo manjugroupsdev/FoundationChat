@@ -590,6 +590,21 @@ private struct AppLibrarySection: Identifiable {
                     iconTint: Color(hex: 0x0B61CA),
                     iconBackground: Color(hex: 0xEAF4FF)
                 )
+                : nil,
+            // Same gate as the web Cab Requests tab.
+            canAny([
+                "marketing.fleet.cabRequest.create",
+                "marketing.fleet.cabRequest.approve",
+                "marketing.fleet.cabRequest.viewAll",
+            ])
+                ? .init(
+                    title: "Cab Requests",
+                    icon: "AppLibraryIconAppsFieldVisits",
+                    destination: .cabRequests,
+                    systemIcon: "car.2",
+                    iconTint: Color(hex: 0x7E22CE),
+                    iconBackground: Color(hex: 0xFAF5FF)
+                )
                 : nil
         ].compactMap(\.self)
 
@@ -707,7 +722,7 @@ private struct AppLibrarySection: Identifiable {
                 id: "fleet",
                 filter: .fleet,
                 title: "Fleet Management",
-                subtitle: "My Trips",
+                subtitle: "My Trips, Cab Requests",
                 icon: "AppLibraryIconAppsCatMarketing",
                 systemIcon: "car.fill",
                 iconTint: Color(hex: 0x0B61CA),
@@ -793,6 +808,7 @@ private enum AppLibraryDestination: String {
     case landInspection
     case landQueries
     case fleetMyTrips
+    case cabRequests
     case collections
     case loanDesk
     case postSalesVerification
@@ -845,6 +861,8 @@ private enum AppLibraryDestination: String {
                 LandQueriesView()
             case .fleetMyTrips:
                 FleetMyTripsView()
+            case .cabRequests:
+                CabRequestsView()
             case .collections:
                 CollectionsView()
             case .loanDesk:
