@@ -13,7 +13,13 @@ struct LoginView: View {
     @State private var employeePasswordVisible = false
     @State private var otpDigits = Array(repeating: "", count: 6)
     @FocusState private var phoneFieldFocused: Bool
-    @FocusState private var focusedOtpBox: Int?
+    // Plain state, not @FocusState: the OTP boxes are UIKit text fields that
+    // take first responder from this value (OtpTextField.updateUIView). No view
+    // is bound to it with .focused(), and SwiftUI resets a @FocusState with no
+    // focusable target to nil - so every box read "not focused", none ever
+    // became first responder, and a box focused by a tap was resigned again
+    // on the next update. The OTP field could not be typed into at all.
+    @State private var focusedOtpBox: Int?
     @Environment(\.scenePhase) private var scenePhase
     @FocusState private var employeeFieldFocused: EmployeeField?
 
@@ -80,8 +86,14 @@ struct LoginView: View {
     private func sheetHeight(_ geo: GeometryProxy) -> CGFloat {
         switch step {
         case .phone: return geo.size.height * 0.60
-        case .otp: return geo.size.height * 0.62
-        case .employee: return geo.size.height * 0.70
+        // Six boxes, resend, change-number and the button: 0.62 left a band of
+        // empty space under "Verify OTP", as 0.70 did on the employee step.
+        case .otp: return geo.size.height * 0.45
+        // The shortest step — two fields, a button and the back link. It used
+        // to ask for MORE height than the phone step, which has two further
+        // buttons and the OR divider, so the card ended in a band of empty
+        // space below "Use mobile number instead".
+        case .employee: return geo.size.height * 0.52
         }
     }
 
@@ -117,7 +129,12 @@ struct LoginView: View {
             }
             .padding(.horizontal, 32)
             .padding(.top, step == .otp ? 44 : 40)
-            .padding(.bottom, geo.safeAreaInsets.bottom + 28)
+            // Not `geo.safeAreaInsets.bottom + 28`: the container inset is
+            // ignored above, so that inset is 0 until the keyboard opens - and
+            // then it is the keyboard height, which the frame has already
+            // shrunk by. Adding it counted the keyboard twice: an empty band
+            // under the last control and the title pushed under the clock.
+            .padding(.bottom, 28)
             // Keeps the sheet's designed proportion when the content is short,
             // and the full screen width, both of which the fixed background
             // rect used to provide. It is a MINIMUM now, so taller content
