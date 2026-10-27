@@ -92,6 +92,9 @@ struct TripNavigationView: View {
     @State private var showGeofenceReasonAlert = false
     @State private var geofenceReason = ""
     @State private var geofenceDistanceText = ""
+    /// Where the phone was, and how far from the client, when the reason was
+    /// asked for — sent with the remark so the web CP flow can show them.
+    @State private var geofencePosition: (lat: Double, lng: Double, distance: Double)?
     @State private var showCpTripCompletedSheet = false
     @State private var pendingCpRevisit: CpRevisitInfo?
     @State private var pendingCpTripCompletion: CpTripCompletionPayload?
@@ -1647,6 +1650,7 @@ struct TripNavigationView: View {
                 if distance > 300 {
                     arrivalStatusText = nil
                     geofenceDistanceText = formatDistance(distance)
+                    geofencePosition = (loc.coordinate.latitude, loc.coordinate.longitude, distance)
                     geofenceReason = ""
                     resetArrivalSwipe()
                     showGeofenceReasonAlert = true
@@ -1686,7 +1690,10 @@ struct TripNavigationView: View {
                 try await MarketingConvexAPIService.setCpGeofenceRemark(
                     token: token,
                     id: cpId,
-                    remark: reason
+                    remark: reason,
+                    lat: geofencePosition?.lat,
+                    lng: geofencePosition?.lng,
+                    distanceMeters: geofencePosition?.distance
                 )
                 arrivalStatusText = nil
                 showCpClientSeenSheet = true
@@ -1702,7 +1709,29 @@ struct TripNavigationView: View {
     private func startCpYesPath() {
         cpNoPathPhotoCapture = false
         capturedImage = nil
+        recordClientMetEarly()
         Task { await requestArrivalOtpThenOpenCamera() }
+    }
+
+    /// Tells the server the moment the staff says they met the client, so the
+    /// web CP flow shows "Did you see the client?: YES" before the OTP. Best
+    /// effort and non-blocking: the outcome save records it again, and a
+    /// failure here never stops the photo + OTP flow.
+    ///
+    /// Single-staff CPs only. For a Joint CP the same call also starts that
+    /// person's leg and saves an outcome draft, which must stay with the
+    /// existing Joint CP workflow.
+    private func recordClientMetEarly() {
+        guard !isJointCpWorkflow,
+              let cpVisitId = clientPlaceVisitId?.nilIfBlank,
+              let token = authStore.currentSession?.token
+        else { return }
+        Task {
+            try? await MarketingConvexAPIService.markClientMet(
+                token: token,
+                request: MarkClientMetRequest(id: cpVisitId, clientMet: true)
+            )
+        }
     }
 
     private func startCpNoPath() {

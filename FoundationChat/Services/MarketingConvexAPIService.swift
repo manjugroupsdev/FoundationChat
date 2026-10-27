@@ -196,9 +196,16 @@ enum MarketingConvexAPIService {
         let reason: String
     }
 
+    /// The out-of-geofence reason, plus where the phone was when it was given
+    /// so the web CP flow shows "More than 300 m: YES" and the reason
+    /// immediately (Android parity). The position fields are optional and an
+    /// older backend simply ignores them.
     private struct CpGeofenceRemarkRequest: Encodable {
         let id: String
         let remark: String
+        let lat: Double?
+        let lng: Double?
+        let distanceMeters: Double?
     }
 
     private struct CpApprovalRejectRequest: Encodable {
@@ -957,11 +964,24 @@ enum MarketingConvexAPIService {
     // MARK: - Out-of-geofence CP completion (GM approval)
 
     /// Stashes the staff's out-of-geofence reason on the visit (shown to the approving GM).
-    static func setCpGeofenceRemark(token: String, id: String, remark: String) async throws {
+    static func setCpGeofenceRemark(
+        token: String,
+        id: String,
+        remark: String,
+        lat: Double? = nil,
+        lng: Double? = nil,
+        distanceMeters: Double? = nil
+    ) async throws {
         let data = try await post(
             path: "/api/marketing/cp-visits/geofence-remark",
             token: token,
-            body: CpGeofenceRemarkRequest(id: id, remark: remark)
+            body: CpGeofenceRemarkRequest(
+                id: id,
+                remark: remark,
+                lat: lat,
+                lng: lng,
+                distanceMeters: distanceMeters
+            )
         )
         let wrapper = try await decode(BaseMutationResponse.self, from: data)
         guard wrapper.success else { throw MarketingAPIError.server(wrapper.error ?? "Failed to save geofence remark") }

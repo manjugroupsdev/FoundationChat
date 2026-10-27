@@ -11,10 +11,18 @@ enum PushNavigationType: String {
     case permissionRejected = "permission-rejected"
     // Out-of-geofence CP-completion GM approval — opens the CP approval queue.
     case cpApproval = "cp-approval"
+    // Cab request pushes (new request / approved / rejected / assigned).
+    case cabRequests = "cab-requests"
 
     // Legacy compatibility
     init?(fromRaw raw: String) {
-        switch raw.trimmingCharacters(in: .whitespacesAndNewlines).lowercased() {
+        let normalized = raw.trimmingCharacters(in: .whitespacesAndNewlines).lowercased()
+        // Every cab_request_* push opens Fleet > Cab Requests (Android parity).
+        if normalized.hasPrefix("cab_request_") || normalized == "cab_requests" {
+            self = .cabRequests
+            return
+        }
+        switch normalized {
         case "direct_message", "chat-dm", "chat-message": self = .directMessage
         case "channel_message", "chat-mention", "channel-message", "chat-channel": self = .channelMessage
         case "leave-request": self = .leaveRequest
@@ -75,6 +83,10 @@ struct PushNavigationRoute {
                 type = .cpApproval
                 conversationId = nil
                 channelId = nil
+            case "cab_requests", "cab-requests":
+                type = .cabRequests
+                conversationId = nil
+                channelId = nil
             default:
                 return nil
             }
@@ -96,7 +108,10 @@ struct PushNavigationRoute {
         channelId = PushNavigationRoute.firstStringValue(userInfo, keys: ["channelId", "channel_id"])
         messageId = PushNavigationRoute.firstStringValue(userInfo, keys: ["messageId", "message_id"])
         referenceId = PushNavigationRoute.firstStringValue(userInfo, keys: ["referenceId", "reference_id"])
-        workflowTargetMode = nil
+        // A new request goes to the approver; the rest to the requester.
+        workflowTargetMode = parsedType == .cabRequests
+            ? (rawType.lowercased().contains("pending") ? "approvals" : "my")
+            : nil
     }
 
     init?(_ notification: AppNotification) {
@@ -125,7 +140,7 @@ struct PushNavigationRoute {
              .permissionRequest, .permissionApproved, .permissionRejected:
             conversationId = nil
             channelId = nil
-        case .cpApproval:
+        case .cpApproval, .cabRequests:
             conversationId = nil
             channelId = nil
         }

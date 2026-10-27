@@ -184,7 +184,12 @@ enum CabRequestAPIService {
             }
             if http.statusCode >= 400 {
                 let message = (try? JSONSerialization.jsonObject(with: data) as? [String: Any])?["error"] as? String
-                throw CabRequestAPIError.server(message ?? "Request failed (\(http.statusCode))")
+                if let message { throw CabRequestAPIError.server(message) }
+                // The routes are missing on a server that hasn't been updated yet.
+                if http.statusCode == 404 {
+                    throw CabRequestAPIError.server("Cab requests aren't available on the server yet.")
+                }
+                throw CabRequestAPIError.server("Request failed (\(http.statusCode))")
             }
         }
         return data

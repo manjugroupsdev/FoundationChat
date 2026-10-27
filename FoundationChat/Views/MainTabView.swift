@@ -18,6 +18,11 @@ private struct ApprovalQueuePresentation: Identifiable {
     let id = UUID()
 }
 
+private struct CabRequestsPresentation: Identifiable {
+    let id = UUID()
+    let tab: CabRequestsView.Tab?
+}
+
 struct MainTabView: View {
     @Environment(AuthStore.self) private var authStore
     @State private var selectedTab: AppTab = .home
@@ -25,6 +30,7 @@ struct MainTabView: View {
     @State private var openChannelIDFromPush: String?
     @State private var openHRRouteFromPush: HRDashboardRoute?
     @State private var approvalQueuePresentation: ApprovalQueuePresentation?
+    @State private var cabRequestsPresentation: CabRequestsPresentation?
     @State private var hasPlayedHomeEntryAnimation = false
 
     init() {
@@ -118,6 +124,17 @@ struct MainTabView: View {
                     }
             }
         }
+        .sheet(item: $cabRequestsPresentation) { presentation in
+            NavigationStack {
+                CabRequestsView(initialTab: presentation.tab)
+                    .id(presentation.id)
+                    .toolbar {
+                        ToolbarItem(placement: .cancellationAction) {
+                            Button("Done") { cabRequestsPresentation = nil }
+                        }
+                    }
+            }
+        }
     }
 
     private func applyPushRoute(_ route: PushNavigationRoute) {
@@ -139,6 +156,13 @@ struct MainTabView: View {
         case .cpApproval:
             selectedTab = .apps
             approvalQueuePresentation = ApprovalQueuePresentation()
+        case .cabRequests:
+            // A new request goes to the approver's Approvals tab; the rest to
+            // the requester's My Requests (Android parity).
+            selectedTab = .apps
+            cabRequestsPresentation = CabRequestsPresentation(
+                tab: route.workflowTargetMode?.lowercased() == "approvals" ? .approvals : .mine
+            )
         }
     }
 }

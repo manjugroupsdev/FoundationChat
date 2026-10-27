@@ -31,6 +31,8 @@ struct CabRequestsView: View {
     @State private var hasLoaded = false
     @State private var errorMessage: String?
     @State private var infoMessage: String?
+    /// Why the last load failed, shown instead of "No cab requests yet".
+    @State private var loadError: String?
     @State private var showNewRequest = false
     @State private var confirm: PendingAction?
     @State private var rejecting: CabRequest?
@@ -137,6 +139,12 @@ struct CabRequestsView: View {
                         .frame(height: 96)
                         .listRowSeparator(.hidden)
                 }
+            } else if source.isEmpty, let loadError {
+                ContentUnavailableView(
+                    "Couldn't load cab requests",
+                    systemImage: "exclamationmark.triangle",
+                    description: Text("\(loadError) Pull down to try again.")
+                )
             } else if source.isEmpty {
                 ContentUnavailableView(
                     "No cab requests yet",
@@ -382,6 +390,7 @@ struct CabRequestsView: View {
             do { all = try await CabRequestAPIService.all(token: token) }
             catch { firstError = firstError ?? error.localizedDescription }
         }
+        loadError = firstError
         if let firstError { errorMessage = firstError }
     }
 
