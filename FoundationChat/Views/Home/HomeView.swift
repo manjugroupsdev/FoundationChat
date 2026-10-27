@@ -217,7 +217,9 @@ struct HomeView: View {
                 }
             }
             .sheet(isPresented: $showClockOutConfirm) {
-                ClockOutConfirmSheet {
+                ClockOutConfirmSheet(
+                    gateBadgedAt: inGateStartedDay ? (formatAttendanceTime(todayPunchInRaw) ?? "") : nil
+                ) {
                     showClockOutConfirm = false
                     showPunchOut = true
                 } onCancel: {
@@ -963,20 +965,7 @@ struct HomeView: View {
 
     @ViewBuilder
     private var homeAttendanceActions: some View {
-        if needsMobileDayStart {
-            // Badged in at the gate: start the day in the app, never Clock Out.
-            Button {
-                Task { await startMobileDay() }
-            } label: {
-                Label("Clock In", systemImage: "clock.badge.checkmark.fill")
-                    .font(.system(size: 13, weight: .semibold))
-                    .foregroundStyle(.white)
-                    .frame(maxWidth: .infinity)
-                    .frame(height: 42)
-                    .background(HomePalette.headerBlue, in: Capsule())
-            }
-            .buttonStyle(.plain)
-        } else if todayPunchInRaw != nil {
+        if todayPunchInRaw != nil {
             Button {
                 showClockOutConfirm = true
             } label: {
@@ -2188,25 +2177,15 @@ struct HomeView: View {
         }.count
     }
 
-    /// Badged in at the gate, not started in the app yet.
-    private var needsMobileDayStart: Bool {
+    /// Badged in at the gate and still in that gate session: Clock Out says it
+    /// ends the gate-started day.
+    private var inGateStartedDay: Bool {
         guard let token = authStore.currentSession?.token else { return false }
-        return AttendanceTrackingGate.needsMobileDayStart(
+        return AttendanceTrackingGate.startedAtGate(
             daySessions: nil,
             attendanceSessions: todayAttendance?.sessions,
             token: token
-        )
-    }
-
-    @MainActor
-    private func startMobileDay() async {
-        guard let token = authStore.currentSession?.token else { return }
-        if AttendanceTrackingGate.hasOpenPunchToday(daySessions: nil, attendanceSessions: todayAttendance?.sessions) {
-            await AttendanceTrackingGate.startMobileDayAfterGatePunch(token: token)
-            await reload()
-        } else {
-            showPunchIn = true
-        }
+        ) && AttendanceTrackingGate.hasOpenPunchToday(daySessions: nil, attendanceSessions: todayAttendance?.sessions)
     }
 
     private var todayPunchInRaw: String? {

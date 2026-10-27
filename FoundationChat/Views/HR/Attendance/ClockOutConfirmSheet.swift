@@ -3,8 +3,19 @@ import SwiftUI
 struct ClockOutConfirmSheet: View {
     var todayMinutes: Int = 0
     var overtimeMinutes: Int = 0
+    /// Gate punch-in time when the day started at the gate ("" if unknown).
+    var gateBadgedAt: String? = nil
     let onConfirm: () -> Void
     let onCancel: () -> Void
+
+    private var message: String {
+        guard let gateBadgedAt else {
+            return "Once you clock out, you won't be able to edit this time. Please double-check your hours before proceeding."
+        }
+        return gateBadgedAt.isEmpty
+            ? "You badged in at the gate. Clocking out now ends your day."
+            : "You badged in at the gate at \(gateBadgedAt). Clocking out now ends your day."
+    }
 
     var body: some View {
         ZStack(alignment: .top) {
@@ -19,7 +30,7 @@ struct ClockOutConfirmSheet: View {
                         .frame(maxWidth: .infinity)
                         .padding(.top, 50)
 
-                    Text("Once you clock out, you won't be able to edit this time. Please double-check your hours before proceeding.")
+                    Text(message)
                         .font(.system(size: 13, weight: .medium))
                         .foregroundStyle(Color.appSecondaryText)
                         .multilineTextAlignment(.center)

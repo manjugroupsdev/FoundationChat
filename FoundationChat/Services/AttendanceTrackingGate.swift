@@ -76,12 +76,11 @@ enum LocalPunchState {
 }
 
 enum AttendanceTrackingGate {
-    /// The day was started at the biometric gate (or by HR) and not yet in the
-    /// app: punches exist today, none of them is a mobile punch-in, and the day
-    /// was not ended by a Clock Out in the app. Pressing the app's button then
-    /// means "start my day in the app", never "Clock Out" — that used to end the
-    /// day straight after the gate punch-in.
-    static func needsMobileDayStart(
+    /// The day was started at the biometric gate (or by HR), not in the app:
+    /// punches exist today, none of them is a mobile punch-in, and the day was
+    /// not ended by a Clock Out in the app. A gate punch-in counts as clocked
+    /// in; the Clock Out confirmation then says it ends the gate-started day.
+    static func startedAtGate(
         daySessions: [ConvexDaySession]?,
         attendanceSessions: [ConvexAttendanceSession]?,
         token: String
@@ -108,21 +107,6 @@ enum AttendanceTrackingGate {
         attendanceSessions: [ConvexAttendanceSession]?
     ) -> Bool {
         hasOpenPunch(daySessions: daySessions, attendanceSessions: attendanceSessions)
-    }
-
-    /// Starts the work day in the app after a gate punch-in. The server already
-    /// has the staff clocked in (a second punch-in is refused), so nothing is
-    /// sent to attendance: the phone records the start and tracking begins.
-    static func startMobileDayAfterGatePunch(token: String) async {
-        let now = Date()
-        LocalPunchState.record(isPunchIn: true, token: token, at: now)
-        await GeoTrackBootstrapCoordinator.shared.sync(
-            reason: "attendance-gate-day-start",
-            force: true,
-            allowConsentPresentation: true,
-            occurredAt: Int64(now.timeIntervalSince1970 * 1_000),
-            attendanceOpen: true
-        )
     }
 
     static func isClockedInForToday(
