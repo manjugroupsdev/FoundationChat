@@ -12,6 +12,9 @@ extension Notification.Name {
   static let didReceiveGeoTrackSyncPush = Notification.Name(
     "didReceiveGeoTrackSyncPush"
   )
+  static let didReceiveMobileAlertPush = Notification.Name(
+    "didReceiveMobileAlertPush"
+  )
 }
 
 final class PushNotificationAppDelegate: NSObject, UIApplicationDelegate, UNUserNotificationCenterDelegate {
@@ -35,6 +38,7 @@ final class PushNotificationAppDelegate: NSObject, UIApplicationDelegate, UNUser
 
     if let remoteNotification = launchOptions?[.remoteNotification] as? [AnyHashable: Any] {
       handleGeoTrackSyncIfNeeded(from: remoteNotification, source: "launchOptions")
+      handleMobileAlertIfNeeded(from: remoteNotification, source: "launchOptions")
       handleNotificationRoute(from: remoteNotification, source: "launchOptions")
     }
     return true
@@ -68,6 +72,8 @@ final class PushNotificationAppDelegate: NSObject, UIApplicationDelegate, UNUser
       return []
     }
     handleGeoTrackSyncIfNeeded(from: notification.request.content.userInfo, source: "foreground")
+    // A mobile alert still shows its banner; the full-screen alert follows.
+    handleMobileAlertIfNeeded(from: notification.request.content.userInfo, source: "foreground")
     return [.banner, .sound, .badge]
   }
 
@@ -76,6 +82,7 @@ final class PushNotificationAppDelegate: NSObject, UIApplicationDelegate, UNUser
     didReceive response: UNNotificationResponse
   ) async {
     handleGeoTrackSyncIfNeeded(from: response.notification.request.content.userInfo, source: "tap")
+    handleMobileAlertIfNeeded(from: response.notification.request.content.userInfo, source: "tap")
     handleNotificationRoute(from: response.notification.request.content.userInfo, source: "tap")
   }
 
@@ -88,11 +95,9 @@ final class PushNotificationAppDelegate: NSObject, UIApplicationDelegate, UNUser
       completionHandler(.newData)
       return
     }
-    if handleGeoTrackSyncIfNeeded(from: userInfo, source: "background") {
-      completionHandler(.newData)
-    } else {
-      completionHandler(.noData)
-    }
+    let isGeoTrackSync = handleGeoTrackSyncIfNeeded(from: userInfo, source: "background")
+    let isMobileAlert = handleMobileAlertIfNeeded(from: userInfo, source: "background")
+    completionHandler(isGeoTrackSync || isMobileAlert ? .newData : .noData)
   }
 
   @discardableResult
@@ -105,6 +110,21 @@ final class PushNotificationAppDelegate: NSObject, UIApplicationDelegate, UNUser
     NotificationCenter.default.post(
       name: .didReceiveGeoTrackSyncPush,
       object: pushString(userInfo["reason"]) ?? source
+    )
+    return true
+  }
+
+  /// A mandatory mobile alert: the app root refreshes the pending queue,
+  /// which presents the full-screen alert.
+  @discardableResult
+  private func handleMobileAlertIfNeeded(from userInfo: [AnyHashable: Any], source: String) -> Bool {
+    guard pushString(userInfo["type"]) == "mobile_alert" else {
+      return false
+    }
+    print("\(logPrefix) mobile alert push source=\(source) delivery=\(pushString(userInfo["alertDeliveryId"]) ?? "-")")
+    NotificationCenter.default.post(
+      name: .didReceiveMobileAlertPush,
+      object: pushString(userInfo["alertDeliveryId"])
     )
     return true
   }
