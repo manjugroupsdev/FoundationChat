@@ -26,10 +26,12 @@ struct MobileAlertView: View {
     var body: some View {
         VStack(spacing: 0) {
             ScrollView {
-                VStack(alignment: .leading, spacing: 0) {
+                VStack(alignment: .center, spacing: 0) {
                     alertPill
 
                     Text(alert.title)
+                        .multilineTextAlignment(.center)
+                        .frame(maxWidth: .infinity)
                         .font(.system(size: 26, weight: .bold))
                         .foregroundStyle(Color.appPrimaryText)
                         .fixedSize(horizontal: false, vertical: true)
@@ -37,6 +39,7 @@ struct MobileAlertView: View {
 
                     if let sentAt = alert.sentAt {
                         Text(sentAt, format: .dateTime.day().month(.abbreviated).year().hour().minute())
+                            .multilineTextAlignment(.center)
                             .font(.system(size: 12, weight: .medium))
                             .foregroundStyle(Color.appSecondaryText)
                             .padding(.top, 6)
@@ -52,7 +55,7 @@ struct MobileAlertView: View {
                             .padding(.top, 18)
                     }
                 }
-                .frame(maxWidth: .infinity, alignment: .leading)
+                .frame(maxWidth: .infinity, alignment: .center)
                 .padding(.horizontal, 20)
                 .padding(.top, 20)
                 .padding(.bottom, 24)
@@ -327,6 +330,8 @@ private struct MobileAlertHTMLView: UIViewRepresentable {
     .ql-align-center { text-align: center; }
     .ql-align-right { text-align: right; }
     .ql-align-justify { text-align: justify; }
+    #alert-body, #alert-body * { text-align: center !important; }
+    #alert-body ul, #alert-body ol { padding-left: 0; list-style-position: inside; }
     blockquote {
       margin: 0 0 12px;
       padding: 8px 14px;
