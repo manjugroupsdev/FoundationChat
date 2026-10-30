@@ -98,6 +98,15 @@ struct AuthRootView: View {
         .onReceive(NotificationCenter.default.publisher(for: .didReceiveMobileAlertPush)) { _ in
             Task { await refreshMobileAlerts() }
         }
+        // Push is primary. Keep an open app in sync even if the push is missed.
+        .task(id: "\(scenePhase == .active)-\(canShowMobileAlerts)-\(authStore.currentSession?.token ?? "")") {
+            guard scenePhase == .active, canShowMobileAlerts else { return }
+            while !Task.isCancelled {
+                await refreshMobileAlerts()
+                do { try await Task.sleep(for: .seconds(5)) }
+                catch { return }
+            }
+        }
         .alert("Couldn't open alert", isPresented: Binding(
             get: { mobileAlerts.openError != nil },
             set: { if !$0 { mobileAlerts.openError = nil } }
