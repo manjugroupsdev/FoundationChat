@@ -43,6 +43,18 @@ nonisolated enum MobileAlertAPIError: LocalizedError, Sendable {
 
 /// The /api/mobile/alerts/* routes.
 enum MobileAlertAPIService {
+    static func fetchDetail(token: String, deliveryId: String) async throws -> MobileAlert {
+        var components = URLComponents()
+        components.queryItems = [URLQueryItem(name: "deliveryId", value: deliveryId)]
+        let data = try await send(path: "/api/mobile/alerts/detail?\(components.percentEncodedQuery ?? "")",
+                                  token: token, body: Optional<ViewedBody>.none)
+        let response = try JSONDecoder().decode(DetailResponse.self, from: data)
+        guard response.success, let alert = response.alert?.alert else {
+            throw MobileAlertAPIError.rejected(status: nil, message: response.error ?? "Alert is no longer available")
+        }
+        return alert
+    }
+
     /// Alerts this staff member hasn't viewed yet, oldest first.
     static func fetchPending(token: String) async throws -> [MobileAlert] {
         let data = try await send(path: "/api/mobile/alerts/pending", token: token, body: Optional<ViewedBody>.none)
@@ -70,6 +82,12 @@ enum MobileAlertAPIService {
 
     private nonisolated struct ViewedBody: Encodable {
         let deliveryId: String
+    }
+
+    private nonisolated struct DetailResponse: Decodable {
+        let success: Bool
+        let alert: RawAlert?
+        let error: String?
     }
 
     private nonisolated struct ActionResponse: Decodable {

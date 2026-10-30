@@ -98,6 +98,11 @@ struct AuthRootView: View {
         .onReceive(NotificationCenter.default.publisher(for: .didReceiveMobileAlertPush)) { _ in
             Task { await refreshMobileAlerts() }
         }
+        .alert("Couldn't open alert", isPresented: Binding(
+            get: { mobileAlerts.openError != nil },
+            set: { if !$0 { mobileAlerts.openError = nil } }
+        )) { Button("OK") { mobileAlerts.openError = nil } }
+        message: { Text(mobileAlerts.openError ?? "") }
         .onChange(of: authStore.status) { _, newStatus in
             if newStatus == .signedIn, !authStore.passwordChangeRequired {
                 authStore.requestNotificationPermissions()

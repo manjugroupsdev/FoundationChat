@@ -122,10 +122,12 @@ final class PushNotificationAppDelegate: NSObject, UIApplicationDelegate, UNUser
       return false
     }
     print("\(logPrefix) mobile alert push source=\(source) delivery=\(pushString(userInfo["alertDeliveryId"]) ?? "-")")
-    NotificationCenter.default.post(
-      name: .didReceiveMobileAlertPush,
-      object: pushString(userInfo["alertDeliveryId"])
-    )
+    let deliveryId = pushString(userInfo["alertDeliveryId"])
+    let reopen = source == "tap" || source == "launchOptions"
+    Task { @MainActor in
+      if reopen { MobileAlertCoordinator.shared.pendingOpenDeliveryId = deliveryId }
+      NotificationCenter.default.post(name: .didReceiveMobileAlertPush, object: deliveryId)
+    }
     return true
   }
 

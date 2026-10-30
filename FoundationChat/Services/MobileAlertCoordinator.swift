@@ -24,12 +24,15 @@ final class MobileAlertCoordinator {
 
     /// The alert on screen, nil when none is pending.
     private(set) var current: MobileAlert?
+    var openError: String?
+    @ObservationIgnored var pendingOpenDeliveryId: String?
 
     @ObservationIgnored private var queue: [MobileAlert] = []
     @ObservationIgnored private var token: String?
     @ObservationIgnored private var isRefreshing = false
     @ObservationIgnored private var refreshAgain = false
     @ObservationIgnored private var acknowledging: Set<String> = []
+    @ObservationIgnored private var retryingAcknowledgements = false
     @ObservationIgnored private var viewedIds: [String]
     @ObservationIgnored private var unacknowledgedIds: Set<String>
     private let defaults: UserDefaults
@@ -63,7 +66,7 @@ final class MobileAlertCoordinator {
         repeat {
             refreshAgain = false
             guard let activeToken = token else { return }
-            await retryAcknowledgements(token: activeToken)
+            Task { await retryAcknowledgements(token: activeToken) }
             do {
                 let pending = try await MobileAlertAPIService.fetchPending(token: activeToken)
                 // Signed out or switched user while the request was out.
@@ -72,6 +75,10 @@ final class MobileAlertCoordinator {
             } catch {
                 // Keep whatever is queued; the next refresh tries again.
                 print("[mobile-alert] pending fetch failed: \(error.localizedDescription)")
+            }
+            if let deliveryId = pendingOpenDeliveryId, let activeToken = token {
+                pendingOpenDeliveryId = nil
+                await reopen(deliveryId: deliveryId, token: activeToken)
             }
         } while refreshAgain
     }
@@ -85,12 +92,36 @@ final class MobileAlertCoordinator {
         Task { await acknowledge(alert.deliveryId, token: token) }
     }
 
+    func reopen(deliveryId: String, token activeToken: String) async {
+        do {
+            let alert = try await MobileAlertAPIService.fetchDetail(token: activeToken, deliveryId: deliveryId)
+            guard token == activeToken else { return }
+            if let previous = current, previous.id != alert.id, !viewedIds.contains(previous.id) {
+                queue.insert(previous, at: 0)
+            }
+            queue.removeAll { $0.id == alert.id }
+            current = alert
+        } catch {
+            guard token == activeToken else { return }
+            openError = error.localizedDescription
+        }
+    }
+
+    /// Inbox viewing uses its own cover rather than competing with the root cover.
+    func recordViewed(_ alert: MobileAlert, token activeToken: String) {
+        guard token == activeToken else { return }
+        rememberViewed(alert.id)
+        queue.removeAll { $0.id == alert.id }
+        Task { await acknowledge(alert.id, token: activeToken) }
+    }
+
     // MARK: - Queue
 
     private func reset() {
         token = nil
         queue = []
         current = nil
+        openError = nil
     }
 
     private func apply(_ pending: [MobileAlert]) {
@@ -116,7 +147,11 @@ final class MobileAlertCoordinator {
     }
 
     private func retryAcknowledgements(token: String) async {
+        guard !retryingAcknowledgements else { return }
+        retryingAcknowledgements = true
+        defer { retryingAcknowledgements = false }
         for deliveryId in unacknowledgedIds.sorted() {
+            guard self.token == token else { return }
             await acknowledge(deliveryId, token: token)
         }
     }
@@ -129,7 +164,6 @@ final class MobileAlertCoordinator {
             try await MobileAlertAPIService.markViewed(token: token, deliveryId: deliveryId)
             unacknowledgedIds.remove(deliveryId)
             persist()
-            Self.removeDeliveredNotifications(forDeliveryId: deliveryId)
         } catch let error as MobileAlertAPIError where error.isPermanent {
             // The server will never accept it (e.g. it belongs to a user who
             // has since signed out of this phone); stop retrying.
@@ -146,15 +180,4 @@ final class MobileAlertCoordinator {
         defaults.set(unacknowledgedIds.sorted(), forKey: DefaultsKey.unacknowledgedIds)
     }
 
-    /// iOS can't make the push itself non-dismissible, so it sits in
-    /// Notification Center until cleared; drop it once the alert is viewed.
-    private nonisolated static func removeDeliveredNotifications(forDeliveryId deliveryId: String) {
-        UNUserNotificationCenter.current().getDeliveredNotifications { notifications in
-            let identifiers = notifications
-                .filter { ($0.request.content.userInfo["alertDeliveryId"] as? String) == deliveryId }
-                .map { $0.request.identifier }
-            guard !identifiers.isEmpty else { return }
-            UNUserNotificationCenter.current().removeDeliveredNotifications(withIdentifiers: identifiers)
-        }
-    }
 }

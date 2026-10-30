@@ -8,6 +8,8 @@ struct NotificationsListView: View {
     @State private var selectedFilter: NotificationListFilter = .all
     @State private var isLoading = false
     @State private var errorMessage: String?
+    @State private var selectedAlert: MobileAlert?
+    @State private var openingAlert = false
 
     private var filteredNotifications: [AppNotification] {
         notifications.filter { selectedFilter.includes($0) }
@@ -65,6 +67,14 @@ struct NotificationsListView: View {
                 }
             }
             .navigationTitle("Notifications")
+            .fullScreenCover(item: $selectedAlert) { alert in
+                MobileAlertView(alert: alert, token: authStore.currentSession?.token) {
+                    if let token = authStore.currentSession?.token {
+                        MobileAlertCoordinator.shared.recordViewed(alert, token: token)
+                    }
+                    selectedAlert = nil
+                }
+            }
             .toolbar {
                 if let onClose {
                     ToolbarItem(placement: .cancellationAction) {
@@ -182,6 +192,23 @@ struct NotificationsListView: View {
     }
 
     private func open(_ notification: AppNotification) {
+        guard !openingAlert else { return }
+        if notification.referenceType == "mobileAlert",
+           let deliveryId = notification.referenceId,
+           let token = authStore.currentSession?.token {
+            openingAlert = true
+            Task {
+                defer { openingAlert = false }
+                do {
+                    let alert = try await MobileAlertAPIService.fetchDetail(token: token, deliveryId: deliveryId)
+                    guard authStore.currentSession?.token == token else { return }
+                    selectedAlert = alert
+                    try? await authStore.markNotificationRead(id: notification._id)
+                    loadData()
+                } catch { errorMessage = error.localizedDescription }
+            }
+            return
+        }
         Task {
             if notification.isUnread {
                 try? await authStore.markNotificationRead(id: notification._id)
