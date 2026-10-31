@@ -2505,7 +2505,7 @@ private struct CreateSiteVisitSheet: View {
         switch field {
         case .lmo, .bdo: return staff.filter(isEligibleLmo)
         case .incharge, .field, .avp, .gm, .senior: return staff.filter(isSalesMarketing)
-        case .hod: return staff.filter { $0.isActive }
+        case .hod: return staff.filter { SiteVisitStaffRules.isActive($0.status) }
         }
     }
 
@@ -2702,7 +2702,7 @@ private struct CreateSiteVisitSheet: View {
             let loadedProjects = try await projectRequest
             let loadedStaff = try await staffRequest
             projects = loadedProjects
-            staff = loadedStaff.filter(\.isActive)
+            staff = loadedStaff.filter { SiteVisitStaffRules.isActive($0.status) }
         } catch {
             errorMessage = friendlyError(error)
         }
@@ -2822,16 +2822,11 @@ private struct CreateSiteVisitSheet: View {
     }
 
     private func isSalesMarketing(_ item: ConvexStaffListItem) -> Bool {
-        item.isActive && (item.department ?? "").lowercased().contains("sales") && (item.department ?? "").lowercased().contains("marketing")
+        SiteVisitStaffRules.salesMarketing(status: item.status, department: item.department)
     }
 
     private func isEligibleLmo(_ item: ConvexStaffListItem) -> Bool {
-        guard item.isActive else { return false }
-        let department = (item.department ?? "").lowercased()
-        let designation = (item.designation ?? "").lowercased()
-        return (department.contains("telesales") && (designation == "lmo" || designation.contains("lead management") || designation.contains("telecaller")))
-            || department.contains("channel partner")
-            || (department.contains("sales") && department.contains("marketing") && (designation == "bdo" || designation.contains("business development")))
+        SiteVisitStaffRules.lmoOrBdo(status: item.status, department: item.department, designation: item.designation)
     }
 
     private func friendlyError(_ error: Error) -> String {
