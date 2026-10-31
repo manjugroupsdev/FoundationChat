@@ -7,6 +7,11 @@ struct LeavesListView: View {
     @State private var allLeaves: [ConvexLeave] = []
     @State private var balance: ConvexLeaveBalance?
     @State private var isLoading = false
+    @State private var teamLoading = false
+    @State private var allLoading = false
+    @State private var loadTask: Task<Void, Never>?
+    @State private var loadKey: String?
+    @State private var loadGeneration = 0
     @State private var errorMessage: String?
     @State private var showApplySheet = false
     @State private var historyFilter: LeaveHistoryFilter = .review
@@ -115,7 +120,7 @@ struct LeavesListView: View {
         }
         .sheet(isPresented: $showApplySheet) {
             ApplyLeaveView {
-                loadData()
+                loadData(force: true)
             }
             .appLibraryNativeSheet([.height(620), .large])
         }
@@ -156,9 +161,12 @@ struct LeavesListView: View {
         .navigationBarBackButtonHidden(true)
         .toolbar(.hidden, for: .navigationBar)
         .task {
-            await resolveReportingScope()
             loadData()
+            let previouslyManaged = canManageTeamLeaves
+            await resolveReportingScope()
+            if canManageTeamLeaves != previouslyManaged { loadData() }
         }
+        .onDisappear { loadGeneration += 1; loadTask?.cancel(); loadTask = nil }
     }
 
     private var leaveHeader: some View {
@@ -343,8 +351,8 @@ struct LeavesListView: View {
             }
 
             HStack(spacing: 12) {
-                leaveMetric("Available", value: Int(totalLeaveAvailable), dot: Color(hex: 0x22C55E))
-                leaveMetric("Leave Used", value: Int(totalLeaveUsed), dot: Color(hex: 0x0B61CA))
+                leaveMetric("Available", value: balance == nil ? nil : totalLeaveAvailable, dot: Color(hex: 0x22C55E))
+                leaveMetric("Leave Used", value: balance == nil ? nil : totalLeaveUsed, dot: Color(hex: 0x0B61CA))
             }
         }
         .padding(.horizontal, 20)
@@ -361,7 +369,7 @@ struct LeavesListView: View {
 
     private var leaveHistorySection: some View {
         VStack(alignment: .leading, spacing: 12) {
-            if isLoading && scopedLeaves.isEmpty {
+            if scopeLoading && scopedLeaves.isEmpty {
                 VStack(spacing: 12) {
                     ForEach(0..<3, id: \.self) { _ in
                         RoundedRectangle(cornerRadius: 16)
@@ -553,7 +561,7 @@ struct LeavesListView: View {
         isApprovalScope ? "There are no pending leave requests in review right now." : "Ready to catch some fresh air? Click \"Apply Leave\" and take that well-deserved break!"
     }
 
-    private func leaveMetric(_ title: String, value: Int, dot: Color) -> some View {
+    private func leaveMetric(_ title: String, value: Double?, dot: Color) -> some View {
         VStack(alignment: .leading, spacing: 6) {
             HStack(spacing: 8) {
                 Circle().fill(dot).frame(width: 8, height: 8)
@@ -561,7 +569,7 @@ struct LeavesListView: View {
                     .font(.system(size: 14, weight: .semibold))
                     .foregroundStyle(Color.appSecondaryText)
             }
-            Text("\(value)")
+            Text(value.map { String(format: $0.rounded() == $0 ? "%.0f" : "%.1f", $0) } ?? "--")
                 .font(.system(size: 32, weight: .bold))
                 .foregroundStyle(Color.appPrimaryText)
         }
@@ -1061,8 +1069,14 @@ struct LeavesListView: View {
         return "leaves.all.pending.\(staff).\(leaveFacetCacheKey)"
     }
 
-    private func loadData() {
+    private func loadData(force: Bool = false) {
         guard let token = authStore.currentSession?.token else { return }
+        let key = "\(token)|\(leavesCacheKey)|\(canManageTeamLeaves)|\(canViewAllLeaves)"
+        if !force && key == loadKey && loadTask != nil && isLoading { return }
+        loadGeneration += 1
+        let generation = loadGeneration
+        loadTask?.cancel()
+        loadKey = key
 
         // Cache-first: paint the last-known "My Leaves" snapshot (list + balance)
         // INSTANTLY on a cold open so the skeleton only shows on a true first
@@ -1081,74 +1095,79 @@ struct LeavesListView: View {
             allLeaves = cached
         }
 
-        Task {
-            isLoading = true
-            defer { isLoading = false }
-            do {
-                let year = Calendar.current.component(.year, from: Date())
-                let fromDate = advancedFilter.fromDate.map { AppModuleFormatters.ymd.string(from: $0) }
-                let toDate = (advancedFilter.toDate ?? advancedFilter.fromDate).map { AppModuleFormatters.ymd.string(from: $0) }
-                let leaveType = advancedFilter.selected("leaveType").first
-                let staffId = advancedFilter.selected("staff").first
-                let selectedStatus = advancedFilter.selected("status").first
-                let apiStatus = selectedStatus == "review" ? "pending" : selectedStatus
-                async let leavesReq = HRConvexAPIService.getMyLeaves(
-                    token: token,
-                    fromDate: fromDate,
-                    toDate: toDate,
-                    status: apiStatus,
-                    leaveType: leaveType,
-                    staffId: staffId,
-                    pageSize: 100
-                )
-                async let balanceReq = HRConvexAPIService.getLeaveBalance(token: token, year: year)
-                async let pendingReq: [ConvexLeave] = canManageTeamLeaves
-                    ? HRConvexAPIService.getPendingLeaveApprovals(
-                        token: token,
-                        teamOnly: true,
-                        scope: "direct",
-                        viewerStaffId: authStore.currentSession?.user._id,
-                        fromDate: fromDate,
-                        toDate: toDate,
-                        status: apiStatus,
-                        leaveType: leaveType,
-                        staffId: staffId,
-                        pageSize: 100
-                    )
-                    : []
-                async let allReq: [ConvexLeave] = canViewAllLeaves
-                    ? HRConvexAPIService.getPendingLeaveApprovals(
-                        token: token,
-                        fromDate: fromDate,
-                        toDate: toDate,
-                        status: apiStatus,
-                        leaveType: leaveType,
-                        staffId: staffId,
-                        pageSize: 100
-                    )
-                    : []
-                leaves = try await leavesReq
-                // Offline-keep: never null out a cached balance on a transient
-                // balance-endpoint failure.
-                if let freshBalance = try? await balanceReq { balance = freshBalance }
-                if let loadedPending = try? await pendingReq {
-                    pendingLeaves = loadedPending
-                    LocalCache.put(teamLeavesCacheKey, loadedPending)
-                }
-                if let loadedAll = try? await allReq {
-                    allLeaves = loadedAll
-                    LocalCache.put(allLeavesCacheKey, loadedAll)
-                }
-                LocalCache.put(leavesCacheKey, LeavesCacheSnapshot(leaves: leaves, balance: balance))
-            } catch {
-                if Self.isCancellation(error) { return }
-                // Offline-keep: keep cached rows on screen; only surface an error
-                // when there is nothing to show.
-                if leaves.isEmpty {
-                    errorMessage = error.localizedDescription
-                }
+        let year = Calendar.current.component(.year, from: Date())
+        let fromDate = advancedFilter.fromDate.map { AppModuleFormatters.ymd.string(from: $0) }
+        let toDate = (advancedFilter.toDate ?? advancedFilter.fromDate).map { AppModuleFormatters.ymd.string(from: $0) }
+        let leaveType = advancedFilter.selected("leaveType").first
+        let staffId = advancedFilter.selected("staff").first
+        let status = advancedFilter.selected("status").first
+        let apiStatus = status == "review" ? "pending" : status
+        let mineKey = leavesCacheKey
+        let teamKey = teamLeavesCacheKey
+        let allKey = allLeavesCacheKey
+        let viewer = authStore.currentSession?.user._id
+        let loadTeam = canManageTeamLeaves
+        let loadAll = canViewAllLeaves
+        isLoading = true
+        teamLoading = loadTeam
+        allLoading = loadAll
+        errorMessage = nil
+        loadTask = Task {
+            async let mine: Void = refreshMyLeaves(token: token, generation: generation, staffId: staffId,
+                fromDate: fromDate, toDate: toDate, status: apiStatus, leaveType: leaveType, cacheKey: mineKey)
+            async let totals: Void = refreshLeaveBalance(token: token, generation: generation, year: year, cacheKey: mineKey)
+            async let team: Void = refreshLeaveApprovals(token: token, generation: generation, enabled: loadTeam,
+                all: false, viewer: viewer, staffId: staffId, fromDate: fromDate, toDate: toDate,
+                status: apiStatus, leaveType: leaveType, cacheKey: teamKey)
+            async let all: Void = refreshLeaveApprovals(token: token, generation: generation, enabled: loadAll,
+                all: true, viewer: viewer, staffId: staffId, fromDate: fromDate, toDate: toDate,
+                status: apiStatus, leaveType: leaveType, cacheKey: allKey)
+            _ = await (mine, totals, team, all)
+            if isCurrentLoad(generation, token: token) { loadTask = nil }
+        }
+    }
+
+    private var scopeLoading: Bool {
+        switch activeScope { case .my: return isLoading; case .team: return teamLoading; case .all: return allLoading }
+    }
+
+    private func isCurrentLoad(_ generation: Int, token: String) -> Bool {
+        !Task.isCancelled && generation == loadGeneration && authStore.currentSession?.token == token
+    }
+
+    @MainActor private func refreshMyLeaves(token: String, generation: Int, staffId: String?, fromDate: String?, toDate: String?, status: String?, leaveType: String?, cacheKey: String) async {
+        defer { if isCurrentLoad(generation, token: token) { isLoading = false } }
+        do {
+            let rows = try await HRConvexAPIService.getMyLeaves(token: token, fromDate: fromDate, toDate: toDate,
+                status: status, leaveType: leaveType, staffId: staffId, pageSize: 100)
+            guard isCurrentLoad(generation, token: token) else { return }
+            leaves = rows
+            LocalCache.put(cacheKey, LeavesCacheSnapshot(leaves: rows, balance: balance))
+        } catch {
+            if isCurrentLoad(generation, token: token) && leaves.isEmpty { errorMessage = error.localizedDescription }
+        }
+    }
+
+    @MainActor private func refreshLeaveBalance(token: String, generation: Int, year: Int, cacheKey: String) async {
+        guard let fresh = try? await HRConvexAPIService.getLeaveBalance(token: token, year: year),
+              isCurrentLoad(generation, token: token) else { return }
+        balance = fresh
+        LocalCache.put(cacheKey, LeavesCacheSnapshot(leaves: leaves, balance: fresh))
+    }
+
+    @MainActor private func refreshLeaveApprovals(token: String, generation: Int, enabled: Bool, all: Bool, viewer: String?, staffId: String?, fromDate: String?, toDate: String?, status: String?, leaveType: String?, cacheKey: String) async {
+        guard enabled else { return }
+        defer {
+            if isCurrentLoad(generation, token: token) {
+                if all { allLoading = false } else { teamLoading = false }
             }
         }
+        guard let rows = try? await HRConvexAPIService.getPendingLeaveApprovals(token: token,
+            teamOnly: all ? false : true, scope: all ? nil : "direct", viewerStaffId: all ? nil : viewer,
+            fromDate: fromDate, toDate: toDate, status: status, leaveType: leaveType, staffId: staffId, pageSize: 100),
+              isCurrentLoad(generation, token: token) else { return }
+        if all { allLeaves = rows } else { pendingLeaves = rows }
+        LocalCache.put(cacheKey, rows)
     }
 
     @MainActor
@@ -1165,7 +1184,7 @@ struct LeavesListView: View {
             do {
                 try await HRConvexAPIService.cancelLeave(token: token, id: leave._id)
                 cancelingLeave = nil
-                loadData()
+                loadData(force: true)
             } catch {
                 if Self.isCancellation(error) { return }
                 errorMessage = error.localizedDescription
@@ -1180,7 +1199,7 @@ struct LeavesListView: View {
             defer { actionInFlightId = nil }
             do {
                 try await HRConvexAPIService.approveLeave(token: token, id: leave._id)
-                loadData()
+                loadData(force: true)
             } catch {
                 if Self.isCancellation(error) { return }
                 errorMessage = error.localizedDescription
@@ -1199,7 +1218,7 @@ struct LeavesListView: View {
             }
             do {
                 try await HRConvexAPIService.rejectLeave(token: token, id: leave._id, reason: reason)
-                loadData()
+                loadData(force: true)
             } catch {
                 if Self.isCancellation(error) { return }
                 errorMessage = error.localizedDescription

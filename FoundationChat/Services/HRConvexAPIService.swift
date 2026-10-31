@@ -1540,7 +1540,7 @@ enum HRConvexAPIService {
         if path.hasPrefix("/api/hr/attendance/today") || path.hasPrefix("/api/hr/attendance/day-sessions") {
             request.cachePolicy = .reloadIgnoringLocalCacheData
         }
-        let (data, response) = try await URLSession.shared.data(for: request)
+        let (data, response) = try await MMSRequestTransport.data(for: request)
         try checkHTTPError(data: data, response: response, request: request)
         return data
     }
@@ -1561,7 +1561,7 @@ enum HRConvexAPIService {
         request.setValue("Bearer \(token)", forHTTPHeaderField: "Authorization")
         request.setValue("application/json", forHTTPHeaderField: "Content-Type")
         request.httpBody = try JSONSerialization.data(withJSONObject: jsonBody)
-        let (data, response) = try await URLSession.shared.data(for: request)
+        let (data, response) = try await MMSRequestTransport.data(for: request)
         try checkHTTPError(data: data, response: response, request: request)
         return data
     }

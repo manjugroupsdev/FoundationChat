@@ -8,6 +8,11 @@ struct ConvexPermissionListView: View {
     @State private var allPermissions: [ConvexPermission] = []
     @State private var usage: ConvexPermissionUsage?
     @State private var isLoading = false
+    @State private var teamLoading = false
+    @State private var allLoading = false
+    @State private var loadTask: Task<Void, Never>?
+    @State private var loadKey: String?
+    @State private var loadGeneration = 0
     @State private var errorMessage: String?
     @State private var showApplySheet = false
     @State private var historyFilter: PermissionHistoryFilter = .review
@@ -151,7 +156,7 @@ struct ConvexPermissionListView: View {
         }
         .sheet(isPresented: $showApplySheet) {
             ApplyPermissionView {
-                loadData()
+                loadData(force: true)
             }
             .appLibraryNativeSheet([.height(590), .large])
         }
@@ -192,9 +197,12 @@ struct ConvexPermissionListView: View {
         .navigationBarBackButtonHidden(true)
         .toolbar(.hidden, for: .navigationBar)
         .task {
-            await resolveReportingScope()
             loadData()
+            let previouslyManaged = canManageTeamPermissions
+            await resolveReportingScope()
+            if canManageTeamPermissions != previouslyManaged { loadData() }
         }
+        .onDisappear { loadGeneration += 1; loadTask?.cancel(); loadTask = nil }
     }
 
     private var permissionHeader: some View {
@@ -441,7 +449,7 @@ struct ConvexPermissionListView: View {
 
     private var permissionsSection: some View {
         LazyVStack(spacing: 8) {
-            if isLoading && permissions.isEmpty && pendingPermissions.isEmpty && allPermissions.isEmpty {
+            if scopeLoading && scopedPermissions.isEmpty {
                 permissionSkeleton
                 permissionSkeleton
             } else if filteredPermissions.isEmpty {
@@ -638,11 +646,13 @@ struct ConvexPermissionListView: View {
     }
 
     private var availablePermissionText: String {
-        formatHours((usage?.remainingHours ?? max((usage?.limitHours ?? 2) - (usage?.usedHours ?? 0), 0)))
+        guard let usage else { return "--" }
+        return formatHours(usage.remainingHours ?? max((usage.limitHours ?? 2) - (usage.usedHours ?? 0), 0))
     }
 
     private var usedPermissionText: String {
-        formatHours(usage?.usedHours ?? 0)
+        guard let usage else { return "--" }
+        return formatHours(usage.usedHours ?? 0)
     }
 
     private var emptyTitle: String {
@@ -691,8 +701,14 @@ struct ConvexPermissionListView: View {
         return "permissions.all.pending.\(staff).\(permissionFacetCacheKey)"
     }
 
-    private func loadData() {
+    private func loadData(force: Bool = false) {
         guard let token = authStore.currentSession?.token else { return }
+        let key = "\(token)|\(permissionsCacheKey)|\(canManageTeamPermissions)|\(canViewAllPermissions)"
+        if !force && key == loadKey && loadTask != nil && isLoading { return }
+        loadGeneration += 1
+        let generation = loadGeneration
+        loadTask?.cancel()
+        loadKey = key
 
         // Cache-first: paint the last-known "My Permissions" snapshot INSTANTLY
         // on a cold open so the skeleton only shows on a true first load with
@@ -711,71 +727,78 @@ struct ConvexPermissionListView: View {
             allPermissions = cached
         }
 
-        Task {
-            isLoading = true
-            errorMessage = nil
-            defer { isLoading = false }
-            do {
-                let now = Date()
-                let year = Calendar.current.component(.year, from: now)
-                let month = Calendar.current.component(.month, from: now)
-                let fromDate = advancedFilter.fromDate.map { AppModuleFormatters.ymd.string(from: $0) }
-                let toDate = (advancedFilter.toDate ?? advancedFilter.fromDate).map { AppModuleFormatters.ymd.string(from: $0) }
-                let staffId = advancedFilter.selected("staff").first
-                let selectedStatus = advancedFilter.selected("status").first
-                let apiStatus = selectedStatus == "review" ? "pending" : selectedStatus
-                async let permsReq = HRConvexAPIService.listPermissions(
-                    token: token,
-                    staffId: staffId,
-                    status: apiStatus,
-                    fromDate: fromDate,
-                    toDate: toDate,
-                    pageSize: 100
-                )
-                async let usageReq = HRConvexAPIService.getMonthlyPermissionUsage(token: token, year: year, month: month)
-                async let pendingReq: [ConvexPermission] = canManageTeamPermissions
-                    ? HRConvexAPIService.getPendingPermissionApprovals(
-                        token: token,
-                        scope: "direct",
-                        viewerStaffId: authStore.currentSession?.user._id,
-                        fromDate: fromDate,
-                        toDate: toDate,
-                        status: apiStatus,
-                        staffId: staffId,
-                        pageSize: 100
-                    )
-                    : []
-                async let allReq: [ConvexPermission] = canViewAllPermissions
-                    ? HRConvexAPIService.getPendingPermissionApprovals(
-                        token: token,
-                        all: true,
-                        fromDate: fromDate,
-                        toDate: toDate,
-                        status: apiStatus,
-                        staffId: staffId,
-                        pageSize: 100
-                    )
-                    : []
-                permissions = try await permsReq
-                // Offline-keep: never null out cached usage on a transient failure.
-                if let freshUsage = try? await usageReq { usage = freshUsage }
-                if let loadedPending = try? await pendingReq {
-                    pendingPermissions = loadedPending
-                    LocalCache.put(teamPermissionsCacheKey, loadedPending)
-                }
-                if let loadedAll = try? await allReq {
-                    allPermissions = loadedAll
-                    LocalCache.put(allPermissionsCacheKey, loadedAll)
-                }
-                LocalCache.put(permissionsCacheKey, PermissionsCacheSnapshot(permissions: permissions, usage: usage))
-            } catch {
-                // Offline-keep: keep cached rows; only surface an error when
-                // there is nothing on screen.
-                if permissions.isEmpty {
-                    errorMessage = error.localizedDescription
-                }
+        let now = Date()
+        let year = Calendar.current.component(.year, from: now)
+        let month = Calendar.current.component(.month, from: now)
+        let fromDate = advancedFilter.fromDate.map { AppModuleFormatters.ymd.string(from: $0) }
+        let toDate = (advancedFilter.toDate ?? advancedFilter.fromDate).map { AppModuleFormatters.ymd.string(from: $0) }
+        let staffId = advancedFilter.selected("staff").first
+        let status = advancedFilter.selected("status").first
+        let apiStatus = status == "review" ? "pending" : status
+        let mineKey = permissionsCacheKey
+        let teamKey = teamPermissionsCacheKey
+        let allKey = allPermissionsCacheKey
+        let viewer = authStore.currentSession?.user._id
+        let loadTeam = canManageTeamPermissions
+        let loadAll = canViewAllPermissions
+        isLoading = true
+        teamLoading = loadTeam
+        allLoading = loadAll
+        errorMessage = nil
+        loadTask = Task {
+            async let mine: Void = refreshMyPermissions(token: token, generation: generation,
+                staffId: staffId, fromDate: fromDate, toDate: toDate, status: apiStatus, cacheKey: mineKey)
+            async let totals: Void = refreshPermissionUsage(token: token, generation: generation, year: year, month: month, cacheKey: mineKey)
+            async let team: Void = refreshPermissionApprovals(token: token, generation: generation, enabled: loadTeam,
+                all: false, viewer: viewer, staffId: staffId, fromDate: fromDate, toDate: toDate, status: apiStatus, cacheKey: teamKey)
+            async let all: Void = refreshPermissionApprovals(token: token, generation: generation, enabled: loadAll,
+                all: true, viewer: viewer, staffId: staffId, fromDate: fromDate, toDate: toDate, status: apiStatus, cacheKey: allKey)
+            _ = await (mine, totals, team, all)
+            if isCurrentLoad(generation, token: token) { loadTask = nil }
+        }
+    }
+
+    private var scopeLoading: Bool {
+        switch activeScope { case .my: return isLoading; case .team: return teamLoading; case .all: return allLoading }
+    }
+
+    private func isCurrentLoad(_ generation: Int, token: String) -> Bool {
+        !Task.isCancelled && generation == loadGeneration && authStore.currentSession?.token == token
+    }
+
+    @MainActor private func refreshMyPermissions(token: String, generation: Int, staffId: String?, fromDate: String?, toDate: String?, status: String?, cacheKey: String) async {
+        defer { if isCurrentLoad(generation, token: token) { isLoading = false } }
+        do {
+            let rows = try await HRConvexAPIService.listPermissions(token: token, staffId: staffId,
+                status: status, fromDate: fromDate, toDate: toDate, pageSize: 100)
+            guard isCurrentLoad(generation, token: token) else { return }
+            permissions = rows
+            LocalCache.put(cacheKey, PermissionsCacheSnapshot(permissions: rows, usage: usage))
+        } catch {
+            if isCurrentLoad(generation, token: token) && permissions.isEmpty { errorMessage = error.localizedDescription }
+        }
+    }
+
+    @MainActor private func refreshPermissionUsage(token: String, generation: Int, year: Int, month: Int, cacheKey: String) async {
+        guard let fresh = try? await HRConvexAPIService.getMonthlyPermissionUsage(token: token, year: year, month: month),
+              isCurrentLoad(generation, token: token) else { return }
+        usage = fresh
+        LocalCache.put(cacheKey, PermissionsCacheSnapshot(permissions: permissions, usage: fresh))
+    }
+
+    @MainActor private func refreshPermissionApprovals(token: String, generation: Int, enabled: Bool, all: Bool, viewer: String?, staffId: String?, fromDate: String?, toDate: String?, status: String?, cacheKey: String) async {
+        guard enabled else { return }
+        defer {
+            if isCurrentLoad(generation, token: token) {
+                if all { allLoading = false } else { teamLoading = false }
             }
         }
+        guard let rows = try? await HRConvexAPIService.getPendingPermissionApprovals(token: token,
+            scope: all ? nil : "direct", all: all ? true : nil, viewerStaffId: all ? nil : viewer,
+            fromDate: fromDate, toDate: toDate, status: status, staffId: staffId, pageSize: 100),
+              isCurrentLoad(generation, token: token) else { return }
+        if all { allPermissions = rows } else { pendingPermissions = rows }
+        LocalCache.put(cacheKey, rows)
     }
 
     @MainActor
@@ -791,7 +814,7 @@ struct ConvexPermissionListView: View {
             defer { actionInFlightId = nil }
             do {
                 try await HRConvexAPIService.approvePermission(token: token, id: permission._id)
-                loadData()
+                loadData(force: true)
             } catch {
                 errorMessage = error.localizedDescription
             }
@@ -815,7 +838,7 @@ struct ConvexPermissionListView: View {
             }
             do {
                 try await HRConvexAPIService.rejectPermission(token: token, id: permission._id, reason: trimmedReason)
-                loadData()
+                loadData(force: true)
             } catch {
                 errorMessage = error.localizedDescription
             }
@@ -830,7 +853,7 @@ struct ConvexPermissionListView: View {
             do {
                 try await HRConvexAPIService.cancelPermission(token: token, id: permission._id)
                 cancelingPermission = nil
-                loadData()
+                loadData(force: true)
             } catch {
                 errorMessage = error.localizedDescription
             }

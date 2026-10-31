@@ -15,6 +15,7 @@ struct HomeView: View {
     @State private var assignedPlaces: [GeoTrackAssignedPlace] = []
     @State private var todayAttendance: ConvexTodayAttendance?
     @State private var monthAttendanceRecords: [ConvexAttendanceRecord] = []
+    @State private var attendanceSummaryGeneration = 0
     @State private var dailyTasks: [DailyTask] = []
     @State private var taskNudgeTasks: [DailyTask] = []
     @State private var managementDashboard: ConvexMobileDashboard?
@@ -1938,32 +1939,36 @@ struct HomeView: View {
         let now = Date()
         let calendar = Calendar.current
         let monthStart = calendar.date(from: calendar.dateComponents([.year, .month], from: now)) ?? now
+        attendanceSummaryGeneration += 1
+        let generation = attendanceSummaryGeneration
+        let key = attendanceCacheKey()
+        // Publish today's clock independently of optional monthly statistics.
+        async let today: Void = refreshTodaySummary(token: token, generation: generation, cacheKey: key)
+        async let month: Void = refreshMonthSummary(token: token, generation: generation, cacheKey: key,
+            fromDate: formatter.string(from: monthStart), toDate: formatter.string(from: now))
+        _ = await (today, month)
+    }
 
+    @MainActor
+    private func refreshTodaySummary(token: String, generation: Int, cacheKey: String) async {
         do {
-            async let today = HRConvexAPIService.getTodayAttendance(token: token)
-            async let month = HRConvexAPIService.getMyAttendance(
-                token: token,
-                fromDate: formatter.string(from: monthStart),
-                toDate: formatter.string(from: now)
-            )
-            let freshToday = try await today
-            let freshMonth = try await month
-            todayAttendance = freshToday
-            monthAttendanceRecords = freshMonth
-            // Cache-first: persist the fresh snapshot so the next Home open paints
-            // the clocked-in status + times INSTANTLY (mirrors Android LocalCache).
-            LocalCache.put(
-                attendanceCacheKey(),
-                HomeAttendanceSnapshot(today: freshToday, month: freshMonth)
-            )
+            let fresh = try await HRConvexAPIService.getTodayAttendance(token: token)
+            guard !Task.isCancelled, generation == attendanceSummaryGeneration,
+                  authStore.currentSession?.token == token else { return }
+            todayAttendance = fresh
+            LocalCache.put(cacheKey, HomeAttendanceSnapshot(today: fresh, month: monthAttendanceRecords))
         } catch {
-            // Offline-keep: never wipe the (cached or in-memory) snapshot on a
-            // network failure. Only fall to empty when we have nothing to show.
-            if todayAttendance == nil && monthAttendanceRecords.isEmpty {
-                todayAttendance = nil
-                monthAttendanceRecords = []
-            }
+            // Keep the cached attendance only on failure, not a confirmed empty day.
         }
+    }
+
+    @MainActor
+    private func refreshMonthSummary(token: String, generation: Int, cacheKey: String, fromDate: String, toDate: String) async {
+        guard let fresh = try? await HRConvexAPIService.getMyAttendance(token: token, fromDate: fromDate, toDate: toDate),
+              !Task.isCancelled, generation == attendanceSummaryGeneration,
+              authStore.currentSession?.token == token else { return }
+        monthAttendanceRecords = fresh
+        LocalCache.put(cacheKey, HomeAttendanceSnapshot(today: todayAttendance, month: fresh))
     }
 
     @MainActor

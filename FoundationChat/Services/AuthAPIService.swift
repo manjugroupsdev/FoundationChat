@@ -604,7 +604,7 @@ enum AuthAPIService {
       request.timeoutInterval = mobileAuthTimeout
     }
     request.httpBody = try JSONSerialization.data(withJSONObject: jsonBody)
-    return try await URLSession.shared.data(for: request)
+    return try await MMSRequestTransport.data(for: request)
   }
 
   private static func postWithInitialConnectionRetry(
