@@ -15,6 +15,11 @@ struct ApplyPermissionView: View {
     @State private var errorMessage: String?
     @State private var showDatePicker = false
     @State private var showDurationPicker = false
+    @State private var shiftTiming: PermissionShiftTiming?
+    @State private var shiftDateKey: String?
+    @State private var isShiftLoading = false
+    @State private var shiftError: String?
+    @State private var shiftRefreshID = 0
 
     var onApplied: (() -> Void)?
 
@@ -51,10 +56,14 @@ struct ApplyPermissionView: View {
                         icon: "clock",
                         topPadding: 16
                     ) {
-                        draftFromTime = selectedFromTime ?? Date()
-                        draftToTime = selectedToTime ?? Date().addingTimeInterval(3600)
+                        guard let timing = currentShift, timing.error(from: nil, to: nil) == nil else { return }
+                        draftFromTime = selectedFromTime ?? shiftTime(timing.startTime)
+                        draftToTime = selectedToTime ?? shiftTime(timing.defaultEndTime ?? timing.endTime)
                         showDurationPicker = true
                     }
+
+                    shiftStatus
+                        .padding(.top, 8)
 
                     permissionDescriptionField
                         .padding(.top, 16)
@@ -106,17 +115,96 @@ struct ApplyPermissionView: View {
             .presentationDragIndicator(.visible)
         }
         .sheet(isPresented: $showDurationPicker) {
-            PermissionDurationPickerSheet(
-                fromTime: $draftFromTime,
-                toTime: $draftToTime
-            ) {
-                selectedFromTime = draftFromTime
-                selectedToTime = draftToTime
+            if let timing = currentShift {
+                PermissionDurationPickerSheet(
+                    fromTime: $draftFromTime,
+                    toTime: $draftToTime,
+                    shiftTiming: timing
+                ) {
+                    selectedFromTime = draftFromTime
+                    selectedToTime = draftToTime
+                }
+                .presentationDetents([.height(430)])
+                .presentationDragIndicator(.visible)
             }
-            .presentationDetents([.height(430)])
-            .presentationDragIndicator(.visible)
         }
+        .task(id: "\(selectedDateKey ?? "")|\(shiftRefreshID)") { await loadShift() }
         .appFormActivity()
+    }
+
+    private var selectedDateKey: String? { selectedDate.map { HRApplicationSupport.apiDate($0) } }
+
+    private var currentShift: PermissionShiftTiming? {
+        shiftDateKey == selectedDateKey && !isShiftLoading ? shiftTiming : nil
+    }
+
+    @ViewBuilder private var shiftStatus: some View {
+        if selectedDate != nil {
+            if isShiftLoading {
+                ProgressView("Loading your shift...")
+                    .font(.footnote)
+            } else if let shiftError {
+                HStack {
+                    Text(shiftError).font(.footnote).foregroundStyle(Color.appSecondaryText)
+                    Spacer()
+                    Button { shiftRefreshID += 1 } label: { Image(systemName: "arrow.clockwise") }
+                        .accessibilityLabel("Retry shift lookup")
+                }
+            } else if let timing = currentShift {
+                VStack(alignment: .leading, spacing: 4) {
+                    Text("Shift: \(timing.startTime) - \(timing.endTime). Permission must start or end with your shift.")
+                        .foregroundStyle(Color.appSecondaryText)
+                    if let message = timing.error(
+                        from: selectedFromTime.map { HRApplicationSupport.apiTime($0) },
+                        to: selectedToTime.map { HRApplicationSupport.apiTime($0) }
+                    ) {
+                        Text(message).foregroundStyle(Color.red)
+                    }
+                }
+                .font(.footnote)
+            }
+        }
+    }
+
+    private func shiftTime(_ time: String) -> Date {
+        let parts = time.split(separator: ":").compactMap { Int($0) }
+        guard parts.count == 2 else { return selectedDate ?? Date() }
+        return Calendar(identifier: .gregorian).date(
+            bySettingHour: parts[0], minute: parts[1], second: 0, of: selectedDate ?? Date()
+        ) ?? Date()
+    }
+
+    private func loadShift() async {
+        shiftTiming = nil
+        shiftDateKey = nil
+        shiftError = nil
+        selectedFromTime = nil
+        selectedToTime = nil
+        isShiftLoading = false
+        guard let session = authStore.currentSession, let dateKey = selectedDateKey, let date = selectedDate else { return }
+        isShiftLoading = true
+        defer { if !Task.isCancelled { isShiftLoading = false } }
+        do {
+            let response = try await HRConvexAPIService.getTodayShift(
+                token: session.token, staffId: session.user.staffId ?? session.user._id, date: dateKey
+            )
+            try Task.checkCancellation()
+            guard response.success == true, response.date == nil || response.date == dateKey else {
+                throw HRConvexAPIError.server("Could not load the selected day's shift.")
+            }
+            guard selectedDateKey == dateKey else { return }
+            let weekday = Calendar(identifier: .gregorian).component(.weekday, from: date)
+            let day = response.shift?.schedule?.day(for: weekday)
+            // These are the existing server defaults, not a fallback for failed requests.
+            shiftTiming = PermissionShiftTiming(
+                startTime: day?.startTime ?? "09:30", endTime: day?.endTime ?? "18:30",
+                isWorkDay: day?.isWorkDay ?? (weekday != 1)
+            )
+            shiftDateKey = dateKey
+        } catch {
+            if Task.isCancelled { return }
+            shiftError = HRApplicationSupport.submissionMessage(error)
+        }
     }
 
     private var permissionDescriptionField: some View {
@@ -181,7 +269,8 @@ struct ApplyPermissionView: View {
     }
 
     private var submitEnabled: Bool {
-        selectedDate != nil && selectedFromTime != nil && selectedToTime != nil && isValidTimeRange &&
+        currentShift != nil && selectedDate != nil && selectedFromTime != nil && selectedToTime != nil && isValidTimeRange &&
+            currentShift?.error(from: selectedFromTime.map { HRApplicationSupport.apiTime($0) }, to: selectedToTime.map { HRApplicationSupport.apiTime($0) }) == nil &&
             !reason.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
     }
 
@@ -196,7 +285,7 @@ struct ApplyPermissionView: View {
     }
 
     private func submit() {
-        guard !isSubmitting else { return }
+        guard !isSubmitting, submitEnabled else { return }
         guard let token = authStore.currentSession?.token,
               let selectedDate,
               let selectedFromTime,
@@ -312,6 +401,7 @@ private struct PermissionDurationPickerSheet: View {
     @Environment(\.dismiss) private var dismiss
     @Binding var fromTime: Date
     @Binding var toTime: Date
+    let shiftTiming: PermissionShiftTiming
 
     let onSelect: () -> Void
 
@@ -361,10 +451,15 @@ private struct PermissionDurationPickerSheet: View {
     }
 
     private var isValidDuration: Bool {
-        durationMinutes > 0
+        durationMinutes > 0 && timingError == nil
+    }
+
+    private var timingError: String? {
+        shiftTiming.error(from: HRApplicationSupport.apiTime(fromTime), to: HRApplicationSupport.apiTime(toTime))
     }
 
     private var durationSummary: String {
+        if let timingError { return timingError }
         guard durationMinutes > 0 else { return "To time must be after from time." }
         let hours = durationMinutes / 60
         let minutes = durationMinutes % 60

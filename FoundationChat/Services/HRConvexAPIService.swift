@@ -575,7 +575,7 @@ enum HRConvexAPIService {
             URLQueryItem(name: "date", value: date),
         ]
         let suffix = components.percentEncodedQuery.map { "?\($0)" } ?? ""
-        let data = try await get(path: "/api/hr/shifts/today\(suffix)", token: token)
+        let data = try await get(path: "/api/hr/shifts/today\(suffix)", token: token, timeout: 10)
         return try await decode(TodayShiftResponse.self, from: data)
     }
 
@@ -1529,10 +1529,11 @@ enum HRConvexAPIService {
 
     // MARK: - HTTP helpers
 
-    private static func get(path: String, token: String) async throws -> Data {
+    private static func get(path: String, token: String, timeout: TimeInterval? = nil) async throws -> Data {
         guard let url = URL(string: "\(baseURL)\(path)") else { throw HRConvexAPIError.badURL }
         var request = URLRequest(url: url)
         request.httpMethod = "GET"
+        if let timeout { request.timeoutInterval = timeout }
         request.setValue("Bearer \(token)", forHTTPHeaderField: "Authorization")
         // The server marks these `private, max-age=15`; honouring that served a
         // pre-punch answer right after a clock-in or clock-out.
