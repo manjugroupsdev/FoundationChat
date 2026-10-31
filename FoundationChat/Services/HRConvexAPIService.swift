@@ -309,8 +309,7 @@ enum HRConvexAPIService {
             "toDate": toDate, "reason": reason
         ]
         if let duration { body["duration"] = duration }
-        if let reportingToId { body["reportingToId"] = reportingToId }
-        if let reportingToName { body["reportingToName"] = reportingToName }
+        // The server resolves the current approver; cached reporting metadata can be stale.
         if let isHalfDay { body["isHalfDay"] = isHalfDay }
         if let halfDaySession { body["halfDaySession"] = halfDaySession }
         if let halfDayType { body["halfDayType"] = halfDayType }
@@ -480,8 +479,6 @@ enum HRConvexAPIService {
             "date": date, "fromTime": fromTime,
             "toTime": toTime, "reason": reason
         ]
-        if let reportingToId { body["reportingToId"] = reportingToId }
-        if let reportingToName { body["reportingToName"] = reportingToName }
         let data = try await post(path: "/api/hr/permissions/apply", token: token, jsonBody: body)
         let wrapper = try await decode(PermissionActionResponse.self, from: data)
         guard wrapper.success else { throw HRConvexAPIError.server(wrapper.error ?? "Failed to apply permission") }
@@ -1576,15 +1573,13 @@ enum HRConvexAPIService {
         guard let http = response as? HTTPURLResponse else { return }
         if http.statusCode == 401 {
             SessionInvalidationBus.emit(for: request, responseData: data)
-            if let json = try? JSONSerialization.jsonObject(with: data) as? [String: Any],
-               let error = json["error"] as? String {
+            if let error = HRApplicationSupport.responseMessage(data) {
                 throw HRConvexAPIError.unauthorized(error)
             }
             throw HRConvexAPIError.unauthorized("Unauthorized")
         }
         if http.statusCode >= 400 {
-            if let json = try? JSONSerialization.jsonObject(with: data) as? [String: Any],
-               let error = json["error"] as? String {
+            if let error = HRApplicationSupport.responseMessage(data) {
                 throw HRConvexAPIError.httpStatus(http.statusCode, error)
             }
             throw HRConvexAPIError.httpStatus(http.statusCode, "Request failed (\(http.statusCode))")

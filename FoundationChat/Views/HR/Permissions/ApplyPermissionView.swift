@@ -181,7 +181,8 @@ struct ApplyPermissionView: View {
     }
 
     private var submitEnabled: Bool {
-        selectedDate != nil && selectedFromTime != nil && selectedToTime != nil && isValidTimeRange
+        selectedDate != nil && selectedFromTime != nil && selectedToTime != nil && isValidTimeRange &&
+            !reason.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
     }
 
     private var isValidTimeRange: Bool {
@@ -195,6 +196,7 @@ struct ApplyPermissionView: View {
     }
 
     private func submit() {
+        guard !isSubmitting else { return }
         guard let token = authStore.currentSession?.token,
               let selectedDate,
               let selectedFromTime,
@@ -202,6 +204,10 @@ struct ApplyPermissionView: View {
         else { return }
         guard isValidTimeRange else {
             errorMessage = "To time must be after from time."
+            return
+        }
+        guard !reason.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else {
+            errorMessage = "Enter a reason for the permission."
             return
         }
 
@@ -213,15 +219,16 @@ struct ApplyPermissionView: View {
             do {
                 _ = try await HRConvexAPIService.applyPermission(
                     token: token,
-                    date: apiDateLabel(selectedDate),
-                    fromTime: apiTimeLabel(selectedFromTime),
-                    toTime: apiTimeLabel(selectedToTime),
+                    date: HRApplicationSupport.apiDate(selectedDate),
+                    fromTime: HRApplicationSupport.apiTime(selectedFromTime),
+                    toTime: HRApplicationSupport.apiTime(selectedToTime),
                     reason: reason.trimmingCharacters(in: .whitespacesAndNewlines)
                 )
                 onApplied?()
                 dismiss()
             } catch {
-                errorMessage = error.localizedDescription
+                if error is CancellationError || (error as NSError).code == NSURLErrorCancelled { return }
+                errorMessage = HRApplicationSupport.submissionMessage(error)
             }
         }
     }
@@ -245,16 +252,6 @@ struct ApplyPermissionView: View {
         let formatter = DateFormatter()
         formatter.dateFormat = "HH:mm"
         return formatter.string(from: date)
-    }
-
-    private func apiDateLabel(_ date: Date) -> String {
-        let formatter = DateFormatter()
-        formatter.dateFormat = "yyyy-MM-dd"
-        return formatter.string(from: date)
-    }
-
-    private func apiTimeLabel(_ date: Date) -> String {
-        timeLabel(date)
     }
 
     private var enabledButtonFill: LinearGradient {

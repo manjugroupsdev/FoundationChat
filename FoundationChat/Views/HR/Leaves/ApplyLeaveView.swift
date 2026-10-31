@@ -96,7 +96,8 @@ struct ApplyLeaveView: View {
         if selectedLeaveCategory.backendCode == "compensatory" {
             return selectedCompOffCredit != nil && fromDate != nil && !isSubmitting
         }
-        return fromDate != nil && toDate != nil && !isSubmitting
+        return fromDate != nil && toDate != nil && !isSubmitting &&
+            !reason.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
     }
 
     private var selectedLeaveTypeLabel: String {
@@ -408,6 +409,7 @@ struct ApplyLeaveView: View {
     }
 
     private func promptSubmitConfirmation() {
+        guard !isSubmitting else { return }
         dismissKeyboard()
         if isCompOff {
             guard selectedCompOffCredit != nil else {
@@ -430,14 +432,23 @@ struct ApplyLeaveView: View {
             errorMessage = "To date must be on or after from date"
             return
         }
+        guard !reason.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else {
+            errorMessage = "Enter a reason for the leave."
+            return
+        }
         errorMessage = nil
         showSubmitConfirmation = true
     }
 
     private func submit() {
+        guard !isSubmitting else { return }
         dismissKeyboard()
         guard let token = authStore.currentSession?.token else { return }
         guard let fromDate, let toDate else { return }
+        guard isCompOff || !reason.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else {
+            errorMessage = "Enter a reason for the leave."
+            return
+        }
 
         isSubmitting = true
         errorMessage = nil
@@ -459,7 +470,7 @@ struct ApplyLeaveView: View {
                         token: token,
                         leaveType: selectedLeaveCategory.submitCode,
                         fromDate: Self.apiDateFormatter.string(from: min(fromDate, toDate)),
-                        toDate: Self.apiDateFormatter.string(from: max(fromDate, toDate)),
+                        toDate: Self.apiDateFormatter.string(from: isHalfDay ? min(fromDate, toDate) : max(fromDate, toDate)),
                         reason: submitReason,
                         isHalfDay: isHalfDay ? true : nil,
                         halfDaySession: isHalfDay ? selectedHalfDaySession.lowercased() : nil,
@@ -473,7 +484,7 @@ struct ApplyLeaveView: View {
                     return
                 }
                 showSubmitConfirmation = false
-                errorMessage = error.localizedDescription
+                errorMessage = HRApplicationSupport.submissionMessage(error)
             }
         }
     }
@@ -569,6 +580,7 @@ struct ApplyLeaveView: View {
     fileprivate static let apiDateFormatter: DateFormatter = {
         let formatter = DateFormatter()
         formatter.locale = Locale(identifier: "en_US_POSIX")
+        formatter.calendar = Calendar(identifier: .gregorian)
         formatter.dateFormat = "yyyy-MM-dd"
         return formatter
     }()
