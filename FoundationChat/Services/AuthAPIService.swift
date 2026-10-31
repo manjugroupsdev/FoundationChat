@@ -495,6 +495,12 @@ enum AuthAPIService {
     var request = URLRequest(url: url)
     request.httpMethod = "GET"
     request.setValue("Bearer \(token)", forHTTPHeaderField: "Authorization")
+    request.setValue(appVersion, forHTTPHeaderField: "X-App-Version")
+    request.setValue(String(appBuild), forHTTPHeaderField: "X-App-Build")
+    request.setValue("ios", forHTTPHeaderField: "X-App-Platform")
+    request.setValue(UIDevice.current.model, forHTTPHeaderField: "X-Device-Model")
+    request.setValue(UIDevice.current.systemVersion, forHTTPHeaderField: "X-OS-Version")
+    request.cachePolicy = .reloadIgnoringLocalCacheData
 
     let (data, response) = try await URLSession.shared.data(for: request)
     let statusCode = (response as? HTTPURLResponse)?.statusCode ?? 0
