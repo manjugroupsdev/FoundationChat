@@ -794,7 +794,7 @@ struct ConvexPermissionListView: View {
             }
         }
         guard let rows = try? await HRConvexAPIService.getPendingPermissionApprovals(token: token,
-            scope: all ? nil : "direct", all: all ? true : nil, viewerStaffId: all ? nil : viewer,
+            all: all, scope: all ? nil : "direct", viewerStaffId: all ? nil : viewer,
             fromDate: fromDate, toDate: toDate, status: status, staffId: staffId, pageSize: 100),
               isCurrentLoad(generation, token: token) else { return }
         if all { allPermissions = rows } else { pendingPermissions = rows }
