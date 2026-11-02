@@ -22,6 +22,9 @@ final class MobileAlertCoordinator {
     /// server's pending list.
     private static let viewedIdsLimit = 500
 
+    /// Server lookups per refresh for alerts that may have been deleted.
+    private static let deletedLookupLimit = 10
+
     /// The alert on screen, nil when none is pending.
     private(set) var current: MobileAlert?
     var openError: String?
@@ -72,6 +75,7 @@ final class MobileAlertCoordinator {
                 // Signed out or switched user while the request was out.
                 guard token == activeToken else { continue }
                 apply(pending)
+                await clearDeleted(pending: pending, token: activeToken)
             } catch {
                 // Keep whatever is queued; the next refresh tries again.
                 print("[mobile-alert] pending fetch failed: \(error.localizedDescription)")
@@ -131,6 +135,61 @@ final class MobileAlertCoordinator {
         }
         if current == nil, !queue.isEmpty {
             current = queue.removeFirst()
+        }
+    }
+
+    // MARK: - Deleted on the web
+
+    /// Alerts deleted on the web leave the pending list. iOS gets no withdraw
+    /// push (APNs would show it as a banner), so on refresh: delivered alert
+    /// notifications and the alert on screen that are no longer pending are
+    /// checked with the server and removed only when it says the alert is
+    /// gone (404). A viewed alert that still exists keeps its notification.
+    private func clearDeleted(pending: [MobileAlert], token activeToken: String) async {
+        let pendingIds = Set(pending.map(\.deliveryId))
+        let delivered = await Self.deliveredAlertNotifications()
+            .filter { !pendingIds.contains($0.deliveryId) }
+        var candidates: [String] = []
+        if let onScreen = current?.deliveryId, !pendingIds.contains(onScreen) {
+            candidates.append(onScreen)
+        }
+        for item in delivered where !candidates.contains(item.deliveryId) {
+            candidates.append(item.deliveryId)
+        }
+        guard !candidates.isEmpty else { return }
+
+        var gone: Set<String> = []
+        for deliveryId in candidates.prefix(Self.deletedLookupLimit) {
+            guard token == activeToken else { return }
+            do {
+                _ = try await MobileAlertAPIService.fetchDetail(token: activeToken, deliveryId: deliveryId)
+            } catch let error as MobileAlertAPIError {
+                if case .rejected(let status, _) = error, status == 404 { gone.insert(deliveryId) }
+            } catch {
+                // Offline or a server error: check again on the next refresh.
+            }
+        }
+        guard token == activeToken, !gone.isEmpty else { return }
+
+        let identifiers = delivered.filter { gone.contains($0.deliveryId) }.map { $0.identifier }
+        if !identifiers.isEmpty {
+            UNUserNotificationCenter.current().removeDeliveredNotifications(withIdentifiers: identifiers)
+        }
+        queue.removeAll { gone.contains($0.deliveryId) }
+        if let onScreen = current?.deliveryId, gone.contains(onScreen) {
+            current = queue.isEmpty ? nil : queue.removeFirst()
+            openError = "This alert was removed"
+        }
+    }
+
+    /// Delivered `mobile_alert` notifications, as (delivery id, request id).
+    private nonisolated static func deliveredAlertNotifications() async -> [(deliveryId: String, identifier: String)] {
+        let notifications = await UNUserNotificationCenter.current().deliveredNotifications()
+        return notifications.compactMap { notification in
+            let info = notification.request.content.userInfo
+            guard (info["type"] as? String) == "mobile_alert",
+                  let deliveryId = info["alertDeliveryId"] as? String, !deliveryId.isEmpty else { return nil }
+            return (deliveryId: deliveryId, identifier: notification.request.identifier)
         }
     }
 
