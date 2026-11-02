@@ -69,9 +69,23 @@ struct HRDashboardView: View {
               let queuedAt = parseAttendanceDate(latest.clientPunchTime) else { return false }
         let serverLast = max(
             firstPunchInDate ?? .distantPast,
-            lastPunchOutDate ?? .distantPast
+            serverLastPunchOutDate ?? .distantPast
         )
         return queuedAt >= serverLast
+    }
+
+    /// The server's last punch-out today, read straight from the records.
+    /// Must not go through `lastPunchOutDate`/`resolvedPunchOut`: they ask
+    /// `isOpen`, which asks this property, and that loop overflowed the stack
+    /// (a crash on every launch) whenever a clock-in was queued offline.
+    private var serverLastPunchOutDate: Date? {
+        if let record = todayHistoryRecord, record.hasOpenSession != true,
+           let raw = record.lastPunchOut ?? record.sessions?.last?.punchOutTime,
+           raw != firstPunchIn(for: record),
+           let date = parseAttendanceDate(raw) {
+            return date
+        }
+        return parseAttendanceDate(todayAttendance?.punchOutTime)
     }
 
     private var hasPunchedIn: Bool {
