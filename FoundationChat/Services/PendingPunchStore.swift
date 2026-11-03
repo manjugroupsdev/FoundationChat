@@ -363,7 +363,11 @@ actor PendingPunchSyncCoordinator {
                 // Landed — drop the row and its selfie file.
                 await PendingPunchStore.shared.delete(id: punch.id)
             } catch let error as HRConvexAPIError {
-                if error.isRetriableAttendanceFailure {
+                if AttendanceAlreadyRecorded.from(error) != nil {
+                    // Already clocked in/out by other means (the server answers
+                    // this with HTTP 500). Retrying could never succeed.
+                    await PendingPunchStore.shared.delete(id: punch.id, deletePhoto: false)
+                } else if error.isRetriableAttendanceFailure {
                     // A 5xx response is an outage, not a decision about this punch.
                     // Preserve the complete locally captured record for the next flush.
                     await PendingPunchStore.shared.bumpAttempt(id: punch.id, error: error.localizedDescription)

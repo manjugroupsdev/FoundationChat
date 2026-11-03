@@ -31,6 +31,13 @@ struct PunchFlowView: View {
     @State private var showSuccessSheet = false
     @State private var completedAt: Date?
     @State private var didQueueOffline = false
+    /// The punch was already recorded elsewhere while this screen was open.
+    @State private var alreadyRecorded: AttendanceAlreadyRecorded?
+
+    /// Thrown by the pre-check when today's attendance already has this punch.
+    private struct PunchAlreadyRecorded: Error {
+        let state: AttendanceAlreadyRecorded
+    }
 
     private var title: String {
         mode == .punchIn ? "Clock In" : "Clock Out"
@@ -137,6 +144,19 @@ struct PunchFlowView: View {
             }
         }
         .appFormActivity()
+        // Clocked in (or out) elsewhere while this screen was open: nothing to
+        // retry. Say so and close; the caller reloads and shows the real state.
+        .alert(
+            alreadyRecorded?.title ?? "",
+            isPresented: Binding(
+                get: { alreadyRecorded != nil },
+                set: { if !$0 { finishAfterAlreadyRecorded() } }
+            )
+        ) {
+            Button("OK") { finishAfterAlreadyRecorded() }
+        } message: {
+            Text(alreadyRecorded?.message ?? "")
+        }
     }
 
     // MARK: - Current status
@@ -318,13 +338,16 @@ struct PunchFlowView: View {
                     daySessions: daySessions?.sessions,
                     attendanceSessions: latestAttendance?.sessions
                 )
+                let sessionOpen = latestAttendance?.isOpen == true
+                    || daySessions?.hasOpenSession == true
                 switch mode {
+                case .punchIn where hasPunchedInToday && sessionOpen:
+                    throw PunchAlreadyRecorded(state: .clockedIn)
                 case .punchIn where hasPunchedInToday:
-                    throw HRConvexAPIError.server("You have already clocked in today.")
-                case .punchOut where !hasPunchedInToday:
-                    throw HRConvexAPIError.server("No attendance found for today.")
-                case .punchOut where clockedOutOnMobile:
-                    throw HRConvexAPIError.server("You are already clocked out today.")
+                    // Clocked in and out already: one Clock In per day.
+                    throw HRConvexAPIError.server("Today's attendance is already complete.")
+                case .punchOut where !hasPunchedInToday || clockedOutOnMobile:
+                    throw PunchAlreadyRecorded(state: .clockedOut)
                 default:
                     break
                 }
@@ -385,10 +408,16 @@ struct PunchFlowView: View {
                 onComplete?()
                 completedAt = tapTime
                 showSuccessSheet = true
+            } catch let already as PunchAlreadyRecorded {
+                await showAlreadyRecorded(already.state)
+            } catch let error where AttendanceAlreadyRecorded.from(error) != nil {
+                // The server already has this punch (it answers HTTP 500
+                // "Uncaught Error: Already punched in..."). Never queue it.
+                await showAlreadyRecorded(AttendanceAlreadyRecorded.from(error) ?? .clockedIn)
             } catch let error as HRConvexAPIError where !error.isRetriableAttendanceFailure {
-                // The server reached a permanent decision (already clocked in/out,
-                // validation, or auth failure). Surface it; it must not be queued.
-                errorMessage = error.localizedDescription
+                // The server reached a permanent decision (validation or auth
+                // failure). Surface it; it must not be queued.
+                errorMessage = AttendanceFailureText.userFacing(error.localizedDescription)
             } catch {
                 // Network / connectivity failure — DON'T lose the punch. Queue it with
                 // the real tap time (and selfie) so it syncs when connectivity returns
@@ -424,10 +453,32 @@ struct PunchFlowView: View {
                     completedAt = tapTime
                     showSuccessSheet = true
                 } else {
-                    errorMessage = error.localizedDescription
+                    errorMessage = AttendanceFailureText.userFacing(error.localizedDescription)
                 }
             }
         }
+    }
+
+    /// Already clocked in/out elsewhere: refresh, let tracking follow the
+    /// server's session, and tell the staff instead of showing an error.
+    @MainActor
+    private func showAlreadyRecorded(_ state: AttendanceAlreadyRecorded) async {
+        errorMessage = nil
+        statusText = nil
+        await loadCurrentAttendanceStatus()
+        await GeoTrackBootstrapCoordinator.shared.sync(
+            reason: "attendance-already-recorded",
+            force: true,
+            allowConsentPresentation: false
+        )
+        alreadyRecorded = state
+    }
+
+    private func finishAfterAlreadyRecorded() {
+        guard alreadyRecorded != nil else { return }
+        alreadyRecorded = nil
+        onComplete?()
+        dismiss()
     }
 
     private func finishAfterSuccess() {
