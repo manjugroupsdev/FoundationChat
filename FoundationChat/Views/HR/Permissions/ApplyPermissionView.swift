@@ -45,7 +45,7 @@ struct ApplyPermissionView: View {
                         icon: "calendar",
                         topPadding: 22
                     ) {
-                        draftDate = selectedDate ?? Date()
+                        draftDate = max(selectedDate ?? Date(), Calendar.current.startOfDay(for: Date()))
                         showDatePicker = true
                     }
 
@@ -295,6 +295,10 @@ struct ApplyPermissionView: View {
             errorMessage = "To time must be after from time."
             return
         }
+        guard !HRApplicationSupport.isPastDay(selectedDate) else {
+            errorMessage = HRApplicationSupport.permissionPastDateMessage
+            return
+        }
         guard !reason.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else {
             errorMessage = "Enter a reason for the permission."
             return
@@ -338,8 +342,7 @@ struct ApplyPermissionView: View {
     }
 
     private func timeLabel(_ date: Date) -> String {
-        let formatter = DateFormatter()
-        formatter.dateFormat = "HH:mm"
+        let formatter = CachedDateFormatters.formatter("HH:mm")
         return formatter.string(from: date)
     }
 
@@ -369,9 +372,11 @@ private struct PermissionDatePickerSheet: View {
 
     var body: some View {
         NavigationStack {
+            // Permission can't be applied for a past day.
             DatePicker(
                 "Permission Date",
                 selection: $selection,
+                in: Calendar.current.startOfDay(for: Date())...,
                 displayedComponents: .date
             )
             .datePickerStyle(.graphical)

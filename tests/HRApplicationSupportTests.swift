@@ -18,6 +18,14 @@ struct HRApplicationSupportTests {
         }
         precondition(HRApplicationSupport.responseMessage(Data("<html>Gateway error</html>".utf8)) == nil)
         precondition(HRApplicationSupport.submissionMessage(URLError(.timedOut)).contains("history before submitting"))
-        print("HRApplicationSupport: 8 assertions passed")
+        // Leave and permission can't be for a past day; today and later are fine.
+        var calendar = Calendar(identifier: .gregorian)
+        calendar.timeZone = zone
+        let now = ISO8601DateFormatter().date(from: "2026-11-03T05:00:00Z")!
+        precondition(HRApplicationSupport.isPastDay(now.addingTimeInterval(-86_400), now: now, calendar: calendar))
+        precondition(!HRApplicationSupport.isPastDay(now, now: now, calendar: calendar))
+        precondition(!HRApplicationSupport.isPastDay(calendar.startOfDay(for: now), now: now, calendar: calendar))
+        precondition(!HRApplicationSupport.isPastDay(now.addingTimeInterval(86_400), now: now, calendar: calendar))
+        print("HRApplicationSupport: 12 assertions passed")
     }
 }

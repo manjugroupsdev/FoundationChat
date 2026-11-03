@@ -189,7 +189,7 @@ struct ApplyLeaveView: View {
                             .background(Color.appFieldBackground, in: RoundedRectangle(cornerRadius: 10, style: .continuous))
                             .overlay {
                                 RoundedRectangle(cornerRadius: 10, style: .continuous)
-                                    .stroke(Color(hex: 0xEAECF0), lineWidth: 1)
+                                    .stroke(Color.adaptiveTint(0xEAECF0), lineWidth: 1)
                             }
                     }
 
@@ -355,12 +355,12 @@ struct ApplyLeaveView: View {
                 .frame(maxWidth: .infinity)
                 .frame(height: 42)
                 .background(
-                    selectedHalfDaySession == title ? Color(hex: 0xEAF2FF) : Color.appFieldBackground,
+                    selectedHalfDaySession == title ? Color.adaptiveTint(0xEAF2FF) : Color.appFieldBackground,
                     in: RoundedRectangle(cornerRadius: 10, style: .continuous)
                 )
                 .overlay {
                     RoundedRectangle(cornerRadius: 10, style: .continuous)
-                        .stroke(selectedHalfDaySession == title ? Color(hex: 0x7DB2FF) : Color(hex: 0xEAECF0), lineWidth: 1)
+                        .stroke(selectedHalfDaySession == title ? Color(hex: 0x7DB2FF) : Color.adaptiveTint(0xEAECF0), lineWidth: 1)
                 }
         }
         .buttonStyle(.plain)
@@ -402,7 +402,7 @@ struct ApplyLeaveView: View {
             .background(Color.appFieldBackground, in: RoundedRectangle(cornerRadius: 10, style: .continuous))
             .overlay {
                 RoundedRectangle(cornerRadius: 10, style: .continuous)
-                    .stroke(Color(hex: 0xEAECF0), lineWidth: 1)
+                    .stroke(Color.adaptiveTint(0xEAECF0), lineWidth: 1)
             }
         }
         .buttonStyle(.plain)
@@ -416,8 +416,12 @@ struct ApplyLeaveView: View {
                 errorMessage = "Select a comp-off credit"
                 return
             }
-            guard fromDate != nil else {
+            guard let fromDate else {
                 errorMessage = "Select the day to take"
+                return
+            }
+            guard !HRApplicationSupport.isPastDay(fromDate) else {
+                errorMessage = HRApplicationSupport.leavePastDateMessage
                 return
             }
             errorMessage = nil
@@ -430,6 +434,10 @@ struct ApplyLeaveView: View {
         }
         guard toDate >= fromDate else {
             errorMessage = "To date must be on or after from date"
+            return
+        }
+        guard !HRApplicationSupport.isPastDay(min(fromDate, toDate)) else {
+            errorMessage = HRApplicationSupport.leavePastDateMessage
             return
         }
         guard !reason.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else {
@@ -445,6 +453,10 @@ struct ApplyLeaveView: View {
         dismissKeyboard()
         guard let token = authStore.currentSession?.token else { return }
         guard let fromDate, let toDate else { return }
+        guard !HRApplicationSupport.isPastDay(min(fromDate, toDate)) else {
+            errorMessage = HRApplicationSupport.leavePastDateMessage
+            return
+        }
         guard isCompOff || !reason.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else {
             errorMessage = "Enter a reason for the leave."
             return
@@ -586,9 +598,7 @@ struct ApplyLeaveView: View {
     }()
 
     fileprivate static let labelDateFormatter: DateFormatter = {
-        let formatter = DateFormatter()
-        formatter.locale = Locale(identifier: "en_US_POSIX")
-        formatter.dateFormat = "dd MMM yyyy"
+        let formatter = CachedDateFormatters.formatter("dd MMM yyyy", posix: true)
         return formatter
     }()
 
@@ -652,10 +662,10 @@ private struct LeaveCategorySheet: View {
                         }
                         .padding(.horizontal, 14)
                         .frame(height: 46)
-                        .background(draftType == type ? Color(hex: 0xEAF8E8) : Color.appFieldBackground, in: RoundedRectangle(cornerRadius: 10, style: .continuous))
+                        .background(draftType == type ? Color.adaptiveTint(0xEAF8E8) : Color.appFieldBackground, in: RoundedRectangle(cornerRadius: 10, style: .continuous))
                         .overlay {
                             RoundedRectangle(cornerRadius: 10, style: .continuous)
-                                .stroke(draftType == type ? Color(hex: 0x1BCA0B).opacity(0.35) : Color(hex: 0xEAECF0), lineWidth: 1)
+                                .stroke(draftType == type ? Color(hex: 0x1BCA0B).opacity(0.35) : Color.adaptiveTint(0xEAECF0), lineWidth: 1)
                         }
                     }
                     .buttonStyle(.plain)
@@ -723,7 +733,7 @@ private struct CompOffCreditSheet: View {
                             HStack(spacing: 12) {
                                 ZStack {
                                     Circle()
-                                        .fill(draftCredit?.id == credit.id ? Color(hex: 0xEAF8E8) : Color.appFieldBackground)
+                                        .fill(draftCredit?.id == credit.id ? Color.adaptiveTint(0xEAF8E8) : Color.appFieldBackground)
                                         .frame(width: 36, height: 36)
                                     Image(systemName: "checkmark.seal")
                                         .font(.system(size: 16, weight: .semibold))
@@ -750,10 +760,10 @@ private struct CompOffCreditSheet: View {
                             }
                             .padding(.horizontal, 12)
                             .frame(height: 58)
-                            .background(draftCredit?.id == credit.id ? Color(hex: 0xEAF8E8) : Color.appFieldBackground, in: RoundedRectangle(cornerRadius: 10, style: .continuous))
+                            .background(draftCredit?.id == credit.id ? Color.adaptiveTint(0xEAF8E8) : Color.appFieldBackground, in: RoundedRectangle(cornerRadius: 10, style: .continuous))
                             .overlay {
                                 RoundedRectangle(cornerRadius: 10, style: .continuous)
-                                    .stroke(draftCredit?.id == credit.id ? Color(hex: 0x1BCA0B).opacity(0.35) : Color(hex: 0xEAECF0), lineWidth: 1)
+                                    .stroke(draftCredit?.id == credit.id ? Color(hex: 0x1BCA0B).opacity(0.35) : Color.adaptiveTint(0xEAECF0), lineWidth: 1)
                             }
                         }
                         .buttonStyle(.plain)
@@ -841,10 +851,11 @@ private struct LeaveDurationSheet: View {
         self.disabledDate = disabledDate
         self.onClose = onClose
         self.onSubmit = onSubmit
-        let baseDate = lockedMonthDate ?? initialFromDate ?? Date()
+        let keptFrom = initialFromDate.flatMap { HRApplicationSupport.isPastDay($0) ? nil : $0 }
+        let baseDate = max(lockedMonthDate ?? keptFrom ?? Date(), Date())
         _displayedMonth = State(initialValue: Calendar.current.date(from: Calendar.current.dateComponents([.year, .month], from: baseDate)) ?? baseDate)
-        _draftFromDate = State(initialValue: initialFromDate)
-        _draftToDate = State(initialValue: initialToDate)
+        _draftFromDate = State(initialValue: keptFrom)
+        _draftToDate = State(initialValue: keptFrom == nil ? nil : initialToDate)
     }
 
     var body: some View {
@@ -868,6 +879,9 @@ private struct LeaveDurationSheet: View {
                             .frame(width: 28, height: 28)
                     }
                     .buttonStyle(.plain)
+                    // No paging back before the current month: past days can't be taken.
+                    .disabled(!canShowPreviousMonth)
+                    .opacity(canShowPreviousMonth ? 1 : 0)
                 } else {
                     Color.clear.frame(width: 28, height: 28)
                 }
@@ -899,7 +913,7 @@ private struct LeaveDurationSheet: View {
                 }
             }
             .frame(height: 24)
-            .background(Color(hex: 0xEEF0F5))
+            .background(Color.adaptiveTint(0xEEF0F5))
             .padding(.top, 8)
 
             LazyVGrid(columns: Array(repeating: GridItem(.flexible(), spacing: 2), count: 7), spacing: 2) {
@@ -946,7 +960,8 @@ private struct LeaveDurationSheet: View {
         let selectedEnd = draftToDate.map { calendar.isDate(date, inSameDayAs: $0) } ?? false
         let inRange = isInRange(date)
         let isDisabledDate = disabledDate.map { calendar.isDate(date, inSameDayAs: $0) } ?? false
-        let selectable = inCurrentMonth && !isDisabledDate
+        // Leave can't be applied for a past day.
+        let selectable = inCurrentMonth && !isDisabledDate && !HRApplicationSupport.isPastDay(date)
 
         return Button {
             guard selectable else { return }
@@ -962,7 +977,7 @@ private struct LeaveDurationSheet: View {
                         Circle().fill(Color(hex: 0x1BCA0B))
                     } else if inRange {
                         RoundedRectangle(cornerRadius: 8, style: .continuous)
-                            .fill(Color(hex: 0xEAF8E8))
+                            .fill(Color.adaptiveTint(0xEAF8E8))
                     }
                 }
         }
@@ -1000,16 +1015,21 @@ private struct LeaveDurationSheet: View {
         }
     }
 
+    private var canShowPreviousMonth: Bool {
+        let calendar = Calendar.current
+        let currentMonth = calendar.date(from: calendar.dateComponents([.year, .month], from: Date())) ?? Date()
+        return displayedMonth > currentMonth
+    }
+
     private func changeMonth(_ value: Int) {
+        guard value > 0 || canShowPreviousMonth else { return }
         displayedMonth = Calendar.current.date(byAdding: .month, value: value, to: displayedMonth) ?? displayedMonth
     }
 
     private static let weekdays = ["Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat"]
 
     private static let monthFormatter: DateFormatter = {
-        let formatter = DateFormatter()
-        formatter.locale = Locale(identifier: "en_US_POSIX")
-        formatter.dateFormat = "MMMM yyyy"
+        let formatter = CachedDateFormatters.formatter("MMMM yyyy", posix: true)
         return formatter
     }()
 }
@@ -1023,7 +1043,7 @@ private struct SubmitLeaveConfirmSheet: View {
         VStack(spacing: 0) {
             ZStack {
                 Circle()
-                    .fill(Color(hex: 0xEAF8E8))
+                    .fill(Color.adaptiveTint(0xEAF8E8))
                     .frame(width: 58, height: 58)
                 Image(systemName: "square.stack.3d.up.fill")
                     .font(.system(size: 26, weight: .semibold))

@@ -35,6 +35,14 @@ struct PermissionShiftTiming {
 }
 
 enum HRApplicationSupport {
+    static let leavePastDateMessage = "Leave can't be applied for a past date."
+    static let permissionPastDateMessage = "Permission can't be applied for a past date."
+
+    /// Leave and permission are for today or later; a day before today is
+    /// not selectable and is refused on submit (the server refuses it too).
+    static func isPastDay(_ date: Date, now: Date = Date(), calendar: Calendar = .current) -> Bool {
+        calendar.startOfDay(for: date) < calendar.startOfDay(for: now)
+    }
     static func apiDate(_ date: Date, timeZone: TimeZone = .current) -> String {
         formatter("yyyy-MM-dd", timeZone: timeZone).string(from: date)
     }
