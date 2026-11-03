@@ -26,23 +26,19 @@ struct AttendanceFilter: Equatable {
     }
 
     var apiRange: (from: String, to: String) {
-        let df = DateFormatter()
-        df.dateFormat = "yyyy-MM-dd"
-        df.locale = Locale(identifier: "en_US_POSIX")
+        let df = CachedDateFormatters.formatter("yyyy-MM-dd", posix: true)
         return (df.string(from: fromDate), df.string(from: toDate))
     }
 
     var rangeLabel: String {
         let cal = Calendar.current
-        let display = DateFormatter()
-        display.dateFormat = "d MMM yyyy"
+        let display = CachedDateFormatters.formatter("d MMM yyyy")
         if cal.isDate(fromDate, equalTo: toDate, toGranularity: .month) {
             let firstDay = cal.component(.day, from: fromDate)
             let lastDay = cal.component(.day, from: toDate)
             let lastOfMonth = cal.range(of: .day, in: .month, for: fromDate)?.count ?? lastDay
             if firstDay == 1 && lastDay == lastOfMonth {
-                let monthFmt = DateFormatter()
-                monthFmt.dateFormat = "MMMM yyyy"
+                let monthFmt = CachedDateFormatters.formatter("MMMM yyyy")
                 return monthFmt.string(from: fromDate)
             }
         }
@@ -94,7 +90,7 @@ struct AttendanceFilterSheet: View {
                 .background(Color.appFieldBackground, in: RoundedRectangle(cornerRadius: 10, style: .continuous))
                 .overlay {
                     RoundedRectangle(cornerRadius: 10, style: .continuous)
-                        .stroke(Color(hex: 0xEAECF0), lineWidth: 1)
+                        .stroke(Color.adaptiveTint(0xEAECF0), lineWidth: 1)
                 }
             }
             .buttonStyle(.plain)
@@ -266,7 +262,7 @@ private func filterOutlineButton(_ title: String, action: @escaping () -> Void) 
             .foregroundStyle(Color(hex: 0x1BCA0B))
             .frame(maxWidth: .infinity)
             .frame(height: 44)
-            .background(Color(hex: 0xD7F7D1), in: Capsule())
+            .background(Color.adaptiveTint(0xD7F7D1), in: Capsule())
     }
     .buttonStyle(.plain)
 }

@@ -552,17 +552,8 @@ struct PunchFlowView: View {
     }
 
     private func formatAttendanceTime(_ raw: String?) -> String? {
-        guard let raw, !raw.isEmpty else { return nil }
-        let iso = ISO8601DateFormatter()
-        iso.formatOptions = [.withInternetDateTime, .withFractionalSeconds]
-        let date = iso.date(from: raw) ?? {
-            iso.formatOptions = [.withInternetDateTime]
-            return iso.date(from: raw)
-        }()
-        guard let date else { return nil }
-        let formatter = DateFormatter()
-        formatter.dateFormat = "h:mm a"
-        return formatter.string(from: date)
+        guard let date = CachedDateFormatters.parseISO(raw) else { return nil }
+        return CachedDateFormatters.formatter("h:mm a").string(from: date)
     }
 
     private static let dateKeyFormatter: DateFormatter = {
@@ -581,8 +572,7 @@ private struct PunchSuccessSheet: View {
     let onDone: () -> Void
 
     private static let timeFormatter: DateFormatter = {
-        let formatter = DateFormatter()
-        formatter.dateFormat = "h:mm a"
+        let formatter = CachedDateFormatters.formatter("h:mm a")
         return formatter
     }()
 

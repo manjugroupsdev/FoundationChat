@@ -267,9 +267,7 @@ enum AttendanceTrackingGate {
         guard let clockOut = await mobileClockOutToday(token: token) else {
             return "Please clock in before starting a trip."
         }
-        let formatter = DateFormatter()
-        formatter.locale = Locale(identifier: "en_US_POSIX")
-        formatter.dateFormat = "h:mm a"
+        let formatter = CachedDateFormatters.formatter("h:mm a", posix: true)
         return "You clocked out at \(formatter.string(from: clockOut)). Trips can't be started after clocking out."
     }
 

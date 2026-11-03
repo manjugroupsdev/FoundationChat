@@ -710,11 +710,11 @@ private struct SiteVisitSkeletonRow: View {
         HStack(alignment: .top, spacing: 12) {
             VStack(spacing: 8) {
                 RoundedRectangle(cornerRadius: 12, style: .continuous)
-                    .fill(Color(hex: 0xE9EEF8))
+                    .fill(Color.adaptiveTint(0xE9EEF8))
                     .frame(width: 62, height: 86)
 
                 RoundedRectangle(cornerRadius: 5, style: .continuous)
-                    .fill(Color(hex: 0xE4ECFF))
+                    .fill(Color.adaptiveTint(0xE4ECFF))
                     .frame(width: 62, height: 24)
             }
 
@@ -870,7 +870,7 @@ struct SiteVisitRow: View {
             }
             .frame(width: 62)
             .frame(minHeight: 86)
-            .background(Color(hex: 0xEEF4FF), in: RoundedRectangle(cornerRadius: 12))
+            .background(Color.adaptiveTint(0xEEF4FF), in: RoundedRectangle(cornerRadius: 12))
 
             Text(visit.androidTimeText)
                 .font(.system(size: 11, weight: .bold))
@@ -878,7 +878,7 @@ struct SiteVisitRow: View {
                 .lineLimit(1)
                 .minimumScaleFactor(0.75)
                 .frame(width: 62, height: 24)
-                .background(Color(hex: 0xE4ECFF), in: RoundedRectangle(cornerRadius: 5))
+                .background(Color.adaptiveTint(0xE4ECFF), in: RoundedRectangle(cornerRadius: 5))
                 .opacity(visit.androidTimeText.isEmpty ? 0 : 1)
         }
         .frame(width: 62)
@@ -1277,9 +1277,7 @@ private enum SiteVisitDateFormatter {
             parser.locale = Locale(identifier: "en_US_POSIX")
             parser.dateFormat = format
             if let date = parser.date(from: trimmed.uppercased()) {
-                let formatter = DateFormatter()
-                formatter.locale = Locale(identifier: "en_US_POSIX")
-                formatter.dateFormat = "h:mm a"
+                let formatter = CachedDateFormatters.formatter("h:mm a", posix: true)
                 return formatter.string(from: date)
             }
         }
@@ -1287,9 +1285,7 @@ private enum SiteVisitDateFormatter {
     }
 
     private static func parseDate(_ raw: String) -> Date? {
-        let parser = DateFormatter()
-        parser.locale = Locale(identifier: "en_US_POSIX")
-        parser.dateFormat = "yyyy-MM-dd"
+        let parser = CachedDateFormatters.formatter("yyyy-MM-dd", posix: true)
         return parser.date(from: raw)
     }
 }
@@ -1347,7 +1343,7 @@ private struct SiteVisitOverviewSheet: View {
                 }
 
                 HStack(spacing: 12) {
-                    bottomTintCard(title: "Visitors", value: visitorSummary, tint: Color(hex: 0x0B61CA), bg: Color(hex: 0xEEF4FF))
+                    bottomTintCard(title: "Visitors", value: visitorSummary, tint: Color(hex: 0x0B61CA), bg: Color.adaptiveTint(0xEEF4FF))
                     bottomTintCard(title: "Notes", value: notesText, tint: Color.orange, bg: Color.orange.opacity(0.10))
                 }
 
@@ -1428,8 +1424,7 @@ private struct SiteVisitOverviewSheet: View {
     // these just render it.
 
     private static let overviewTimestampFormatter: DateFormatter = {
-        let f = DateFormatter()
-        f.dateFormat = "dd MMM, h:mm a"
+        let f = CachedDateFormatters.formatter("dd MMM, h:mm a")
         return f
     }()
 
@@ -2373,9 +2368,7 @@ private struct PostponeSiteVisitSheet: View {
         errorMessage = nil
         defer { isSaving = false }
         do {
-            let timeFormatter = DateFormatter()
-            timeFormatter.locale = Locale(identifier: "en_US_POSIX")
-            timeFormatter.dateFormat = "HH:mm"
+            let timeFormatter = CachedDateFormatters.formatter("HH:mm", posix: true)
             try await MarketingConvexAPIService.postponeSiteVisit(
                 token: token,
                 request: PostponeSiteVisitRequest(

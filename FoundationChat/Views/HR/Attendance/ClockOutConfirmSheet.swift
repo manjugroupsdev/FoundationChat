@@ -108,7 +108,7 @@ struct ClockOutConfirmSheet: View {
 
             Text(value)
                 .font(.system(size: 20, weight: .regular).monospacedDigit())
-                .foregroundStyle(Color(hex: 0x161B23))
+                .foregroundStyle(Color.adaptiveInk(0x161B23))
                 .lineLimit(1)
                 .minimumScaleFactor(0.72)
         }
@@ -116,7 +116,7 @@ struct ClockOutConfirmSheet: View {
         .frame(height: 72)
         .padding(.horizontal, 11)
         .background(Color.appSurface, in: RoundedRectangle(cornerRadius: 10, style: .continuous))
-        .overlay(RoundedRectangle(cornerRadius: 10, style: .continuous).stroke(Color(hex: 0xEAECF0), lineWidth: 1))
+        .overlay(RoundedRectangle(cornerRadius: 10, style: .continuous).stroke(Color.adaptiveTint(0xEAECF0), lineWidth: 1))
     }
 
     private static func format(minutes: Int) -> String {

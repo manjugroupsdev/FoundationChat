@@ -1,5 +1,6 @@
 import Foundation
 import SwiftUI
+import UIKit
 
 extension Color {
     init(hex: UInt, alpha: Double = 1) {
@@ -23,6 +24,34 @@ extension Color {
     static let appPrimaryText = Color(uiColor: .label)
     static let appSecondaryText = Color(uiColor: .secondaryLabel)
     static let appTertiaryText = Color(uiColor: .tertiaryLabel)
+
+    /// A pale light-mode tint (chip, badge, banner, border or icon
+    /// background) that dims to the same hue in dark mode instead of glowing.
+    /// Light mode is the exact original colour. See `AdaptiveColorRules`.
+    nonisolated static func adaptiveTint(_ hex: UInt) -> Color {
+        adaptive(AdaptiveColorRules.rgb(hex: hex), ink: false)
+    }
+
+    nonisolated static func adaptiveTint(red: Double, green: Double, blue: Double) -> Color {
+        adaptive((red, green, blue), ink: false)
+    }
+
+    /// A dark light-mode text colour that turns into a light version of the
+    /// same hue in dark mode, so it stays readable. Light mode is unchanged.
+    nonisolated static func adaptiveInk(_ hex: UInt) -> Color {
+        adaptive(AdaptiveColorRules.rgb(hex: hex), ink: true)
+    }
+
+    nonisolated static func adaptiveInk(red: Double, green: Double, blue: Double) -> Color {
+        adaptive((red, green, blue), ink: true)
+    }
+
+    private nonisolated static func adaptive(_ rgb: AdaptiveColorRules.RGB, ink: Bool) -> Color {
+        let dark = ink ? AdaptiveColorRules.darkInk(rgb) : AdaptiveColorRules.darkTint(rgb)
+        let light = UIColor(red: rgb.red, green: rgb.green, blue: rgb.blue, alpha: 1)
+        let darkColor = UIColor(red: dark.red, green: dark.green, blue: dark.blue, alpha: 1)
+        return Color(uiColor: UIColor { traits in traits.userInterfaceStyle == .dark ? darkColor : light })
+    }
 }
 
 extension String {
@@ -62,9 +91,7 @@ enum AppModuleFormatters {
     }()
 
     static let ymd: DateFormatter = {
-        let f = DateFormatter()
-        f.dateFormat = "yyyy-MM-dd"
-        f.locale = Locale(identifier: "en_US_POSIX")
+        let f = CachedDateFormatters.formatter("yyyy-MM-dd", posix: true)
         return f
     }()
 

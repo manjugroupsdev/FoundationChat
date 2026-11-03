@@ -18,8 +18,22 @@ struct FoundationChatApp: App {
     @AppStorage("app.language") private var languagePreference = ProfileLanguage.english.rawValue
     @AppStorage("app.appearance") private var appearancePreference = ProfileAppearance.system.rawValue
 
-    private var preferredColorScheme: ColorScheme? {
-        (ProfileAppearance(rawValue: appearancePreference) ?? .system).colorScheme
+    /// Light / Dark / System from Profile, applied to every window. SwiftUI's
+    /// `.preferredColorScheme` did not return to System after Light or Dark
+    /// until a relaunch, and did not reach UIKit screens (camera, alerts,
+    /// web views); the window's interface style covers all of them at once.
+    private func applyAppearance() {
+        let style: UIUserInterfaceStyle
+        switch ProfileAppearance(rawValue: appearancePreference) ?? .system {
+        case .system: style = .unspecified
+        case .light: style = .light
+        case .dark: style = .dark
+        }
+        for case let scene as UIWindowScene in UIApplication.shared.connectedScenes {
+            for window in scene.windows where window.overrideUserInterfaceStyle != style {
+                window.overrideUserInterfaceStyle = style
+            }
+        }
     }
 
     @State private var authStore = AuthStore()
@@ -82,7 +96,9 @@ struct FoundationChatApp: App {
                 }
             }
             .environment(\.locale, Locale(identifier: languagePreference))
-            .preferredColorScheme(preferredColorScheme)
+            // The window may attach after the first appearance; apply again then.
+            .onAppear { applyAppearance(); DispatchQueue.main.async { applyAppearance() } }
+            .onChange(of: appearancePreference) { _, _ in applyAppearance() }
             .modelContainer(for: [Conversation.self, Message.self])
             .environment(authStore)
             .onChange(of: scenePhase) { oldPhase, newPhase in
@@ -150,6 +166,8 @@ struct FoundationChatApp: App {
             UIApplication.shared.fc_dismissKeyboard()
 
         case .active where oldPhase != .active:
+            // Windows created while in the background follow the setting too.
+            applyAppearance()
             // Window bounds and safe-area values can still be transitioning at
             // the first active callback after an unlock. Re-layout once UIKit
             // has restored the foreground window metrics.

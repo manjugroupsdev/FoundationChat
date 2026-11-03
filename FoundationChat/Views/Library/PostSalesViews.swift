@@ -870,7 +870,7 @@ struct PostSalesSegmentedFilter: View {
         .background(Color.appSurface, in: Capsule())
         .overlay(
             Capsule()
-                .stroke(Color(hex: 0xEAECF0), lineWidth: 1)
+                .stroke(Color.adaptiveTint(0xEAECF0), lineWidth: 1)
         )
     }
 }
@@ -1153,7 +1153,7 @@ private struct CollectionRowCard: View {
             }
 
             DashedDivider()
-                .stroke(Color(hex: 0xEAECF0), style: StrokeStyle(lineWidth: 1, dash: [6, 4]))
+                .stroke(Color.adaptiveTint(0xEAECF0), style: StrokeStyle(lineWidth: 1, dash: [6, 4]))
                 .frame(height: 1)
 
             HStack(alignment: .center, spacing: 16) {
@@ -1197,7 +1197,7 @@ private struct CollectionRowCard: View {
                 }
                 .padding(12)
                 .frame(maxWidth: .infinity, alignment: .leading)
-                .background(Color(hex: 0xFFF1F0), in: RoundedRectangle(cornerRadius: 10, style: .continuous))
+                .background(Color.adaptiveTint(0xFFF1F0), in: RoundedRectangle(cornerRadius: 10, style: .continuous))
             }
 
             if let onReject, let onAccept {
@@ -1255,7 +1255,7 @@ private struct CollectionRowCard: View {
         .background(Color.appSurface, in: RoundedRectangle(cornerRadius: 16, style: .continuous))
         .overlay(
             RoundedRectangle(cornerRadius: 16, style: .continuous)
-                .stroke(Color(hex: 0xEAECF0), lineWidth: 1)
+                .stroke(Color.adaptiveTint(0xEAECF0), lineWidth: 1)
         )
         .shadow(color: .black.opacity(0.04), radius: 10, x: 0, y: 4)
     }
@@ -1413,7 +1413,7 @@ private struct LoanDeskCaseCard: View {
                     .font(.system(size: 20, weight: .semibold))
                     .foregroundStyle(Color(hex: 0x0B61CA))
                     .frame(width: 42, height: 42)
-                    .background(Color(hex: 0xEAF3FF), in: Circle())
+                    .background(Color.adaptiveTint(0xEAF3FF), in: Circle())
                 VStack(alignment: .leading, spacing: 4) {
                     Text(loanCase.displayTitle)
                         .font(AppModuleFont.rowTitle)
@@ -1450,7 +1450,7 @@ private struct LoanDeskCaseCard: View {
                 }
                 .padding(12)
                 .frame(maxWidth: .infinity, alignment: .leading)
-                .background(Color(hex: 0xFFF1F0), in: RoundedRectangle(cornerRadius: 10, style: .continuous))
+                .background(Color.adaptiveTint(0xFFF1F0), in: RoundedRectangle(cornerRadius: 10, style: .continuous))
             }
 
             actionRow
@@ -2704,9 +2704,7 @@ private struct LoanDocumentScanner: UIViewControllerRepresentable {
                 guard document.pageCount > 0 else {
                     throw MarketingAPIError.server("No document pages were captured.")
                 }
-                let formatter = DateFormatter()
-                formatter.locale = Locale(identifier: "en_US_POSIX")
-                formatter.dateFormat = "yyyyMMdd_HHmmss_SSS"
+                let formatter = CachedDateFormatters.formatter("yyyyMMdd_HHmmss_SSS", posix: true)
                 let safeLabel = parent.label.lowercased()
                     .components(separatedBy: CharacterSet.alphanumerics.inverted)
                     .filter { !$0.isEmpty }
@@ -2901,9 +2899,7 @@ private extension CustomerCollectionRow {
     }()
 
     private static let dateOnlyFormatter: DateFormatter = {
-        let formatter = DateFormatter()
-        formatter.locale = Locale(identifier: "en_US_POSIX")
-        formatter.dateFormat = "yyyy-MM-dd"
+        let formatter = CachedDateFormatters.formatter("yyyy-MM-dd", posix: true)
         return formatter
     }()
 }

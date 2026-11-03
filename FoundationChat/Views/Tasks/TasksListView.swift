@@ -607,7 +607,7 @@ private struct TaskManagerLoadingSkeleton: View {
                     HStack(alignment: .top, spacing: 10) {
                         VStack(alignment: .leading, spacing: 7) {
                             RoundedRectangle(cornerRadius: 4, style: .continuous)
-                                .fill(Color(hex: 0xE8EEF6))
+                                .fill(Color.adaptiveTint(0xE8EEF6))
                                 .frame(width: 178, height: 15)
                             RoundedRectangle(cornerRadius: 4, style: .continuous)
                                 .fill(Color.appFieldBackground)
@@ -615,7 +615,7 @@ private struct TaskManagerLoadingSkeleton: View {
                         }
                         Spacer()
                         RoundedRectangle(cornerRadius: 9, style: .continuous)
-                            .fill(Color(hex: 0xFFF3D6))
+                            .fill(Color.adaptiveTint(0xFFF3D6))
                             .frame(width: 74, height: 24)
                     }
 
@@ -644,7 +644,7 @@ private struct TaskManagerLoadingSkeleton: View {
                 .fill(Color.appFieldBackground)
                 .frame(width: 62, height: 10)
             RoundedRectangle(cornerRadius: 4, style: .continuous)
-                .fill(Color(hex: 0xE8EEF6))
+                .fill(Color.adaptiveTint(0xE8EEF6))
                 .frame(width: width, height: 13)
         }
     }
@@ -834,7 +834,7 @@ private struct DailyTaskManagerCard: View {
                             .foregroundStyle(Color(hex: 0xB42318))
                             .frame(maxWidth: .infinity)
                             .frame(height: 40)
-                            .background(Color(hex: 0xFEF3F2), in: Capsule())
+                            .background(Color.adaptiveTint(0xFEF3F2), in: Capsule())
                             .overlay(Capsule().stroke(Color(hex: 0xFECDCA), lineWidth: 1))
                     }
                     .buttonStyle(.plain)
@@ -885,21 +885,19 @@ private struct DailyTaskManagerCard: View {
     }
 
     private var statusBackground: Color {
-        if isOverdue { return Color(hex: 0xFEF3F2) }
+        if isOverdue { return Color.adaptiveTint(0xFEF3F2) }
         switch task.status {
-        case "completed": return Color(hex: 0xECFDF3)
-        case "in-progress": return Color(hex: 0xEFF8FF)
-        case "cancelled": return Color(hex: 0xFEF3F2)
-        default: return Color(hex: 0xFFFAEB)
+        case "completed": return Color.adaptiveTint(0xECFDF3)
+        case "in-progress": return Color.adaptiveTint(0xEFF8FF)
+        case "cancelled": return Color.adaptiveTint(0xFEF3F2)
+        default: return Color.adaptiveTint(0xFFFAEB)
         }
     }
 
     private var shortDeadline: String {
         guard let raw = task.deadline?.nonBlank else { return "-" }
         if let date = AppModuleFormatters.ymd.date(from: raw) {
-            let formatter = DateFormatter()
-            formatter.locale = Locale(identifier: "en_US_POSIX")
-            formatter.dateFormat = "d MMM"
+            let formatter = CachedDateFormatters.formatter("d MMM", posix: true)
             return formatter.string(from: date)
         }
         return raw
@@ -975,7 +973,7 @@ private struct TaskWebLinkSheet: View {
                     .foregroundStyle(Color(hex: 0x0B61CA))
                     .frame(maxWidth: .infinity)
                     .frame(height: 50)
-                    .background(Color(hex: 0xEAF2FE), in: Capsule())
+                    .background(Color.adaptiveTint(0xEAF2FE), in: Capsule())
             }
             .buttonStyle(.plain)
 

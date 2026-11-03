@@ -618,7 +618,7 @@ struct TripNavigationView: View {
         .background(Color.appSurface, in: RoundedRectangle(cornerRadius: 18))
         .overlay(
             RoundedRectangle(cornerRadius: 18)
-                .stroke(Color(hex: 0xEEF0F5), lineWidth: 1)
+                .stroke(Color.adaptiveTint(0xEEF0F5), lineWidth: 1)
         )
     }
 
@@ -1364,8 +1364,7 @@ struct TripNavigationView: View {
             if let existing = visitIdArg {
                 effectiveVisitId = existing
             } else if let placeId = placeIdArg {
-                let df = DateFormatter()
-                df.dateFormat = "yyyy-MM-dd"
+                let df = CachedDateFormatters.formatter("yyyy-MM-dd")
                 let today = df.string(from: Date())
                 geoAPI.tokenProvider = { token }
                 effectiveVisitId = try await geoAPI.createVisit(
@@ -1465,8 +1464,7 @@ struct TripNavigationView: View {
             if let visitIdArg, !visitIdArg.isEmpty {
                 effectiveVisitId = visitIdArg
             } else if let placeIdArg, !placeIdArg.isEmpty {
-                let formatter = DateFormatter()
-                formatter.dateFormat = "yyyy-MM-dd"
+                let formatter = CachedDateFormatters.formatter("yyyy-MM-dd")
                 geoAPI.tokenProvider = { token }
                 effectiveVisitId = try await geoAPI.createVisit(
                     clientPlaceId: placeIdArg,
@@ -2725,8 +2723,8 @@ struct TripNavigationView: View {
 
     private var statusBackgroundColor: Color {
         switch tripProgressStage {
-        case .notStarted: return Color(hex: 0xE8F7EC)
-        case .started, .reaching, .reached: return Color(hex: 0xFFF4E5)
+        case .notStarted: return Color.adaptiveTint(0xE8F7EC)
+        case .started, .reaching, .reached: return Color.adaptiveTint(0xFFF4E5)
         case .complete: return Color.appFieldBackground
         }
     }

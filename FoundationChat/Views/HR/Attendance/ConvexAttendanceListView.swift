@@ -278,7 +278,7 @@ struct ConvexAttendanceListView: View {
                         .font(.system(size: 16, weight: .semibold))
                         .foregroundStyle(Color(hex: 0x0B61CA))
                         .frame(width: 36, height: 36)
-                        .background(Color(hex: 0xF5F8FF), in: Circle())
+                        .background(Color.adaptiveTint(0xF5F8FF), in: Circle())
                 }
                 .buttonStyle(.plain)
                 .accessibilityLabel("Filter attendance")
@@ -557,7 +557,7 @@ struct ConvexAttendanceListView: View {
                             .foregroundStyle(Color(hex: 0xB42318))
                             .frame(maxWidth: .infinity, alignment: .leading)
                         .padding(12)
-                        .background(Color(hex: 0xFEF3F2), in: RoundedRectangle(cornerRadius: 12))
+                        .background(Color.adaptiveTint(0xFEF3F2), in: RoundedRectangle(cornerRadius: 12))
                     }
                     ForEach(activeRecords) { record in
                         switch selectedTab {
@@ -1131,9 +1131,7 @@ struct ConvexAttendanceListView: View {
     }
 
     private static let dateKeyFormatter: DateFormatter = {
-        let formatter = DateFormatter()
-        formatter.dateFormat = "yyyy-MM-dd"
-        formatter.locale = Locale(identifier: "en_US_POSIX")
+        let formatter = CachedDateFormatters.formatter("yyyy-MM-dd", posix: true)
         return formatter
     }()
 
@@ -1211,11 +1209,11 @@ private struct AttendanceHistoryCard: View {
             }
 
             if let lateFine = lateFineBanner {
-                fineBanner(icon: "clock.fill", title: "Late by \(lateFine.minutes)mins", amount: lateFine.amount, tint: Color(hex: 0xD92D20), background: Color(hex: 0xFEF3F2))
+                fineBanner(icon: "clock.fill", title: "Late by \(lateFine.minutes)mins", amount: lateFine.amount, tint: Color(hex: 0xD92D20), background: Color.adaptiveTint(0xFEF3F2))
             }
 
             ForEach(record.otherFines?.filter { ($0.amount ?? 0) > 0 } ?? []) { fine in
-                fineBanner(icon: "exclamationmark.circle.fill", title: fine.typeName?.nilIfBlank ?? "Other Fine", amount: fine.amount ?? 0, tint: Color(hex: 0x0B61CA), background: Color(hex: 0xEFF8FF))
+                fineBanner(icon: "exclamationmark.circle.fill", title: fine.typeName?.nilIfBlank ?? "Other Fine", amount: fine.amount ?? 0, tint: Color(hex: 0x0B61CA), background: Color.adaptiveTint(0xEFF8FF))
             }
 
             if let footer = decisionFooter {
@@ -1268,8 +1266,7 @@ private struct AttendanceHistoryCard: View {
         guard let raw = record.date, let date = Self.ymd.date(from: raw) else {
             return record.date ?? ""
         }
-        let formatter = DateFormatter()
-        formatter.dateFormat = "d MMMM yyyy"
+        let formatter = CachedDateFormatters.formatter("d MMMM yyyy")
         return formatter.string(from: date)
     }
 
@@ -1381,8 +1378,7 @@ private struct AttendanceHistoryCard: View {
     private static func formatDecisionDate(_ raw: String) -> String? {
         let date = parseISO(raw) ?? ymd.date(from: raw)
         guard let date else { return nil }
-        let formatter = DateFormatter()
-        formatter.dateFormat = "d MMM yyyy"
+        let formatter = CachedDateFormatters.formatter("d MMM yyyy")
         return formatter.string(from: date)
     }
 
@@ -1418,7 +1414,7 @@ private struct AttendancePenaltyNotice: View {
                     .foregroundStyle(Color(hex: 0xB42318))
                 Text("Reason: \(reason)")
                     .font(.system(size: 12, weight: .medium))
-                    .foregroundStyle(Color(hex: 0x7A271A))
+                    .foregroundStyle(Color.adaptiveInk(0x7A271A))
                     .fixedSize(horizontal: false, vertical: true)
             }
 
@@ -1426,7 +1422,7 @@ private struct AttendancePenaltyNotice: View {
         }
         .padding(.horizontal, 12)
         .padding(.vertical, 10)
-        .background(Color(hex: 0xFEF3F2), in: RoundedRectangle(cornerRadius: 10, style: .continuous))
+        .background(Color.adaptiveTint(0xFEF3F2), in: RoundedRectangle(cornerRadius: 10, style: .continuous))
         .overlay(
             RoundedRectangle(cornerRadius: 10, style: .continuous)
                 .stroke(Color(hex: 0xFECDCA), lineWidth: 1)
@@ -1447,7 +1443,7 @@ private struct AttendanceLateFineNotice: View {
 
             Text(minutes > 0 ? "Late by \(minutes) min" : "Late attendance fine")
                 .font(.system(size: 12, weight: .medium))
-                .foregroundStyle(Color(hex: 0x7A271A))
+                .foregroundStyle(Color.adaptiveInk(0x7A271A))
 
             Spacer(minLength: 8)
 
@@ -1457,7 +1453,7 @@ private struct AttendanceLateFineNotice: View {
         }
         .padding(.horizontal, 12)
         .padding(.vertical, 10)
-        .background(Color(hex: 0xFEF3F2), in: RoundedRectangle(cornerRadius: 10, style: .continuous))
+        .background(Color.adaptiveTint(0xFEF3F2), in: RoundedRectangle(cornerRadius: 10, style: .continuous))
         .overlay(
             RoundedRectangle(cornerRadius: 10, style: .continuous)
                 .stroke(Color(hex: 0xFECDCA), lineWidth: 1)
@@ -1491,7 +1487,7 @@ private struct AttendanceSkeletonCard: View {
             HStack(spacing: 10) {
                 if showAvatar {
                     Circle()
-                        .fill(Color(hex: 0xEFF4FB))
+                        .fill(Color.adaptiveTint(0xEFF4FB))
                         .frame(width: 40, height: 40)
                 }
 
@@ -1536,7 +1532,7 @@ private struct AttendanceSkeletonCard: View {
 
     private func skeletonBlock(width: CGFloat, height: CGFloat, radius: CGFloat = 5) -> some View {
         RoundedRectangle(cornerRadius: radius, style: .continuous)
-            .fill(Color(hex: 0xE9EEF5))
+            .fill(Color.adaptiveTint(0xE9EEF5))
             .frame(width: width, height: height)
     }
 }
@@ -1638,7 +1634,7 @@ private struct TeamAttendanceCard: View {
                                 .foregroundStyle(Color(hex: 0xB42318))
                                 .frame(maxWidth: .infinity)
                                 .frame(height: 38)
-                                .background(Color(hex: 0xFEF3F2), in: RoundedRectangle(cornerRadius: 8, style: .continuous))
+                                .background(Color.adaptiveTint(0xFEF3F2), in: RoundedRectangle(cornerRadius: 8, style: .continuous))
                         }
                         .buttonStyle(.plain)
                     }
@@ -1655,7 +1651,7 @@ private struct TeamAttendanceCard: View {
             .font(.system(size: 14, weight: .bold))
             .foregroundStyle(Color(hex: 0x0B61CA))
             .frame(width: 40, height: 40)
-            .background(Color(hex: 0xEFF8FF), in: Circle())
+            .background(Color.adaptiveTint(0xEFF8FF), in: Circle())
     }
 
     private var primaryActionTitle: String {
@@ -1708,8 +1704,7 @@ private struct TeamAttendanceCard: View {
         guard let raw = record.date, let date = Self.ymd.date(from: raw) else {
             return record.date ?? "—"
         }
-        let formatter = DateFormatter()
-        formatter.dateFormat = "d MMMM yyyy"
+        let formatter = CachedDateFormatters.formatter("d MMMM yyyy")
         return formatter.string(from: date)
     }
 
@@ -1768,8 +1763,7 @@ private struct TeamAttendanceCard: View {
 
     private static func formatTime(_ raw: String) -> String? {
         if let date = parseISO(raw) {
-            let formatter = DateFormatter()
-            formatter.dateFormat = "hh:mm a"
+            let formatter = CachedDateFormatters.formatter("hh:mm a")
             return formatter.string(from: date)
         }
         return raw.isEmpty ? nil : raw
@@ -1922,7 +1916,7 @@ private struct AttendanceApprovalReviewSheet: View {
         .foregroundStyle(Color(hex: 0x169B2F))
         .padding(.horizontal, 11)
         .frame(height: 32)
-        .background(Color(hex: 0xECFDF3), in: Capsule())
+        .background(Color.adaptiveTint(0xECFDF3), in: Capsule())
     }
 
     private func reviewTabs(proxy: ScrollViewProxy) -> some View {
@@ -1940,7 +1934,7 @@ private struct AttendanceApprovalReviewSheet: View {
                         .foregroundStyle(selectedTab == index ? Color(hex: 0x0B61CA) : Color.appSecondaryText)
                         .frame(maxWidth: .infinity)
                         .frame(height: 36)
-                        .background(selectedTab == index ? Color(hex: 0xEAF2FF) : Color.clear, in: RoundedRectangle(cornerRadius: 8))
+                        .background(selectedTab == index ? Color.adaptiveTint(0xEAF2FF) : Color.clear, in: RoundedRectangle(cornerRadius: 8))
                 }
                 .buttonStyle(.plain)
             }
@@ -2002,7 +1996,7 @@ private struct AttendanceApprovalReviewSheet: View {
                             .foregroundStyle(Color(hex: 0x16A34A))
                             .padding(.horizontal, 10)
                             .frame(height: 24)
-                            .background(Color(hex: 0xECFDF3), in: Capsule())
+                            .background(Color.adaptiveTint(0xECFDF3), in: Capsule())
                     }
                 }
                 .foregroundStyle(Color(hex: 0x0B61CA))
@@ -2083,7 +2077,7 @@ private struct AttendanceApprovalReviewSheet: View {
                 .foregroundStyle(replaySpeed == speed ? Color(hex: 0x0B61CA) : Color.appSecondaryText)
                 .frame(maxWidth: .infinity)
                 .frame(height: 32)
-                .background(replaySpeed == speed ? Color(hex: 0xEAF2FF) : Color.appFieldBackground, in: RoundedRectangle(cornerRadius: 6))
+                .background(replaySpeed == speed ? Color.adaptiveTint(0xEAF2FF) : Color.appFieldBackground, in: RoundedRectangle(cornerRadius: 6))
         }
         .buttonStyle(.plain)
     }
@@ -2150,7 +2144,7 @@ private struct AttendanceApprovalReviewSheet: View {
         }
         .padding(8)
         .background(Color.appFieldBackground, in: RoundedRectangle(cornerRadius: 14, style: .continuous))
-        .overlay(RoundedRectangle(cornerRadius: 14).stroke(Color(hex: 0xEAECF0), lineWidth: 1))
+        .overlay(RoundedRectangle(cornerRadius: 14).stroke(Color.adaptiveTint(0xEAECF0), lineWidth: 1))
     }
 
     private func decisionButton(_ title: String, status: String, icon: String? = nil, style: AttendanceDecisionButtonStyle) -> some View {
@@ -2233,7 +2227,7 @@ private struct AttendanceApprovalReviewSheet: View {
                         .font(.system(size: 16, weight: .semibold))
                         .foregroundStyle(Color(hex: 0x0B61CA))
                         .frame(width: 36, height: 36)
-                        .background(Color(hex: 0xEFF8FF), in: RoundedRectangle(cornerRadius: 9))
+                        .background(Color.adaptiveTint(0xEFF8FF), in: RoundedRectangle(cornerRadius: 9))
                     VStack(alignment: .leading, spacing: 3) {
                         Text(item.1)
                             .font(.system(size: 11, weight: .medium))
@@ -2892,9 +2886,7 @@ private struct AttendanceRequestReviewSheet: View {
     private static func formatCreationTime(_ value: Double) -> String {
         let seconds = value > 10_000_000_000 ? value / 1000 : value
         let date = Date(timeIntervalSince1970: seconds)
-        let formatter = DateFormatter()
-        formatter.locale = Locale(identifier: "en_US_POSIX")
-        formatter.dateFormat = "dd/MM/yyyy, hh:mm a"
+        let formatter = CachedDateFormatters.formatter("dd/MM/yyyy, hh:mm a", posix: true)
         return formatter.string(from: date)
     }
 
@@ -3181,7 +3173,7 @@ private struct RoutePreviewCard: View {
 
     var body: some View {
         ZStack {
-            LinearGradient(colors: [Color.appFieldBackground, Color(hex: 0xEAF2FF)], startPoint: .topLeading, endPoint: .bottomTrailing)
+            LinearGradient(colors: [Color.appFieldBackground, Color.adaptiveTint(0xEAF2FF)], startPoint: .topLeading, endPoint: .bottomTrailing)
             Path { path in
                 path.move(to: CGPoint(x: 18, y: 82))
                 path.addCurve(to: CGPoint(x: 116, y: 70), control1: CGPoint(x: 52, y: 98), control2: CGPoint(x: 74, y: 45))
@@ -3238,8 +3230,7 @@ private enum AttendanceSheetFormat {
             parser.locale = Locale(identifier: "en_US_POSIX")
             parser.dateFormat = pattern
             if let date = parser.date(from: raw) {
-                let formatter = DateFormatter()
-                formatter.dateFormat = "hh:mm a"
+                let formatter = CachedDateFormatters.formatter("hh:mm a")
                 return formatter.string(from: date)
             }
         }
@@ -3397,9 +3388,7 @@ private enum AttendanceSheetFormat {
     }
 
     private static let ymd: DateFormatter = {
-        let formatter = DateFormatter()
-        formatter.dateFormat = "yyyy-MM-dd"
-        formatter.locale = Locale(identifier: "en_US_POSIX")
+        let formatter = CachedDateFormatters.formatter("yyyy-MM-dd", posix: true)
         return formatter
     }()
 

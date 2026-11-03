@@ -526,7 +526,7 @@ private struct SiteVisitCounsellingSheet: View {
                                     .font(.system(size: 22, weight: .semibold))
                                     .foregroundStyle(Color(hex: 0x0B61CA))
                                     .frame(width: 46, height: 46)
-                                    .background(Color(hex: 0xEAF4FF), in: RoundedRectangle(cornerRadius: 12))
+                                    .background(Color.adaptiveTint(0xEAF4FF), in: RoundedRectangle(cornerRadius: 12))
                                 VStack(alignment: .leading, spacing: 4) {
                                     Text(clientName(visit))
                                         .font(.system(size: 20, weight: .bold))
@@ -707,7 +707,7 @@ private struct FrontDeskInvitationSheet: View {
                     .font(.system(size: 20, weight: .semibold))
                     .foregroundStyle(Color(hex: 0x0B61CA))
                     .frame(width: 42, height: 42)
-                    .background(Color(hex: 0xEAF4FF), in: RoundedRectangle(cornerRadius: 10, style: .continuous))
+                    .background(Color.adaptiveTint(0xEAF4FF), in: RoundedRectangle(cornerRadius: 10, style: .continuous))
 
                 VStack(alignment: .leading, spacing: 2) {
                     Text("Visitor Invitation")
@@ -808,7 +808,7 @@ private struct FrontDeskInvitationSheet: View {
                         .foregroundStyle(Color(hex: 0xB42318))
                         .frame(maxWidth: .infinity, alignment: .leading)
                         .padding(12)
-                        .background(Color(hex: 0xFEF3F2), in: RoundedRectangle(cornerRadius: 8, style: .continuous))
+                        .background(Color.adaptiveTint(0xFEF3F2), in: RoundedRectangle(cornerRadius: 8, style: .continuous))
                 }
             }
             .padding(.horizontal, 20)
@@ -829,7 +829,7 @@ private struct FrontDeskInvitationSheet: View {
                 .font(.system(size: 14, weight: .bold))
                 .foregroundStyle(Color(hex: 0x0B61CA))
                 .frame(width: 44, height: 44)
-                .background(Color(hex: 0xEAF4FF), in: Circle())
+                .background(Color.adaptiveTint(0xEAF4FF), in: Circle())
 
             VStack(alignment: .leading, spacing: 4) {
                 HStack(spacing: 7) {
@@ -842,7 +842,7 @@ private struct FrontDeskInvitationSheet: View {
                             .foregroundStyle(Color(hex: 0x0B61CA))
                             .padding(.horizontal, 6)
                             .frame(height: 19)
-                            .background(Color(hex: 0xEAF4FF), in: Capsule())
+                            .background(Color.adaptiveTint(0xEAF4FF), in: Capsule())
                     }
                 }
 
@@ -878,7 +878,7 @@ private struct FrontDeskInvitationSheet: View {
                 .font(.system(size: 14, weight: .semibold))
                 .foregroundStyle(Color(hex: 0x0B61CA))
                 .frame(width: 30, height: 30)
-                .background(Color(hex: 0xEAF4FF), in: RoundedRectangle(cornerRadius: 7, style: .continuous))
+                .background(Color.adaptiveTint(0xEAF4FF), in: RoundedRectangle(cornerRadius: 7, style: .continuous))
 
             VStack(alignment: .leading, spacing: 2) {
                 Text(title)
@@ -906,7 +906,7 @@ private struct FrontDeskInvitationSheet: View {
                     .foregroundStyle(Color(hex: 0x0B61CA))
                     .frame(maxWidth: .infinity)
                     .frame(height: 46)
-                    .background(Color(hex: 0xEAF4FF), in: RoundedRectangle(cornerRadius: 8, style: .continuous))
+                    .background(Color.adaptiveTint(0xEAF4FF), in: RoundedRectangle(cornerRadius: 8, style: .continuous))
             }
             .buttonStyle(.plain)
             .disabled(isActionRunning)
@@ -948,7 +948,7 @@ private struct FrontDeskInvitationSheet: View {
         let checkedIn = isCheckedIn(invitation)
         let title = checkedOut ? "Checked Out" : (checkedIn ? "Checked In" : "Invited")
         let foreground = checkedOut ? Color.appSecondaryText : (checkedIn ? Color(hex: 0x15803D) : Color(hex: 0x0B61CA))
-        let background = checkedOut ? Color.appFieldBackground : (checkedIn ? Color(hex: 0xDCFCE7) : Color(hex: 0xEAF4FF))
+        let background = checkedOut ? Color.appFieldBackground : (checkedIn ? Color.adaptiveTint(0xDCFCE7) : Color.adaptiveTint(0xEAF4FF))
         return Text(title)
             .font(.system(size: 10, weight: .bold))
             .foregroundStyle(foreground)
@@ -1020,8 +1020,7 @@ private struct FrontDeskInvitationSheet: View {
     private func timestampLabel(_ prefix: String, value: Int64?) -> String? {
         guard let value, value > 0 else { return nil }
         let seconds = value > 10_000_000_000 ? Double(value) / 1_000 : Double(value)
-        let formatter = DateFormatter()
-        formatter.dateFormat = "d MMM, h:mm a"
+        let formatter = CachedDateFormatters.formatter("d MMM, h:mm a")
         return "\(prefix) \(formatter.string(from: Date(timeIntervalSince1970: seconds)))"
     }
 }
@@ -1134,7 +1133,7 @@ private struct FrontDeskQRHistoryRow: View {
                 .font(.system(size: 15, weight: .bold))
                 .foregroundStyle(Color(hex: 0x0B61CA))
                 .frame(width: 48, height: 48)
-                .background(Color(hex: 0xEAF4FF), in: Circle())
+                .background(Color.adaptiveTint(0xEAF4FF), in: Circle())
 
             VStack(alignment: .leading, spacing: 6) {
                 HStack(alignment: .top, spacing: 8) {
@@ -1203,7 +1202,7 @@ private struct FrontDeskQRHistoryDetailView: View {
                         .font(.system(size: 24, weight: .bold))
                         .foregroundStyle(Color(hex: 0x0B61CA))
                         .frame(width: 68, height: 68)
-                        .background(Color(hex: 0xEAF4FF), in: Circle())
+                        .background(Color.adaptiveTint(0xEAF4FF), in: Circle())
 
                     VStack(alignment: .leading, spacing: 5) {
                         Text(payload.title)
@@ -1268,7 +1267,7 @@ private struct FrontDeskQRHistoryDetailView: View {
                         .font(.system(size: 15, weight: .semibold))
                         .foregroundStyle(Color(hex: 0x0B61CA))
                         .frame(width: 32, height: 32)
-                        .background(Color(hex: 0xEAF4FF), in: Circle())
+                        .background(Color.adaptiveTint(0xEAF4FF), in: Circle())
 
                     VStack(alignment: .leading, spacing: 3) {
                         Text(row.label)
@@ -1382,9 +1381,7 @@ private enum FrontDeskQRHistoryStore {
     }
 
     private static let displayFormatter: DateFormatter = {
-        let formatter = DateFormatter()
-        formatter.locale = Locale(identifier: "en_US_POSIX")
-        formatter.dateFormat = "dd MMM yyyy hh:mm a"
+        let formatter = CachedDateFormatters.formatter("dd MMM yyyy hh:mm a", posix: true)
         return formatter
     }()
 }

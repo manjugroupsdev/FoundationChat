@@ -224,7 +224,7 @@ private struct CpApprovalCard: View {
                     .foregroundStyle(Color(hex: 0xB54708))
                     .padding(.horizontal, 10)
                     .padding(.vertical, 6)
-                    .background(Color(hex: 0xFFFAEB), in: RoundedRectangle(cornerRadius: 14))
+                    .background(Color.adaptiveTint(0xFFFAEB), in: RoundedRectangle(cornerRadius: 14))
                     .overlay(RoundedRectangle(cornerRadius: 14).stroke(Color(hex: 0xFEDF89)))
             }
 
@@ -284,7 +284,7 @@ private struct CpApprovalCard: View {
                         // as one block.
                         .frame(maxWidth: .infinity, minHeight: photoURL == nil ? nil : 112, alignment: .leading)
                         .background(Color.appFieldBackground, in: RoundedRectangle(cornerRadius: 10))
-                        .overlay(RoundedRectangle(cornerRadius: 10).stroke(Color(hex: 0xEAECF0)))
+                        .overlay(RoundedRectangle(cornerRadius: 10).stroke(Color.adaptiveTint(0xEAECF0)))
                     }
                 }
             }
@@ -295,7 +295,7 @@ private struct CpApprovalCard: View {
                     .foregroundStyle(Color(hex: 0x0B61CA))
                     .frame(maxWidth: .infinity)
                     .frame(height: 44)
-                    .background(Color(hex: 0xEFF6FF), in: RoundedRectangle(cornerRadius: 10))
+                    .background(Color.adaptiveTint(0xEFF6FF), in: RoundedRectangle(cornerRadius: 10))
             }
             .buttonStyle(.plain)
             .padding(.top, 8)
@@ -307,7 +307,7 @@ private struct CpApprovalCard: View {
                         .foregroundStyle(Color(hex: 0xB42318))
                         .frame(maxWidth: .infinity)
                         .frame(height: 46)
-                        .background(Color(hex: 0xFEE4E2), in: RoundedRectangle(cornerRadius: 10))
+                        .background(Color.adaptiveTint(0xFEE4E2), in: RoundedRectangle(cornerRadius: 10))
                 }
                 .buttonStyle(.plain)
                 .disabled(isBusy)
@@ -353,7 +353,7 @@ private struct CpApprovalCard: View {
         .padding(10)
         .frame(maxWidth: .infinity, minHeight: 58, alignment: .topLeading)
         .background(Color.appFieldBackground, in: RoundedRectangle(cornerRadius: 10))
-        .overlay(RoundedRectangle(cornerRadius: 10).stroke(Color(hex: 0xEAECF0)))
+        .overlay(RoundedRectangle(cornerRadius: 10).stroke(Color.adaptiveTint(0xEAECF0)))
     }
 
     private var evidenceRows: [(label: String, value: String)] {
@@ -653,8 +653,7 @@ private enum ApprovalFormatting {
 
     static func epoch(_ value: Double?) -> String {
         guard let value, value > 0 else { return "Not recorded" }
-        let display = DateFormatter()
-        display.dateFormat = "dd MMM yyyy, h:mm a"
+        let display = CachedDateFormatters.formatter("dd MMM yyyy, h:mm a")
         return display.string(from: Date(timeIntervalSince1970: value / 1000))
     }
 

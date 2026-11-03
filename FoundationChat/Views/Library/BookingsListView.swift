@@ -391,7 +391,7 @@ private struct BookingDrawerGrid<Content: View>: View {
         .background(Color.appSurface, in: RoundedRectangle(cornerRadius: 16, style: .continuous))
         .overlay {
             RoundedRectangle(cornerRadius: 16, style: .continuous)
-                .stroke(Color(hex: 0xEAECF0), lineWidth: 1)
+                .stroke(Color.adaptiveTint(0xEAECF0), lineWidth: 1)
         }
     }
 }
@@ -576,7 +576,7 @@ private struct BookingSkeletonCard: View {
         .background(Color.appSurface, in: RoundedRectangle(cornerRadius: 12, style: .continuous))
         .overlay(
             RoundedRectangle(cornerRadius: 12, style: .continuous)
-                .stroke(Color(hex: 0xEAECF0), lineWidth: 1)
+                .stroke(Color.adaptiveTint(0xEAECF0), lineWidth: 1)
         )
     }
 
@@ -623,7 +623,7 @@ private struct BookingDetailView: View {
                     .background(Color.appSurface)
                     .overlay(alignment: .bottom) {
                         Rectangle()
-                            .fill(Color(hex: 0xEAECF0))
+                            .fill(Color.adaptiveTint(0xEAECF0))
                             .frame(height: 1)
                     }
 
@@ -691,7 +691,7 @@ private struct BookingDetailView: View {
                         .foregroundStyle(Color(hex: 0x0B61CA))
                         .padding(.horizontal, 11)
                         .frame(height: 34)
-                        .background(Color(hex: 0xEFF6FF), in: Capsule())
+                        .background(Color.adaptiveTint(0xEFF6FF), in: Capsule())
                 }
                 .buttonStyle(.plain)
 
@@ -739,7 +739,7 @@ private struct BookingDetailView: View {
                             .background(selectedTab == tab ? Color(hex: 0x0B61CA) : Color.appFieldBackground, in: Capsule())
                             .overlay(
                                 Capsule()
-                                    .stroke(Color(hex: 0xEAECF0), lineWidth: selectedTab == tab ? 0 : 1)
+                                    .stroke(Color.adaptiveTint(0xEAECF0), lineWidth: selectedTab == tab ? 0 : 1)
                             )
                     }
                     .buttonStyle(.plain)
@@ -802,7 +802,7 @@ private struct BookingDetailView: View {
                 .background(Color.appSurface, in: RoundedRectangle(cornerRadius: 14, style: .continuous))
                 .overlay {
                     RoundedRectangle(cornerRadius: 14, style: .continuous)
-                        .stroke(Color(hex: 0xEAECF0), lineWidth: 1)
+                        .stroke(Color.adaptiveTint(0xEAECF0), lineWidth: 1)
                 }
             }
 
@@ -839,7 +839,7 @@ private struct BookingDetailView: View {
         }
         .padding(16)
         .frame(maxWidth: .infinity, alignment: .leading)
-        .background(Color(hex: 0xFEF3F2), in: RoundedRectangle(cornerRadius: 14, style: .continuous))
+        .background(Color.adaptiveTint(0xFEF3F2), in: RoundedRectangle(cornerRadius: 14, style: .continuous))
         .overlay {
             RoundedRectangle(cornerRadius: 14, style: .continuous)
                 .stroke(Color(hex: 0xFDA29B), lineWidth: 1)
@@ -867,7 +867,7 @@ private struct BookingDetailView: View {
                         .foregroundStyle(Color(hex: 0x0B61CA))
                         .padding(.horizontal, 10)
                         .frame(height: 26)
-                        .background(Color(hex: 0xEFF6FF), in: Capsule())
+                        .background(Color.adaptiveTint(0xEFF6FF), in: Capsule())
                 }
             }
 
@@ -906,7 +906,7 @@ private struct BookingDetailView: View {
         .background(Color.appSurface, in: RoundedRectangle(cornerRadius: 14, style: .continuous))
         .overlay {
             RoundedRectangle(cornerRadius: 14, style: .continuous)
-                .stroke(Color(hex: 0xEAECF0), lineWidth: 1)
+                .stroke(Color.adaptiveTint(0xEAECF0), lineWidth: 1)
         }
     }
 
@@ -1003,7 +1003,7 @@ private struct BookingDetailView: View {
                 }
                 if !isLast {
                     Rectangle()
-                        .fill(Color(hex: 0xEAECF0))
+                        .fill(Color.adaptiveTint(0xEAECF0))
                         .frame(width: 1)
                         .frame(maxHeight: .infinity)
                 }
@@ -1040,9 +1040,7 @@ private struct BookingDetailView: View {
     }
 
     private static let drawerDateTimeFormatter: DateFormatter = {
-        let f = DateFormatter()
-        f.dateFormat = "dd MMM yyyy, h:mm a"
-        f.locale = Locale(identifier: "en_US_POSIX")
+        let f = CachedDateFormatters.formatter("dd MMM yyyy, h:mm a", posix: true)
         return f
     }()
 
@@ -1296,7 +1294,7 @@ private struct BookingDetailView: View {
 
                     TextField(title, text: text, axis: axis)
                         .font(.system(size: 15, weight: .medium))
-                        .foregroundStyle(Color(hex: 0x1D2939))
+                        .foregroundStyle(Color.adaptiveInk(0x1D2939))
                         .keyboardType(keyboard)
                         .textInputAutocapitalization(keyboard == .default ? .words : .never)
                         .autocorrectionDisabled(keyboard != .default)
@@ -1328,7 +1326,7 @@ private struct BookingDetailView: View {
                 .background(Color.appSurface, in: RoundedRectangle(cornerRadius: 13, style: .continuous))
                 .overlay {
                     RoundedRectangle(cornerRadius: 13, style: .continuous)
-                        .stroke(Color(hex: 0xEAECF0), lineWidth: 1)
+                        .stroke(Color.adaptiveTint(0xEAECF0), lineWidth: 1)
                 }
             }
         }
@@ -1339,7 +1337,7 @@ private struct BookingDetailView: View {
         if isEditing {
             VStack(spacing: 0) {
                 Divider()
-                    .overlay(Color(hex: 0xEAECF0))
+                    .overlay(Color.adaptiveTint(0xEAECF0))
 
                 Button {
                     Task { await saveDrawerChanges() }
@@ -1590,7 +1588,7 @@ private struct BookingDetailHero: View {
         .background(Color.appSurface, in: RoundedRectangle(cornerRadius: 14, style: .continuous))
         .overlay(
             RoundedRectangle(cornerRadius: 14, style: .continuous)
-                .stroke(Color(hex: 0xEAECF0), lineWidth: 1)
+                .stroke(Color.adaptiveTint(0xEAECF0), lineWidth: 1)
         )
     }
 }
@@ -1634,7 +1632,7 @@ private struct BookingDetailSection<Content: View>: View {
         .background(Color.appSurface, in: RoundedRectangle(cornerRadius: 14, style: .continuous))
         .overlay(
             RoundedRectangle(cornerRadius: 14, style: .continuous)
-                .stroke(Color(hex: 0xEAECF0), lineWidth: 1)
+                .stroke(Color.adaptiveTint(0xEAECF0), lineWidth: 1)
         )
     }
 }
@@ -1677,7 +1675,7 @@ private struct BookingEditSection<Content: View>: View {
         .background(Color.appSurface, in: RoundedRectangle(cornerRadius: 14, style: .continuous))
         .overlay(
             RoundedRectangle(cornerRadius: 14, style: .continuous)
-                .stroke(Color(hex: 0xEAECF0), lineWidth: 1)
+                .stroke(Color.adaptiveTint(0xEAECF0), lineWidth: 1)
         )
     }
 }
@@ -1803,7 +1801,7 @@ private struct BookingRow: View {
         .background(Color.appSurface, in: RoundedRectangle(cornerRadius: 16, style: .continuous))
         .overlay {
             RoundedRectangle(cornerRadius: 16, style: .continuous)
-                .stroke(Color(hex: 0xEAECF0), lineWidth: 1)
+                .stroke(Color.adaptiveTint(0xEAECF0), lineWidth: 1)
         }
         .shadow(color: Color.black.opacity(0.045), radius: 10, y: 4)
         .contentShape(RoundedRectangle(cornerRadius: 16, style: .continuous))
@@ -1882,11 +1880,11 @@ private struct BookingStatusPill: View {
         case "draft":
             return (Color.appFieldBackground, Color.appSecondaryText)
         case "pending", "pending confirmation":
-            return (Color(hex: 0xFEF0C7), Color(hex: 0xB54708))
+            return (Color.adaptiveTint(0xFEF0C7), Color(hex: 0xB54708))
         case "confirmed", "approved":
-            return (Color(hex: 0xD1FADF), Color(hex: 0x169B2F))
+            return (Color.adaptiveTint(0xD1FADF), Color(hex: 0x169B2F))
         case "cancelled", "canceled", "rejected":
-            return (Color(hex: 0xFEE4E2), Color(hex: 0xB42318))
+            return (Color.adaptiveTint(0xFEE4E2), Color(hex: 0xB42318))
         default:
             return (Color.appFieldBackground, Color.appSecondaryText)
         }

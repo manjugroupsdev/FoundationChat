@@ -364,8 +364,7 @@ struct ConvexAttendanceRecord: Codable, Identifiable, Equatable, Sendable {
         let formatter = ISO8601DateFormatter()
         formatter.formatOptions = [.withInternetDateTime, .withFractionalSeconds]
         if let date = formatter.date(from: iso) {
-            let tf = DateFormatter()
-            tf.dateFormat = "hh:mm a"
+            let tf = CachedDateFormatters.formatter("hh:mm a")
             return tf.string(from: date)
         }
         return iso

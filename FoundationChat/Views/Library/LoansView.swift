@@ -356,7 +356,7 @@ struct LoansView: View {
 
                 Text("Are you sure?")
                     .font(.system(size: 20, weight: .bold))
-                    .foregroundStyle(Color(hex: 0x1D2939))
+                    .foregroundStyle(Color.adaptiveInk(0x1D2939))
                     .padding(.top, 20)
 
                 Text("This loan request will be cancelled and removed from your visible loan history.")
@@ -412,7 +412,7 @@ struct LoansView: View {
                     .font(.title2)
                     .foregroundStyle(Color(hex: 0x0B61CA))
                     .frame(width: 48, height: 48)
-                    .background(Color(hex: 0xEAF3FF), in: Circle())
+                    .background(Color.adaptiveTint(0xEAF3FF), in: Circle())
                 VStack(alignment: .leading, spacing: 4) {
                     Text(selectedTab == .salary ? "Salary Advance" : "No Active Loan")
                         .font(.system(size: 18, weight: .bold))
@@ -489,7 +489,7 @@ struct LoansView: View {
             }
             .padding(3)
             .frame(height: 38)
-            .background(Color(hex: 0xEAECF0), in: Capsule())
+            .background(Color.adaptiveTint(0xEAECF0), in: Capsule())
 
             Button {
                 if selectedTab == .loans {
@@ -539,7 +539,7 @@ struct LoansView: View {
                 .padding(.top, 2)
             Text(errorMessage ?? "Stay organized by creating or joining teams.\nGroups help you manage tasks, track progress,\nand collaborate with your team in one place.")
                 .font(.system(size: 15, weight: .regular))
-                .foregroundStyle(Color(hex: 0x707070))
+                .foregroundStyle(Color.adaptiveInk(0x707070))
                 .multilineTextAlignment(.center)
                 .lineSpacing(3)
                 .padding(.horizontal, 18)
@@ -993,7 +993,7 @@ private struct LoanNomineePickerSheet: View {
                                         .font(.system(size: 13, weight: .bold))
                                         .foregroundStyle(Color(hex: 0x0B61CA))
                                         .frame(width: 38, height: 38)
-                                        .background(Color(hex: 0xEAF3FF), in: Circle())
+                                        .background(Color.adaptiveTint(0xEAF3FF), in: Circle())
 
                                     VStack(alignment: .leading, spacing: 3) {
                                         Text(item.displayName)
@@ -1257,7 +1257,7 @@ private struct LoanRequestSheet: View {
                     .font(.system(size: 15, weight: .semibold))
                     .foregroundStyle(Color(hex: 0x0B61CA))
                     .frame(width: 24, height: 24)
-                    .background(Color(hex: 0xEAF3FF), in: Circle())
+                    .background(Color.adaptiveTint(0xEAF3FF), in: Circle())
             }
         }
         .buttonStyle(.plain)
@@ -1287,9 +1287,7 @@ private struct LoanRequestSheet: View {
     }
 
     private var monthFormatter: DateFormatter {
-        let formatter = DateFormatter()
-        formatter.locale = Locale(identifier: "en_US_POSIX")
-        formatter.dateFormat = "yyyy-MM"
+        let formatter = CachedDateFormatters.formatter("yyyy-MM", posix: true)
         return formatter
     }
 }
@@ -1639,7 +1637,7 @@ private struct LoanHeroCard: View {
                     .font(.system(size: 24, weight: .semibold))
                     .foregroundStyle(loan.status == .pending ? Color(hex: 0x12B76A) : Color(hex: 0x0B61CA))
                     .frame(width: 48, height: 48)
-                    .background(Color(hex: 0xEEF4FF), in: RoundedRectangle(cornerRadius: 14, style: .continuous))
+                    .background(Color.adaptiveTint(0xEEF4FF), in: RoundedRectangle(cornerRadius: 14, style: .continuous))
                 VStack(alignment: .leading, spacing: 5) {
                     Text(displayTitle)
                         .font(.system(size: 17, weight: .semibold))
@@ -1655,7 +1653,7 @@ private struct LoanHeroCard: View {
                         .foregroundStyle(loan.status == .pending ? Color(hex: 0xF79009) : Color(hex: 0x0B61CA))
                         .padding(.horizontal, 12)
                         .padding(.vertical, 4)
-                        .background((loan.status == .pending ? Color(hex: 0xFFF4E5) : Color(hex: 0xEAF3FF)), in: Capsule())
+                        .background((loan.status == .pending ? Color.adaptiveTint(0xFFF4E5) : Color.adaptiveTint(0xEAF3FF)), in: Capsule())
 
                     if loan.status == .pending, let onCancel {
                         Button(action: onCancel) {
@@ -1688,10 +1686,10 @@ private struct LoanHeroCard: View {
                     VStack(alignment: .leading, spacing: 2) {
                         Text("Outstanding Amount")
                             .font(.system(size: 12, weight: .regular))
-                            .foregroundStyle(Color(hex: 0x6B7280))
+                            .foregroundStyle(Color.adaptiveInk(0x6B7280))
                         Text(AppModuleFormatters.rupees(loan.outstandingBalance))
                             .font(.system(size: 20, weight: .semibold))
-                            .foregroundStyle(Color(hex: 0x111827))
+                            .foregroundStyle(Color.adaptiveInk(0x111827))
                             .lineLimit(1)
                             .minimumScaleFactor(0.65)
                     }
@@ -1705,7 +1703,7 @@ private struct LoanHeroCard: View {
                     VStack(alignment: .leading, spacing: 2) {
                         Text("Next EMI Due")
                             .font(.system(size: 12, weight: .regular))
-                            .foregroundStyle(Color(hex: 0x6B7280))
+                            .foregroundStyle(Color.adaptiveInk(0x6B7280))
                         HStack(spacing: 4) {
                             Image(systemName: "calendar")
                                 .font(.system(size: 12, weight: .semibold))
@@ -1725,7 +1723,7 @@ private struct LoanHeroCard: View {
                     .foregroundStyle(Color(hex: 0x0B61CA))
                     .frame(maxWidth: .infinity)
                     .frame(height: 44)
-                    .background(Color(hex: 0xEAF3FF), in: RoundedRectangle(cornerRadius: 12))
+                    .background(Color.adaptiveTint(0xEAF3FF), in: RoundedRectangle(cornerRadius: 12))
             }
         }
         .padding(.horizontal, 16)
@@ -1798,7 +1796,7 @@ private struct AdvanceHeroCard: View {
                         .foregroundStyle(loan.status == .pending ? Color(hex: 0xF79009) : Color(hex: 0x0B61CA))
                         .padding(.horizontal, 12)
                         .padding(.vertical, 5)
-                        .background(loan.status == .pending ? Color(hex: 0xFFF4E5) : Color(hex: 0xEAF3FF), in: Capsule())
+                        .background(loan.status == .pending ? Color.adaptiveTint(0xFFF4E5) : Color.adaptiveTint(0xEAF3FF), in: Capsule())
 
                     if loan.status == .pending, let onCancel {
                         Button(action: onCancel) {
@@ -1832,7 +1830,7 @@ private struct AdvanceHeroCard: View {
     private var advanceIcon: some View {
         ZStack {
             RoundedRectangle(cornerRadius: 12, style: .continuous)
-                .fill(Color(hex: 0xEEF4FF))
+                .fill(Color.adaptiveTint(0xEEF4FF))
             Image(systemName: "dollarsign.circle")
                 .font(.system(size: 16, weight: .semibold))
                 .foregroundStyle(Color(hex: 0x12B76A))
@@ -2209,7 +2207,7 @@ private struct SalaryAdvanceRow: View {
     private var advanceIcon: some View {
         ZStack {
             RoundedRectangle(cornerRadius: 14, style: .continuous)
-                .fill(Color(hex: 0xEEF4FF))
+                .fill(Color.adaptiveTint(0xEEF4FF))
             Image(systemName: "dollarsign.circle")
                 .font(.system(size: 18, weight: .semibold))
                 .foregroundStyle(Color(hex: 0x12B76A))
@@ -2266,10 +2264,10 @@ private struct SalaryAdvanceRow: View {
 
     private var statusBackground: Color {
         switch statusText {
-        case "Pending Advance": return Color(hex: 0xFFF4E5)
-        case "Approved", "• REPAID", "• REQUESTED": return Color(hex: 0xECFDF3)
-        case "• REJECTED": return Color(hex: 0xFEF3F2)
-        default: return Color(hex: 0xE7F8F0)
+        case "Pending Advance": return Color.adaptiveTint(0xFFF4E5)
+        case "Approved", "• REPAID", "• REQUESTED": return Color.adaptiveTint(0xECFDF3)
+        case "• REJECTED": return Color.adaptiveTint(0xFEF3F2)
+        default: return Color.adaptiveTint(0xE7F8F0)
         }
     }
 }
@@ -2348,7 +2346,7 @@ private struct AdvanceHistoryRow: View {
     private var advanceIcon: some View {
         ZStack {
             RoundedRectangle(cornerRadius: 12, style: .continuous)
-                .fill(Color(hex: 0xEEF4FF))
+                .fill(Color.adaptiveTint(0xEEF4FF))
             Image(systemName: "dollarsign.circle")
                 .font(.system(size: 16, weight: .semibold))
                 .foregroundStyle(Color(hex: 0x12B76A))
@@ -2385,9 +2383,9 @@ private struct AdvanceHistoryRow: View {
 
     private var statusBackground: Color {
         switch statusText {
-        case "REJECTED": return Color(hex: 0xFEF3F2)
-        case "CANCELLED": return Color(hex: 0xE7F8F0)
-        default: return Color(hex: 0xECFDF3)
+        case "REJECTED": return Color.adaptiveTint(0xFEF3F2)
+        case "CANCELLED": return Color.adaptiveTint(0xE7F8F0)
+        default: return Color.adaptiveTint(0xECFDF3)
         }
     }
 }
@@ -2400,7 +2398,7 @@ private struct PreviousLoanRow: View {
             HStack(spacing: 12) {
                 ZStack {
                     RoundedRectangle(cornerRadius: 14, style: .continuous)
-                        .fill(Color(hex: 0xEEF4FF))
+                        .fill(Color.adaptiveTint(0xEEF4FF))
                     Image(systemName: "dollarsign.circle")
                         .font(.system(size: 18, weight: .semibold))
                         .foregroundStyle(Color(hex: 0x12B76A))
@@ -2482,9 +2480,9 @@ private struct PreviousLoanRow: View {
 
     private var statusBackground: Color {
         switch statusText {
-        case "CANCELLED": return Color(hex: 0xE7F8F0)
-        case "REJECTED": return Color(hex: 0xFEF3F2)
-        default: return Color(hex: 0xECFDF3)
+        case "CANCELLED": return Color.adaptiveTint(0xE7F8F0)
+        case "REJECTED": return Color.adaptiveTint(0xFEF3F2)
+        default: return Color.adaptiveTint(0xECFDF3)
         }
     }
 }

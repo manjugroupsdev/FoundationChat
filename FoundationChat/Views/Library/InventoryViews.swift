@@ -607,7 +607,7 @@ private struct UnitMapCanvas: View {
 
     private func fillColor(for status: String) -> Color {
         switch status {
-        case "available": return Color(hex: 0xD1FADF)
+        case "available": return Color.adaptiveTint(0xD1FADF)
         case "held": return Color(hex: 0xFEDF89)
         case "booked": return Color(hex: 0xB2DDFF)
         case "sold": return Color(hex: 0xFECDCA)

@@ -117,13 +117,13 @@ struct FinesDeductionsView: View {
                         .font(.system(size: 18, weight: .bold))
                         .foregroundStyle(Color(hex: 0x0B61CA))
                         .frame(width: 34, height: 34)
-                        .background(Color(hex: 0xEEF6FF), in: Circle())
+                        .background(Color.adaptiveTint(0xEEF6FF), in: Circle())
                 }
                 .buttonStyle(.plain)
 
                 Text("Fines & Deductions")
                     .font(.system(size: 18, weight: .bold))
-                    .foregroundStyle(Color(hex: 0x1D2939))
+                    .foregroundStyle(Color.adaptiveInk(0x1D2939))
                     .frame(maxWidth: .infinity)
                     .padding(.trailing, 46)
             }
@@ -169,7 +169,7 @@ struct FinesDeductionsView: View {
 
             Text("No Fines Recorded")
                 .font(.system(size: 18, weight: .bold))
-                .foregroundStyle(Color(hex: 0x1D2939))
+                .foregroundStyle(Color.adaptiveInk(0x1D2939))
 
             Text(canViewAll ? "Search another name or add a new fine." : "Your active fines and deductions will show here.")
                 .font(.system(size: 13, weight: .regular))
@@ -216,7 +216,7 @@ private struct FineDeductionCard: View {
                 VStack(alignment: .leading, spacing: 4) {
                     Text(fine.displayName)
                         .font(.system(size: 15, weight: .semibold))
-                        .foregroundStyle(Color(hex: 0x1D2939))
+                        .foregroundStyle(Color.adaptiveInk(0x1D2939))
                         .lineLimit(1)
 
                     Text("\(fine.displayDepartment)\n\(fine.displayType)")
@@ -234,7 +234,7 @@ private struct FineDeductionCard: View {
                             .foregroundStyle(Color(hex: 0x0B61CA))
                         Text(AppModuleFormatters.rupees(fine.amount ?? 0))
                             .font(.system(size: 15, weight: .bold))
-                            .foregroundStyle(Color(hex: 0x1D2939))
+                            .foregroundStyle(Color.adaptiveInk(0x1D2939))
                     }
 
                     Text(fine.displayStatus)
@@ -242,7 +242,7 @@ private struct FineDeductionCard: View {
                         .foregroundStyle(Color(hex: 0x22C55E))
                         .padding(.horizontal, 10)
                         .frame(height: 22)
-                        .background(Color(hex: 0xECFDF3), in: Capsule())
+                        .background(Color.adaptiveTint(0xECFDF3), in: Capsule())
 
                     Text(fine.displayDate)
                         .font(.system(size: 11, weight: .regular))
@@ -483,7 +483,7 @@ private struct CreateFineDeductionSheet: View {
                             .font(.system(size: 15, weight: .bold))
                             .foregroundStyle(Color(hex: 0x0B61CA))
                             .frame(width: 42, height: 42)
-                            .background(Color(hex: 0xEEF8FF), in: Circle())
+                            .background(Color.adaptiveTint(0xEEF8FF), in: Circle())
 
                         VStack(alignment: .leading, spacing: 4) {
                             Text(item.displayName)
@@ -750,7 +750,7 @@ private struct FineDeductionDetailSheet: View {
             .clipShape(RoundedRectangle(cornerRadius: 12, style: .continuous))
             .overlay {
                 RoundedRectangle(cornerRadius: 12, style: .continuous)
-                    .stroke(Color(hex: 0xEAECF0), lineWidth: 1)
+                    .stroke(Color.adaptiveTint(0xEAECF0), lineWidth: 1)
             }
         } else {
             noPhoto("No picture attached")
@@ -766,7 +766,7 @@ private struct FineDeductionDetailSheet: View {
             .background(Color.appFieldBackground, in: RoundedRectangle(cornerRadius: 12, style: .continuous))
             .overlay {
                 RoundedRectangle(cornerRadius: 12, style: .continuous)
-                    .stroke(Color(hex: 0xEAECF0), lineWidth: 1)
+                    .stroke(Color.adaptiveTint(0xEAECF0), lineWidth: 1)
             }
     }
 }
@@ -802,7 +802,7 @@ private struct FineAvatar: View {
             .font(.system(size: size * 0.34, weight: .bold))
             .foregroundStyle(Color(hex: 0x0B61CA))
             .frame(width: size, height: size)
-            .background(Color(hex: 0xEEF8FF), in: Circle())
+            .background(Color.adaptiveTint(0xEEF8FF), in: Circle())
     }
 
     private var initials: String {

@@ -1319,7 +1319,7 @@ private struct FleetPortalVehicleRow: View {
         .background(Color.appSurface, in: RoundedRectangle(cornerRadius: 8, style: .continuous))
         .overlay {
             RoundedRectangle(cornerRadius: 8, style: .continuous)
-                .stroke(Color(hex: 0xEAECF0), lineWidth: 1)
+                .stroke(Color.adaptiveTint(0xEAECF0), lineWidth: 1)
         }
         .shadow(color: Color.black.opacity(0.06), radius: 8, y: 4)
     }
@@ -1514,7 +1514,7 @@ private struct FleetPortalDriverRow: View {
         .background(Color.appSurface, in: RoundedRectangle(cornerRadius: 8, style: .continuous))
         .overlay {
             RoundedRectangle(cornerRadius: 8, style: .continuous)
-                .stroke(Color(hex: 0xEAECF0), lineWidth: 1)
+                .stroke(Color.adaptiveTint(0xEAECF0), lineWidth: 1)
         }
         .shadow(color: Color.black.opacity(0.06), radius: 8, y: 4)
     }
@@ -1945,7 +1945,7 @@ private struct FleetPortalAvatar: View {
             .font(.system(size: size * 0.34, weight: .bold))
             .foregroundStyle(Color(hex: 0x0B61CA))
             .frame(maxWidth: .infinity, maxHeight: .infinity)
-            .background(Color(hex: 0xEAF3FF))
+            .background(Color.adaptiveTint(0xEAF3FF))
     }
 }
 
@@ -2529,7 +2529,7 @@ private struct FleetFormError: View {
             .foregroundStyle(Color(hex: 0xB42318))
             .frame(maxWidth: .infinity, alignment: .leading)
             .padding(12)
-            .background(Color(hex: 0xFEF3F2), in: RoundedRectangle(cornerRadius: 8))
+            .background(Color.adaptiveTint(0xFEF3F2), in: RoundedRectangle(cornerRadius: 8))
     }
 }
 

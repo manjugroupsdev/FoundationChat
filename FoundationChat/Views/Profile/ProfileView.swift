@@ -70,12 +70,12 @@ struct ProfileView: View {
           HStack(spacing: 16) {
             Image(systemName: "bell")
               .font(.system(size: 21, weight: .medium))
-              .foregroundStyle(Color(hex: 0x6B7280))
+              .foregroundStyle(Color.adaptiveInk(0x6B7280))
               .frame(width: 24)
 
             Text("Manage Notification")
               .font(.system(size: 18, weight: .regular))
-              .foregroundStyle(Color(hex: 0x6B7280))
+              .foregroundStyle(Color.adaptiveInk(0x6B7280))
 
             Spacer()
 
@@ -190,7 +190,7 @@ struct LogoutConfirmationSheet: View {
           .font(.system(size: 28, weight: .semibold))
           .foregroundStyle(Color(hex: 0xFF3B30))
           .frame(width: 56, height: 56)
-          .background(Color(hex: 0xFFECEC), in: Circle())
+          .background(Color.adaptiveTint(0xFFECEC), in: Circle())
 
         Text("Log out of FoundationChat?")
           .font(.system(size: 20, weight: .bold))
@@ -299,26 +299,26 @@ private struct ProfileMenuRow: View {
     HStack(spacing: 16) {
       Image(systemName: systemImage)
         .font(.system(size: 21, weight: .medium))
-        .foregroundStyle(Color(hex: 0x6B7280))
+        .foregroundStyle(Color.adaptiveInk(0x6B7280))
         .frame(width: 24)
 
       Text(title)
         .font(.system(size: 18, weight: .regular))
-        .foregroundStyle(Color(hex: 0x6B7280))
+        .foregroundStyle(Color.adaptiveInk(0x6B7280))
 
       Spacer(minLength: 12)
 
       if let value, !value.isEmpty {
         Text(value)
           .font(.system(size: 14, weight: .regular))
-          .foregroundStyle(Color(hex: 0x6B7280))
+          .foregroundStyle(Color.adaptiveInk(0x6B7280))
           .lineLimit(1)
       }
 
       if showsChevron {
         Image(systemName: "chevron.right")
           .font(.system(size: 13, weight: .semibold))
-          .foregroundStyle(Color(hex: 0x6B7280))
+          .foregroundStyle(Color.adaptiveInk(0x6B7280))
       }
     }
     .frame(height: 56)
@@ -486,14 +486,14 @@ private struct ProfileInfoHeader: View {
 
       Text(displayName)
         .font(.system(size: 18, weight: .regular))
-        .foregroundStyle(Color(hex: 0x1F2A37))
+        .foregroundStyle(Color.adaptiveInk(0x1F2A37))
         .multilineTextAlignment(.center)
         .lineLimit(2)
         .minimumScaleFactor(0.82)
 
       Text(phoneText)
         .font(.system(size: 18, weight: .regular))
-        .foregroundStyle(Color(hex: 0x6B7280))
+        .foregroundStyle(Color.adaptiveInk(0x6B7280))
         .multilineTextAlignment(.center)
         .lineLimit(1)
     }
@@ -544,7 +544,7 @@ private struct ProfileHeroAvatar: View {
       .font(.system(size: size * 0.38, weight: .bold))
       .foregroundStyle(Color(hex: 0x0B61CA))
       .frame(maxWidth: .infinity, maxHeight: .infinity)
-      .background(Color(hex: 0xEAF3FF))
+      .background(Color.adaptiveTint(0xEAF3FF))
   }
 }
 

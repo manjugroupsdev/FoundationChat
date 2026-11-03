@@ -31,6 +31,6 @@ struct ChatWallpaper: View {
   private var backgroundColor: Color {
     colorScheme == .dark
       ? Color(red: 0.055, green: 0.070, blue: 0.065)
-      : Color(red: 0.965, green: 0.945, blue: 0.910)
+      : Color.adaptiveTint(red: 0.965, green: 0.945, blue: 0.910)
   }
 }

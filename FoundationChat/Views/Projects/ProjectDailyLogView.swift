@@ -50,7 +50,7 @@ struct ProjectDailyLogView: View {
             Color(hex: 0x0B61CA)
                 .ignoresSafeArea(edges: .top)
 
-            Color(hex: 0xF5F7FB)
+            Color.adaptiveTint(0xF5F7FB)
                 .ignoresSafeArea(edges: .bottom)
 
             hero
@@ -223,7 +223,7 @@ struct ProjectDailyLogView: View {
                     .background(Color.appSurface, in: RoundedRectangle(cornerRadius: 14, style: .continuous))
                     .overlay(
                         RoundedRectangle(cornerRadius: 14, style: .continuous)
-                            .stroke(Color(hex: 0xEAECF0), lineWidth: 1)
+                            .stroke(Color.adaptiveTint(0xEAECF0), lineWidth: 1)
                     )
             }
             .buttonStyle(.plain)
@@ -564,7 +564,7 @@ private struct DailyLogProjectCard: View {
                                     .foregroundStyle(Color(hex: 0x067647))
                                     .padding(.horizontal, 8)
                                     .frame(height: 22)
-                                    .background(Color(hex: 0xECFDF3), in: Capsule())
+                                    .background(Color.adaptiveTint(0xECFDF3), in: Capsule())
                                     .overlay(Capsule().stroke(Color(hex: 0xABEFC6), lineWidth: 1))
                             }
                         }
@@ -660,7 +660,7 @@ private struct DailyLogEntryCard: View {
         .background(Color.appSurface, in: RoundedRectangle(cornerRadius: 12, style: .continuous))
         .overlay(
             RoundedRectangle(cornerRadius: 12, style: .continuous)
-                .stroke(Color(hex: 0xEEF0F4), lineWidth: 1)
+                .stroke(Color.adaptiveTint(0xEEF0F4), lineWidth: 1)
         )
     }
 
@@ -735,13 +735,13 @@ private struct DprRecipientRow: View {
                     .font(.system(size: 12, weight: .bold))
                     .foregroundStyle(Color(hex: 0xB42318))
                     .frame(width: 32, height: 32)
-                    .background(Color(hex: 0xFEF3F2), in: Circle())
+                    .background(Color.adaptiveTint(0xFEF3F2), in: Circle())
             }
             .buttonStyle(.plain)
         }
         .padding(12)
         .background(Color.appSurface, in: RoundedRectangle(cornerRadius: 13, style: .continuous))
-        .overlay(RoundedRectangle(cornerRadius: 13).stroke(Color(hex: 0xEAECF0), lineWidth: 1))
+        .overlay(RoundedRectangle(cornerRadius: 13).stroke(Color.adaptiveTint(0xEAECF0), lineWidth: 1))
     }
 }
 
@@ -788,7 +788,7 @@ private struct DprProjectCard: View {
                                     .foregroundStyle(Color(hex: 0x067647))
                                     .padding(.horizontal, 8)
                                     .frame(height: 22)
-                                    .background(Color(hex: 0xECFDF3), in: Capsule())
+                                    .background(Color.adaptiveTint(0xECFDF3), in: Capsule())
                                     .overlay(Capsule().stroke(Color(hex: 0xABEFC6), lineWidth: 1))
                             }
                         }
@@ -847,13 +847,13 @@ private struct DprReportRow: View {
                 .padding(.horizontal, 9)
                 .frame(height: 26)
                 .background(
-                    (report.failedCount ?? 0) > 0 ? Color(hex: 0xFFFAEB) : Color(hex: 0xECFDF3),
+                    (report.failedCount ?? 0) > 0 ? Color.adaptiveTint(0xFFFAEB) : Color.adaptiveTint(0xECFDF3),
                     in: Capsule()
                 )
         }
         .padding(12)
         .background(Color.appSurface, in: RoundedRectangle(cornerRadius: 12, style: .continuous))
-        .overlay(RoundedRectangle(cornerRadius: 12).stroke(Color(hex: 0xEEF0F4), lineWidth: 1))
+        .overlay(RoundedRectangle(cornerRadius: 12).stroke(Color.adaptiveTint(0xEEF0F4), lineWidth: 1))
     }
 }
 
@@ -1026,7 +1026,7 @@ private struct CreateDailyLogSheet: View {
                         .foregroundStyle(Color(hex: 0x0B61CA))
                         .padding(.horizontal, 14)
                         .frame(height: 48)
-                        .background(Color(hex: 0xEAF2FE), in: RoundedRectangle(cornerRadius: 12, style: .continuous))
+                        .background(Color.adaptiveTint(0xEAF2FE), in: RoundedRectangle(cornerRadius: 12, style: .continuous))
                     }
                     .buttonStyle(.plain)
 
@@ -1160,7 +1160,7 @@ private struct CreateDailyLogSheet: View {
                 .foregroundStyle(Color(hex: 0x0B61CA))
                 .padding(.horizontal, 10)
                 .frame(height: 28)
-                .background(Color(hex: 0xEAF2FE), in: Capsule())
+                .background(Color.adaptiveTint(0xEAF2FE), in: Capsule())
                 .disabled(isLoadingMaterials)
         }
         .padding(.top, 4)
@@ -1476,7 +1476,7 @@ private struct DprAddRecipientSheet: View {
                             .font(.system(size: 12, weight: .bold))
                             .foregroundStyle(Color(hex: 0x0B61CA))
                             .frame(width: 34, height: 34)
-                            .background(Color(hex: 0xEAF2FE), in: Circle())
+                            .background(Color.adaptiveTint(0xEAF2FE), in: Circle())
                         VStack(alignment: .leading, spacing: 3) {
                             Text(item.displayName)
                                 .font(.system(size: 15, weight: .semibold))
@@ -1627,7 +1627,7 @@ private struct DailyLogDetailSheet: View {
                     .frame(maxWidth: .infinity)
                     .padding(.vertical, 22)
                     .background(Color.appFieldBackground, in: RoundedRectangle(cornerRadius: 12, style: .continuous))
-                    .overlay(RoundedRectangle(cornerRadius: 12).stroke(Color(hex: 0xEAECF0), lineWidth: 1))
+                    .overlay(RoundedRectangle(cornerRadius: 12).stroke(Color.adaptiveTint(0xEAECF0), lineWidth: 1))
                 }
             }
             .padding(.horizontal, 20)
@@ -1650,7 +1650,7 @@ private struct DailyLogDetailSheet: View {
                         .padding(.horizontal, 12)
                         .padding(.vertical, multiline ? 12 : 0)
                         .background(Color.appSurface, in: RoundedRectangle(cornerRadius: 12, style: .continuous))
-                        .overlay(RoundedRectangle(cornerRadius: 12).stroke(Color(hex: 0xEAECF0), lineWidth: 1))
+                        .overlay(RoundedRectangle(cornerRadius: 12).stroke(Color.adaptiveTint(0xEAECF0), lineWidth: 1))
                 }
             }
         }
@@ -1667,7 +1667,7 @@ private struct DailyLogProjectPickerRow: View {
                 .font(.system(size: 15, weight: .semibold))
                 .foregroundStyle(isSelected ? Color(hex: 0x0B61CA) : Color(hex: 0x64748B))
                 .frame(width: 34, height: 34)
-                .background(isSelected ? Color(hex: 0xEAF2FE) : Color(hex: 0xF1F5F9), in: Circle())
+                .background(isSelected ? Color.adaptiveTint(0xEAF2FE) : Color.adaptiveTint(0xF1F5F9), in: Circle())
             VStack(alignment: .leading, spacing: 3) {
                 Text(project.displayName)
                     .font(.system(size: 15, weight: .semibold))

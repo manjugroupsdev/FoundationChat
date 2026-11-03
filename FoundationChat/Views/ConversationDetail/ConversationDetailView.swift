@@ -1119,8 +1119,7 @@ private struct MessageTimestampDivider: View {
   let date: Date
 
   private static let formatter: DateFormatter = {
-    let formatter = DateFormatter()
-    formatter.dateFormat = "d MMM yyyy"
+    let formatter = CachedDateFormatters.formatter("d MMM yyyy")
     return formatter
   }()
 
@@ -1855,7 +1854,7 @@ private struct ForwardMessageSheet: View {
               .font(.system(size: 15, weight: .semibold))
               .foregroundStyle(Color(red: 0.05, green: 0.38, blue: 0.79))
               .frame(width: 30, height: 30)
-              .background(Color(red: 0.91, green: 0.95, blue: 1.0), in: Circle())
+              .background(Color.adaptiveTint(red: 0.91, green: 0.95, blue: 1.0), in: Circle())
 
             Text(previewText)
               .font(.system(size: 14, weight: .regular))

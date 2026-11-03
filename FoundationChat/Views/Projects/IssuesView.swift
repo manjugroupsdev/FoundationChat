@@ -126,7 +126,7 @@ struct IssuesView: View {
 
             Text("Stay organized by creating or joining teams. Groups help you manage tasks, track progress, and collaborate with your team in one place.")
                 .font(.system(size: 14, weight: .regular))
-                .foregroundStyle(Color(hex: 0x64748B))
+                .foregroundStyle(Color.adaptiveInk(0x64748B))
                 .multilineTextAlignment(.center)
                 .lineSpacing(4)
                 .padding(.horizontal, 40)
@@ -188,7 +188,7 @@ private struct IssueCard: View {
                     .font(.system(size: 18, weight: .semibold))
                     .foregroundStyle(Color(hex: 0x16A34A))
                     .frame(width: 40, height: 40)
-                    .background(Color(hex: 0xDCFCE7), in: RoundedRectangle(cornerRadius: 12, style: .continuous))
+                    .background(Color.adaptiveTint(0xDCFCE7), in: RoundedRectangle(cornerRadius: 12, style: .continuous))
 
                 VStack(alignment: .leading, spacing: 2) {
                     Text(title)
@@ -198,7 +198,7 @@ private struct IssueCard: View {
 
                     Text(issue.projectId?.nonBlank ?? "Reported by me")
                         .font(.system(size: 12, weight: .regular))
-                        .foregroundStyle(Color(hex: 0x64748B))
+                        .foregroundStyle(Color.adaptiveInk(0x64748B))
                         .lineLimit(1)
                 }
 
@@ -221,11 +221,11 @@ private struct IssueCard: View {
             HStack(spacing: 8) {
                 Image(systemName: "clock")
                     .font(.system(size: 12, weight: .medium))
-                    .foregroundStyle(Color(hex: 0x64748B))
+                    .foregroundStyle(Color.adaptiveInk(0x64748B))
 
                 Text(displayTime(issue.createdAt))
                     .font(.system(size: 12, weight: .regular))
-                    .foregroundStyle(Color(hex: 0x64748B))
+                    .foregroundStyle(Color.adaptiveInk(0x64748B))
 
                 Spacer()
 
@@ -240,7 +240,7 @@ private struct IssueCard: View {
                         .foregroundStyle(Color(hex: 0x0B61CA))
                         .padding(.horizontal, 10)
                         .frame(height: 30)
-                        .background(Color(hex: 0xEFF8FF), in: Capsule())
+                        .background(Color.adaptiveTint(0xEFF8FF), in: Capsule())
                     }
                     .buttonStyle(.plain)
                 }
@@ -330,7 +330,7 @@ private struct CreateIssueSheet: View {
                     VStack(alignment: .leading, spacing: 8) {
                         Text("Description")
                             .font(.system(size: 13, weight: .semibold))
-                            .foregroundStyle(Color(hex: 0x334155))
+                            .foregroundStyle(Color.adaptiveInk(0x334155))
                         TextEditor(text: $description)
                             .font(.system(size: 14, weight: .regular))
                             .foregroundStyle(Color.appPrimaryText)
@@ -355,7 +355,7 @@ private struct CreateIssueSheet: View {
 
             VStack(spacing: 0) {
                 Divider()
-                    .overlay(Color(hex: 0xEAECF0))
+                    .overlay(Color.adaptiveTint(0xEAECF0))
 
                 Button {
                     Task { await submit() }
@@ -408,7 +408,7 @@ private struct CreateIssueSheet: View {
                             .font(.system(size: 16, weight: .semibold))
                             .foregroundStyle(isSelected ? Color(hex: 0x0B61CA) : Color(hex: 0x64748B))
                             .frame(width: 34, height: 34)
-                            .background((isSelected ? Color(hex: 0xEAF3FF) : Color(hex: 0xF1F5F9)), in: Circle())
+                            .background((isSelected ? Color.adaptiveTint(0xEAF3FF) : Color.adaptiveTint(0xF1F5F9)), in: Circle())
                         VStack(alignment: .leading, spacing: 2) {
                             Text(project.displayName)
                                 .font(.system(size: 15, weight: .semibold))
@@ -416,7 +416,7 @@ private struct CreateIssueSheet: View {
                             if let status = project.status?.nonBlank {
                                 Text(status.capitalized)
                                     .font(.system(size: 12, weight: .regular))
-                                    .foregroundStyle(Color(hex: 0x64748B))
+                                    .foregroundStyle(Color.adaptiveInk(0x64748B))
                             }
                         }
                         Spacer()
@@ -443,7 +443,7 @@ private struct CreateIssueSheet: View {
         VStack(alignment: .leading, spacing: 8) {
             Text(title)
                 .font(.system(size: 13, weight: .semibold))
-                .foregroundStyle(Color(hex: 0x334155))
+                .foregroundStyle(Color.adaptiveInk(0x334155))
                 TextField(placeholder, text: text)
                     .font(.system(size: 14, weight: .regular))
                     .foregroundStyle(Color.appPrimaryText)
@@ -460,7 +460,7 @@ private struct CreateIssueSheet: View {
         VStack(alignment: .leading, spacing: 8) {
             Text(title)
                 .font(.system(size: 13, weight: .semibold))
-                .foregroundStyle(Color(hex: 0x334155))
+                .foregroundStyle(Color.adaptiveInk(0x334155))
             Button(action: action) {
                 HStack(spacing: 10) {
                     Text(value)
@@ -470,7 +470,7 @@ private struct CreateIssueSheet: View {
                     Spacer()
                     Image(systemName: "chevron.down")
                         .font(.system(size: 13, weight: .bold))
-                        .foregroundStyle(Color(hex: 0x64748B))
+                        .foregroundStyle(Color.adaptiveInk(0x64748B))
                 }
                 .padding(.horizontal, 16)
                 .frame(height: 48)
@@ -486,7 +486,7 @@ private struct CreateIssueSheet: View {
         VStack(alignment: .leading, spacing: 8) {
             Text("Voice Note")
                 .font(.system(size: 13, weight: .semibold))
-                .foregroundStyle(Color(hex: 0x334155))
+                .foregroundStyle(Color.adaptiveInk(0x334155))
 
             HStack(spacing: 12) {
                 VStack(alignment: .leading, spacing: 4) {
@@ -508,7 +508,7 @@ private struct CreateIssueSheet: View {
                             .font(.system(size: 13, weight: .bold))
                             .foregroundStyle(Color(hex: 0x0B61CA))
                             .frame(width: 32, height: 32)
-                            .background(Color(hex: 0xEFF8FF), in: Circle())
+                            .background(Color.adaptiveTint(0xEFF8FF), in: Circle())
                     }
                     .buttonStyle(.plain)
 
@@ -728,7 +728,7 @@ private struct IssueStatusBadge: View {
             .foregroundStyle(Color(hex: 0x175CD3))
             .padding(.horizontal, 12)
             .padding(.vertical, 5)
-            .background(Color(hex: 0xEFF8FF), in: Capsule())
+            .background(Color.adaptiveTint(0xEFF8FF), in: Capsule())
     }
 }
 

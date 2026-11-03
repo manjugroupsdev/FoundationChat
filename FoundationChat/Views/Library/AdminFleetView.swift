@@ -208,7 +208,7 @@ private struct AdminFleetTripCard: View {
                 HStack(spacing: 8) {
                     Label(tripTime, systemImage: "calendar")
                         .font(.system(size: 12, weight: .medium))
-                        .foregroundStyle(Color(hex: 0x4B5563))
+                        .foregroundStyle(Color.adaptiveInk(0x4B5563))
                         .lineLimit(1)
 
                     Spacer(minLength: 4)
@@ -223,7 +223,7 @@ private struct AdminFleetTripCard: View {
 
                 Text(address)
                     .font(.system(size: 13))
-                    .foregroundStyle(Color(hex: 0x374151))
+                    .foregroundStyle(Color.adaptiveInk(0x374151))
                     .lineLimit(2)
 
                 ViewThatFits(in: .horizontal) {
@@ -290,11 +290,11 @@ private struct FleetTag: View {
     var body: some View {
         Label(text, systemImage: icon)
             .font(.system(size: 11, weight: .semibold))
-            .foregroundStyle(Color(hex: 0x1E3A8A))
+            .foregroundStyle(Color.adaptiveInk(0x1E3A8A))
             .lineLimit(1)
             .padding(.horizontal, 8)
             .frame(height: 26)
-            .background(Color(hex: 0xEAF2FE), in: Capsule())
+            .background(Color.adaptiveTint(0xEAF2FE), in: Capsule())
     }
 }
 
@@ -525,7 +525,7 @@ private struct AdminFleetVehicleRow: View {
             Image(systemName: "car.fill")
                 .foregroundStyle(Color(hex: 0x0B61CA))
                 .frame(width: 40, height: 40)
-                .background(Color(hex: 0xEAF2FE), in: Circle())
+                .background(Color.adaptiveTint(0xEAF2FE), in: Circle())
 
             VStack(alignment: .leading, spacing: 4) {
                 Text(vehicle.vehicleNumber?.nonBlank ?? "Vehicle")

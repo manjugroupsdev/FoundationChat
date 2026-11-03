@@ -324,7 +324,7 @@ struct BookingCreateView: View {
     private var fixedFooterAction: some View {
         VStack(spacing: 0) {
             Divider()
-                .overlay(Color(hex: 0xEAECF0))
+                .overlay(Color.adaptiveTint(0xEAECF0))
             footerAction
                 .padding(.horizontal, 16)
                 .padding(.top, 12)
@@ -371,7 +371,7 @@ struct BookingCreateView: View {
                         .background(selectedTab == tab ? Color(hex: 0x20B40B) : Color.appSurface, in: Capsule())
                         .overlay(
                             Capsule()
-                                .stroke(selectedTab == tab ? Color.clear : Color(hex: 0xDDEFE0), lineWidth: 1)
+                                .stroke(selectedTab == tab ? Color.clear : Color.adaptiveTint(0xDDEFE0), lineWidth: 1)
                         )
                 }
             }

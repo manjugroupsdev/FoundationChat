@@ -30,7 +30,7 @@ struct ProjectExpensesView: View {
                 Color(hex: 0x0B61CA)
                     .ignoresSafeArea(edges: .top)
 
-                Color(hex: 0xF4F6F9).ignoresSafeArea()
+                Color.adaptiveTint(0xF4F6F9).ignoresSafeArea()
                     .padding(.top, topInset + 154)
 
                 VStack(spacing: 0) {
@@ -298,7 +298,7 @@ struct ProjectExpensesView: View {
         } else if expenses.isEmpty {
             Text("No expenses logged yet.")
                 .font(.system(size: 15, weight: .medium))
-                .foregroundStyle(Color(hex: 0x71717A))
+                .foregroundStyle(Color.adaptiveInk(0x71717A))
                 .frame(maxWidth: .infinity, maxHeight: .infinity)
                 .padding(.top, 92)
         } else {
@@ -357,8 +357,7 @@ struct ProjectExpensesView: View {
 
     private var dateRangeText: String {
         guard let fromDate, let toDate else { return "All time" }
-        let f = DateFormatter()
-        f.dateFormat = "MMM d, yyyy"
+        let f = CachedDateFormatters.formatter("MMM d, yyyy")
         return "\(f.string(from: fromDate)) - \(f.string(from: toDate))"
     }
 
@@ -479,7 +478,7 @@ private struct ExpenseDonutChart: View {
         ZStack {
             if slices.isEmpty {
                 Circle()
-                    .stroke(Color(hex: 0xEAECF0), lineWidth: 20)
+                    .stroke(Color.adaptiveTint(0xEAECF0), lineWidth: 20)
             } else {
                 Canvas { context, size in
                     let total = slices.reduce(0) { $0 + $1.0 }
@@ -552,7 +551,7 @@ private struct ProjectExpenseCard: View {
                         .foregroundStyle(expense.paid ? Color(hex: 0x16A34A) : Color(hex: 0xF97316))
                         .padding(.horizontal, 10)
                         .frame(height: 22)
-                        .background(expense.paid ? Color(hex: 0xECFDF3) : Color(hex: 0xFFFAEB), in: Capsule())
+                        .background(expense.paid ? Color.adaptiveTint(0xECFDF3) : Color.adaptiveTint(0xFFFAEB), in: Capsule())
                 }
             }
 
@@ -578,12 +577,9 @@ private struct ProjectExpenseCard: View {
     }
 
     private func monthYear(_ raw: String) -> String {
-        let parser = DateFormatter()
-        parser.locale = Locale(identifier: "en_US_POSIX")
-        parser.dateFormat = "yyyy-MM-dd"
+        let parser = CachedDateFormatters.formatter("yyyy-MM-dd", posix: true)
         guard let date = parser.date(from: raw) else { return raw }
-        let display = DateFormatter()
-        display.dateFormat = "MMMM yyyy"
+        let display = CachedDateFormatters.formatter("MMMM yyyy")
         return display.string(from: date)
     }
 
@@ -657,7 +653,7 @@ private struct ExpenseDateFilterSheet: View {
                         .foregroundStyle(Color.appPrimaryText)
                         .frame(maxWidth: .infinity)
                         .frame(height: 33)
-                        .background(Color(hex: 0xEAECF0), in: RoundedRectangle(cornerRadius: 4, style: .continuous))
+                        .background(Color.adaptiveTint(0xEAECF0), in: RoundedRectangle(cornerRadius: 4, style: .continuous))
                 }
 
                 ForEach(calendarDays, id: \.date) { item in
@@ -713,8 +709,7 @@ private struct ExpenseDateFilterSheet: View {
     }
 
     private var monthTitle: String {
-        let formatter = DateFormatter()
-        formatter.dateFormat = "MMMM yyyy"
+        let formatter = CachedDateFormatters.formatter("MMMM yyyy")
         return formatter.string(from: visibleMonth)
     }
 
@@ -763,7 +758,7 @@ private struct ExpenseDateFilterSheet: View {
         if isSelectedEndpoint(item.date) {
             Color(hex: 0x0B61CA)
         } else if isWithinRange(item.date) {
-            Color(hex: 0xEAF2FF)
+            Color.adaptiveTint(0xEAF2FF)
         } else {
             Color.clear
         }
@@ -1199,8 +1194,7 @@ private struct ExpenseCreationSheet: View {
     }
 
     private func displayDate(_ date: Date) -> String {
-        let formatter = DateFormatter()
-        formatter.dateFormat = "d MMM yyyy"
+        let formatter = CachedDateFormatters.formatter("d MMM yyyy")
         return formatter.string(from: date)
     }
 }
@@ -1245,7 +1239,7 @@ private struct ExpenseDetailSheet: View {
                         .foregroundStyle(displayExpense.paid ? Color(hex: 0x16A34A) : Color(hex: 0xF97316))
                         .padding(.horizontal, 12)
                         .frame(height: 22)
-                        .background(displayExpense.paid ? Color(hex: 0xECFDF3) : Color(hex: 0xFFFAEB), in: Capsule())
+                        .background(displayExpense.paid ? Color.adaptiveTint(0xECFDF3) : Color.adaptiveTint(0xFFFAEB), in: Capsule())
                 }
 
                 Spacer()
@@ -1320,12 +1314,9 @@ private struct ExpenseDetailSheet: View {
     }
 
     private func displayDate(_ raw: String) -> String {
-        let parser = DateFormatter()
-        parser.locale = Locale(identifier: "en_US_POSIX")
-        parser.dateFormat = "yyyy-MM-dd"
+        let parser = CachedDateFormatters.formatter("yyyy-MM-dd", posix: true)
         guard let date = parser.date(from: raw) else { return raw }
-        let formatter = DateFormatter()
-        formatter.dateFormat = "MMM d, yyyy"
+        let formatter = CachedDateFormatters.formatter("MMM d, yyyy")
         return formatter.string(from: date)
     }
 }

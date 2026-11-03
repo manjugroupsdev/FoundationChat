@@ -625,7 +625,7 @@ struct HomeView: View {
                     .foregroundStyle(HomePalette.headerBlue)
                     .padding(.horizontal, 10)
                     .frame(height: 26)
-                    .background(Color(hex: 0xEAF1FF), in: Capsule())
+                    .background(Color.adaptiveTint(0xEAF1FF), in: Capsule())
             }
 
             todayAttendanceCard
@@ -651,7 +651,7 @@ struct HomeView: View {
                         .font(.system(size: 12, weight: .semibold))
                         .foregroundStyle(HomePalette.badgePurple)
                         .frame(width: 20, height: 20)
-                        .background(Color(red: 0.95, green: 0.93, blue: 1.0), in: Circle())
+                        .background(Color.adaptiveTint(red: 0.95, green: 0.93, blue: 1.0), in: Circle())
                 }
 
                 Spacer()
@@ -870,7 +870,7 @@ struct HomeView: View {
                         .foregroundStyle(HomePalette.headerBlue)
                         .frame(maxWidth: .infinity)
                         .frame(height: 46)
-                        .background(Color(hex: 0xEAF1FF), in: RoundedRectangle(cornerRadius: 12, style: .continuous))
+                        .background(Color.adaptiveTint(0xEAF1FF), in: RoundedRectangle(cornerRadius: 12, style: .continuous))
                 }
                 .buttonStyle(.plain)
 
@@ -1590,9 +1590,7 @@ struct HomeView: View {
         guard let mobileClockOutAt else {
             return "Trips can't be started after clocking out."
         }
-        let formatter = DateFormatter()
-        formatter.locale = Locale(identifier: "en_US_POSIX")
-        formatter.dateFormat = "h:mm a"
+        let formatter = CachedDateFormatters.formatter("h:mm a", posix: true)
         return "You clocked out at \(formatter.string(from: mobileClockOutAt)). Trips can't be started after clocking out."
     }
 
@@ -1774,8 +1772,7 @@ struct HomeView: View {
     @MainActor
     private func loadTodayVisits() async {
         defer { isVisitsLoading = false }
-        let formatter = DateFormatter()
-        formatter.dateFormat = "yyyy-MM-dd"
+        let formatter = CachedDateFormatters.formatter("yyyy-MM-dd")
         let today = formatter.string(from: Date())
         let sessionDriverMode = authStore.currentSession?.user.isFleetDriverMode == true
 
@@ -1934,8 +1931,7 @@ struct HomeView: View {
             return
         }
 
-        let formatter = DateFormatter()
-        formatter.dateFormat = "yyyy-MM-dd"
+        let formatter = CachedDateFormatters.formatter("yyyy-MM-dd")
         let now = Date()
         let calendar = Calendar.current
         let monthStart = calendar.date(from: calendar.dateComponents([.year, .month], from: now)) ?? now
@@ -2114,8 +2110,7 @@ struct HomeView: View {
             return visitDateFormatter.string(from: date)
         }
 
-        let plain = DateFormatter()
-        plain.dateFormat = "yyyy-MM-dd"
+        let plain = CachedDateFormatters.formatter("yyyy-MM-dd")
         if let date = plain.date(from: String(trimmed.prefix(10))) {
             return visitDateFormatter.string(from: date)
         }
@@ -2206,8 +2201,7 @@ struct HomeView: View {
     }
 
     private var todayDateKey: String {
-        let formatter = DateFormatter()
-        formatter.dateFormat = "yyyy-MM-dd"
+        let formatter = CachedDateFormatters.formatter("yyyy-MM-dd")
         return formatter.string(from: Date())
     }
 
@@ -2272,8 +2266,7 @@ struct HomeView: View {
 
     private func formatAttendanceTime(_ raw: String?) -> String? {
         guard let raw, let date = parseAttendanceDate(raw) else { return nil }
-        let formatter = DateFormatter()
-        formatter.dateFormat = "h:mm a"
+        let formatter = CachedDateFormatters.formatter("h:mm a")
         return formatter.string(from: date)
     }
 
@@ -2782,7 +2775,7 @@ private struct PendingTasksSheet: View {
                         .font(.system(size: 16, weight: .medium))
                         .foregroundStyle(Color(hex: 0xF04438))
                         .frame(width: 50, height: 50)
-                        .background(Color(hex: 0xFEF3F2), in: Circle())
+                        .background(Color.adaptiveTint(0xFEF3F2), in: Circle())
                 }
                 .buttonStyle(.plain)
             }
@@ -3052,7 +3045,7 @@ private struct PendingTaskPreviewCard: View {
                     .lineLimit(1)
                     .padding(.horizontal, 9)
                     .frame(height: 23)
-                    .background(Color(hex: 0xE7ECFF), in: Capsule())
+                    .background(Color.adaptiveTint(0xE7ECFF), in: Capsule())
             }
             .padding(.top, 10)
 
@@ -3163,8 +3156,7 @@ private struct PendingTaskPreviewCard: View {
         guard let creationTime = task.creationTime else { return "Unknown" }
         let seconds = creationTime > 10_000_000_000 ? creationTime / 1000 : creationTime
         let date = Date(timeIntervalSince1970: seconds)
-        let formatter = DateFormatter()
-        formatter.dateFormat = "dd MMM yyyy"
+        let formatter = CachedDateFormatters.formatter("dd MMM yyyy")
         return formatter.string(from: date)
     }
 }
@@ -3177,8 +3169,8 @@ private struct PendingTaskTheme {
 
     static let themes = [
         PendingTaskTheme(main: Color(hex: 0x2D68FE), tint: Color(hex: 0xE0E7FF), symbol: "checklist", imageName: "HomeTask3DBlue"),
-        PendingTaskTheme(main: Color(hex: 0xF97316), tint: Color(hex: 0xFFEDD5), symbol: "calendar.badge.clock", imageName: "HomeTask3DOrange"),
-        PendingTaskTheme(main: Color(hex: 0x8B5CF6), tint: Color(hex: 0xEDE9FE), symbol: "sparkles", imageName: "HomeTask3DPurple")
+        PendingTaskTheme(main: Color(hex: 0xF97316), tint: Color.adaptiveTint(0xFFEDD5), symbol: "calendar.badge.clock", imageName: "HomeTask3DOrange"),
+        PendingTaskTheme(main: Color(hex: 0x8B5CF6), tint: Color.adaptiveTint(0xEDE9FE), symbol: "sparkles", imageName: "HomeTask3DPurple")
     ]
 }
 
@@ -3243,10 +3235,10 @@ private enum HomeTripState: Equatable {
 
     var statusBackground: Color {
         switch self {
-        case .ready: return Color(red: 0.90, green: 0.96, blue: 0.92)
-        case .enroute, .reaching: return Color(red: 1.0, green: 0.96, blue: 0.90)
-        case .complete, .clockInFirst: return Color(red: 0.95, green: 0.96, blue: 0.97)
-        case .awaitingOther: return Color(red: 1.0, green: 0.96, blue: 0.90)
+        case .ready: return Color.adaptiveTint(red: 0.90, green: 0.96, blue: 0.92)
+        case .enroute, .reaching: return Color.adaptiveTint(red: 1.0, green: 0.96, blue: 0.90)
+        case .complete, .clockInFirst: return Color.adaptiveTint(red: 0.95, green: 0.96, blue: 0.97)
+        case .awaitingOther: return Color.adaptiveTint(red: 1.0, green: 0.96, blue: 0.90)
         }
     }
 
@@ -3271,7 +3263,7 @@ private enum HomeTripState: Equatable {
                 )
             )
         case .enroute:
-            return AnyShapeStyle(Color(red: 1.0, green: 0.96, blue: 0.90))
+            return AnyShapeStyle(Color.adaptiveTint(red: 1.0, green: 0.96, blue: 0.90))
         case .complete, .clockInFirst, .awaitingOther:
             return AnyShapeStyle(Color(red: 0.89, green: 0.91, blue: 0.93))
         }

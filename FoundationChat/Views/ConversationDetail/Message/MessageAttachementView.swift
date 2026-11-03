@@ -206,11 +206,11 @@ private struct DocumentAttachmentCard: View {
         HStack(spacing: 14) {
           ZStack {
             Circle()
-              .fill(isOutgoing ? .white.opacity(0.22) : Color(red: 0.91, green: 0.94, blue: 0.98))
+              .fill(isOutgoing ? .white.opacity(0.22) : Color.adaptiveTint(red: 0.91, green: 0.94, blue: 0.98))
               .frame(width: 54, height: 54)
 
             RoundedRectangle(cornerRadius: 13, style: .continuous)
-              .fill(isOutgoing ? .white.opacity(0.92) : Color(red: 0.87, green: 0.93, blue: 1.0))
+              .fill(isOutgoing ? .white.opacity(0.92) : Color.adaptiveTint(red: 0.87, green: 0.93, blue: 1.0))
               .frame(width: 41, height: 34)
 
             Text(documentKind)

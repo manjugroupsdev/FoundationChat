@@ -330,8 +330,7 @@ private struct CreateVisitSheet: View {
         isCreating = true
         errorMessage = nil
         do {
-            let df = DateFormatter()
-            df.dateFormat = "yyyy-MM-dd"
+            let df = CachedDateFormatters.formatter("yyyy-MM-dd")
             _ = try await geoAPI.createVisit(
                 clientPlaceId: place.id,
                 scheduledDate: df.string(from: scheduledDate),

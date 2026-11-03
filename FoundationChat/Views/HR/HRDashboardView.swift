@@ -363,7 +363,7 @@ struct HRDashboardView: View {
                 .font(.system(size: 15, weight: .semibold))
                 .foregroundStyle(Color(hex: 0x0B61CA))
                 .frame(width: 34, height: 34)
-                .background(Color(hex: 0xEAF3FF), in: RoundedRectangle(cornerRadius: 8, style: .continuous))
+                .background(Color.adaptiveTint(0xEAF3FF), in: RoundedRectangle(cornerRadius: 8, style: .continuous))
 
             VStack(alignment: .leading, spacing: 2) {
                 Text("Today's Shift")
@@ -515,7 +515,7 @@ struct HRDashboardView: View {
                     .foregroundStyle(Color(hex: 0xB42318))
                 Text(errorMessage)
                     .font(.system(size: 12, weight: .medium))
-                    .foregroundStyle(Color(hex: 0x7A271A))
+                    .foregroundStyle(Color.adaptiveInk(0x7A271A))
                     .frame(maxWidth: .infinity, alignment: .leading)
                 Button {
                     self.errorMessage = nil
@@ -524,10 +524,10 @@ struct HRDashboardView: View {
                         .font(.system(size: 11, weight: .bold))
                 }
                 .buttonStyle(.plain)
-                .foregroundStyle(Color(hex: 0x7A271A))
+                .foregroundStyle(Color.adaptiveInk(0x7A271A))
             }
             .padding(12)
-            .background(Color(hex: 0xFEF3F2), in: RoundedRectangle(cornerRadius: 12, style: .continuous))
+            .background(Color.adaptiveTint(0xFEF3F2), in: RoundedRectangle(cornerRadius: 12, style: .continuous))
             .overlay(
                 RoundedRectangle(cornerRadius: 12, style: .continuous)
                     .stroke(Color(hex: 0xFECDCA), lineWidth: 1)
@@ -661,8 +661,7 @@ struct HRDashboardView: View {
     }
 
     private var todayDateKey: String {
-        let f = DateFormatter()
-        f.dateFormat = "yyyy-MM-dd"
+        let f = CachedDateFormatters.formatter("yyyy-MM-dd")
         return f.string(from: Date())
     }
 
@@ -750,8 +749,7 @@ struct HRDashboardView: View {
         let comps = calendar.dateComponents([.year, .month], from: now)
         let first = calendar.date(from: comps) ?? now
         let last = calendar.date(byAdding: DateComponents(month: 1, day: -1), to: first) ?? now
-        let f = DateFormatter()
-        f.dateFormat = "d MMM yyyy"
+        let f = CachedDateFormatters.formatter("d MMM yyyy")
         return "Paid Period \(f.string(from: first)) - \(f.string(from: last))"
     }
 
@@ -815,8 +813,7 @@ struct HRDashboardView: View {
         if let date = parseDateOnly(raw) {
             if Calendar.current.isDateInToday(date) { return "Today" }
             if Calendar.current.isDateInYesterday(date) { return "Yesterday" }
-            let outFormatter = DateFormatter()
-            outFormatter.dateFormat = "EEEE, d MMM"
+            let outFormatter = CachedDateFormatters.formatter("EEEE, d MMM")
             return outFormatter.string(from: date)
         }
         return raw
@@ -825,8 +822,7 @@ struct HRDashboardView: View {
     private func formatAndroidHistoryDate(_ raw: String?) -> String {
         guard let raw else { return "--" }
         if let date = parseDateOnly(raw) {
-            let formatter = DateFormatter()
-            formatter.dateFormat = "d MMMM yyyy"
+            let formatter = CachedDateFormatters.formatter("d MMMM yyyy")
             return formatter.string(from: date)
         }
         return raw
@@ -834,9 +830,7 @@ struct HRDashboardView: View {
 
     private func parseDateOnly(_ raw: String?) -> Date? {
         guard let raw else { return nil }
-        let inFormatter = DateFormatter()
-        inFormatter.dateFormat = "yyyy-MM-dd"
-        return inFormatter.date(from: raw)
+        return CachedDateFormatters.formatter("yyyy-MM-dd").date(from: raw)
     }
 
     private func formatTimeRange(in punchIn: String?, out punchOut: String?) -> String {
@@ -954,32 +948,18 @@ struct HRDashboardView: View {
 
     private func formatClockTime(_ raw: String?) -> String? {
         guard let raw, let date = parseAttendanceDate(raw) else { return nil }
-        let f = DateFormatter()
-        f.dateFormat = "h:mm a"
-        return f.string(from: date)
+        return CachedDateFormatters.formatter("h:mm a").string(from: date)
     }
 
     private func formatClockTimeLowercase(_ raw: String?) -> String? {
         guard let raw, let date = parseAttendanceDate(raw) else { return nil }
-        let f = DateFormatter()
-        f.dateFormat = "hh:mm a"
-        return f.string(from: date).lowercased()
+        return CachedDateFormatters.formatter("hh:mm a").string(from: date).lowercased()
     }
 
+    /// Called many times per render (the live ticker and every derived
+    /// clock state), so it uses the shared formatters.
     private func parseAttendanceDate(_ raw: String?) -> Date? {
-        guard let raw, !raw.isEmpty else { return nil }
-        let iso = ISO8601DateFormatter()
-        iso.formatOptions = [.withInternetDateTime, .withFractionalSeconds]
-        if let date = iso.date(from: raw) { return date }
-        iso.formatOptions = [.withInternetDateTime]
-        if let date = iso.date(from: raw) { return date }
-        let manual = DateFormatter()
-        manual.locale = Locale(identifier: "en_US_POSIX")
-        manual.dateFormat = "yyyy-MM-dd'T'HH:mm:ssXXX"
-        if let date = manual.date(from: raw) { return date }
-        manual.dateFormat = "yyyy-MM-dd'T'HH:mm:ss.SSSXXX"
-        if let date = manual.date(from: raw) { return date }
-        return nil
+        CachedDateFormatters.parseISO(raw)
     }
 
     @MainActor
@@ -1063,8 +1043,7 @@ struct HRDashboardView: View {
         let now = Date()
         let comps = calendar.dateComponents([.year, .month], from: now)
         let firstOfMonth = calendar.date(from: comps) ?? now
-        let formatter = DateFormatter()
-        formatter.dateFormat = "yyyy-MM-dd"
+        let formatter = CachedDateFormatters.formatter("yyyy-MM-dd")
 
         let cacheKey = monthHistoryCacheKey()
         // Cache-first: paint the last-known month immediately so an OFFLINE open
@@ -1109,8 +1088,7 @@ struct HRDashboardView: View {
     /// Cache key for the current month's records, namespaced by staff + month.
     private func monthHistoryCacheKey() -> String? {
         guard let sid = attnCacheStaffId() else { return nil }
-        let f = DateFormatter()
-        f.dateFormat = "yyyy-MM"
+        let f = CachedDateFormatters.formatter("yyyy-MM")
         return "attn_month_ios:\(sid):\(f.string(from: Date()))"
     }
 
@@ -1138,9 +1116,7 @@ struct HRDashboardView: View {
     }
 
     private static let dateKeyFormatter: DateFormatter = {
-        let formatter = DateFormatter()
-        formatter.dateFormat = "yyyy-MM-dd"
-        formatter.locale = Locale(identifier: "en_US_POSIX")
+        let formatter = CachedDateFormatters.formatter("yyyy-MM-dd", posix: true)
         return formatter
     }()
 

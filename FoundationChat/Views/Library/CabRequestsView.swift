@@ -397,9 +397,7 @@ struct CabRequestsView: View {
     /// `requestedDate` as "dd MMM yyyy", as the web shows it.
     static func formatDate(_ ymd: String?) -> String? {
         guard let ymd, !ymd.isEmpty else { return nil }
-        let input = DateFormatter()
-        input.locale = Locale(identifier: "en_US_POSIX")
-        input.dateFormat = "yyyy-MM-dd"
+        let input = CachedDateFormatters.formatter("yyyy-MM-dd", posix: true)
         guard let date = input.date(from: ymd) else { return ymd }
         let output = DateFormatter()
         output.locale = Locale(identifier: "en_IN")
@@ -415,12 +413,12 @@ private struct CabStatusBadge: View {
     var body: some View {
         let colors: (Color, Color, Color) = {
             switch status {
-            case "pending": return (Color(hex: 0xFFFBEB), Color(hex: 0xB45309), Color(hex: 0xFDE68A))
-            case "approved": return (Color(hex: 0xEFF6FF), Color(hex: 0x1D4ED8), Color(hex: 0xBFDBFE))
-            case "rejected": return (Color(hex: 0xFEF2F2), Color(hex: 0xB91C1C), Color(hex: 0xFECACA))
-            case "assigned": return (Color(hex: 0xFAF5FF), Color(hex: 0x7E22CE), Color(hex: 0xE9D5FF))
-            case "completed": return (Color(hex: 0xF0FDF4), Color(hex: 0x15803D), Color(hex: 0xBBF7D0))
-            default: return (Color(hex: 0xF3F4F6), Color(hex: 0x6B7280), Color(hex: 0xE5E7EB))
+            case "pending": return (Color.adaptiveTint(0xFFFBEB), Color(hex: 0xB45309), Color(hex: 0xFDE68A))
+            case "approved": return (Color.adaptiveTint(0xEFF6FF), Color(hex: 0x1D4ED8), Color(hex: 0xBFDBFE))
+            case "rejected": return (Color.adaptiveTint(0xFEF2F2), Color(hex: 0xB91C1C), Color(hex: 0xFECACA))
+            case "assigned": return (Color.adaptiveTint(0xFAF5FF), Color(hex: 0x7E22CE), Color(hex: 0xE9D5FF))
+            case "completed": return (Color.adaptiveTint(0xF0FDF4), Color(hex: 0x15803D), Color(hex: 0xBBF7D0))
+            default: return (Color.adaptiveTint(0xF3F4F6), Color(hex: 0x6B7280), Color(hex: 0xE5E7EB))
             }
         }()
         Text((status ?? "—").capitalized)
@@ -527,12 +525,8 @@ private struct NewCabRequestSheet: View {
             return
         }
         guard let token = authStore.currentSession?.token else { return }
-        let dayFormatter = DateFormatter()
-        dayFormatter.locale = Locale(identifier: "en_US_POSIX")
-        dayFormatter.dateFormat = "yyyy-MM-dd"
-        let timeFormatter = DateFormatter()
-        timeFormatter.locale = Locale(identifier: "en_US_POSIX")
-        timeFormatter.dateFormat = "HH:mm"
+        let dayFormatter = CachedDateFormatters.formatter("yyyy-MM-dd", posix: true)
+        let timeFormatter = CachedDateFormatters.formatter("HH:mm", posix: true)
         let count = Int(passengers.trimmingCharacters(in: .whitespaces)).flatMap { $0 >= 1 ? $0 : nil }
         let trimmedNotes = notes.trimmingCharacters(in: .whitespacesAndNewlines)
         isSubmitting = true

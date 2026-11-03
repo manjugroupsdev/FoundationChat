@@ -250,7 +250,7 @@ private struct ProjectTaskCard: View {
 
                 GeometryReader { proxy in
                     ZStack(alignment: .leading) {
-                        Capsule().fill(Color(hex: 0xE7EAF0))
+                        Capsule().fill(Color.adaptiveTint(0xE7EAF0))
                         Capsule()
                             .fill(Color(hex: 0x0B6ED8))
                             .frame(width: proxy.size.width * CGFloat(task.displayProgress) / 100)
@@ -276,7 +276,7 @@ private struct ProjectTaskCard: View {
         .background(Color.appSurface, in: RoundedRectangle(cornerRadius: 18, style: .continuous))
         .overlay {
             RoundedRectangle(cornerRadius: 18, style: .continuous)
-                .stroke(Color(hex: 0xEEF2F7), lineWidth: 1)
+                .stroke(Color.adaptiveTint(0xEEF2F7), lineWidth: 1)
         }
         .shadow(color: Color.black.opacity(0.05), radius: 14, x: 0, y: 6)
     }
@@ -384,7 +384,6 @@ private func projectTaskDisplayDate(_ raw: String) -> String {
 }
 
 private let projectTaskDayFormatter: DateFormatter = {
-    let formatter = DateFormatter()
-    formatter.dateFormat = "dd MMM"
+    let formatter = CachedDateFormatters.formatter("dd MMM")
     return formatter
 }()

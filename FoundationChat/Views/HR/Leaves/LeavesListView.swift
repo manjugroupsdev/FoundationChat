@@ -338,7 +338,7 @@ struct LeavesListView: View {
                             .font(.system(size: 11, weight: .bold))
                     }
                     .font(.system(size: 15, weight: .medium))
-                    .foregroundStyle(Color(hex: 0x061D3D))
+                    .foregroundStyle(Color.adaptiveInk(0x061D3D))
                     .frame(width: 122, height: 48)
                     .background(Color.appSurface, in: RoundedRectangle(cornerRadius: 12, style: .continuous))
                     .overlay {
@@ -433,7 +433,7 @@ struct LeavesListView: View {
             .accessibilityLabel("Filter leaves")
         }
         .padding(3)
-        .background(Color(hex: 0xE9EDF5), in: Capsule())
+        .background(Color.adaptiveTint(0xE9EDF5), in: Capsule())
     }
 
     private func cancelLeaveDialog(for leave: ConvexLeave) -> some View {
@@ -455,7 +455,7 @@ struct LeavesListView: View {
 
                 Text("Are you sure?")
                     .font(.system(size: 20, weight: .bold))
-                    .foregroundStyle(Color(hex: 0x1D2939))
+                    .foregroundStyle(Color.adaptiveInk(0x1D2939))
                     .padding(.top, 20)
 
                 Text("This leave request will be cancelled and removed from your visible leave history.")
@@ -684,7 +684,7 @@ struct LeavesListView: View {
                             .font(.system(size: 13, weight: .semibold))
                             .foregroundStyle(Color(hex: 0xEF4444))
                             .frame(width: 72, height: 34)
-                            .background(Color(hex: 0xFEF2F2), in: RoundedRectangle(cornerRadius: 8, style: .continuous))
+                            .background(Color.adaptiveTint(0xFEF2F2), in: RoundedRectangle(cornerRadius: 8, style: .continuous))
                             .overlay {
                                 RoundedRectangle(cornerRadius: 8, style: .continuous)
                                     .stroke(Color(hex: 0xFCA5A5), lineWidth: 1)
@@ -1035,9 +1035,7 @@ struct LeavesListView: View {
     }()
 
     private static let dayMonthFormatter: DateFormatter = {
-        let formatter = DateFormatter()
-        formatter.locale = Locale(identifier: "en_US_POSIX")
-        formatter.dateFormat = "d MMM"
+        let formatter = CachedDateFormatters.formatter("d MMM", posix: true)
         return formatter
     }()
 

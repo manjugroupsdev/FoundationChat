@@ -74,8 +74,7 @@ struct GeoTrackTodayVisitsView: View {
         isLoading = true
         errorMessage = nil
         do {
-            let df = DateFormatter()
-            df.dateFormat = "yyyy-MM-dd"
+            let df = CachedDateFormatters.formatter("yyyy-MM-dd")
             visits = try await geoAPI.todayVisits(date: df.string(from: Date()))
         } catch {
             errorMessage = error.localizedDescription

@@ -242,7 +242,7 @@ struct LandInspectionView: View {
                                 .padding(.horizontal, 20)
                                 .frame(height: 38)
                                 .background(
-                                    selectedStatus == filter ? Color(hex: 0x0B61CA) : Color(hex: 0xEEF2F7),
+                                    selectedStatus == filter ? Color(hex: 0x0B61CA) : Color.adaptiveTint(0xEEF2F7),
                                     in: Capsule()
                                 )
                         }
@@ -261,7 +261,7 @@ struct LandInspectionView: View {
                 .foregroundStyle(Color.appPrimaryText)
             Text(emptySubtitle)
                 .font(.system(size: 13))
-                .foregroundStyle(Color(hex: 0x6B7280))
+                .foregroundStyle(Color.adaptiveInk(0x6B7280))
                 .multilineTextAlignment(.center)
         }
         .frame(maxWidth: .infinity)
@@ -520,7 +520,7 @@ private struct LandInspectionRow: View {
                                 .lineLimit(1)
                                 .padding(.horizontal, 10)
                                 .padding(.vertical, 5)
-                                .background(Color(hex: 0xDFF7E8), in: Capsule())
+                                .background(Color.adaptiveTint(0xDFF7E8), in: Capsule())
                         }
                         Spacer()
 
@@ -528,7 +528,7 @@ private struct LandInspectionRow: View {
                             .font(.system(size: 18, weight: .bold))
                             .foregroundStyle(Color(hex: 0x0B61CA))
                             .frame(width: 44, height: 44)
-                            .background(Color(hex: 0xEAF3FF), in: Circle())
+                            .background(Color.adaptiveTint(0xEAF3FF), in: Circle())
                     }
                 }
             }
@@ -540,7 +540,7 @@ private struct LandInspectionRow: View {
                         .font(.system(size: 13, weight: .semibold))
                         .foregroundStyle(Color(hex: 0x0B61CA))
                         .frame(maxWidth: .infinity, minHeight: 44)
-                        .background(Color(hex: 0xEAF3FF), in: RoundedRectangle(cornerRadius: 12))
+                        .background(Color.adaptiveTint(0xEAF3FF), in: RoundedRectangle(cornerRadius: 12))
                 }
                 .buttonStyle(.plain)
                 .padding(.horizontal, 4)
@@ -618,9 +618,9 @@ private struct LandInspectionRow: View {
     private var statusStyle: (foreground: Color, background: Color) {
         switch inspection.inspectionStatusKey {
         case "completed":
-            return (Color(hex: 0x065F46), Color(hex: 0xDFF7E8))
+            return (Color(hex: 0x065F46), Color.adaptiveTint(0xDFF7E8))
         case "in_progress":
-            return (Color(hex: 0x92400E), Color(hex: 0xFEF3C7))
+            return (Color(hex: 0x92400E), Color.adaptiveTint(0xFEF3C7))
         default:
             return (Color(hex: 0x991B1B), Color(hex: 0xFEE2E2))
         }
@@ -698,7 +698,7 @@ private struct LandIdentificationDetailsSheet: View {
                             }
                             .foregroundStyle(Color(hex: 0x0B61CA))
                             .padding(14)
-                            .background(Color(hex: 0xEAF3FF), in: RoundedRectangle(cornerRadius: 14))
+                            .background(Color.adaptiveTint(0xEAF3FF), in: RoundedRectangle(cornerRadius: 14))
                         }
                         .buttonStyle(.plain)
                     }
@@ -742,7 +742,7 @@ private struct LandIdentificationDetailsSheet: View {
                 .foregroundStyle(Color(hex: 0x0B61CA))
                 .padding(.horizontal, 10)
                 .padding(.vertical, 6)
-                .background(Color(hex: 0xEAF3FF), in: Capsule())
+                .background(Color.adaptiveTint(0xEAF3FF), in: Capsule())
         }
         .padding(14)
         .background(Color.appSurface, in: RoundedRectangle(cornerRadius: 16))
@@ -775,7 +775,7 @@ private struct LandIdentificationDetailsSheet: View {
                     .frame(width: 112, alignment: .leading)
                 Text(value)
                     .font(.system(size: 13, weight: .semibold))
-                    .foregroundStyle(Color(hex: 0x111827))
+                    .foregroundStyle(Color.adaptiveInk(0x111827))
                     .frame(maxWidth: .infinity, alignment: .leading)
                     .textSelection(.enabled)
             }
@@ -1056,7 +1056,7 @@ private struct LandInspectionSheet: View {
                     HStack(spacing: 10) {
                         Button("Cancel") { dismiss() }
                             .font(.system(size: 15, weight: .semibold))
-                            .foregroundStyle(Color(hex: 0x111827))
+                            .foregroundStyle(Color.adaptiveInk(0x111827))
                             .frame(maxWidth: .infinity)
                             .frame(height: 48)
                             .background(Color.appSurface, in: RoundedRectangle(cornerRadius: 14))
@@ -1174,7 +1174,7 @@ private struct LandInspectionSheet: View {
             .foregroundStyle(Color(hex: 0x0B61CA))
             .frame(maxWidth: .infinity)
             .padding(.vertical, 8)
-            .background(Color(hex: 0xDDEBFF), in: RoundedRectangle(cornerRadius: 10))
+            .background(Color.adaptiveTint(0xDDEBFF), in: RoundedRectangle(cornerRadius: 10))
     }
 
     private var tabStrip: some View {
@@ -1186,7 +1186,7 @@ private struct LandInspectionSheet: View {
                     VStack(spacing: 3) {
                         ZStack {
                             Circle()
-                                .fill(selectedTab == tab ? Color(hex: 0x0B61CA) : Color(hex: 0xF4F6FA))
+                                .fill(selectedTab == tab ? Color(hex: 0x0B61CA) : Color.adaptiveTint(0xF4F6FA))
                                 .frame(width: 30, height: 30)
                             Image(systemName: tab.icon)
                                 .font(.system(size: 14, weight: .semibold))
@@ -1208,7 +1208,7 @@ private struct LandInspectionSheet: View {
 
                 if index < SiteInspectionTab.allCases.count - 1 {
                     Rectangle()
-                        .fill(Color(hex: 0xE8ECF3))
+                        .fill(Color.adaptiveTint(0xE8ECF3))
                         .frame(width: 1, height: 34)
                 }
             }
@@ -1354,7 +1354,7 @@ private struct LandInspectionSheet: View {
         VStack(alignment: .leading, spacing: 4) {
             Text(title)
                 .font(.system(size: 20, weight: .bold))
-                .foregroundStyle(Color(hex: 0x111827))
+                .foregroundStyle(Color.adaptiveInk(0x111827))
             Text(subtitle)
                 .font(.system(size: 13))
                 .foregroundStyle(.secondary)
@@ -1379,7 +1379,7 @@ private struct LandInspectionSheet: View {
                 }
             }
             .font(.system(size: compact ? 11 : 13, weight: .semibold))
-            .foregroundStyle(Color(hex: 0x374151))
+            .foregroundStyle(Color.adaptiveInk(0x374151))
 
             HStack(alignment: axis == .vertical ? .top : .center, spacing: 10) {
                 Image(systemName: icon)
@@ -1395,7 +1395,7 @@ private struct LandInspectionSheet: View {
                 } else {
                     TextField(placeholder, text: text, axis: axis)
                         .font(.system(size: compact ? 13 : 15, weight: .regular))
-                        .foregroundStyle(Color(hex: 0x111827))
+                        .foregroundStyle(Color.adaptiveInk(0x111827))
                         .textInputAutocapitalization(.sentences)
                         .lineLimit(axis == .vertical ? 6 : 1)
                 }
@@ -1438,7 +1438,7 @@ private struct LandInspectionSheet: View {
         VStack(alignment: .leading, spacing: 6) {
             Text(label)
                 .font(.system(size: 13, weight: .semibold))
-                .foregroundStyle(Color(hex: 0x374151))
+                .foregroundStyle(Color.adaptiveInk(0x374151))
             HStack(spacing: 10) {
                 Image(systemName: icon)
                     .font(.system(size: 17, weight: .semibold))
@@ -1447,7 +1447,7 @@ private struct LandInspectionSheet: View {
                 if isViewOnly {
                     Text(selection.wrappedValue.landNilIfBlank?.capitalized ?? "-")
                         .font(.system(size: 15, weight: .semibold))
-                        .foregroundStyle(Color(hex: 0x111827))
+                        .foregroundStyle(Color.adaptiveInk(0x111827))
                     Spacer()
                 } else {
                     Picker(label, selection: selection) {
@@ -1476,7 +1476,7 @@ private struct LandInspectionSheet: View {
         VStack(alignment: .leading, spacing: 10) {
             Text(title)
                 .font(.system(size: 16, weight: .bold))
-                .foregroundStyle(Color(hex: 0x111827))
+                .foregroundStyle(Color.adaptiveInk(0x111827))
             VStack(spacing: 0) {
                 ForEach(options, id: \.self) { option in
                     Toggle(option, isOn: Binding(
@@ -1942,7 +1942,7 @@ struct LandQueriesView: View {
                 .foregroundStyle(Color.appPrimaryText)
             Text(queriesEmptySubtitle)
                 .font(.system(size: 13))
-                .foregroundStyle(Color(hex: 0x6B7280))
+                .foregroundStyle(Color.adaptiveInk(0x6B7280))
                 .multilineTextAlignment(.center)
         }
         .frame(maxWidth: .infinity)
@@ -2005,7 +2005,7 @@ private struct LandQueryRow: View {
                 .font(.system(size: 22, weight: .semibold))
                 .foregroundStyle(Color(hex: 0x0B61CA))
                 .frame(width: 44, height: 44)
-                .background(Color(hex: 0xEAF3FF), in: Circle())
+                .background(Color.adaptiveTint(0xEAF3FF), in: Circle())
                 .offset(y: -4)
 
             VStack(alignment: .leading, spacing: 6) {
@@ -2041,7 +2041,7 @@ private struct LandQueryRow: View {
                 .font(.system(size: 16, weight: .bold))
                 .foregroundStyle(Color(hex: 0x0B61CA))
                 .frame(width: 44, height: 44)
-                .background(Color(hex: 0xEAF3FF), in: Circle())
+                .background(Color.adaptiveTint(0xEAF3FF), in: Circle())
                 .padding(.top, 24)
         }
         .padding(.horizontal, 16)
@@ -2082,7 +2082,7 @@ private extension LandQueryLog {
     }
 
     var statusBackground: Color {
-        isCompletedQuery ? Color(hex: 0xDFF7E8) : Color(hex: 0xEAF3FF)
+        isCompletedQuery ? Color.adaptiveTint(0xDFF7E8) : Color.adaptiveTint(0xEAF3FF)
     }
 }
 
@@ -2129,7 +2129,7 @@ private struct LandQueryDetailSheet: View {
 
                     Text("The following documents are requested")
                         .font(.system(size: 13, weight: .regular))
-                        .foregroundStyle(Color(hex: 0x6B7280))
+                        .foregroundStyle(Color.adaptiveInk(0x6B7280))
 
                     VStack(spacing: 10) {
                         ForEach(requestedDocuments, id: \.self) { document in
@@ -2225,7 +2225,7 @@ private struct RequestedDocumentRow: View {
                 .font(.system(size: 18, weight: .semibold))
                 .foregroundStyle(isCompleted ? Color(hex: 0x16A34A) : Color(hex: 0x0B61CA))
                 .frame(width: 36, height: 36)
-                .background(Color(hex: 0xEAF3FF), in: Circle())
+                .background(Color.adaptiveTint(0xEAF3FF), in: Circle())
 
             Text(name)
                 .font(.system(size: 14, weight: .semibold))
@@ -2238,14 +2238,14 @@ private struct RequestedDocumentRow: View {
                 .foregroundStyle(isCompleted ? Color(hex: 0x16A34A) : Color(hex: 0x0B61CA))
                 .padding(.horizontal, 10)
                 .padding(.vertical, 4)
-                .background((isCompleted ? Color(hex: 0xD1FADF) : Color(hex: 0xEAF3FF)), in: Capsule())
+                .background((isCompleted ? Color.adaptiveTint(0xD1FADF) : Color.adaptiveTint(0xEAF3FF)), in: Capsule())
         }
         .padding(.horizontal, 14)
         .padding(.vertical, 12)
         .background(Color.appSurface, in: RoundedRectangle(cornerRadius: 14, style: .continuous))
         .overlay(
             RoundedRectangle(cornerRadius: 14, style: .continuous)
-                .stroke(Color(hex: 0xEAECF0), lineWidth: 1)
+                .stroke(Color.adaptiveTint(0xEAECF0), lineWidth: 1)
         )
     }
 }

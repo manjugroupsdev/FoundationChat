@@ -234,8 +234,7 @@ struct FleetMyTripsView: View {
     }
 
     private static func todayString() -> String {
-        let formatter = DateFormatter()
-        formatter.dateFormat = "yyyy-MM-dd"
+        let formatter = CachedDateFormatters.formatter("yyyy-MM-dd")
         return formatter.string(from: Date())
     }
 }

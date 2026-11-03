@@ -11,15 +11,13 @@ struct LoginView: View {
     @State private var employeeId = ""
     @State private var employeePassword = ""
     @State private var employeePasswordVisible = false
-    @State private var otpDigits = Array(repeating: "", count: 6)
+    @State private var otpCode = ""
     @FocusState private var phoneFieldFocused: Bool
-    // Plain state, not @FocusState: the OTP boxes are UIKit text fields that
-    // take first responder from this value (OtpTextField.updateUIView). No view
-    // is bound to it with .focused(), and SwiftUI resets a @FocusState with no
-    // focusable target to nil - so every box read "not focused", none ever
-    // became first responder, and a box focused by a tap was resigned again
-    // on the next update. The OTP field could not be typed into at all.
-    @State private var focusedOtpBox: Int?
+    // Plain state, not @FocusState: the OTP field is a UIKit text field that
+    // takes first responder from this value (OtpCodeField.updateUIView). No
+    // view is bound to it with .focused(), and SwiftUI resets a @FocusState
+    // with no focusable target to nil, which left the field untypeable.
+    @State private var otpFocused = false
     @Environment(\.scenePhase) private var scenePhase
     @FocusState private var employeeFieldFocused: EmployeeField?
 
@@ -482,20 +480,10 @@ struct LoginView: View {
 
     private var otpStepContent: some View {
         VStack(alignment: .leading, spacing: 0) {
-            // 6 OTP boxes
-            HStack(spacing: 6) {
-                ForEach(0..<6, id: \.self) { i in
-                    OtpBox(
-                        digit: $otpDigits[i],
-                        isFocused: focusedOtpBox == i,
-                        onTap: { refocusOtp(at: i) },
-                        onInput: { handleOtpInput(at: i, value: $0) },
-                        onDelete: { handleOtpDelete(at: i) }
-                    )
-                }
-            }
-            .frame(maxWidth: .infinity)
-            .padding(.bottom, 12)
+            // 6 OTP boxes over one input field, so the keyboard stays up.
+            OtpCodeBoxes(code: otpCode, isFocused: $otpFocused, onChange: handleOtpChange)
+                .frame(maxWidth: .infinity)
+                .padding(.bottom, 12)
 
             // Error
             if let err = authStore.errorMessage {
@@ -526,7 +514,7 @@ struct LoginView: View {
                 withAnimation(.spring(response: 0.35)) {
                     authStore.clearError()
                     step = .phone
-                    otpDigits = Array(repeating: "", count: 6)
+                    otpCode = ""
                 }
             } label: {
                 HStack(spacing: 6) {
@@ -549,7 +537,7 @@ struct LoginView: View {
             // Sending the code must never prevent staff from entering it. Once
             // delivery setup finishes, restore the keyboard if they have not
             // already completed the code.
-            if wasRequesting && !isRequesting, otpDigits.contains(where: \.isEmpty) {
+            if wasRequesting && !isRequesting, otpCode.count < OtpCodeInput.length {
                 refocusOtp()
             }
         }
@@ -559,23 +547,16 @@ struct LoginView: View {
         }
     }
 
-    /// Puts the caret back in an OTP box, re-asserting it even when the box is
-    /// already the focused one.
+    /// Puts the caret back in the OTP field, re-asserting it even when the
+    /// field is already marked focused.
     ///
-    /// Leaving the app to copy the code made the boxes look dead. iOS resigns
-    /// first responder when the app goes to the background, but
-    /// `focusedOtpBox` still pointed at the same box, so SwiftUI saw no state
-    /// change, `updateUIView` never ran, and the field never became first
-    /// responder again. Tapping that same box assigned the identical value,
-    /// which is also not a change - so nothing happened, however many times
-    /// the staff member tapped. Clearing the value first guarantees the
-    /// transition that actually re-attaches the keyboard.
-    private func refocusOtp(at index: Int? = nil) {
-        let target = index
-            ?? otpDigits.firstIndex(where: { $0.isEmpty })
-            ?? max(otpDigits.count - 1, 0)
-        focusedOtpBox = nil
-        DispatchQueue.main.async { focusedOtpBox = target }
+    /// iOS resigns first responder when the app goes to the background (e.g.
+    /// to copy the code from Messages) while `otpFocused` stays true, so
+    /// SwiftUI sees no change and never re-attaches the keyboard. Clearing the
+    /// value first guarantees the transition that does.
+    private func refocusOtp() {
+        otpFocused = false
+        DispatchQueue.main.async { otpFocused = true }
     }
 
     private var verifyButton: some View {
@@ -602,8 +583,8 @@ struct LoginView: View {
                 in: RoundedRectangle(cornerRadius: 100, style: .continuous)
             )
         }
-        .disabled(otpDigits.joined().count < 6 || authStore.isAuthenticating || authStore.isRequestingOTP)
-        .opacity(otpDigits.joined().count < 6 || authStore.isRequestingOTP ? 0.6 : 1)
+        .disabled(otpCode.count < OtpCodeInput.length || authStore.isAuthenticating || authStore.isRequestingOTP)
+        .opacity(otpCode.count < OtpCodeInput.length || authStore.isRequestingOTP ? 0.6 : 1)
         .buttonStyle(.plain)
     }
 
@@ -619,7 +600,7 @@ struct LoginView: View {
             // may deliver the code before the API acknowledges it, and waiting
             // here made the OTP screen appear frozen on slow connections.
             verifiedPhone = phone
-            otpDigits = Array(repeating: "", count: 6)
+            otpCode = ""
             clearFocus()
             withAnimation(.spring(response: 0.4)) { step = .otp }
         }
@@ -635,7 +616,7 @@ struct LoginView: View {
     }
 
     private func handleVerifyOtp() async {
-        await authStore.verifyOTP(phoneNumber: verifiedPhone, code: otpDigits.joined())
+        await authStore.verifyOTP(phoneNumber: verifiedPhone, code: otpCode)
     }
 
     private func handleEmployeeLogin() async {
@@ -658,7 +639,7 @@ struct LoginView: View {
             if step == .phone {
                 dismissKeyboard()
             } else if step == .otp {
-                otpDigits = Array(repeating: "", count: 6)
+                otpCode = ""
                 step = .phone
             } else if step == .employee {
                 employeePassword = ""
@@ -669,7 +650,7 @@ struct LoginView: View {
 
     private func clearFocus() {
         phoneFieldFocused = false
-        focusedOtpBox = nil
+        otpFocused = false
         employeeFieldFocused = nil
         dismissKeyboard()
     }
@@ -697,35 +678,15 @@ struct LoginView: View {
         }
     }
 
-    private func handleOtpInput(at index: Int, value: String) {
-        let digits = Array(value.filter(\.isNumber))
-        guard !digits.isEmpty else { return }
-        // "From Messages" autofill and paste deliver the whole code at once.
-        // Keeping only the first digit (as before) meant the code iOS had
-        // already read never reached the boxes. A full code fills every box;
-        // a shorter run spreads forward from the tapped box.
-        let start = digits.count >= otpDigits.count ? 0 : index
-        let run = digits.count >= otpDigits.count ? Array(digits.suffix(otpDigits.count)) : digits
-        var next = start
-        for d in run where next < otpDigits.count {
-            otpDigits[next] = String(d)
-            next += 1
-        }
-        focusedOtpBox = min(next, otpDigits.count - 1)
-        if otpDigits.allSatisfy({ !$0.isEmpty }),
+    /// The whole code from the OTP field; a complete code verifies at once
+    /// (typed, pasted or filled from Messages).
+    private func handleOtpChange(_ code: String) {
+        otpCode = code
+        if code.count == OtpCodeInput.length,
            !authStore.isAuthenticating,
            !authStore.isRequestingOTP {
-            focusedOtpBox = nil
+            otpFocused = false
             Task { await handleVerifyOtp() }
-        }
-    }
-
-    private func handleOtpDelete(at index: Int) {
-        if otpDigits[index].isEmpty && index > 0 {
-            focusedOtpBox = index - 1
-            otpDigits[index - 1] = ""
-        } else {
-            otpDigits[index] = ""
         }
     }
 }
@@ -750,99 +711,113 @@ private struct AuthPulsingLoadingCircle: View {
     }
 }
 
-private struct OtpBox: View {
-    @Binding var digit: String
-    let isFocused: Bool
-    let onTap: () -> Void
-    let onInput: (String) -> Void
-    let onDelete: () -> Void
+/// Six display-only boxes over one nearly transparent text field that holds
+/// the whole code. Typing never moves focus, so the keyboard stays open.
+private struct OtpCodeBoxes: View {
+    let code: String
+    @Binding var isFocused: Bool
+    let onChange: (String) -> Void
+
+    var body: some View {
+        let digits = Array(code)
+        let active = OtpCodeInput.activeIndex(for: code)
+        HStack(spacing: 6) {
+            ForEach(0..<OtpCodeInput.length, id: \.self) { i in
+                OtpDigitBox(
+                    digit: i < digits.count ? String(digits[i]) : "",
+                    highlighted: isFocused && i == active
+                )
+            }
+        }
+        .overlay {
+            OtpCodeField(code: code, isFocused: $isFocused, onChange: onChange)
+                // UIKit skips fully transparent controls in hit testing on
+                // some iOS versions; keep it almost invisible but tappable.
+                .opacity(0.02)
+        }
+        .contentShape(Rectangle())
+        .onTapGesture { isFocused = true }
+    }
+}
+
+private struct OtpDigitBox: View, Equatable {
+    let digit: String
+    let highlighted: Bool
 
     var body: some View {
         ZStack {
             RoundedRectangle(cornerRadius: 8, style: .continuous)
+                .fill(Color.appFieldBackground)
+            RoundedRectangle(cornerRadius: 8, style: .continuous)
                 .strokeBorder(
-                    isFocused
-                        ? Color(red: 0.102, green: 0.792, blue: 0.043)
-                        : Color.appSeparator,
+                    highlighted ? Color(red: 0.102, green: 0.792, blue: 0.043) : Color.appSeparator,
                     lineWidth: 1.5
                 )
-                .background(
-                    RoundedRectangle(cornerRadius: 8, style: .continuous)
-                        .fill(Color.appFieldBackground)
-                )
-
             Text(digit.isEmpty ? "0" : digit)
                 .font(.system(size: 20, weight: .semibold))
-                .foregroundStyle(digit.isEmpty
-                                 ? Color.appTertiaryText
-                                 : Color.appPrimaryText)
-
-            // Hidden text field for input capture
-            OtpTextField(
-                text: $digit,
-                isFocused: isFocused,
-                onInput: onInput,
-                onDelete: onDelete
-            )
-            // UIKit excludes fully transparent controls from hit testing on
-            // some iOS versions. Keep this almost invisible, but interactive.
-            .opacity(0.02)
+                .monospacedDigit()
+                .foregroundStyle(digit.isEmpty ? Color.appTertiaryText : Color.appPrimaryText)
         }
         .frame(height: 50)
         .frame(maxWidth: .infinity)
-        .contentShape(Rectangle())
-        .onTapGesture(perform: onTap)
     }
 }
 
-// MARK: - OTP TextField wrapper
+// MARK: - OTP text field
 
-private struct OtpTextField: UIViewRepresentable {
-    @Binding var text: String
-    let isFocused: Bool
-    let onInput: (String) -> Void
-    let onDelete: () -> Void
+private struct OtpCodeField: UIViewRepresentable {
+    let code: String
+    @Binding var isFocused: Bool
+    let onChange: (String) -> Void
 
     func makeCoordinator() -> Coordinator { Coordinator(self) }
 
-    func makeUIView(context: Context) -> _OtpUITextField {
-        let tf = _OtpUITextField()
-        tf.keyboardType = .numberPad
-        tf.textContentType = .oneTimeCode
-        tf.delegate = context.coordinator
-        tf.onDeleteBackward = onDelete
-        tf.setContentHuggingPriority(.defaultHigh, for: .horizontal)
-        return tf
+    func makeUIView(context: Context) -> UITextField {
+        let field = UITextField()
+        field.keyboardType = .numberPad
+        field.textContentType = .oneTimeCode
+        field.autocorrectionType = .no
+        field.spellCheckingType = .no
+        field.tintColor = .clear
+        field.textColor = .clear
+        field.delegate = context.coordinator
+        field.setContentCompressionResistancePriority(.defaultLow, for: .horizontal)
+        return field
     }
 
-    func updateUIView(_ uiView: _OtpUITextField, context: Context) {
+    func updateUIView(_ field: UITextField, context: Context) {
         context.coordinator.parent = self
-        if uiView.text != text { uiView.text = text }
-        if isFocused, uiView.window != nil, !uiView.isFirstResponder {
-            DispatchQueue.main.async { uiView.becomeFirstResponder() }
-        } else if !isFocused, uiView.isFirstResponder {
-            uiView.resignFirstResponder()
+        if field.text != code { field.text = code }
+        if isFocused, field.window != nil, !field.isFirstResponder {
+            DispatchQueue.main.async { field.becomeFirstResponder() }
+        } else if !isFocused, field.isFirstResponder {
+            field.resignFirstResponder()
         }
     }
 
-    class Coordinator: NSObject, UITextFieldDelegate {
-        var parent: OtpTextField
-        init(_ parent: OtpTextField) { self.parent = parent }
+    final class Coordinator: NSObject, UITextFieldDelegate {
+        var parent: OtpCodeField
+        init(_ parent: OtpCodeField) { self.parent = parent }
 
-        func textField(_ tf: UITextField, shouldChangeCharactersIn range: NSRange, replacementString string: String) -> Bool {
-            if string.isEmpty { return true }
-            let digits = string.filter(\.isNumber)
-            // Pass the whole run: autofill / paste inserts all six digits.
-            if !digits.isEmpty { parent.onInput(digits) }
+        func textField(_ field: UITextField, shouldChangeCharactersIn range: NSRange, replacementString string: String) -> Bool {
+            let next = OtpCodeInput.apply(current: field.text ?? "", range: range, replacement: string)
+            if next != (field.text ?? "") {
+                field.text = next
+                parent.onChange(next)
+            }
             return false
         }
-    }
-}
 
-final class _OtpUITextField: UITextField {
-    var onDeleteBackward: (() -> Void)?
-    override func deleteBackward() {
-        onDeleteBackward?()
-        super.deleteBackward()
+        // Keep SwiftUI's focus in step with taps and system resigns, so an
+        // update never resigns a field the staff member just tapped.
+        func textFieldDidBeginEditing(_ field: UITextField) {
+            guard !parent.isFocused else { return }
+            DispatchQueue.main.async { self.parent.isFocused = true }
+        }
+
+        func textFieldDidEndEditing(_ field: UITextField) {
+            guard parent.isFocused else { return }
+            DispatchQueue.main.async { self.parent.isFocused = false }
+        }
     }
 }

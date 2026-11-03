@@ -303,7 +303,7 @@ struct ConvexPermissionListView: View {
             Image(systemName: "chevron.down")
                 .font(.system(size: 11, weight: .bold))
         }
-        .foregroundStyle(Color(hex: 0x061D3D))
+        .foregroundStyle(Color.adaptiveInk(0x061D3D))
         .frame(width: 156, height: 48)
         .background(Color.appSurface, in: RoundedRectangle(cornerRadius: 12, style: .continuous))
         .overlay {
@@ -376,7 +376,7 @@ struct ConvexPermissionListView: View {
             .accessibilityLabel("Filter permissions")
         }
         .padding(3)
-        .background(Color(hex: 0xE9EEF6), in: Capsule())
+        .background(Color.adaptiveTint(0xE9EEF6), in: Capsule())
     }
 
     private func cancelPermissionDialog(for permission: ConvexPermission) -> some View {
@@ -398,7 +398,7 @@ struct ConvexPermissionListView: View {
 
                 Text("Are you sure?")
                     .font(.system(size: 20, weight: .bold))
-                    .foregroundStyle(Color(hex: 0x1D2939))
+                    .foregroundStyle(Color.adaptiveInk(0x1D2939))
                     .padding(.top, 20)
 
                 Text("This permission request will be cancelled and removed from your visible permission history.")
@@ -862,12 +862,9 @@ struct ConvexPermissionListView: View {
 
     private func dateHeading(for permission: ConvexPermission) -> String {
         guard let raw = permission.date?.nonBlank else { return "Permission Date" }
-        let parser = DateFormatter()
-        parser.locale = Locale(identifier: "en_US_POSIX")
-        parser.dateFormat = "yyyy-MM-dd"
+        let parser = CachedDateFormatters.formatter("yyyy-MM-dd", posix: true)
         guard let date = parser.date(from: raw) else { return raw }
-        let formatter = DateFormatter()
-        formatter.dateFormat = "d MMMM yyyy"
+        let formatter = CachedDateFormatters.formatter("d MMMM yyyy")
         return formatter.string(from: date)
     }
 

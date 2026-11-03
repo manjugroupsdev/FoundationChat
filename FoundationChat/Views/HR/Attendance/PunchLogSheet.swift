@@ -33,7 +33,7 @@ struct PunchLogSheet: View {
                                 .font(.system(size: 13, weight: .semibold))
                                 .foregroundStyle(Color(hex: 0xB42318))
                                 .frame(width: 24, height: 24)
-                                .background(Color(hex: 0xFEE4E2), in: Circle())
+                                .background(Color.adaptiveTint(0xFEE4E2), in: Circle())
 
                             VStack(alignment: .leading, spacing: 4) {
                                 Text("Absent · Penalty")
@@ -41,7 +41,7 @@ struct PunchLogSheet: View {
                                     .foregroundStyle(Color(hex: 0xB42318))
                                 Text("Reason: \(penaltyReason)")
                                     .font(.caption)
-                                    .foregroundStyle(Color(hex: 0x7A271A))
+                                    .foregroundStyle(Color.adaptiveInk(0x7A271A))
                                     .fixedSize(horizontal: false, vertical: true)
                             }
                         }
@@ -231,8 +231,7 @@ struct PunchLogSheet: View {
         let date = fractional.date(from: value) ?? standard.date(from: value)
         guard let date else { return value }
 
-        let formatter = DateFormatter()
-        formatter.dateFormat = "hh:mm a"
+        let formatter = CachedDateFormatters.formatter("hh:mm a")
         return formatter.string(from: date)
     }
 

@@ -157,7 +157,7 @@ struct AttendanceReviewView: View {
                     .foregroundStyle(Color(hex: 0x0B61CA))
                     .padding(.horizontal, 12)
                     .padding(.vertical, 8)
-                    .background(Color(hex: 0xEFF8FF), in: Capsule())
+                    .background(Color.adaptiveTint(0xEFF8FF), in: Capsule())
             }
         }
         .padding(.vertical, 2)
@@ -192,7 +192,7 @@ struct AttendanceReviewView: View {
                     .foregroundStyle(Color(hex: 0x0369A1))
                     .padding(.horizontal, 10)
                     .padding(.vertical, 4)
-                    .background(Color(hex: 0xE0F2FE), in: Capsule())
+                    .background(Color.adaptiveTint(0xE0F2FE), in: Capsule())
             }
 
             Button {
@@ -214,7 +214,7 @@ struct AttendanceReviewView: View {
                 .background(Color.appFieldBackground, in: RoundedRectangle(cornerRadius: 12, style: .continuous))
                 .overlay(
                     RoundedRectangle(cornerRadius: 12, style: .continuous)
-                        .stroke(Color(hex: 0xEAECF0), lineWidth: 1)
+                        .stroke(Color.adaptiveTint(0xEAECF0), lineWidth: 1)
                 )
             }
             .buttonStyle(.plain)
@@ -253,7 +253,7 @@ struct AttendanceReviewView: View {
         .background(Color.appSurface, in: RoundedRectangle(cornerRadius: 16, style: .continuous))
         .overlay(
             RoundedRectangle(cornerRadius: 16, style: .continuous)
-                .stroke(Color(hex: 0xEAECF0), lineWidth: 1)
+                .stroke(Color.adaptiveTint(0xEAECF0), lineWidth: 1)
         )
         .shadow(color: Color.black.opacity(0.03), radius: 8, y: 4)
     }
@@ -412,12 +412,9 @@ struct AttendanceReviewView: View {
 
     private func formattedDate(_ raw: String?) -> String? {
         guard let raw, !raw.isEmpty else { return nil }
-        let parser = DateFormatter()
-        parser.dateFormat = "yyyy-MM-dd"
-        parser.locale = Locale(identifier: "en_US_POSIX")
+        let parser = CachedDateFormatters.formatter("yyyy-MM-dd", posix: true)
         guard let date = parser.date(from: raw) else { return nil }
-        let formatter = DateFormatter()
-        formatter.dateFormat = "d MMM yyyy"
+        let formatter = CachedDateFormatters.formatter("d MMM yyyy")
         return formatter.string(from: date)
     }
 
@@ -589,9 +586,7 @@ private extension ConvexAttendanceRecord {
 
     var reviewDate: Date? {
         guard let date else { return nil }
-        let formatter = DateFormatter()
-        formatter.dateFormat = "yyyy-MM-dd"
-        formatter.locale = Locale(identifier: "en_US_POSIX")
+        let formatter = CachedDateFormatters.formatter("yyyy-MM-dd", posix: true)
         return formatter.date(from: date)
     }
 }

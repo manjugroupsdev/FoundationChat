@@ -1038,9 +1038,7 @@ private struct CpListVisit: Identifiable {
 
     var deadlineText: String? {
         guard let rawDate = scheduledDate?.blankToNil else { return nil }
-        let input = DateFormatter()
-        input.locale = Locale(identifier: "en_US_POSIX")
-        input.dateFormat = "yyyy-MM-dd"
+        let input = CachedDateFormatters.formatter("yyyy-MM-dd", posix: true)
         let dateText: String
         if let date = input.date(from: rawDate) {
             let output = DateFormatter()
@@ -1617,8 +1615,7 @@ private struct CpVisitCard: View {
     }()
 
     private static let visitTimeFormatter: DateFormatter = {
-        let formatter = DateFormatter()
-        formatter.dateFormat = "hh:mm a"
+        let formatter = CachedDateFormatters.formatter("hh:mm a")
         return formatter
     }()
 }
@@ -1738,7 +1735,7 @@ private struct CompletedCpVisitDetailView: View {
                     .font(.system(size: 22, weight: .semibold))
                     .foregroundStyle(Color(hex: 0x0B61CA))
                     .frame(width: 52, height: 52)
-                    .background(Color(hex: 0xEAF2FF), in: Circle())
+                    .background(Color.adaptiveTint(0xEAF2FF), in: Circle())
 
                 VStack(alignment: .leading, spacing: 5) {
                     Text(displayName)
@@ -2083,9 +2080,7 @@ private struct CompletedCpVisitDetailView: View {
 
     private func formattedDate(_ raw: String?) -> String {
         guard let raw = raw?.blankToNil else { return "-" }
-        let parser = DateFormatter()
-        parser.locale = Locale(identifier: "en_US_POSIX")
-        parser.dateFormat = "yyyy-MM-dd"
+        let parser = CachedDateFormatters.formatter("yyyy-MM-dd", posix: true)
         guard let date = parser.date(from: raw) else { return raw }
         let formatter = DateFormatter()
         formatter.dateFormat = "dd MMM yyyy"
@@ -2094,8 +2089,7 @@ private struct CompletedCpVisitDetailView: View {
 
     private func formatEpoch(_ millis: Int64?) -> String {
         guard let millis, millis > 0 else { return "-" }
-        let formatter = DateFormatter()
-        formatter.dateFormat = "dd MMM yyyy, hh:mm a"
+        let formatter = CachedDateFormatters.formatter("dd MMM yyyy, hh:mm a")
         return formatter.string(from: Date(timeIntervalSince1970: TimeInterval(millis) / 1000))
     }
 
@@ -3862,9 +3856,7 @@ private struct CreateCpVisitSheet: View {
     }
 
     private static let timeFormatter: DateFormatter = {
-        let formatter = DateFormatter()
-        formatter.locale = Locale(identifier: "en_US_POSIX")
-        formatter.dateFormat = "HH:mm"
+        let formatter = CachedDateFormatters.formatter("HH:mm", posix: true)
         return formatter
     }()
 
@@ -4424,7 +4416,7 @@ private struct ReferralClientPickerSheet: View {
                                     .font(.system(size: 14, weight: .semibold))
                                     .foregroundStyle(Color(hex: 0x0B61CA))
                                     .frame(width: 42, height: 42)
-                                    .background(Color(hex: 0xEAF2FC), in: Circle())
+                                    .background(Color.adaptiveTint(0xEAF2FC), in: Circle())
                                 VStack(alignment: .leading, spacing: 4) {
                                     Text(client.name)
                                         .font(.system(size: 15, weight: .semibold))

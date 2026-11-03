@@ -245,7 +245,7 @@ struct TaskDetailView: View {
                     .font(.system(size: 21, weight: .semibold))
                     .foregroundStyle(Color(hex: 0x0B61CA))
                     .frame(width: 42, height: 42)
-                    .background(Color(hex: 0xEAF3FF), in: Circle())
+                    .background(Color.adaptiveTint(0xEAF3FF), in: Circle())
 
                 VStack(alignment: .leading, spacing: 4) {
                     Text("Task Timeline")
@@ -397,12 +397,9 @@ struct TaskDetailView: View {
 
     private func formatTaskDate(_ raw: String?) -> String {
         guard let raw = raw?.taskNilIfBlank else { return "-" }
-        let parser = DateFormatter()
-        parser.locale = Locale(identifier: "en_US_POSIX")
-        parser.dateFormat = "yyyy-MM-dd"
+        let parser = CachedDateFormatters.formatter("yyyy-MM-dd", posix: true)
         guard let date = parser.date(from: raw) else { return raw }
-        let out = DateFormatter()
-        out.dateFormat = "d MMM yyyy"
+        let out = CachedDateFormatters.formatter("d MMM yyyy")
         return out.string(from: date)
     }
 }
@@ -564,9 +561,7 @@ private struct TimelineEntryView: View {
 
     private func formatDate(_ raw: String?) -> String {
         guard let raw = raw?.taskNilIfBlank else { return "" }
-        let parser = DateFormatter()
-        parser.locale = Locale(identifier: "en_US_POSIX")
-        parser.dateFormat = "yyyy-MM-dd"
+        let parser = CachedDateFormatters.formatter("yyyy-MM-dd", posix: true)
         guard let date = parser.date(from: raw) else { return raw }
         let out = DateFormatter()
         out.dateFormat = "d MMM yyyy"
@@ -581,8 +576,7 @@ private struct TimelineEntryView: View {
             return out.string(from: date)
         }
         if let date = update.occurredAt {
-            let out = DateFormatter()
-            out.dateFormat = "hh:mm a"
+            let out = CachedDateFormatters.formatter("hh:mm a")
             return out.string(from: date)
         }
         return ""

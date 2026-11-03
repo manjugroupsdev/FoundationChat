@@ -1777,9 +1777,7 @@ struct CpRevisitInfo: Decodable, Sendable, Equatable {
     }
 
     var dialogMessage: String {
-        let input = DateFormatter()
-        input.locale = Locale(identifier: "en_US_POSIX")
-        input.dateFormat = "yyyy-MM-dd"
+        let input = CachedDateFormatters.formatter("yyyy-MM-dd", posix: true)
         let output = DateFormatter()
         output.locale = Locale.current
         output.dateFormat = "dd MMM yyyy"

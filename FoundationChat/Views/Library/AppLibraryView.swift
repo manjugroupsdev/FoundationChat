@@ -270,7 +270,7 @@ private struct NativeAppLibraryRow: View {
                     .foregroundStyle(Color(hex: 0xB54708))
                     .padding(.horizontal, 12)
                     .frame(height: 28)
-                    .background(Color(hex: 0xFEF0C7), in: Capsule())
+                    .background(Color.adaptiveTint(0xFEF0C7), in: Capsule())
                     .overlay(
                         Capsule()
                             .stroke(Color(hex: 0xFEDF89), lineWidth: 1)
@@ -291,7 +291,7 @@ private struct NativeAppLibraryRow: View {
             icon: item.icon,
             systemIcon: item.systemIcon,
             foreground: item.iconTint ?? Color(hex: 0x0B61CA),
-            background: item.iconBackground ?? Color(hex: 0xEAF4FF),
+            background: item.iconBackground ?? Color.adaptiveTint(0xEAF4FF),
             size: 32,
             symbolSize: 17
         )
@@ -442,7 +442,7 @@ private struct AppLibrarySection: Identifiable {
                     destination: .fines,
                     systemIcon: "scalemass",
                     iconTint: Color(hex: 0x0B61CA),
-                    iconBackground: Color(hex: 0xEAF4FF)
+                    iconBackground: Color.adaptiveTint(0xEAF4FF)
                 )
                 : nil,
             canAny(["leaves.view", "leaves.viewAll", "leaves.approve"])
@@ -461,7 +461,7 @@ private struct AppLibrarySection: Identifiable {
                     destination: .security,
                     systemIcon: "lock.shield",
                     iconTint: Color(hex: 0x6941C6),
-                    iconBackground: Color(hex: 0xF4F3FF)
+                    iconBackground: Color.adaptiveTint(0xF4F3FF)
                 )
                 : nil
         ].compactMap(\.self)
@@ -474,7 +474,7 @@ private struct AppLibrarySection: Identifiable {
                     destination: .taskManager,
                     systemIcon: "checklist",
                     iconTint: Color(hex: 0x0891B2),
-                    iconBackground: Color(hex: 0xE0F7FA)
+                    iconBackground: Color.adaptiveTint(0xE0F7FA)
                 )
                 : nil
         ].compactMap(\.self)
@@ -495,7 +495,7 @@ private struct AppLibrarySection: Identifiable {
                     destination: .cpApprovals,
                     systemIcon: "checkmark.seal",
                     iconTint: Color(hex: 0xB54708),
-                    iconBackground: Color(hex: 0xFEF0C7)
+                    iconBackground: Color.adaptiveTint(0xFEF0C7)
                 )
                 : nil,
             canAny(["marketing.siteVisits.view"])
@@ -526,7 +526,7 @@ private struct AppLibrarySection: Identifiable {
                     destination: .dailyLog,
                     systemIcon: "doc.text.magnifyingglass",
                     iconTint: Color(hex: 0x16A34A),
-                    iconBackground: Color(hex: 0xDCFCE7)
+                    iconBackground: Color.adaptiveTint(0xDCFCE7)
                 )
                 : nil,
             canAny(["projects.view"])
@@ -536,7 +536,7 @@ private struct AppLibrarySection: Identifiable {
                     destination: .issues,
                     systemIcon: "questionmark.bubble",
                     iconTint: Color(hex: 0x16A34A),
-                    iconBackground: Color(hex: 0xDCFCE7)
+                    iconBackground: Color.adaptiveTint(0xDCFCE7)
                 )
                 : nil,
             canAny(["projects.expenses.view", "projects.expenses.create", "projects.expenses.approve"])
@@ -546,7 +546,7 @@ private struct AppLibrarySection: Identifiable {
                     destination: .expenses,
                     systemIcon: "indianrupeesign.circle",
                     iconTint: Color(hex: 0x16A34A),
-                    iconBackground: Color(hex: 0xDCFCE7)
+                    iconBackground: Color.adaptiveTint(0xDCFCE7)
                 )
                 : nil
         ].compactMap(\.self)
@@ -559,7 +559,7 @@ private struct AppLibrarySection: Identifiable {
                     destination: .landInspection,
                     systemIcon: "doc.text.magnifyingglass",
                     iconTint: Color(hex: 0xE401B3),
-                    iconBackground: Color(hex: 0xFFE8FC)
+                    iconBackground: Color.adaptiveTint(0xFFE8FC)
                 )
                 : nil,
             canAny(["land.view", "land.inspect", "land.inspection.view"])
@@ -569,7 +569,7 @@ private struct AppLibrarySection: Identifiable {
                     destination: .landQueries,
                     systemIcon: "questionmark.bubble",
                     iconTint: Color(hex: 0xE401B3),
-                    iconBackground: Color(hex: 0xFFE8FC)
+                    iconBackground: Color.adaptiveTint(0xFFE8FC)
                 )
                 : nil
         ].compactMap(\.self)
@@ -588,7 +588,7 @@ private struct AppLibrarySection: Identifiable {
                     destination: .fleetMyTrips,
                     systemIcon: "car",
                     iconTint: Color(hex: 0x0B61CA),
-                    iconBackground: Color(hex: 0xEAF4FF)
+                    iconBackground: Color.adaptiveTint(0xEAF4FF)
                 )
                 : nil,
             // Same gate as the web Cab Requests tab.
@@ -603,7 +603,7 @@ private struct AppLibrarySection: Identifiable {
                     destination: .cabRequests,
                     systemIcon: "car.2",
                     iconTint: Color(hex: 0x7E22CE),
-                    iconBackground: Color(hex: 0xFAF5FF)
+                    iconBackground: Color.adaptiveTint(0xFAF5FF)
                 )
                 : nil
         ].compactMap(\.self)
@@ -616,7 +616,7 @@ private struct AppLibrarySection: Identifiable {
                     destination: .collections,
                     systemIcon: "creditcard",
                     iconTint: Color(hex: 0xD01784),
-                    iconBackground: Color(hex: 0xFCE7F3)
+                    iconBackground: Color.adaptiveTint(0xFCE7F3)
                 )
                 : nil,
             canAny(["postSales.loanDesk.manage"])
@@ -626,7 +626,7 @@ private struct AppLibrarySection: Identifiable {
                     destination: .loanDesk,
                     systemIcon: "indianrupeesign.circle",
                     iconTint: Color(hex: 0xD01784),
-                    iconBackground: Color(hex: 0xFCE7F3)
+                    iconBackground: Color.adaptiveTint(0xFCE7F3)
                 )
                 : nil
         ].compactMap(\.self)
@@ -659,7 +659,7 @@ private struct AppLibrarySection: Identifiable {
                     destination: .qrScanner,
                     systemIcon: "qrcode.viewfinder",
                     iconTint: Color(hex: 0x6D28D9),
-                    iconBackground: Color(hex: 0xEDE9FE)
+                    iconBackground: Color.adaptiveTint(0xEDE9FE)
                 )
                 : nil
         ].compactMap(\.self)
@@ -677,7 +677,7 @@ private struct AppLibrarySection: Identifiable {
                 icon: "AppLibraryIconAppsCatPm",
                 systemIcon: "checklist",
                 iconTint: Color(hex: 0x0891B2),
-                iconBackground: Color(hex: 0xE0F7FA),
+                iconBackground: Color.adaptiveTint(0xE0F7FA),
                 items: taskManagerItems
             ),
             .init(
@@ -704,7 +704,7 @@ private struct AppLibrarySection: Identifiable {
                 icon: "AppLibraryIconAppsCatPm",
                 systemIcon: "folder.badge.gearshape",
                 iconTint: Color(hex: 0x16A34A),
-                iconBackground: Color(hex: 0xDCFCE7),
+                iconBackground: Color.adaptiveTint(0xDCFCE7),
                 items: projectItems
             ),
             .init(
@@ -715,7 +715,7 @@ private struct AppLibrarySection: Identifiable {
                 icon: "AppLibraryIconAppsCatMarketing",
                 systemIcon: "map",
                 iconTint: Color(hex: 0xE401B3),
-                iconBackground: Color(hex: 0xFFE8FC),
+                iconBackground: Color.adaptiveTint(0xFFE8FC),
                 items: landItems
             ),
             .init(
@@ -726,7 +726,7 @@ private struct AppLibrarySection: Identifiable {
                 icon: "AppLibraryIconAppsCatMarketing",
                 systemIcon: "car.fill",
                 iconTint: Color(hex: 0x0B61CA),
-                iconBackground: Color(hex: 0xEAF4FF),
+                iconBackground: Color.adaptiveTint(0xEAF4FF),
                 items: fleetItems
             ),
             .init(
@@ -737,7 +737,7 @@ private struct AppLibrarySection: Identifiable {
                 icon: "AppLibraryIconAppsCatMarketing",
                 systemIcon: "megaphone",
                 iconTint: Color(hex: 0xD01784),
-                iconBackground: Color(hex: 0xFCE7F3),
+                iconBackground: Color.adaptiveTint(0xFCE7F3),
                 items: salesItems
             ),
             .init(
@@ -759,7 +759,7 @@ private struct AppLibrarySection: Identifiable {
                 icon: "AppLibraryIconAppsCatConfig",
                 systemIcon: "person.crop.rectangle",
                 iconTint: Color(hex: 0x7C3AED),
-                iconBackground: Color(hex: 0xF3E8FF),
+                iconBackground: Color.adaptiveTint(0xF3E8FF),
                 items: frontDeskItems
             ),
             .init(

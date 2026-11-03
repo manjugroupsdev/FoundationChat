@@ -807,7 +807,7 @@ struct CompleteCpVisitSheet: View {
                     .font(.system(size: 62, weight: .regular))
                     .foregroundStyle(Color(hex: 0x0B61CA))
                     .frame(width: 120, height: 120)
-                    .background(Color(hex: 0xEAF2FF), in: Circle())
+                    .background(Color.adaptiveTint(0xEAF2FF), in: Circle())
                 Text("Let's find your client")
                     .font(.system(size: 15, weight: .semibold))
                     .foregroundStyle(.primary)
@@ -2997,9 +2997,7 @@ private extension DateFormatter {
     }()
 
     static let cpOutcomeDateTime: DateFormatter = {
-        let formatter = DateFormatter()
-        formatter.locale = Locale(identifier: "en_US_POSIX")
-        formatter.dateFormat = "dd/MM/yyyy hh:mm a"
+        let formatter = CachedDateFormatters.formatter("dd/MM/yyyy hh:mm a", posix: true)
         return formatter
     }()
 }

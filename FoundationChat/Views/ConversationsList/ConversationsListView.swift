@@ -340,7 +340,7 @@ struct ConversationsListView: View {
                   .font(.system(size: 18, weight: .semibold))
                   .foregroundStyle(Color(red: 0.05, green: 0.38, blue: 0.79))
                   .frame(width: 32, height: 32)
-                  .background(Color(red: 0.93, green: 0.96, blue: 1.0), in: Circle())
+                  .background(Color.adaptiveTint(red: 0.93, green: 0.96, blue: 1.0), in: Circle())
               }
               .buttonStyle(.plain)
             } else {
@@ -1245,23 +1245,23 @@ private struct NativeGroupsIllustration: View {
 
       Image(systemName: "checklist")
         .font(.system(size: 47, weight: .regular))
-        .foregroundStyle(Color(red: 0.22, green: 0.25, blue: 0.22))
+        .foregroundStyle(Color.adaptiveInk(red: 0.22, green: 0.25, blue: 0.22))
         .offset(x: 48, y: -34)
         .rotationEffect(.degrees(11))
 
       Image(systemName: "text.bubble")
         .font(.system(size: 38, weight: .regular))
-        .foregroundStyle(Color(red: 0.22, green: 0.25, blue: 0.22))
+        .foregroundStyle(Color.adaptiveInk(red: 0.22, green: 0.25, blue: 0.22))
         .offset(x: -52, y: -32)
 
       Image(systemName: "folder")
         .font(.system(size: 42, weight: .regular))
-        .foregroundStyle(Color(red: 0.22, green: 0.25, blue: 0.22))
+        .foregroundStyle(Color.adaptiveInk(red: 0.22, green: 0.25, blue: 0.22))
         .offset(x: -70, y: 48)
 
       Image(systemName: "calendar")
         .font(.system(size: 41, weight: .regular))
-        .foregroundStyle(Color(red: 0.22, green: 0.25, blue: 0.22))
+        .foregroundStyle(Color.adaptiveInk(red: 0.22, green: 0.25, blue: 0.22))
         .offset(x: 66, y: 50)
 
       Circle()

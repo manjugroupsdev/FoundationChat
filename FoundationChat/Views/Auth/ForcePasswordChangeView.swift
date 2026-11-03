@@ -31,11 +31,11 @@ struct ForcePasswordChangeView: View {
                 VStack(spacing: 6) {
                     Text("Change Password")
                         .font(.system(size: 24, weight: .semibold))
-                        .foregroundStyle(Color(red: 0.063, green: 0.094, blue: 0.157))
+                        .foregroundStyle(Color.adaptiveInk(red: 0.063, green: 0.094, blue: 0.157))
 
                     Text("Choose a personal password for Employee ID \(authStore.currentSession?.user.employeeId ?? "").")
                         .font(.system(size: 14, weight: .medium))
-                        .foregroundStyle(Color(red: 0.278, green: 0.329, blue: 0.400))
+                        .foregroundStyle(Color.adaptiveInk(red: 0.278, green: 0.329, blue: 0.400))
                         .multilineTextAlignment(.center)
                 }
                 .frame(maxWidth: .infinity)
@@ -116,7 +116,7 @@ struct ForcePasswordChangeView: View {
         VStack(alignment: .leading, spacing: 4) {
             Text(title)
                 .font(.system(size: 12, weight: .regular))
-                .foregroundStyle(Color(red: 0.278, green: 0.329, blue: 0.400))
+                .foregroundStyle(Color.adaptiveInk(red: 0.278, green: 0.329, blue: 0.400))
 
             HStack(spacing: 10) {
                 Image(systemName: "lock")
