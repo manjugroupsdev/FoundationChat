@@ -33,6 +33,9 @@ struct PunchFlowView: View {
     @State private var didQueueOffline = false
     /// The punch was already recorded elsewhere while this screen was open.
     @State private var alreadyRecorded: AttendanceAlreadyRecorded?
+    /// Selfie upload started as soon as the selfie is taken, so Confirm only
+    /// has to send the punch (it used to start only after Confirm).
+    @State private var selfieUpload: Task<String, Error>?
 
     /// Thrown by the pre-check when today's attendance already has this punch.
     private struct PunchAlreadyRecorded: Error {
@@ -137,10 +140,13 @@ struct PunchFlowView: View {
                 }
             }
             .onChange(of: capturedImage) { _, newImage in
-                guard newImage != nil else { return }
+                selfieUpload?.cancel()
+                selfieUpload = nil
+                guard let newImage else { return }
                 captureTimestamp = Date()
                 errorMessage = nil
                 showConfirmation = true
+                startSelfieUpload(newImage)
             }
         }
         .appFormActivity()
@@ -329,9 +335,12 @@ struct PunchFlowView: View {
             let jpegData = image.attendanceUploadJPEGData(maxEdge: 1280, quality: 0.68)
             do {
                 statusText = "Checking attendance..."
-                let latestAttendance = try await HRConvexAPIService.getTodayAttendance(token: token)
+                // Both reads at once (they used to run one after the other).
                 let today = Self.dateKeyFormatter.string(from: Date())
-                let daySessions = try? await HRConvexAPIService.getDaySessions(token: token, date: today)
+                async let attendanceRead = HRConvexAPIService.getTodayAttendance(token: token)
+                async let sessionsRead = try? HRConvexAPIService.getDaySessions(token: token, date: today)
+                let latestAttendance = try await attendanceRead
+                let daySessions = await sessionsRead
                 let firstPunchIn = daySessions?.firstPunchIn ?? latestAttendance?.firstPunchIn ?? latestAttendance?.punchInTime
                 let hasPunchedInToday = firstPunchIn?.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty == false
                 let clockedOutOnMobile = AttendanceTrackingGate.isClockedOutOnMobile(
@@ -356,12 +365,25 @@ struct PunchFlowView: View {
                 guard let jpegData else {
                     throw HRConvexAPIError.server("Failed to encode selfie")
                 }
-                let photoStorageId = try await HRConvexAPIService.uploadPhoto(
-                    token: token,
-                    imageData: jpegData,
-                    fileName: "attendance-photo.jpg",
-                    purpose: .attendancePhoto
-                )
+                let photoStorageId: String
+                if let prepared = selfieUpload {
+                    // Usually finished while the confirm screen was open. A failure
+                    // is handled like a direct upload failure (offline queues at
+                    // once) and dropped, so a retry uploads fresh.
+                    do {
+                        photoStorageId = try await prepared.value
+                    } catch {
+                        selfieUpload = nil
+                        throw error
+                    }
+                } else {
+                    photoStorageId = try await HRConvexAPIService.uploadPhoto(
+                        token: token,
+                        imageData: jpegData,
+                        fileName: "attendance-photo.jpg",
+                        purpose: .attendancePhoto
+                    )
+                }
 
                 statusText = mode == .punchIn ? "Clocking in..." : "Clocking out..."
 
@@ -392,22 +414,28 @@ struct PunchFlowView: View {
                 }
 
                 LocalPunchState.record(isPunchIn: mode == .punchIn, token: token)
-                statusText = mode == .punchIn ? "Starting tracking..." : "Stopping tracking..."
-                await GeoTrackBootstrapCoordinator.shared.sync(
-                    reason: mode == .punchIn ? "attendance-punch-in" : "attendance-punch-out",
-                    force: true,
-                    allowConsentPresentation: false,
-                    contextId: attendanceId,
-                    occurredAt: Int64(tapTime.timeIntervalSince1970 * 1_000),
-                    lat: loc.coordinate.latitude,
-                    lng: loc.coordinate.longitude,
-                    attendanceOpen: mode == .punchIn
-                )
-                await loadCurrentAttendanceStatus()
                 didQueueOffline = false
                 onComplete?()
                 completedAt = tapTime
                 showSuccessSheet = true
+                // The punch is confirmed: show it now. Starting/stopping tracking
+                // and refreshing the status used to hold the success screen; they
+                // run straight after and finish even if the screen is closed.
+                let punchedIn = mode == .punchIn
+                let occurredAt = Int64(tapTime.timeIntervalSince1970 * 1_000)
+                Task {
+                    await GeoTrackBootstrapCoordinator.shared.sync(
+                        reason: punchedIn ? "attendance-punch-in" : "attendance-punch-out",
+                        force: true,
+                        allowConsentPresentation: false,
+                        contextId: attendanceId,
+                        occurredAt: occurredAt,
+                        lat: loc.coordinate.latitude,
+                        lng: loc.coordinate.longitude,
+                        attendanceOpen: punchedIn
+                    )
+                    await loadCurrentAttendanceStatus()
+                }
             } catch let already as PunchAlreadyRecorded {
                 await showAlreadyRecorded(already.state)
             } catch let error where AttendanceAlreadyRecorded.from(error) != nil {
@@ -479,6 +507,22 @@ struct PunchFlowView: View {
         alreadyRecorded = nil
         onComplete?()
         dismiss()
+    }
+
+    /// Uploads the selfie in the background while the confirm screen is open.
+    private func startSelfieUpload(_ image: UIImage) {
+        guard let token = authStore.currentSession?.token else { return }
+        selfieUpload = Task {
+            guard let data = image.attendanceUploadJPEGData(maxEdge: 1280, quality: 0.68) else {
+                throw HRConvexAPIError.server("Failed to encode selfie")
+            }
+            return try await HRConvexAPIService.uploadPhoto(
+                token: token,
+                imageData: data,
+                fileName: "attendance-photo.jpg",
+                purpose: .attendancePhoto
+            )
+        }
     }
 
     private func finishAfterSuccess() {
@@ -590,8 +634,8 @@ private struct PunchSuccessSheet: View {
                 : "Saved offline at this time — it will sync automatically when you're back online."
         }
         return mode == .punchIn
-            ? "Your attendance is active and tracking has been synced."
-            : "Your attendance session is closed and tracking has been synced."
+            ? "Your attendance is active and tracking is starting."
+            : "Your attendance session is closed and tracking is stopping."
     }
 
     private var accent: Color {
