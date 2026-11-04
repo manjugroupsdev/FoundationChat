@@ -2332,11 +2332,19 @@ private struct LoanCaseDocumentsSheet: View {
     @State private var errorMessage: String?
     @State private var isSubmitting = false
     @State private var isUploading = false
+    /// Where uploads go at the case's stage; switches to .onSubmit if the
+    /// server refuses to attach (older servers don't send the stage).
+    @State private var uploadMode: LoanDocumentUploadPolicy.Mode?
+
+    private var effectiveUploadMode: LoanDocumentUploadPolicy.Mode {
+        uploadMode ?? LoanDocumentUploadPolicy.mode(stage: loanCase.currentLoanStage)
+    }
 
     // Sales can upload/replace until a legal officer is assigned. Everyone
-    // else (and Sales post-assignment) views the checklist read-only.
+    // else (and Sales post-assignment) views the checklist read-only, as does
+    // a case past document verification (the server refuses changes there).
     private var isEditable: Bool {
-        mode == .sales && loanCase.legalAssignedName?.nonBlank == nil
+        mode == .sales && loanCase.legalAssignedName?.nonBlank == nil && effectiveUploadMode != .locked
     }
 
     // Mirrors Android's allCovered + anyFreshReady: every slot must have a
@@ -2362,7 +2370,7 @@ private struct LoanCaseDocumentsSheet: View {
                     }
                 }
 
-                Section(isEditable ? "Required Documents" : "Documents") {
+                Section {
                     if slots.isEmpty {
                         Text("No documents are configured for this loan case.")
                             .font(.caption)
@@ -2373,6 +2381,12 @@ private struct LoanCaseDocumentsSheet: View {
                     }
                     if isUploading {
                         ProgressView("Uploading document...")
+                    }
+                } header: {
+                    Text(isEditable ? "Required Documents" : "Documents")
+                } footer: {
+                    if isEditable && effectiveUploadMode == .onSubmit {
+                        Text("Files are added to the loan case when you tap Submit.")
                     }
                 }
             }
@@ -2477,14 +2491,6 @@ private struct LoanCaseDocumentsSheet: View {
                     .accessibilityLabel("Preview \(value.label)")
                 }
                 if isEditable {
-                    Button { scanningSlotId = value.id } label: {
-                        Label("Scan", systemImage: "doc.viewfinder")
-                    }
-                    .accessibilityLabel("Scan \(value.label)")
-                    Button { importingSlotId = value.id } label: {
-                        Image(systemName: "paperclip")
-                    }
-                    .accessibilityLabel("Attach \(value.label)")
                     if value.pendingFileURL != nil && !isUploading {
                         Button("Retry") {
                             if let url = value.pendingFileURL {
@@ -2503,6 +2509,25 @@ private struct LoanCaseDocumentsSheet: View {
             }
             .font(.system(size: 13, weight: .semibold))
             .buttonStyle(.borderless)
+
+            if isEditable {
+                // Upload and Scan, equal width and height.
+                HStack(spacing: 12) {
+                    Button { importingSlotId = value.id } label: {
+                        Label("Upload", systemImage: "arrow.up.doc")
+                            .frame(maxWidth: .infinity, minHeight: 44)
+                    }
+                    .accessibilityLabel("Upload \(value.label)")
+                    Button { scanningSlotId = value.id } label: {
+                        Label("Scan", systemImage: "doc.viewfinder")
+                            .frame(maxWidth: .infinity, minHeight: 44)
+                    }
+                    .accessibilityLabel("Scan \(value.label)")
+                }
+                .font(.system(size: 14, weight: .semibold))
+                .buttonStyle(.bordered)
+                .disabled(isUploading)
+            }
         }
     }
 
@@ -2522,12 +2547,15 @@ private struct LoanCaseDocumentsSheet: View {
     private func importDocument(_ result: Result<[URL], Error>) async {
         guard authStore.currentSession?.token != nil, let slotId = importingSlotId else { return }
         do {
-            guard let url = try result.get().first else { return }
+            guard let picked = try result.get().first else { return }
             isUploading = true
             defer {
                 isUploading = false
                 importingSlotId = nil
             }
+            let url = try await Task.detached(priority: .userInitiated) {
+                try LoanDocumentFilePreparer.prepare(picked)
+            }.value
             await uploadDocument(url, to: slotId, startsNewAttempt: true)
         } catch {
             errorMessage = error.localizedDescription
@@ -2544,10 +2572,11 @@ private struct LoanCaseDocumentsSheet: View {
         slots[slotIndex].pendingFileURL = url
         isUploading = true
         defer { isUploading = false }
+        let attach = effectiveUploadMode == .attach
         do {
             let response = try await PostSalesConvexAPIService.uploadLoanDocument(
                 token: token,
-                loanCaseId: loanCase.id,
+                loanCaseId: attach ? loanCase.id : nil,
                 label: slots[slotIndex].label,
                 fileURL: url,
                 requestId: slots[slotIndex].requestId
@@ -2560,8 +2589,17 @@ private struct LoanCaseDocumentsSheet: View {
             slots[slotIndex].fileName = document.fileName?.nonBlank ?? url.lastPathComponent
             slots[slotIndex].pendingFileURL = nil
             slots[slotIndex].isFresh = true
-            await onSaved()
+            slots[slotIndex].attached = attach
+            // A file uploaded for Submit is not on the case yet.
+            if attach { await onSaved() }
         } catch {
+            if attach && LoanDocumentUploadPolicy.isStageRefusal(error.localizedDescription) {
+                // The case is still at Loan Initiation: upload the file on its
+                // own and let Submit attach it. New request: the key is spent.
+                uploadMode = .onSubmit
+                await uploadDocument(url, to: slotId, startsNewAttempt: true)
+                return
+            }
             errorMessage = error.localizedDescription
         }
     }
@@ -2572,6 +2610,16 @@ private struct LoanCaseDocumentsSheet: View {
         guard let token = authStore.currentSession?.token,
               let slotIndex = slots.firstIndex(where: { $0.id == slotId }),
               let storageId = slots[slotIndex].storageId?.nonBlank else { return }
+        if slots[slotIndex].isFresh && !slots[slotIndex].attached {
+            // Uploaded for Submit, not on the case: nothing to remove server-side.
+            slots[slotIndex].storageId = nil
+            slots[slotIndex].fileName = nil
+            slots[slotIndex].pendingFileURL = nil
+            slots[slotIndex].isFresh = false
+            slots[slotIndex].attached = true
+            slots[slotIndex].requestId = UUID().uuidString
+            return
+        }
         do {
             _ = try await PostSalesConvexAPIService.deleteLoanDocument(
                 token: token,
@@ -2639,6 +2687,8 @@ private struct LoanDocSlot: Identifiable, Equatable {
     // True when the file was picked in this session (vs. seeded from the
     // server) — only fresh uploads go in the submit payload.
     var isFresh: Bool = false
+    // False when uploaded on its own (Loan Initiation): Submit attaches it.
+    var attached: Bool = true
 
     private static let defaultLabels = ["PAN Card", "Aadhaar Card", "Bank Statement", "Pay Slip"]
 
@@ -2726,11 +2776,17 @@ private struct LoanDocumentScanner: UIViewControllerRepresentable {
 
         private func optimized(_ image: UIImage) -> UIImage {
             let longest = max(image.size.width, image.size.height)
-            let scale = min(1, 2200 / max(longest, 1))
+            // Long enough for small print on statements and slips.
+            let scale = min(1, 2400 / max(longest, 1))
             let size = CGSize(width: image.size.width * scale, height: image.size.height * scale)
-            let renderer = UIGraphicsImageRenderer(size: size)
+            // Scale 1: one pixel per point. The default (screen scale, 3x) made
+            // each page ~7200 px on the long edge, so scans were huge.
+            let format = UIGraphicsImageRendererFormat.default()
+            format.scale = 1
+            format.opaque = true
+            let renderer = UIGraphicsImageRenderer(size: size, format: format)
             let resized = renderer.image { _ in image.draw(in: CGRect(origin: .zero, size: size)) }
-            guard let data = resized.jpegData(compressionQuality: 0.78), let compressed = UIImage(data: data) else {
+            guard let data = resized.jpegData(compressionQuality: 0.85), let compressed = UIImage(data: data) else {
                 return resized
             }
             return compressed

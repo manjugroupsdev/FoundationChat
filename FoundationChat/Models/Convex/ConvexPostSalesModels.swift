@@ -133,6 +133,9 @@ struct LoanCaseRow: Decodable, Identifiable, Equatable, Sendable {
     let date: String?
     let statusLabel: String?
     let status: String?
+    /// Loan workflow stage (loan_initiation, document_collection, ...); decides
+    /// whether uploads attach now or on Submit. Older servers omit it.
+    var currentLoanStage: String? = nil
     let applicantType: String?
     let requestedAmount: Double?
     let sanctionedAmount: Double?
@@ -154,7 +157,7 @@ struct LoanCaseRow: Decodable, Identifiable, Equatable, Sendable {
     enum CodingKeys: String, CodingKey {
         case id = "_id"
         case caseId, bookingId, name, phone, amount, location, date, statusLabel
-        case status, applicantType, requestedAmount, sanctionedAmount
+        case status, currentLoanStage, applicantType, requestedAmount, sanctionedAmount
         case documentsChecklist, documentLabels, documentCount, legalAssignedStaffId
         case legalAssignedName, legalAssignedAt, legalRejectionRemarks, legalClearedAt
         case legalClearedByName, submittedByStaffId, submittedByName, bookingRefNo

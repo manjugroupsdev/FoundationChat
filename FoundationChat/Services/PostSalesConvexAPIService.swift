@@ -276,9 +276,11 @@ enum PostSalesConvexAPIService {
         return wrapper.loanCase
     }
 
+    /// With a nil loanCaseId the file is uploaded on its own and attached by
+    /// submitLoanRequest (needed while the case is at Loan Initiation).
     static func uploadLoanDocument(
         token: String,
-        loanCaseId: String,
+        loanCaseId: String?,
         label: String,
         fileURL: URL,
         requestId: String
@@ -297,7 +299,7 @@ enum PostSalesConvexAPIService {
             append("Content-Disposition: form-data; name=\"\(name)\"\r\n\r\n")
             append("\(value)\r\n")
         }
-        appendField("loanCaseId", loanCaseId)
+        if let loanCaseId = loanCaseId?.nonBlank { appendField("loanCaseId", loanCaseId) }
         appendField("label", label)
         appendField("requestId", requestId)
         let mimeType = UTType(filenameExtension: fileURL.pathExtension)?.preferredMIMEType ?? "application/octet-stream"
