@@ -1231,6 +1231,14 @@ struct TripNavigationView: View {
             visitStarted = true
             serverOutcomePendingFinalClose = false
             statusLine = "Pending Review"
+        } else if normalized == "pending_gm_approval" || normalized == "pending-gm-approval" {
+            // Outcome recorded outside the geofence, waiting for the approver.
+            // OTP, proof and outcome are done: this had no branch, so the
+            // screen counted the trip as not started and offered Start Trip.
+            visitStarted = true
+            visitCompletedSuccessfully = true
+            serverOutcomePendingFinalClose = false
+            statusLine = "Pending Approval"
         } else if ["completed", "complete", "done", "closed"].contains(normalized) {
             visitStarted = true
             visitCompletedSuccessfully = true
@@ -2641,6 +2649,9 @@ struct TripNavigationView: View {
 
     private var statusBadge: String {
         if arrivalInProgress { return "Arriving" }
+        if ["pending_gm_approval", "pending-gm-approval"].contains(normalizedInitialStatus) {
+            return "Pending Approval"
+        }
         switch tripProgressStage {
         case .complete: return "Complete"
         case .reached, .reaching: return "Reaching"

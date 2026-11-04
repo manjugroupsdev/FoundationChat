@@ -13,7 +13,11 @@ struct CpVisitsView: View {
     @State private var searchText = ""
     @State private var selectedFilter: CpVisitFilter = .all
     @State private var filterOptions: CpVisitFilterOptionsResponse?
-    @State private var isClockedIn = false
+    /// Nil until the first attendance read answers. Unknown is shown as
+    /// clocked in (a failed read used to label every card "Need to Clock In"
+    /// for a staffer with an open session); Start Trip re-checks for real.
+    @State private var clockInState: Bool?
+    private var isClockedIn: Bool { clockInState ?? true }
     @State private var selectedOutcomeVisit: CpListVisit?
     @State private var pendingCpRevisit: CpRevisitInfo?
     @State private var showCpRevisitConfirmation = false
@@ -550,7 +554,8 @@ struct CpVisitsView: View {
             Task {
                 let clockedIn = await loadClockInState(token: token)
                 guard generation == loadGeneration else { return }
-                isClockedIn = clockedIn
+                // A failed read keeps the last known answer.
+                if let clockedIn { clockInState = clockedIn }
             }
             Task {
                 let options = await fetchCpFilterOptions(
@@ -672,8 +677,8 @@ struct CpVisitsView: View {
         }
     }
 
-    private func loadClockInState(token: String) async -> Bool {
-        await AttendanceTrackingGate.isClockedInForToday(token: token)
+    private func loadClockInState(token: String) async -> Bool? {
+        await AttendanceTrackingGate.isClockedInForTodayIfKnown(token: token)
     }
 
     private func coordinate(for visit: CpListVisit) -> CLLocationCoordinate2D? {
@@ -1066,12 +1071,19 @@ private struct CpListVisit: Identifiable {
         normalizedStatus == "arrived" && outcome?.blankToNil == nil
     }
 
-    var isOpenableCpVisit: Bool {
-        !normalizedStatus.isCompleted && !normalizedStatus.isCancelled && !isExpired
+    /// Outcome recorded outside the geofence, waiting for the approver.
+    var isHeldForApproval: Bool {
+        normalizedStatus == "pending_gm_approval" || normalizedStatus == "pending-gm-approval"
     }
 
+    var isOpenableCpVisit: Bool {
+        !normalizedStatus.isCompleted && !normalizedStatus.isCancelled && !isExpired && !isHeldForApproval
+    }
+
+    /// Opens the read-only summary. A held CP goes there too: its trip is
+    /// done, and the trip screen would offer Start Trip again.
     var isCompletedCpVisit: Bool {
-        normalizedStatus.isCompleted
+        normalizedStatus.isCompleted || isHeldForApproval
     }
 
     var isPendingOutcomeCpVisit: Bool {
@@ -1424,6 +1436,7 @@ private struct CpVisitCard: View {
 
     private var etaText: String {
         if visit.isExpired { return "Expired" }
+        if visit.isHeldForApproval { return "With approver" }
         if visit.isPostponedCpVisit { return "Postponed" }
         if normalizedStatus.isCancelled { return "Cancelled" }
         if normalizedStatus.isCompleted { return "Complete" }
@@ -1435,6 +1448,7 @@ private struct CpVisitCard: View {
     private var statusTitle: String {
         if visit.isExpired { return "Expired" }
         if normalizedStatus.isCancelled { return "Cancelled" }
+        if visit.isHeldForApproval { return "Pending Approval" }
         if visit.isPendingOutcomeCpVisit { return "Pending" }
         if normalizedStatus == CpVisitStatusPolicy.jointPendingReview { return "Pending Review" }
         if normalizedStatus.isCompleted { return "Completed" }
@@ -1447,6 +1461,13 @@ private struct CpVisitCard: View {
     private var actionTitle: String {
         if visit.isExpired { return "Expired" }
         if normalizedStatus.isCancelled { return "Cancelled" }
+        if visit.isHeldForApproval {
+            if let name = visit.detail.approvalGmName?.trimmingCharacters(in: .whitespacesAndNewlines),
+               !name.isEmpty {
+                return "Awaiting: \(name)"
+            }
+            return "Awaiting approval"
+        }
         if visit.isPendingOutcomeCpVisit { return "Pending" }
         if normalizedStatus == CpVisitStatusPolicy.jointPendingReview {
             // Tell each side what THEY are waiting on: the reviewer gets a live
@@ -1470,12 +1491,14 @@ private struct CpVisitCard: View {
 
     private var showsPlayIcon: Bool {
         if visit.isExpired || normalizedStatus.isCompleted || normalizedStatus.isCancelled || normalizedStatus.isInProgress { return false }
+        if visit.isHeldForApproval { return false }
         return true
     }
 
     private var statusTextColor: Color {
         if visit.isExpired { return Color(hex: 0xB42318) }
         if normalizedStatus.isCancelled { return Color(hex: 0xB42318) }
+        if visit.isHeldForApproval { return Color(hex: 0xB54708) }
         if normalizedStatus.isInProgress { return Color(red: 0.71, green: 0.28, blue: 0.03) }
         if visit.isPendingOutcomeCpVisit { return Color(hex: 0xB54708) }
         if normalizedStatus.isCompleted { return Color(red: 0.09, green: 0.61, blue: 0.18) }
@@ -1485,6 +1508,7 @@ private struct CpVisitCard: View {
 
     private var statusBackground: Color {
         if visit.isExpired || normalizedStatus.isCancelled { return Color.red.opacity(0.12) }
+        if visit.isHeldForApproval { return Color.orange.opacity(0.15) }
         if normalizedStatus.isInProgress { return Color.orange.opacity(0.13) }
         if visit.isPendingOutcomeCpVisit { return Color.orange.opacity(0.15) }
         if normalizedStatus.isCompleted || visit.isPostponedCpVisit { return Color.secondary.opacity(0.11) }

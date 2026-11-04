@@ -172,6 +172,26 @@ enum AttendanceTrackingGate {
         )
     }
 
+    /// Like `isClockedInForToday`, but nil when neither attendance read came
+    /// back. A screen that only labels cards ("Need to Clock In") must not
+    /// read a failed request as "not clocked in": a clocked-in staffer saw
+    /// that label whenever the read failed. Starting a trip still re-checks.
+    static func isClockedInForTodayIfKnown(token: String, date: Date = Date()) async -> Bool? {
+        if LocalPunchState.punchedInToday(token: token, now: date) { return true }
+        let today = LocalPunchState.indiaDay(date)
+        let todayAttendance = try? await HRConvexAPIService.getTodayAttendance(token: token)
+        let daySessions = try? await HRConvexAPIService.getDaySessions(token: token, date: today)
+        if todayAttendance == nil && daySessions == nil { return nil }
+        let firstPunchIn = daySessions?.firstPunchIn.nilIfBlank
+            ?? todayAttendance?.firstPunchIn.nilIfBlank
+            ?? todayAttendance?.punchInTime.nilIfBlank
+            ?? daySessions?.sessions?.compactMap { $0.punchInTime.nilIfBlank }.first
+        let hasOpenSession = todayAttendance?.hasOpenSession == true
+            || daySessions?.hasOpenSession == true
+            || todayAttendance?.isOpen == true
+        return isClockedInForToday(firstPunchIn: firstPunchIn, hasOpenSession: hasOpenSession)
+    }
+
     static func hasOpenSessionForToday(token: String, date: Date = Date()) async -> Bool {
         if let fresh = LocalPunchState.freshPunch(token: token, now: date) { return fresh.isPunchIn }
         let today = LocalPunchState.indiaDay(date)
