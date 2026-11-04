@@ -307,22 +307,44 @@ struct ApplyPermissionView: View {
         isSubmitting = true
         errorMessage = nil
 
+        let date = HRApplicationSupport.apiDate(selectedDate)
+        let fromTime = HRApplicationSupport.apiTime(selectedFromTime)
+        let toTime = HRApplicationSupport.apiTime(selectedToTime)
         Task {
             defer { isSubmitting = false }
             do {
                 _ = try await HRConvexAPIService.applyPermission(
                     token: token,
-                    date: HRApplicationSupport.apiDate(selectedDate),
-                    fromTime: HRApplicationSupport.apiTime(selectedFromTime),
-                    toTime: HRApplicationSupport.apiTime(selectedToTime),
+                    date: date,
+                    fromTime: fromTime,
+                    toTime: toTime,
                     reason: reason.trimmingCharacters(in: .whitespacesAndNewlines)
                 )
                 onApplied?()
                 dismiss()
             } catch {
                 if error is CancellationError || (error as NSError).code == NSURLErrorCancelled { return }
-                errorMessage = HRApplicationSupport.submissionMessage(error)
+                // A timeout or a reasonless 5xx may still have saved the
+                // request: check the history before calling it a failure.
+                if HRApplicationSupport.isAmbiguous(error),
+                   await permissionWasSaved(token: token, date: date, fromTime: fromTime, toTime: toTime) {
+                    onApplied?()
+                    dismiss()
+                    return
+                }
+                errorMessage = HRApplicationSupport.submissionMessage(error, application: "Permission")
             }
+        }
+    }
+
+    /// True when the server already holds this exact request (same date and times, still live).
+    private func permissionWasSaved(token: String, date: String, fromTime: String, toTime: String) async -> Bool {
+        guard let list = try? await HRConvexAPIService.listPermissions(token: token, fromDate: date, toDate: date) else {
+            return false
+        }
+        return list.contains {
+            $0.date == date && $0.fromTime == fromTime && $0.toTime == toTime &&
+                !["rejected", "cancelled", "canceled"].contains(($0.status ?? "").lowercased())
         }
     }
 

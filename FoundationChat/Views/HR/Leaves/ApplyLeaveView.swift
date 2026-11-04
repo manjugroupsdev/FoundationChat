@@ -496,7 +496,7 @@ struct ApplyLeaveView: View {
                     return
                 }
                 showSubmitConfirmation = false
-                errorMessage = HRApplicationSupport.submissionMessage(error)
+                errorMessage = HRApplicationSupport.submissionMessage(error, application: "Leave")
             }
         }
     }

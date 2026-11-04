@@ -26,6 +26,19 @@ struct HRApplicationSupportTests {
         precondition(!HRApplicationSupport.isPastDay(now, now: now, calendar: calendar))
         precondition(!HRApplicationSupport.isPastDay(calendar.startOfDay(for: now), now: now, calendar: calendar))
         precondition(!HRApplicationSupport.isPastDay(now.addingTimeInterval(86_400), now: now, calendar: calendar))
-        print("HRApplicationSupport: 12 assertions passed")
+        // 4 Nov report: Convex's wrapper must not reach the user.
+        let wrapped = #"{"success":false,"error":"Uncaught Error: You can apply for only 1 permission request per week.\n    at handler (../convex/permissions.ts:712:13)"}"#
+        precondition(HRApplicationSupport.responseMessage(Data(wrapped.utf8)) == "You can apply for only 1 permission request per week.")
+        precondition(HRApplicationSupport.clean("[CONVEX M(permissions:apply)] [Request ID: abc] Server Error\nUncaught Error: Invalid permission date\n  at x") == "Invalid permission date")
+        precondition(HRApplicationSupport.responseMessage(Data(#"{"error":"[Request ID: abc] Server Error"}"#.utf8)) == nil)
+        precondition(HRApplicationSupport.responseMessage(Data("Uncaught Error: Enter a reason".utf8)) == "Enter a reason")
+        precondition(HRApplicationSupport.clean("Error: Shift not found") == "Shift not found")
+        struct Failure: LocalizedError { let errorDescription: String? }
+        precondition(HRApplicationSupport.isAmbiguous(URLError(.timedOut)))
+        precondition(HRApplicationSupport.isAmbiguous(Failure(errorDescription: "Request failed (500)")))
+        precondition(!HRApplicationSupport.isAmbiguous(Failure(errorDescription: "Weekly limit")))
+        precondition(!HRApplicationSupport.isAmbiguous(Failure(errorDescription: "Request failed (400)")))
+        precondition(HRApplicationSupport.submissionMessage(Failure(errorDescription: "Request failed (502)"), application: "Permission").hasPrefix("Permission service"))
+        print("HRApplicationSupport: 23 assertions passed")
     }
 }
