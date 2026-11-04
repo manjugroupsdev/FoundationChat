@@ -15,8 +15,13 @@ struct PunchLogSheet: View {
 
     private var fallbackEntries: [PunchLogEntry] {
         (record.sessions ?? []).enumerated().map { index, session in
-            PunchLogEntry(session: session, index: index)
+            PunchLogEntry(session: session, index: index, date: record.date)
         }
+    }
+
+    /// The midnight job closed a session left open (no real punch-out).
+    private var hasAutoClosedSession: Bool {
+        displayEntries.contains { $0.autoClosed }
     }
 
     var body: some View {
@@ -106,6 +111,12 @@ struct PunchLogSheet: View {
                         .foregroundStyle(.secondary)
                 }
             }
+            if hasAutoClosedSession {
+                Text(AttendanceSessionRules.autoClosedNote)
+                    .font(.caption.weight(.medium))
+                    .foregroundStyle(Color(hex: 0xB54708))
+                    .fixedSize(horizontal: false, vertical: true)
+            }
         }
         .padding(.vertical, 4)
     }
@@ -135,6 +146,7 @@ struct PunchLogSheet: View {
             punchLine(
                 title: "Punch Out",
                 time: entry.punchOutTime,
+                emptyText: entry.autoClosed ? "Not punched out" : "--",
                 address: entry.punchOutAddress,
                 latitude: entry.punchOutLatitude,
                 longitude: entry.punchOutLongitude,
@@ -155,6 +167,7 @@ struct PunchLogSheet: View {
     private func punchLine(
         title: String,
         time: String?,
+        emptyText: String = "--",
         address: String?,
         latitude: Double?,
         longitude: Double?,
@@ -173,7 +186,7 @@ struct PunchLogSheet: View {
                         .font(.caption.weight(.semibold))
                         .foregroundStyle(.secondary)
                     Spacer()
-                    Text(formatTime(time))
+                    Text(time?.nilIfBlank == nil ? emptyText : formatTime(time))
                         .font(.subheadline.weight(.medium))
                 }
 
@@ -212,7 +225,7 @@ struct PunchLogSheet: View {
                 staffId: record.staffId
             )
             entries = (response.sessions ?? []).enumerated().map { index, session in
-                PunchLogEntry(session: session, index: index)
+                PunchLogEntry(session: session, index: index, date: date)
             }
         } catch {
             errorMessage = error.localizedDescription
@@ -259,6 +272,8 @@ private struct PunchLogEntry: Identifiable {
     let punchOutAddress: String?
     let punchOutPhoto: String?
     let source: String?
+    /// The midnight job closed this session; its punch-out is not shown.
+    let autoClosed: Bool
 
     var durationLabel: String {
         guard let durationMinutes, durationMinutes > 0 else { return "--" }
@@ -267,10 +282,12 @@ private struct PunchLogEntry: Identifiable {
         return String(format: "%dh %02dm", h, m)
     }
 
-    init(session: ConvexDaySession, index: Int) {
+    init(session: ConvexDaySession, index: Int, date: String?) {
         self.id = session.id + "_\(index)"
         self.punchInTime = session.punchInTime
-        self.punchOutTime = session.punchOutTime
+        self.autoClosed = AttendanceSessionRules.isSyntheticClose(
+            punchOutTime: session.punchOutTime, autoClosed: session.autoClosedAtDayEnd, date: date)
+        self.punchOutTime = autoClosed ? nil : session.punchOutTime
         self.durationMinutes = session.durationMinutes
         self.punchInLatitude = session.punchInLatitude
         self.punchInLongitude = session.punchInLongitude
@@ -283,10 +300,12 @@ private struct PunchLogEntry: Identifiable {
         self.source = session.source
     }
 
-    init(session: ConvexAttendanceSession, index: Int) {
+    init(session: ConvexAttendanceSession, index: Int, date: String?) {
         self.id = "\(session.punchInTime ?? "in")_\(session.punchOutTime ?? "out")_\(index)"
         self.punchInTime = session.punchInTime
-        self.punchOutTime = session.punchOutTime
+        self.autoClosed = AttendanceSessionRules.isSyntheticClose(
+            punchOutTime: session.punchOutTime, autoClosed: session.autoClosedAtDayEnd, date: date)
+        self.punchOutTime = autoClosed ? nil : session.punchOutTime
         self.durationMinutes = nil
         self.punchInLatitude = session.punchInLatitude
         self.punchInLongitude = session.punchInLongitude

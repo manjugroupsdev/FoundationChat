@@ -204,6 +204,13 @@ struct ConvexAttendanceSession: Codable, Equatable, Sendable {
     let punchOutLongitude: Double?
     let punchOutPhoto: String?
     let source: String?
+    /// Set when the midnight job closed a session left open.
+    var autoClosedAtDayEnd: Bool? = nil
+
+    /// The punch-out, unless it is the midnight job's close.
+    nonisolated func realPunchOut(on date: String?) -> String? {
+        AttendanceSessionRules.realPunchOut(punchOutTime: punchOutTime, autoClosed: autoClosedAtDayEnd, date: date)
+    }
 }
 
 struct ConvexAttendanceFine: Codable, Equatable, Sendable, Identifiable {
@@ -303,7 +310,7 @@ struct ConvexAttendanceRecord: Codable, Identifiable, Equatable, Sendable {
     var resolvedPunchOut: String? {
         let firstIn = firstPunchIn ?? sessions?.first?.punchInTime
         guard hasOpenSession != true else { return nil }
-        let candidate = lastPunchOut ?? sessions?.last?.punchOutTime
+        let candidate = lastPunchOut ?? sessions?.last?.realPunchOut(on: date)
         guard let candidate, candidate != firstIn else { return nil }
         return candidate
     }
@@ -481,6 +488,8 @@ struct ConvexDaySession: Decodable, Identifiable, Equatable, Sendable {
     let punchOutPhoto: String?
     let source: String?
     let punchOutSource: String?
+    /// Set when the midnight job closed a session left open.
+    var autoClosedAtDayEnd: Bool? = nil
 
     var id: String { _id ?? UUID().uuidString }
 }

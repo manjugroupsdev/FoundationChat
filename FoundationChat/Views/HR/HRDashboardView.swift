@@ -784,7 +784,7 @@ struct HRDashboardView: View {
         if record.date == todayDateKey, isOpen { return nil }
         guard record.hasOpenSession != true else { return nil }
         let firstIn = firstPunchIn(for: record)
-        let candidate = record.lastPunchOut ?? record.sessions?.last?.punchOutTime
+        let candidate = record.lastPunchOut ?? record.sessions?.last?.realPunchOut(on: record.date)
         guard let candidate, candidate != firstIn else { return nil }
         return candidate
     }

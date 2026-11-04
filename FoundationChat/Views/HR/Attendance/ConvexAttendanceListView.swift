@@ -1295,7 +1295,7 @@ private struct AttendanceHistoryCard: View {
     private var resolvedPunchOut: String? {
         let firstIn = record.firstPunchIn ?? record.sessions?.first?.punchInTime
         guard !hasOpenSession else { return nil }
-        let candidate = record.lastPunchOut ?? record.sessions?.last?.punchOutTime
+        let candidate = record.lastPunchOut ?? record.sessions?.last?.realPunchOut(on: record.date)
         guard let candidate, candidate != firstIn else { return nil }
         return candidate
     }
@@ -2848,7 +2848,7 @@ private struct AttendanceRequestReviewSheet: View {
     }
 
     private var actualPunchOut: String? {
-        record.punchOutTime?.nilIfBlank ?? record.lastPunchOut?.nilIfBlank ?? record.sessions?.last?.punchOutTime?.nilIfBlank
+        record.punchOutTime?.nilIfBlank ?? record.lastPunchOut?.nilIfBlank ?? record.sessions?.last?.realPunchOut(on: record.date)?.nilIfBlank
     }
 
     private var hasCorrectionDetails: Bool {
