@@ -10,12 +10,15 @@ import UserNotifications
 /// Mirrors Android's GeoTrackConsentActivity disclosure text and button layout.
 struct GeoTrackConsentView: View {
     @Environment(\.dismiss) private var dismiss
+    @Environment(AuthStore.self) private var authStore
 
     var onConsent: () -> Void = {}
     var onDecline: () -> Void = {}
 
     @State private var consentManager = GeoTrackConsentManager.shared
     @State private var permissionGuide = GeoTrackPermissionGuide()
+    @State private var showTrackingRequired = false
+    @State private var isSigningOut = false
 
     var body: some View {
         NavigationStack {
@@ -109,12 +112,13 @@ struct GeoTrackConsentView: View {
                         }
                         .disabled(consentManager.isRecording)
 
+                        // Tracking is part of the job for a geo-tracked
+                        // staffer, so Decline no longer skips into the app
+                        // (staff declined and worked all day untracked). It
+                        // explains why and offers Go back or Sign out: always
+                        // a way forward and a way out, never a dead end.
                         Button {
-                            Task {
-                                await consentManager.declineConsent()
-                                onDecline()
-                                dismiss()
-                            }
+                            showTrackingRequired = true
                         } label: {
                             Text("Decline")
                                 .font(.headline)
@@ -140,7 +144,19 @@ struct GeoTrackConsentView: View {
             .onAppear {
                 permissionGuide.refresh()
             }
+            .alert("Location tracking is required", isPresented: $showTrackingRequired) {
+                Button("Go back", role: .cancel) {}
+                Button("Sign out", role: .destructive) {
+                    guard !isSigningOut else { return }
+                    isSigningOut = true
+                    Task { await authStore.logout() }
+                }
+            } message: {
+                Text("Your role uses location tracking for attendance and field visits. It runs only while you are clocked in. To use M-Connect, tap \"I Understand and Agree\" and allow the permissions, or sign out.")
+            }
         }
+        // No swipe-down: it was a way past the screen without answering.
+        .interactiveDismissDisabled(true)
     }
 
     private func disclosureRow(
