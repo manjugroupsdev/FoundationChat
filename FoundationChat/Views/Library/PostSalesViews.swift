@@ -22,9 +22,14 @@ struct CollectionsView: View {
     @State private var showingDateFilter = false
     @State private var searchText = ""
     @State private var previewURL: URL?
+    @State private var nextCursor: Double?
+    @State private var hasMore = false
+    @State private var isLoadingMore = false
+    /// Filtered once per change instead of ~4 times per render.
+    @State private var visibleCollections: [CustomerCollectionRow] = []
 
-    private var visibleCollections: [CustomerCollectionRow] {
-        filterCollections(
+    private func refilter() {
+        visibleCollections = filterCollections(
             collections,
             filter: selectedFilter,
             searchText: searchText,
@@ -102,6 +107,15 @@ struct CollectionsView: View {
         .toolbar(.hidden, for: .tabBar)
         .refreshable { await load() }
         .task { if !hasLoaded { await load() } }
+        .onChange(of: collections) { _, _ in refilter() }
+        .onChange(of: selectedFilter) { _, _ in refilter() }
+        .onChange(of: selectedFromDate) { _, _ in refilter() }
+        .onChange(of: selectedToDate) { _, _ in refilter() }
+        .task(id: searchText) {
+            try? await Task.sleep(for: .milliseconds(250))
+            guard !Task.isCancelled else { return }
+            refilter()
+        }
         .sheet(isPresented: $showingSubmitSheet) {
             CollectionSubmitSheet(rectifyingCollection: nil) {
                 await load()
@@ -171,14 +185,41 @@ struct CollectionsView: View {
                                 : nil
                         )
                     }
+                    // Next page when the end of the list comes into view.
+                    if hasMore {
+                        ProgressView()
+                            .frame(maxWidth: .infinity)
+                            .padding(.vertical, 12)
+                            .task { await loadMore() }
+                    }
                 }
             }
         }
     }
 
     @MainActor
+    private func loadMore() async {
+        guard hasMore, !isLoadingMore, let cursor = nextCursor,
+              let token = authStore.currentSession?.token else { return }
+        isLoadingMore = true
+        defer { isLoadingMore = false }
+        guard let page = try? await PostSalesConvexAPIService.listMyCollectionsPage(
+            token: token, cursor: cursor, pageSize: nil
+        ) else { return }
+        let known = Set(collections.map(\.id))
+        collections.append(contentsOf: page.rows.filter { !known.contains($0.id) })
+        nextCursor = page.nextCursor
+        hasMore = page.hasMore
+    }
+
+    @MainActor
     private func load() async {
-        if collections.isEmpty, let cached = LocalCache.get(cacheKey, as: [CustomerCollectionRow].self) {
+        let key = cacheKey
+        if collections.isEmpty,
+           let cached = await Task.detached(priority: .userInitiated, operation: {
+               LocalCache.get(key, as: [CustomerCollectionRow].self)
+           }).value,
+           collections.isEmpty {
             collections = cached
             hasLoaded = true
         }
@@ -193,8 +234,15 @@ struct CollectionsView: View {
             hasLoaded = true
         }
         do {
-            collections = try await PostSalesConvexAPIService.listMyCollections(token: token)
-            LocalCache.put(cacheKey, collections)
+            // A screenful first; later pages load as the list is scrolled.
+            let page = try await PostSalesConvexAPIService.listMyCollectionsPage(
+                token: token, cursor: nil, pageSize: 30
+            )
+            collections = page.rows
+            nextCursor = page.nextCursor
+            hasMore = page.hasMore
+            let rows = page.rows
+            Task.detached(priority: .utility) { LocalCache.put(key, rows) }
         } catch {
             if collections.isEmpty { errorMessage = error.localizedDescription }
         }
@@ -231,9 +279,13 @@ struct AccountsCollectionsReviewView: View {
     @State private var searchText = ""
     @State private var previewURL: URL?
     @State private var processingCollectionIds: Set<String> = []
+    /// Filtered once per change, not on every body pass: it was a computed
+    /// property read ~4 times per render, re-filtering up to ~900 rows on
+    /// every keystroke and every processing-state change.
+    @State private var visibleCollections: [CustomerCollectionRow] = []
 
-    private var visibleCollections: [CustomerCollectionRow] {
-        filterCollections(
+    private func refilter() {
+        visibleCollections = filterCollections(
             collections,
             filter: selectedFilter,
             searchText: searchText,
@@ -305,6 +357,16 @@ struct AccountsCollectionsReviewView: View {
         .toolbar(.hidden, for: .tabBar)
         .refreshable { await load() }
         .task { if !hasLoaded { await load() } }
+        .onChange(of: collections) { _, _ in refilter() }
+        .onChange(of: selectedFilter) { _, _ in refilter() }
+        .onChange(of: selectedFromDate) { _, _ in refilter() }
+        .onChange(of: selectedToDate) { _, _ in refilter() }
+        // Typing waits a moment before filtering.
+        .task(id: searchText) {
+            try? await Task.sleep(for: .milliseconds(250))
+            guard !Task.isCancelled else { return }
+            refilter()
+        }
         .alert("Accounts", isPresented: Binding(get: { errorMessage != nil }, set: { if !$0 { errorMessage = nil } })) {
             Button("OK", role: .cancel) { errorMessage = nil }
         } message: {
@@ -371,7 +433,12 @@ struct AccountsCollectionsReviewView: View {
 
     @MainActor
     private func load() async {
-        if collections.isEmpty, let cached = LocalCache.get(cacheKey, as: [CustomerCollectionRow].self) {
+        let key = cacheKey
+        if collections.isEmpty,
+           let cached = await Task.detached(priority: .userInitiated, operation: {
+               LocalCache.get(key, as: [CustomerCollectionRow].self)
+           }).value,
+           collections.isEmpty {
             collections = cached
             hasLoaded = true
         }
@@ -386,11 +453,26 @@ struct AccountsCollectionsReviewView: View {
             hasLoaded = true
         }
         do {
-            collections = try await PostSalesConvexAPIService.listCollectionsForAccounts(token: token)
-            LocalCache.put(cacheKey, collections)
+            let fresh = try await PostSalesConvexAPIService.listCollectionsForAccounts(token: token)
+            collections = fresh
+            saveCache(fresh)
         } catch {
             if collections.isEmpty { errorMessage = error.localizedDescription }
         }
+    }
+
+    /// Disk write off the main thread.
+    private func saveCache(_ rows: [CustomerCollectionRow]) {
+        let key = cacheKey
+        Task.detached(priority: .utility) { LocalCache.put(key, rows) }
+    }
+
+    /// Approve / reject change one row: update it here, no full reload.
+    @MainActor
+    private func markRow(_ id: String, status: String, notes: String?) {
+        guard let index = collections.firstIndex(where: { $0.id == id }) else { return }
+        collections[index] = collections[index].withVerification(status: status, notes: notes)
+        saveCache(collections)
     }
 
     @MainActor
@@ -404,7 +486,7 @@ struct AccountsCollectionsReviewView: View {
         defer { processingCollectionIds.remove(collection.id) }
         do {
             _ = try await PostSalesConvexAPIService.approveCollection(token: token, collectionId: collection.id)
-            await load()
+            markRow(collection.id, status: "approved", notes: nil)
         } catch {
             errorMessage = error.localizedDescription
         }
@@ -427,7 +509,7 @@ struct AccountsCollectionsReviewView: View {
         do {
             _ = try await PostSalesConvexAPIService.rejectCollection(token: token, collectionId: collection.id, remarks: trimmedRemarks)
             selectedForReject = nil
-            await load()
+            markRow(collection.id, status: "rejected", notes: trimmedRemarks)
         } catch {
             errorMessage = error.localizedDescription
         }
@@ -1315,9 +1397,10 @@ private struct DashedDivider: Shape {
 
 private struct CollectionProofThumbnail: View {
     @Environment(AuthStore.self) private var authStore
+    @Environment(\.displayScale) private var displayScale
     let storageId: String
     let onTap: () async -> Void
-    @State private var thumbnailURL: URL?
+    @State private var image: UIImage?
     @State private var didFail = false
 
     var body: some View {
@@ -1327,21 +1410,10 @@ private struct CollectionProofThumbnail: View {
             ZStack {
                 RoundedRectangle(cornerRadius: 8, style: .continuous)
                     .fill(Color.appFieldBackground)
-                if let thumbnailURL {
-                    AsyncImage(url: thumbnailURL) { phase in
-                        switch phase {
-                        case .empty:
-                            ProgressView()
-                        case .success(let image):
-                            image
-                                .resizable()
-                                .scaledToFill()
-                        case .failure:
-                            proofFallback
-                        @unknown default:
-                            proofFallback
-                        }
-                    }
+                if let image = image ?? ProofThumbnailLoader.shared.cached(storageId) {
+                    Image(uiImage: image)
+                        .resizable()
+                        .scaledToFill()
                 } else if didFail {
                     proofFallback
                 } else {
@@ -1369,14 +1441,17 @@ private struct CollectionProofThumbnail: View {
 
     @MainActor
     private func loadThumbnail() async {
-        guard thumbnailURL == nil,
-              let token = authStore.currentSession?.token
-        else { return }
-        do {
-            thumbnailURL = try await PostSalesStorageService.getFileURL(token: token, storageId: storageId)
-        } catch {
-            didFail = true
+        guard image == nil, let token = authStore.currentSession?.token else { return }
+        if let hit = ProofThumbnailLoader.shared.cached(storageId) {
+            image = hit
+            return
         }
+        let loaded = await ProofThumbnailLoader.shared.thumbnail(
+            storageId: storageId,
+            token: token,
+            maxPixel: Int(72 * max(displayScale, 2))
+        )
+        if let loaded { image = loaded } else { didFail = true }
     }
 }
 

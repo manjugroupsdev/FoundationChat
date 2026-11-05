@@ -70,6 +70,24 @@ struct CustomerCollectionRow: Codable, Identifiable, Equatable, Sendable {
 
     var displayTitle: String { customerName?.nonBlank ?? bookingRefNo?.nonBlank ?? collectionRefNo?.nonBlank ?? "Collection" }
     var displayStatus: String { (verificationStatus ?? "pending").replacingOccurrences(of: "_", with: " ").capitalized }
+
+    /// The same row after an approve / reject, so the list updates in place
+    /// instead of re-downloading the whole queue.
+    func withVerification(status: String, notes: String?) -> CustomerCollectionRow {
+        CustomerCollectionRow(
+            id: id, collectionRefNo: collectionRefNo, caseId: caseId, bookingId: bookingId,
+            amount: amount, collectionDate: collectionDate, paymentMode: paymentMode,
+            transactionReference: transactionReference, bankName: bankName, branchName: branchName,
+            paymentInstrumentDate: paymentInstrumentDate, notes: self.notes,
+            collectedByName: collectedByName, collectedByStaffId: collectedByStaffId,
+            proofStorageId: proofStorageId, proofFileName: proofFileName,
+            verificationStatus: status, verificationNotes: notes ?? verificationNotes,
+            verifiedByName: verifiedByName, verifiedAt: verifiedAt, collectorEditedAt: collectorEditedAt,
+            createdAt: createdAt, updatedAt: updatedAt, customerName: customerName,
+            bookingRefNo: bookingRefNo, projectName: projectName, plotNo: plotNo,
+            customerPaymentCategory: customerPaymentCategory
+        )
+    }
 }
 
 struct SubmitCollectionRequest: Encodable, Sendable {

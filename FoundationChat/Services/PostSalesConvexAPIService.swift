@@ -115,6 +115,14 @@ enum PostSalesConvexAPIService {
         let success: Bool
         let collections: [CustomerCollectionRow]?
         let error: String?
+        var nextCursor: Double? = nil
+        var hasMore: Bool? = nil
+    }
+
+    struct CollectionsPage: Sendable {
+        let rows: [CustomerCollectionRow]
+        let nextCursor: Double?
+        let hasMore: Bool
     }
 
     private struct SubmitCollectionResponse: Decodable {
@@ -196,6 +204,23 @@ enum PostSalesConvexAPIService {
         let wrapper = try await decode(CollectionsResponse.self, from: data)
         guard wrapper.success else { throw MarketingAPIError.server(wrapper.error ?? "Failed to load collections") }
         return wrapper.collections ?? []
+    }
+
+    /// One page of the staff member's collections. The route pages by
+    /// cursor; reading only page one left everything past ~60 rows unseen.
+    static func listMyCollectionsPage(token: String, cursor: Double?, pageSize: Int?) async throws -> CollectionsPage {
+        var query: [String] = []
+        if let cursor { query.append("cursor=\(cursor)") }
+        if let pageSize { query.append("pageSize=\(pageSize)") }
+        let path = "/api/postsales/collections/my" + (query.isEmpty ? "" : "?" + query.joined(separator: "&"))
+        let data = try await get(path: path, token: token)
+        let wrapper = try await decode(CollectionsResponse.self, from: data)
+        guard wrapper.success else { throw MarketingAPIError.server(wrapper.error ?? "Failed to load collections") }
+        return CollectionsPage(
+            rows: wrapper.collections ?? [],
+            nextCursor: wrapper.nextCursor,
+            hasMore: wrapper.hasMore == true && wrapper.nextCursor != nil
+        )
     }
 
     static func listCollectionsForAccounts(token: String) async throws -> [CustomerCollectionRow] {
