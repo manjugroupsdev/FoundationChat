@@ -21,7 +21,10 @@ struct HomeView: View {
     @State private var managementDashboard: ConvexMobileDashboard?
     @State private var managementDashboardError: String?
     @State private var isManagementDashboardLoading = false
-    @State private var selectedManagementDashboardTab: HomeDashboardTab = .hr
+    // Marketing first, like Android's overview: it now holds Team Performance.
+    @State private var selectedManagementDashboardTab: HomeDashboardTab = .marketing
+    /// Bumped by pull to refresh so Team Performance reloads too.
+    @State private var teamPerformanceRefresh = 0
     @State private var selectedDashboardDate: Date?
     @State private var dashboardPickerDate = Date()
     // Lenient day-gate: source-agnostic "clocked in / open session for today"
@@ -100,7 +103,10 @@ struct HomeView: View {
                             .padding(.bottom, 28)
                     }
                     .scrollIndicators(.hidden)
-                    .refreshable { await reload() }
+                    .refreshable {
+                        teamPerformanceRefresh += 1
+                        await reload()
+                    }
                     .ignoresSafeArea(edges: .top)
                     .onScrollGeometryChange(for: CGFloat.self) { geometry in
                         max(0, geometry.contentOffset.y + geometry.contentInsets.top)
@@ -723,7 +729,12 @@ struct HomeView: View {
 
             managementDashboardTabs
 
-            if shouldShowManagementDashboardSkeleton {
+            if selectedManagementDashboardTab == .marketing {
+                // The web Insights "Team Performance" cards replace the
+                // marketing tiles (targets vs achievements, permitted team).
+                TeamPerformanceSection(refreshID: teamPerformanceRefresh)
+                    .transition(.opacity)
+            } else if shouldShowManagementDashboardSkeleton {
                 managementDashboardSkeleton
             } else if let managementDashboard {
                 managementDashboardGrid(for: managementDashboard)
