@@ -601,6 +601,21 @@ final class GeoTrackAPIService {
         return result.data
     }
 
+    /// GET /api/geotrack/snapped-route?staffId=...&date=YYYY-MM-DD
+    /// The day's route matched to roads; empty when not available.
+    func snappedRoute(staffId: String?, date: String) async throws -> [GeoTrackSnappedSegment] {
+        var items: [URLQueryItem] = [URLQueryItem(name: "date", value: date)]
+        if let staffId { items.append(URLQueryItem(name: "staffId", value: staffId)) }
+        let request = try makeGETRequest(
+            path: "/api/geotrack/snapped-route",
+            queryItems: items,
+            directGeoTrack: true
+        )
+        let result: GeoTrackSnappedRouteResponse = try await perform(request)
+        if let err = result.error { throw GeoTrackAPIError.serverError(err) }
+        return result.data?.segments ?? []
+    }
+
     /// GET /api/tracking/live
     func liveStatus() async throws -> [GeoTrackLiveStatusEntry] {
         let request = try makeGETRequest(path: "/api/tracking/live", directGeoTrack: true)

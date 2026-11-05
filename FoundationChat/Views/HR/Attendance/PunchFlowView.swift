@@ -28,6 +28,7 @@ struct PunchFlowView: View {
     @State private var statusText: String?
     @State private var currentAttendance: ConvexTodayAttendance?
     @State private var locationManager = PunchLocationManager()
+    @State private var geocodedLocation: CLLocation?
     @State private var showSuccessSheet = false
     @State private var completedAt: Date?
     @State private var didQueueOffline = false
@@ -120,9 +121,13 @@ struct PunchFlowView: View {
                 .interactiveDismissDisabled(isSubmitting)
             }
             .task {
-                await loadCurrentAttendanceStatus()
+                // Location first and in parallel: it used to start only after
+                // the attendance status call returned, so the map and the
+                // Confirm step waited on two round trips back to back.
                 locationManager.requestLocation()
+                await loadCurrentAttendanceStatus()
             }
+            .onDisappear { locationManager.stop() }
             .onChange(of: locationManager.currentLocation) { _, newLoc in
                 guard let newLoc else { return }
                 location = newLoc
@@ -130,6 +135,10 @@ struct PunchFlowView: View {
                     centerCoordinate: newLoc.coordinate,
                     distance: 500
                 ))
+                // One address lookup per place, not one per refined fix.
+                if let geocoded = geocodedLocation, address != nil,
+                   newLoc.distance(from: geocoded) < 75 { return }
+                geocodedLocation = newLoc
                 Task {
                     let geocoder = CLGeocoder()
                     if let placemarks = try? await geocoder.reverseGeocodeLocation(newLoc),
@@ -180,7 +189,7 @@ struct PunchFlowView: View {
                     .font(.subheadline.weight(.semibold))
                     .foregroundStyle(.primary)
 
-                Text(isStatusLoading ? "Checking status..." : currentStatusText)
+                Text(isStatusLoading && currentAttendance == nil ? "Checking status..." : currentStatusText)
                     .font(.caption)
                     .foregroundStyle(.secondary)
                     .lineLimit(2)
@@ -188,7 +197,9 @@ struct PunchFlowView: View {
 
             Spacer(minLength: 8)
 
-            if isStatusLoading {
+            // Spinner only when there is nothing to show yet; a cached status
+            // stays on screen while it refreshes.
+            if isStatusLoading && currentAttendance == nil {
                 ProgressView()
             } else {
                 Text(currentStatusBadge)
@@ -729,27 +740,59 @@ final class PunchLocationManager: NSObject, CLLocationManagerDelegate {
     var authorizationStatus: CLAuthorizationStatus = .notDetermined
 
     private let manager = CLLocationManager()
+    private var stopTask: Task<Void, Never>?
 
     override init() {
         super.init()
         manager.delegate = self
-        manager.desiredAccuracy = kCLLocationAccuracyBest
+        manager.desiredAccuracy = kCLLocationAccuracyNearestTenMeters
     }
 
+    /// Shows the phone's recent fix at once, then streams better ones and
+    /// stops when one is good (or after 20 s). `requestLocation()` at "best"
+    /// accuracy waited for a single top-quality fix, often 10 s or more.
     func requestLocation() {
         let status = manager.authorizationStatus
         authorizationStatus = status
         if status == .notDetermined {
             manager.requestWhenInUseAuthorization()
         } else if status == .authorizedWhenInUse || status == .authorizedAlways {
-            manager.requestLocation()
+            if currentLocation == nil, let recent = manager.location,
+               recent.timestamp.timeIntervalSinceNow > -120, recent.horizontalAccuracy >= 0,
+               recent.horizontalAccuracy <= 100 {
+                currentLocation = recent
+            }
+            startStreaming()
+        }
+    }
+
+    func stop() {
+        stopTask?.cancel()
+        stopTask = nil
+        manager.stopUpdatingLocation()
+    }
+
+    private func startStreaming() {
+        manager.startUpdatingLocation()
+        stopTask?.cancel()
+        stopTask = Task { [weak self] in
+            try? await Task.sleep(for: .seconds(20))
+            guard !Task.isCancelled else { return }
+            self?.manager.stopUpdatingLocation()
         }
     }
 
     nonisolated func locationManager(_ manager: CLLocationManager, didUpdateLocations locations: [CLLocation]) {
         guard let loc = locations.last else { return }
         Task { @MainActor in
+            // Keep the better fix; a worse later one must not replace it.
+            if let current = currentLocation, current.horizontalAccuracy >= 0,
+               loc.horizontalAccuracy > current.horizontalAccuracy,
+               loc.timestamp.timeIntervalSince(current.timestamp) < 30 {
+                return
+            }
             currentLocation = loc
+            if loc.horizontalAccuracy >= 0, loc.horizontalAccuracy <= 25 { stop() }
         }
     }
 
@@ -762,7 +805,7 @@ final class PunchLocationManager: NSObject, CLLocationManagerDelegate {
         Task { @MainActor in
             authorizationStatus = status
             if status == .authorizedWhenInUse || status == .authorizedAlways {
-                manager.requestLocation()
+                startStreaming()
             }
         }
     }

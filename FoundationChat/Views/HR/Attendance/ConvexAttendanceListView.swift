@@ -1794,6 +1794,7 @@ private struct AttendanceApprovalReviewSheet: View {
     @State private var holdReason = ""
     @State private var errorMessage: String?
     @State private var routeData: GeoTrackSessionRouteData?
+    @State private var snappedSegments: [GeoTrackSnappedSegment] = []
     @State private var isRouteLoading = false
     @State private var isReplayExpanded = false
     @State private var isReplayPlaying = false
@@ -1972,7 +1973,7 @@ private struct AttendanceApprovalReviewSheet: View {
             sheetSectionTitle("Live Route (Preview)", icon: "point.3.connected.trianglepath.dotted")
             VStack(spacing: 0) {
                 if let routeData, !routeCoordinates(for: routeData).isEmpty {
-                    AttendanceRouteMapView(routeData: routeData, replayIndex: replayIndex)
+                    AttendanceRouteMapView(routeData: routeData, replayIndex: replayIndex, snappedSegments: snappedSegments)
                         .frame(height: 180)
                 } else {
                     RoutePreviewCard(isLoading: isRouteLoading)
@@ -2408,6 +2409,10 @@ private struct AttendanceApprovalReviewSheet: View {
 
         isRouteLoading = true
         GeoTrackAPIService.shared.tokenProvider = { token }
+        // Road-matched route alongside; empty keeps the existing line.
+        // A Task, not `async let` + optional-try (that combination has crashed
+        // on devices when the parent task is cancelled; see AttendanceTrackingGate).
+        let snappedTask = Task { (try? await GeoTrackAPIService.shared.snappedRoute(staffId: staffId, date: date)) ?? [] }
         do {
             let data = try await GeoTrackAPIService.shared.sessionRoute(
                 staffId: staffId,
@@ -2416,6 +2421,7 @@ private struct AttendanceApprovalReviewSheet: View {
                 minStopMinutes: 30
             )
             routeData = data
+            snappedSegments = await snappedTask.value
             replayIndex = 0
             isReplayPlaying = false
             replayTask?.cancel()
@@ -3085,6 +3091,7 @@ private enum AttendanceDecisionButtonStyle {
 private struct AttendanceRouteMapView: View {
     let routeData: GeoTrackSessionRouteData
     let replayIndex: Int
+    var snappedSegments: [GeoTrackSnappedSegment] = []
     @State private var position: MapCameraPosition = .automatic
 
     private var coordinates: [CLLocationCoordinate2D] {
@@ -3104,7 +3111,25 @@ private struct AttendanceRouteMapView: View {
 
     var body: some View {
         Map(position: $position) {
-            if coordinates.count >= 2 {
+            if !snappedSegments.isEmpty {
+                // One line per road-matched segment: solid where it follows
+                // roads, dashed where inferred. It used to join every trip's
+                // ends into one line, so routes cut straight across blocks.
+                ForEach(snappedSegments) { segment in
+                    let path = segment.coordinates
+                    if path.count >= 2 {
+                        if segment.isDashed {
+                            MapPolyline(coordinates: path)
+                                .stroke(Color(hex: 0x0B61CA), style: StrokeStyle(lineWidth: 3, lineCap: .round, dash: [6, 6]))
+                        } else {
+                            MapPolyline(coordinates: path)
+                                .stroke(Color.white, lineWidth: 9)
+                            MapPolyline(coordinates: path)
+                                .stroke(Color(hex: 0x0B61CA), lineWidth: 4)
+                        }
+                    }
+                }
+            } else if coordinates.count >= 2 {
                 MapPolyline(coordinates: coordinates)
                     .stroke(Color.white, lineWidth: 9)
                 MapPolyline(coordinates: coordinates)

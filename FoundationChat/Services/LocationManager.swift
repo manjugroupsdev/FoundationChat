@@ -365,8 +365,11 @@ final class LocationTracker: NSObject {
            location.timestamp.timeIntervalSince(lastDate) < Self.minimumPointInterval {
             return
         }
-        // Matches direct GeoTrack validation: reject accuracy > 100 m
-        guard location.horizontalAccuracy >= 0, location.horizontalAccuracy <= 100 else { return }
+        // Up to 150 m: normal for city streets and for background fixes (iOS
+        // runs at hundred-metre accuracy in the background). At 100 m most
+        // background fixes were dropped and the route had gaps. The server
+        // accepts up to 250 m; the 10 s spacing still limits volume.
+        guard location.horizontalAccuracy >= 0, location.horizontalAccuracy <= 150 else { return }
 
         lastRecordedDate = location.timestamp
 
@@ -542,8 +545,14 @@ extension LocationTracker: CLLocationManagerDelegate {
         _ manager: CLLocationManager,
         didUpdateLocations locations: [CLLocation]
     ) {
-        guard let location = locations.last else { return }
-        Task { @MainActor in addLocationPoint(location) }
+        // Every fix, oldest first. After a suspension or a relaunch iOS hands
+        // over the whole backlog in one call; keeping only the last one lost
+        // the path in between. The 10 s spacing (by fix timestamp) still applies.
+        guard !locations.isEmpty else { return }
+        let ordered = locations.sorted { $0.timestamp < $1.timestamp }
+        Task { @MainActor in
+            for location in ordered { addLocationPoint(location) }
+        }
     }
 
     nonisolated func locationManagerDidChangeAuthorization(_ manager: CLLocationManager) {

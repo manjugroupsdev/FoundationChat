@@ -11,6 +11,8 @@ final class GeoTrackBootstrapCoordinator {
         static let deviceId = "geotrack.trackingDeviceId"
         static let activeSessionId = "geotrack.activeTrackingSessionId"
         static let shouldTrackNow = "geotrack.shouldTrackNow"
+        /// India day the server last confirmed an open attendance session.
+        static let trackingVerifiedDay = "geotrack.trackingVerifiedDay"
         static let trackingEnabled = "geotrack.trackingEnabled"
         static let lastPermissionClearedAt = "geotrack.lastPermissionClearedAt"
     }
@@ -193,9 +195,23 @@ final class GeoTrackBootstrapCoordinator {
         }
         if attendanceOpen == nil {
             // An attendance outage is not proof of a new or closed shift.
-            // Preserve only a tracker already verified in this process.
+            // A tracker already running keeps running. When iOS relaunched the
+            // app (fresh process, no tracker) in a dead zone, nothing recorded
+            // until the network came back: resume capture ONLY for the shift
+            // the server confirmed earlier today and that this phone has not
+            // clocked out of. Never on a new day, never after a "closed".
+            let today = LocalPunchState.indiaDay(Date())
+            if tracker?.isTracking != true,
+               userDefaults.bool(forKey: DefaultsKey.shouldTrackNow),
+               activeSessionId != nil,
+               userDefaults.string(forKey: DefaultsKey.trackingVerifiedDay) == today {
+                let resumed = tracker ?? LocationTracker()
+                tracker = resumed
+                try? await resumed.resumeServerBackedTracking()
+            }
             return
         }
+        userDefaults.set(LocalPunchState.indiaDay(Date()), forKey: DefaultsKey.trackingVerifiedDay)
 
         await geoAPI.retryPendingTrackingControl(allowStart: true)
         let startCommandStillPending = geoAPI.hasPendingTrackingStart
@@ -319,6 +335,11 @@ final class GeoTrackBootstrapCoordinator {
         // .reducedAccuracy is not enough either — the fixes are kilometre-scale
         // and fail the capture gate, so the phone shows Live with a pin frozen
         // where it clocked in. Both used to pass here and silence the alert.
+        // Only while a shift is being tracked. Sent outside it, this heartbeat
+        // made the live board show staff with no attendance as active ("9m
+        // ago"), including overnight. The alert it clears is cleared at the
+        // next clock-in instead.
+        guard userDefaults.bool(forKey: DefaultsKey.shouldTrackNow) else { return }
         let manager = CLLocationManager()
         guard manager.authorizationStatus == .authorizedAlways,
               manager.accuracyAuthorization == .fullAccuracy else { return }
