@@ -19,6 +19,7 @@ struct GeoTrackConsentView: View {
     @State private var permissionGuide = GeoTrackPermissionGuide()
     @State private var showTrackingRequired = false
     @State private var isSigningOut = false
+    @State private var showLogoutConfirmation = false
 
     var body: some View {
         NavigationStack {
@@ -146,14 +147,19 @@ struct GeoTrackConsentView: View {
             }
             .alert("Location tracking is required", isPresented: $showTrackingRequired) {
                 Button("Go back", role: .cancel) {}
-                Button("Sign out", role: .destructive) {
-                    guard !isSigningOut else { return }
-                    isSigningOut = true
-                    Task { await authStore.logout() }
-                }
+                // Android opens its usual logout confirmation here too.
+                Button("Sign out", role: .destructive) { showLogoutConfirmation = true }
             } message: {
                 Text("Your role uses location tracking for attendance and field visits. It runs only while you are clocked in. To use M-Connect, tap \"I Understand and Agree\" and allow the permissions, or sign out.")
             }
+        }
+        .confirmationDialog("Log out of M-Chat?", isPresented: $showLogoutConfirmation, titleVisibility: .visible) {
+            Button("Log Out", role: .destructive) {
+                guard !isSigningOut else { return }
+                isSigningOut = true
+                Task { await authStore.logout() }
+            }
+            Button("Cancel", role: .cancel) {}
         }
         // No swipe-down: it was a way past the screen without answering.
         .interactiveDismissDisabled(true)
