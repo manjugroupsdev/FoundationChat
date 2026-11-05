@@ -111,6 +111,22 @@ enum HRApplicationSupport {
         if isAmbiguous(error) {
             return "\(application) service is temporarily unavailable. Please try again shortly."
         }
+        // No reason from the server: same per-status wording as Android
+        // HrApplicationError.message.
+        let kind = application.lowercased()
+        switch error as? HRConvexAPIError {
+        case .unauthorized("Unauthorized"):
+            return "Your session expired. Please sign in again."
+        case .httpStatus(let code, let message) where message == "Request failed (\(code))":
+            switch code {
+            case 400, 422: return "Please check the \(kind) details and try again."
+            case 403: return "You are not allowed to submit this \(kind) request."
+            case 409: return "A conflicting request already exists. Please check your request history."
+            default: return "Could not submit the \(kind) request. Please try again."
+            }
+        default:
+            break
+        }
         return clean(error.localizedDescription) ?? "Could not submit the request. Please try again."
     }
 }
