@@ -667,6 +667,8 @@ struct GeoTrackTodayVisit: Codable, Sendable {
     let vehiclePreference: String?
     let vehicleAssigned: Bool?
     let creationTime: Double?
+    /// Set while the visit is held for GM approval (Android `approvalGmName`).
+    let approvalGmName: String?
 
     enum CodingKeys: String, CodingKey {
         case id = "_id"
@@ -676,6 +678,7 @@ struct GeoTrackTodayVisit: Codable, Sendable {
         case scheduledStartTime, scheduledEndTime
         case visitCategory, travelMode, vehiclePreference, vehicleAssigned
         case creationTime = "_creationTime"
+        case approvalGmName
     }
 }
 
@@ -728,6 +731,7 @@ struct GeoTrackCPVisitDetail: Decodable, Sendable {
     let clientPlace: GeoTrackCPVisitPlace?
     let fieldVisit: GeoTrackCPVisitFieldVisit?
     let joint: JointCpSummary?
+    let approvalGmName: String?
 
     enum CodingKeys: String, CodingKey {
         case id = "_id"
@@ -735,6 +739,7 @@ struct GeoTrackCPVisitDetail: Decodable, Sendable {
         case clientMet, clientMetAt, clientNoShowReason, outcome, postponeReasons
         case cpType, expectedAttendeeCount, foodPreferences, vehiclePreference, createdAt
         case proposedSiteVisit, attendees, lead, client, clientPlace, fieldVisit, joint
+        case approvalGmName
     }
 }
 

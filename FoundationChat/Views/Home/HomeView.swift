@@ -1566,9 +1566,10 @@ struct HomeView: View {
         }
         // Matched BEFORE the in-progress and clock-in checks: these mean the
         // visit is done from this staff member's side.
-        if status == CpVisitStatusPolicy.jointPendingReview
-            || status == "pending_gm_approval"
-            || status == "pending-gm-approval" {
+        if status == "pending_gm_approval" || status == "pending-gm-approval" {
+            return .pendingApproval(gm: visit.approvalGmName?.nilIfBlank)
+        }
+        if status == CpVisitStatusPolicy.jointPendingReview {
             return .awaitingOther
         }
         if visit.needsCpOutcomeDetails {
@@ -3185,6 +3186,9 @@ private enum HomeTripState: Equatable {
     /// own case both fell through to `.ready` and told a staff member who had
     /// already done the OTP and the outcome to "Start Trip" again.
     case awaitingOther
+    /// Outcome recorded outside the geofence, held for the GM (Android:
+    /// "Pending Approval" / "Awaiting: <GM>").
+    case pendingApproval(gm: String?)
 
     var statusLabel: String {
         switch self {
@@ -3194,6 +3198,7 @@ private enum HomeTripState: Equatable {
         case .complete: return "Completed"
         case .clockInFirst: return "Clock in"
         case .awaitingOther: return "Pending Review"
+        case .pendingApproval: return "Pending Approval"
         }
     }
 
@@ -3205,6 +3210,7 @@ private enum HomeTripState: Equatable {
         case .complete: return "Completed"
         case .clockInFirst: return "Clock In First"
         case .awaitingOther: return "Awaiting review"
+        case .pendingApproval(let gm): return gm.map { "Awaiting: \($0)" } ?? "Awaiting GM"
         }
     }
 
@@ -3216,6 +3222,7 @@ private enum HomeTripState: Equatable {
         case .complete: return "Complete"
         case .clockInFirst: return "After clock in"
         case .awaitingOther: return "With reviewer"
+        case .pendingApproval: return "With approver"
         }
     }
 
@@ -3229,7 +3236,7 @@ private enum HomeTripState: Equatable {
         case .enroute, .reaching: return Color(red: 0.71, green: 0.28, blue: 0.03)
         case .complete: return Color(red: 0.09, green: 0.61, blue: 0.18)
         case .clockInFirst: return HomePalette.textSecondary
-        case .awaitingOther: return Color(red: 0.71, green: 0.28, blue: 0.03)
+        case .awaitingOther, .pendingApproval: return Color(red: 0.71, green: 0.28, blue: 0.03)
         }
     }
 
@@ -3238,7 +3245,7 @@ private enum HomeTripState: Equatable {
         case .ready: return Color.adaptiveTint(red: 0.90, green: 0.96, blue: 0.92)
         case .enroute, .reaching: return Color.adaptiveTint(red: 1.0, green: 0.96, blue: 0.90)
         case .complete, .clockInFirst: return Color.adaptiveTint(red: 0.95, green: 0.96, blue: 0.97)
-        case .awaitingOther: return Color.adaptiveTint(red: 1.0, green: 0.96, blue: 0.90)
+        case .awaitingOther, .pendingApproval: return Color.adaptiveTint(red: 1.0, green: 0.96, blue: 0.90)
         }
     }
 
@@ -3248,7 +3255,7 @@ private enum HomeTripState: Equatable {
         case .enroute: return Color(red: 0.71, green: 0.28, blue: 0.03)
         case .complete: return Color(hex: 0x1F7A3F)
         case .clockInFirst: return HomePalette.textSecondary
-        case .awaitingOther: return HomePalette.textSecondary
+        case .awaitingOther, .pendingApproval: return HomePalette.textSecondary
         }
     }
 
@@ -3264,7 +3271,7 @@ private enum HomeTripState: Equatable {
             )
         case .enroute:
             return AnyShapeStyle(Color.adaptiveTint(red: 1.0, green: 0.96, blue: 0.90))
-        case .complete, .clockInFirst, .awaitingOther:
+        case .complete, .clockInFirst, .awaitingOther, .pendingApproval:
             return AnyShapeStyle(Color(red: 0.89, green: 0.91, blue: 0.93))
         }
     }
@@ -3445,7 +3452,8 @@ private extension GeoTrackCPVisitDetail {
             travelMode: nil,
             vehiclePreference: vehiclePreference,
             vehicleAssigned: nil,
-            creationTime: createdAt
+            creationTime: createdAt,
+            approvalGmName: approvalGmName
         )
     }
 
@@ -3509,7 +3517,8 @@ private extension FleetDriverTrip {
             travelMode: "cab",
             vehiclePreference: vehicle?.vehicleNumber?.nilIfBlank,
             vehicleAssigned: true,
-            creationTime: nil
+            creationTime: nil,
+            approvalGmName: nil
         )
     }
 }

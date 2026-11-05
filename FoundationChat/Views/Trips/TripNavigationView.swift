@@ -787,7 +787,18 @@ struct TripNavigationView: View {
 
     private var actionButtons: some View {
         VStack(spacing: 10) {
-            if hasActiveVisit {
+            if isCpVisit && isHeldForApproval {
+                // Android hides Start, Swipe and Complete for a held visit.
+                HStack {
+                    Image(systemName: "hourglass")
+                    Text("Waiting for approval")
+                        .font(.system(size: 14, weight: .semibold))
+                }
+                .frame(maxWidth: .infinity)
+                .frame(height: 48)
+                .foregroundStyle(.secondary)
+                .background(Color.appFieldBackground, in: Capsule())
+            } else if hasActiveVisit {
                 if tripProgressStage == .complete && (!isJointCpWorkflow || jointWorkflow?.state == "completed") {
                     HStack {
                         Image(systemName: "checkmark.circle.fill")
@@ -1175,6 +1186,13 @@ struct TripNavigationView: View {
             "closed"
         ].contains(normalizedStatus)
         statusLine = visitStarted ? "In progress" : "Start"
+        if isHeldForApproval {
+            // Held for the GM from the first frame, not only after the detail
+            // fetch: otherwise a live "Start Trip" shows until it lands.
+            visitStarted = true
+            visitCompletedSuccessfully = true
+            statusLine = "Pending Approval"
+        }
         isLoadingStart = false
     }
 
@@ -1441,6 +1459,10 @@ struct TripNavigationView: View {
     /// reserved for actual fleet-driver trips.
     private func ensureCpVisitStarted() async {
         guard !isLoadingStart else { return }
+        guard !isHeldForApproval else {
+            errorMessage = "This visit is waiting for approval"
+            return
+        }
         isLoadingStart = true
         statusLine = "Starting…"
 
@@ -2649,7 +2671,7 @@ struct TripNavigationView: View {
 
     private var statusBadge: String {
         if arrivalInProgress { return "Arriving" }
-        if ["pending_gm_approval", "pending-gm-approval"].contains(normalizedInitialStatus) {
+        if isHeldForApproval {
             return "Pending Approval"
         }
         switch tripProgressStage {
@@ -2678,6 +2700,10 @@ struct TripNavigationView: View {
             return .started
         }
         return .notStarted
+    }
+
+    private var isHeldForApproval: Bool {
+        ["pending_gm_approval", "pending-gm-approval"].contains(normalizedInitialStatus)
     }
 
     private var normalizedInitialStatus: String {

@@ -592,7 +592,8 @@ private extension FleetDriverTrip {
             travelMode: "cab",
             vehiclePreference: vehicle?.vehicleNumber?.nonBlank,
             vehicleAssigned: true,
-            creationTime: nil
+            creationTime: nil,
+            approvalGmName: nil
         )
     }
 }
