@@ -2396,6 +2396,12 @@ private struct LoanCaseDocumentsSheet: View {
                 guard !didBuildSlots else { return }
                 didBuildSlots = true
                 slots = LoanDocSlot.build(from: loanCase)
+                if isEditable { LoanDocDraft.restore(into: &slots, caseId: loanCase.id) }
+            }
+            .onChange(of: slots) { _, newSlots in
+                // Android LoanDeskUploadBottomSheet.persistDraft: a file uploaded
+                // for Submit is not on the case, so closing the sheet must not lose it.
+                if isEditable { LoanDocDraft.save(newSlots, caseId: loanCase.id) }
             }
             .fileImporter(
                 isPresented: Binding(
@@ -2669,11 +2675,55 @@ private struct LoanCaseDocumentsSheet: View {
                     documents: documents
                 )
             )
+            LoanDocDraft.clear(caseId: loanCase.id)
             await onSaved()
             dismiss()
         } catch {
             errorMessage = error.localizedDescription
         }
+    }
+}
+
+/// Per-case draft of uploads not yet submitted (Android `loan_desk_drafts`).
+private enum LoanDocDraft {
+    private struct Entry: Codable {
+        let label: String
+        let storageId: String
+        let fileName: String?
+        let attached: Bool
+    }
+
+    private static func key(_ caseId: String) -> String { "loan_desk_draft_case_\(caseId)" }
+
+    static func save(_ slots: [LoanDocSlot], caseId: String) {
+        let entries = slots.compactMap { slot -> Entry? in
+            guard slot.isFresh, let storageId = slot.storageId?.nonBlank else { return nil }
+            return Entry(label: slot.label, storageId: storageId, fileName: slot.fileName, attached: slot.attached)
+        }
+        guard !entries.isEmpty, let data = try? JSONEncoder().encode(entries) else {
+            clear(caseId: caseId)
+            return
+        }
+        UserDefaults.standard.set(data, forKey: key(caseId))
+    }
+
+    static func restore(into slots: inout [LoanDocSlot], caseId: String) {
+        guard let data = UserDefaults.standard.data(forKey: key(caseId)),
+              let entries = try? JSONDecoder().decode([Entry].self, from: data) else { return }
+        let byLabel = Dictionary(entries.map { ($0.label.lowercased(), $0) }, uniquingKeysWith: { $1 })
+        for index in slots.indices {
+            // The server's file wins over a stale draft.
+            guard slots[index].storageId == nil,
+                  let entry = byLabel[slots[index].label.lowercased()] else { continue }
+            slots[index].storageId = entry.storageId
+            slots[index].fileName = entry.fileName
+            slots[index].isFresh = true
+            slots[index].attached = entry.attached
+        }
+    }
+
+    static func clear(caseId: String) {
+        UserDefaults.standard.removeObject(forKey: key(caseId))
     }
 }
 
