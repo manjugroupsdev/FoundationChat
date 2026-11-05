@@ -107,7 +107,9 @@ final class MobileAlertCoordinator {
             current = alert
         } catch {
             guard token == activeToken else { return }
-            openError = error.localizedDescription
+            // Same wording as Android MobileAlertActivity: the usual cause is
+            // an alert deleted on the web.
+            openError = "Couldn't open this alert. It may be deleted or the connection is unavailable."
         }
     }
 
