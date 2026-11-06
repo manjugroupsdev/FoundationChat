@@ -1143,8 +1143,9 @@ private struct FleetOfflineCompletionSheet: View {
     }
 
     private static func text(_ value: Double?) -> String {
-        guard let value else { return "" }
-        return value.rounded() == value ? String(Int(value)) : String(value)
+        guard let value, value.isFinite else { return "" }
+        if value.rounded() == value, let whole = Int(exactly: value) { return String(whole) }
+        return String(value)
     }
 }
 

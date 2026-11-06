@@ -738,7 +738,7 @@ struct CpVisitsView: View {
             let incoming = scopedCpVisits(page).compactMap {
                 CpListVisit(detail: $0, currentStaffIds: currentStaffIds)
             }
-            var byID = Dictionary(uniqueKeysWithValues: visits.map { ($0.id, $0) })
+            var byID = Dictionary(visits.map { ($0.id, $0) }, uniquingKeysWith: { _, latest in latest })
             incoming.forEach { byID[$0.id] = $0 }
             visits = Array(byID.values).sorted(by: CpListVisit.androidOrder)
             nextCursor = page.nextCursor

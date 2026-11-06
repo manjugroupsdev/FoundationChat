@@ -200,16 +200,20 @@ enum DailyLogAPIService {
         let aggregate = await withTaskGroup(of: ([DprRecipient], [DprReport]).self) { group in
             for project in projects.prefix(30) {
                 group.addTask {
-                    async let recipients = try? listDprRecipients(token: token, projectId: project.id)
-                    async let reports = try? listDprReports(token: token, projectId: project.id)
-                    let resolvedRecipients = (await recipients ?? []).map { recipient in
+                    // Not `async let … = try?`: that pairing has crashed on devices when the
+                    // screen's task is cancelled mid-load (Swift async-let allocator trap).
+                    let recipientsTask = Task { try? await listDprRecipients(token: token, projectId: project.id) }
+                    let reportsTask = Task { try? await listDprReports(token: token, projectId: project.id) }
+                    let recipients = await recipientsTask.value
+                    let reports = await reportsTask.value
+                    let resolvedRecipients = (recipients ?? []).map { recipient in
                         var resolved = recipient
                         if resolved.projectName?.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty != false {
                             resolved.projectName = project.name
                         }
                         return resolved
                     }
-                    let resolvedReports = (await reports ?? []).map { report in
+                    let resolvedReports = (reports ?? []).map { report in
                         var resolved = report
                         if resolved.projectName?.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty != false {
                             resolved.projectName = project.name

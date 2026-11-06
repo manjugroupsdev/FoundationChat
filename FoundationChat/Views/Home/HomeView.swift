@@ -1756,17 +1756,24 @@ struct HomeView: View {
             guard requestedDate == dashboardDateQuery else { return }
             if isCancellationError(error) { return }
             let fallbackDate = requestedDate ?? dashboardDateKey(for: Date())
-            async let cpResult = try? MarketingConvexAPIService.getMyMarketingCpVisits(
+            // Not `async let … = try?`: that pairing has crashed on devices when the
+            // screen's task is cancelled mid-load (Swift async-let allocator trap).
+            let cpTask = Task {
+                try? await MarketingConvexAPIService.getMyMarketingCpVisits(
                     token: token,
                     fromDate: fallbackDate,
                     toDate: fallbackDate
                 )
-            async let svResult = try? HRConvexAPIService.getMySiteVisits(
+            }
+            let svTask = Task {
+                try? await HRConvexAPIService.getMySiteVisits(
                     token: token,
                     fromDate: fallbackDate,
                     toDate: fallbackDate
                 )
-            let (cp, sv) = await (cpResult, svResult)
+            }
+            let cp = await cpTask.value
+            let sv = await svTask.value
             guard requestedDate == dashboardDateQuery else { return }
             if cp != nil || sv != nil {
                 managementDashboard = .visitFallback(

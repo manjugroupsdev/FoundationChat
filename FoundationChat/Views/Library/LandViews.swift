@@ -1141,9 +1141,9 @@ private struct LandInspectionSheet: View {
     }
 
     private static func priceString(_ value: Double) -> String {
-        value.truncatingRemainder(dividingBy: 1) == 0
-            ? String(Int(value))
-            : String(value)
+        guard value.isFinite else { return "" }
+        if value.truncatingRemainder(dividingBy: 1) == 0, let whole = Int(exactly: value) { return String(whole) }
+        return String(value)
     }
 
     /// Normalize a free/selected value to the server's `"yes"`/`"no"` union,

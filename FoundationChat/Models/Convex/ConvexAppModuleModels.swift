@@ -270,9 +270,11 @@ enum AppLoanMapper {
               let end = parseMonth(remote.repaymentEndMonth)
         else { return paid }
 
-        let paidByMonth = Dictionary(uniqueKeysWithValues: paid.compactMap { repayment in
+        // Two payments in one month must not crash (uniqueKeysWithValues
+        // traps on a repeated key); the first one stands for the month.
+        let paidByMonth = Dictionary(paid.compactMap { repayment in
             repayment.dueDate.map { (monthKey($0), repayment) }
-        })
+        }, uniquingKeysWith: { first, _ in first })
         let emiAmount = Int(remote.monthlyDeduction ?? 0)
         var output: [AppRepayment] = []
         var cursor = start

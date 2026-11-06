@@ -260,7 +260,9 @@ struct TeamPerformanceSection: View {
     }
 
     private func trimmed(_ value: Double) -> String {
-        value.rounded() == value ? String(Int(value)) : String(format: "%.1f", value)
+        guard value.isFinite else { return "0" }
+        if value.rounded() == value, let whole = Int(exactly: value) { return String(whole) }
+        return String(format: "%.1f", value)
     }
 
     /// en-IN grouping; money compact like the web (₹71L, ₹2.4Cr, ₹85K).

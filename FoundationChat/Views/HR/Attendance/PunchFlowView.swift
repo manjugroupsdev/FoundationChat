@@ -348,10 +348,12 @@ struct PunchFlowView: View {
                 statusText = "Checking attendance..."
                 // Both reads at once (they used to run one after the other).
                 let today = Self.dateKeyFormatter.string(from: Date())
-                async let attendanceRead = HRConvexAPIService.getTodayAttendance(token: token)
-                async let sessionsRead = try? HRConvexAPIService.getDaySessions(token: token, date: today)
-                let latestAttendance = try await attendanceRead
-                let daySessions = await sessionsRead
+                // Not `async let … = try?`: that pairing has crashed on devices when the
+                // screen's task is cancelled mid-load (Swift async-let allocator trap).
+                let sessionsRead = Task { try? await HRConvexAPIService.getDaySessions(token: token, date: today) }
+                defer { sessionsRead.cancel() }
+                let latestAttendance = try await HRConvexAPIService.getTodayAttendance(token: token)
+                let daySessions = await sessionsRead.value
                 let firstPunchIn = daySessions?.firstPunchIn ?? latestAttendance?.firstPunchIn ?? latestAttendance?.punchInTime
                 let hasPunchedInToday = firstPunchIn?.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty == false
                 let clockedOutOnMobile = AttendanceTrackingGate.isClockedOutOnMobile(

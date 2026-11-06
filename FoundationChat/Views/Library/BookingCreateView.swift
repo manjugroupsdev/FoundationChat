@@ -1744,7 +1744,9 @@ struct BookingCreateView: View {
                         DirectBookingTextField(
                             "\(ordinalPaymentLabel(index + 2)) Payment Amount *",
                             text: Binding(
-                                get: { booking.flexiPaymentRows[index].amount },
+                                // Safe reads: after a row is deleted SwiftUI can still ask
+                                // a stale row for its value; a plain subscript traps.
+                                get: { booking.flexiPaymentRows[safe: index]?.amount ?? "" },
                                 set: { updateDynamicPaymentAmount(at: index, value: $0) }
                             ),
                             placeholder: "Enter Cost",
@@ -1754,8 +1756,11 @@ struct BookingCreateView: View {
                         DirectBookingDateField(
                             "\(ordinalPaymentLabel(index + 2)) Payment Date *",
                             text: Binding(
-                                get: { booking.flexiPaymentRows[index].dueDate },
-                                set: { booking.flexiPaymentRows[index].dueDate = $0 }
+                                get: { booking.flexiPaymentRows[safe: index]?.dueDate ?? "" },
+                                set: { value in
+                                    guard booking.flexiPaymentRows.indices.contains(index) else { return }
+                                    booking.flexiPaymentRows[index].dueDate = value
+                                }
                             ),
                             maxDate: dynamicPaymentDateLimit
                         )
@@ -3129,7 +3134,7 @@ struct BookingCreateView: View {
     @MainActor
     private func applyOriginalStaffDefaults(seedStaffId: String?) {
         guard !staff.isEmpty, let seedStaffId = seedStaffId?.directBookingNilIfBlank else { return }
-        let staffById = Dictionary(uniqueKeysWithValues: staff.map { ($0.id, $0) })
+        let staffById = Dictionary(staff.map { ($0.id, $0) }, uniquingKeysWith: { first, _ in first })
         var cursor: String? = seedStaffId
         var seen = Set<String>()
         var depth = 0

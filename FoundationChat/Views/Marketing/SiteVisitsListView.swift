@@ -412,7 +412,7 @@ struct SiteVisitsListView: View {
             )
             guard generation == loadGeneration else { return }
             autoFillPages += 1
-            var byID = Dictionary(uniqueKeysWithValues: visits.map { ($0.id, $0) })
+            var byID = Dictionary(visits.map { ($0.id, $0) }, uniquingKeysWith: { _, latest in latest })
             normalize(page.visits).forEach { byID[$0.id] = $0 }
             visits = Array(byID.values).sorted(by: newestFirst)
             nextCursor = page.nextCursor

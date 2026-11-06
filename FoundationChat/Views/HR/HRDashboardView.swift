@@ -1014,14 +1014,17 @@ struct HRDashboardView: View {
             todayAttendance = cached
         }
         do {
-            async let attendanceRequest = HRConvexAPIService.getTodayAttendance(token: token)
-            async let sessionsRequest = try? HRConvexAPIService.getDaySessions(
-                token: token,
-                date: todayDateKey
-            )
+            // Not `async let … = try?`: that pairing has crashed on devices when the
+            // screen's task is cancelled mid-load (Swift async-let allocator trap).
+            let sessionsRequest = Task {
+                try? await HRConvexAPIService.getDaySessions(token: token, date: todayDateKey)
+            }
+            defer { sessionsRequest.cancel() }
+            let attendanceRequest = Task { try await HRConvexAPIService.getTodayAttendance(token: token) }
+            defer { attendanceRequest.cancel() }
 
-            todayDaySessions = await sessionsRequest
-            let fetched = try await attendanceRequest
+            todayDaySessions = await sessionsRequest.value
+            let fetched = try await attendanceRequest.value
             todayAttendance = fetched
             // Persist the authoritative snapshot for the next offline launch.
             if let key = cacheKey { LocalCache.put(key, fetched) }
@@ -1094,10 +1097,12 @@ struct HRDashboardView: View {
 
     private func fillMonthGaps(_ records: [ConvexAttendanceRecord], from start: Date, to end: Date) -> [ConvexAttendanceRecord] {
         let calendar = Calendar.current
-        let keyed = Dictionary(uniqueKeysWithValues: records.compactMap { record -> (String, ConvexAttendanceRecord)? in
+        // A day can come back twice (e.g. a biometric and a mobile row);
+        // uniqueKeysWithValues would trap, so the first row for a day wins.
+        let keyed = Dictionary(records.compactMap { record -> (String, ConvexAttendanceRecord)? in
             guard let date = record.date else { return nil }
             return (date, record)
-        })
+        }, uniquingKeysWith: { first, _ in first })
         var output: [ConvexAttendanceRecord] = []
         var day = calendar.startOfDay(for: start)
         let last = calendar.startOfDay(for: end)

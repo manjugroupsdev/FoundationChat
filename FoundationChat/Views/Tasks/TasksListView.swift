@@ -289,7 +289,7 @@ struct TasksListView: View {
     }
 
     private func moduleLabelCache(for tasks: [DailyTask]) -> [String: String] {
-        Dictionary(uniqueKeysWithValues: tasks.map { ($0.id, computeModuleLabel(for: $0)) })
+        Dictionary(tasks.map { ($0.id, computeModuleLabel(for: $0)) }, uniquingKeysWith: { first, _ in first })
     }
 
     private func moduleLabel(for task: DailyTask) -> String {

@@ -2532,17 +2532,18 @@ struct RepaymentHistoryView: View {
         isLoading = true
         defer { isLoading = false }
         do {
-            async let detailRequest = MarketingConvexAPIService.getLoanDetail(
+            // Not `async let … = try?`: that pairing has crashed on devices when the
+            // screen's task is cancelled mid-load (Swift async-let allocator trap).
+            let freshRequest = Task { () -> [ConvexLoanRepaymentData]? in
+                try? await MarketingConvexAPIService.getLoanRepayments(token: token, loanId: loanId)
+            }
+            defer { freshRequest.cancel() }
+            let loan = try await MarketingConvexAPIService.getLoanDetail(
                 token: token,
                 id: loanId,
                 mappedStatus: status
             )
-            async let freshRequest: [ConvexLoanRepaymentData]? = try? MarketingConvexAPIService.getLoanRepayments(
-                token: token,
-                loanId: loanId
-            )
-            let loan = try await detailRequest
-            let freshPaid = AppLoanMapper.mapRepayments(await freshRequest ?? [])
+            let freshPaid = AppLoanMapper.mapRepayments(await freshRequest.value ?? [])
             let merged = freshPaid.isEmpty
                 ? loan.repayments
                 : freshPaid + loan.repayments.filter { $0.status != .paid }

@@ -2286,7 +2286,7 @@ private struct EditCollectionAmountSheet: View {
         self.onSaved = onSaved
         let value = collection.amount ?? 0
         // Show a whole number without a trailing ".0" when the amount is integral.
-        let initial = value == value.rounded() ? String(Int(value)) : String(value)
+        let initial = value == value.rounded() ? (Int(exactly: value).map(String.init) ?? String(value)) : String(value)
         _amountText = State(initialValue: value > 0 ? initial : "")
     }
 

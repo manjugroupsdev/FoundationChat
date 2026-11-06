@@ -2005,5 +2005,7 @@ private func lastActivityLabel(for log: DailyLogEntry) -> String {
 }
 
 private func trimNumber(_ value: Double) -> String {
-    value == Double(Int(value)) ? String(Int(value)) : String(value)
+    guard value.isFinite else { return "" }
+    if value.rounded() == value, let whole = Int(exactly: value) { return String(whole) }
+    return String(value)
 }

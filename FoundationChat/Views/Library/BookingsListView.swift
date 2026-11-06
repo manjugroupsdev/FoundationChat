@@ -93,7 +93,7 @@ struct BookingsListView: View {
         .sheet(item: $selectedBooking, onDismiss: {
             Task { await load() }
         }) { booking in
-            BookingDetailView(bookingId: booking.id) {
+            BookingDetailView(bookingId: booking.id, initialBooking: booking) {
                 Task { await load() }
             }
             .appLibraryNativeSheet([.medium, .large])
@@ -114,7 +114,10 @@ struct BookingsListView: View {
                 }
             )
         }
-        .task { if !hasLoaded { await load() } }
+        .task {
+            BookingCache.purgeLegacyDefaults()
+            if !hasLoaded { await load() }
+        }
         .task(id: searchText) {
             guard hasLoaded else { return }
             try? await Task.sleep(for: .milliseconds(350))
@@ -205,16 +208,20 @@ struct BookingsListView: View {
             hasLoaded = true
             return
         }
-        let facets = ["project", "plot"]
-            .map { advancedFilter.selected($0).sorted().joined(separator: ",") }
-            .joined(separator: "|")
-        let dateKey = "\(advancedFilter.fromDate?.timeIntervalSince1970 ?? 0)-\(advancedFilter.toDate?.timeIntervalSince1970 ?? 0)"
-        let cacheKey = BookingCache.listKey(status: selectedStatus.apiValue) + ".\(dateKey).\(facets).\(searchText.lowercased())"
-        let cached = BookingCache.readList(forKey: cacheKey)
-        if !cached.isEmpty {
-            bookings = cached
-            errorMessage = nil
-            hasLoaded = true
+        // Only the plain per-status list is cached (one small file per
+        // status). Search, date and facet results are not: caching every
+        // combination used to pile whole booking lists into UserDefaults.
+        let isUnfiltered = searchText.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
+            && advancedFilter.fromDate == nil && advancedFilter.toDate == nil
+            && advancedFilter.selected("project").isEmpty && advancedFilter.selected("plot").isEmpty
+        let cacheKey = isUnfiltered ? BookingCache.listKey(staff: viewerKey, status: selectedStatus.apiValue) : nil
+        if bookings.isEmpty, let cacheKey {
+            let cached = await BookingCache.readList(forKey: cacheKey)
+            if !cached.isEmpty, bookings.isEmpty {
+                bookings = cached
+                errorMessage = nil
+                hasLoaded = true
+            }
         }
         isLoading = bookings.isEmpty
         defer { isLoading = false; hasLoaded = true }
@@ -231,13 +238,18 @@ struct BookingsListView: View {
                 pageSize: 200
             )
                 .sorted { ($0.bookingDate ?? "") > ($1.bookingDate ?? "") }
+                .uniqued()
+            guard !Task.isCancelled else { return }
             bookings = refreshedBookings
-            BookingCache.writeList(refreshedBookings, forKey: cacheKey)
-            refreshedBookings.forEach(BookingCache.writeDetail)
+            if let cacheKey { BookingCache.writeList(refreshedBookings, forKey: cacheKey) }
             errorMessage = nil
         } catch {
             errorMessage = error.localizedDescription
         }
+    }
+
+    private var viewerKey: String {
+        authStore.viewer?.subject ?? authStore.currentSession?.user._id ?? "anonymous"
     }
 
     private var advancedFilterCategories: [AdvancedFilterCategory] {
@@ -291,35 +303,67 @@ struct BookingsListView: View {
     }
 }
 
+/// Cache-first paint for Booking. Files under LocalCache (Application
+/// Support, out of backup), read and written off the main thread.
+///
+/// It used to live in UserDefaults: every load wrote the whole list under a
+/// key that included the search text, date and facets, plus one key per
+/// booking. UserDefaults keeps everything in memory and rewrites its file on
+/// each change, so it grew with every search until opening Booking stalled
+/// and the app was killed. `purgeLegacyDefaults` removes those keys once.
 private enum BookingCache {
-    private static let prefix = "FoundationChat.BookingCache"
+    private static let legacyPrefix = "FoundationChat.BookingCache"
+    private static let purgedFlag = "FoundationChat.BookingCachePurged.v2"
 
-    static func listKey(status: String?) -> String {
-        "\(prefix).list.\(status?.nilIfBlank ?? "all")"
+    static func listKey(staff: String, status: String?) -> String {
+        "booking.list.\(staff).\(status?.nilIfBlank ?? "all")"
     }
 
     static func detailKey(id: String) -> String {
-        "\(prefix).detail.\(id)"
+        "booking.detail.\(id)"
     }
 
-    static func readList(forKey key: String) -> [AppBooking] {
-        guard let data = UserDefaults.standard.data(forKey: key) else { return [] }
-        return (try? JSONDecoder().decode([AppBooking].self, from: data)) ?? []
+    static func readList(forKey key: String) async -> [AppBooking] {
+        await Task.detached(priority: .userInitiated) {
+            LocalCache.get(key, as: [AppBooking].self) ?? []
+        }.value
     }
 
     static func writeList(_ bookings: [AppBooking], forKey key: String) {
-        guard let data = try? JSONEncoder().encode(bookings) else { return }
-        UserDefaults.standard.set(data, forKey: key)
+        Task.detached(priority: .utility) { LocalCache.put(key, bookings) }
     }
 
-    static func readDetail(id: String) -> AppBooking? {
-        guard let data = UserDefaults.standard.data(forKey: detailKey(id: id)) else { return nil }
-        return try? JSONDecoder().decode(AppBooking.self, from: data)
+    static func readDetail(id: String) async -> AppBooking? {
+        let key = detailKey(id: id)
+        return await Task.detached(priority: .userInitiated) {
+            LocalCache.get(key, as: AppBooking.self)
+        }.value
     }
 
     static func writeDetail(_ booking: AppBooking) {
-        guard let data = try? JSONEncoder().encode(booking) else { return }
-        UserDefaults.standard.set(data, forKey: detailKey(id: booking.id))
+        let key = detailKey(id: booking.id)
+        Task.detached(priority: .utility) { LocalCache.put(key, booking) }
+    }
+
+    /// Drops the old UserDefaults copies (once per install).
+    static func purgeLegacyDefaults() {
+        let defaults = UserDefaults.standard
+        guard !defaults.bool(forKey: purgedFlag) else { return }
+        defaults.set(true, forKey: purgedFlag)
+        let prefix = legacyPrefix + "."
+        Task.detached(priority: .utility) {
+            let stale = UserDefaults.standard.dictionaryRepresentation().keys.filter { $0.hasPrefix(prefix) }
+            stale.forEach { UserDefaults.standard.removeObject(forKey: $0) }
+        }
+    }
+}
+
+private extension Array where Element == AppBooking {
+    /// First occurrence of each id, order kept. A repeated id in a SwiftUI
+    /// ForEach is undefined behaviour and can crash the list.
+    func uniqued() -> [AppBooking] {
+        var seen = Set<String>()
+        return filter { seen.insert($0.id).inserted }
     }
 }
 
@@ -542,8 +586,9 @@ private struct BookingDrawerEditDraft {
 
     private static func numberText(_ value: Double?) -> String {
         guard let value else { return "" }
-        if value.rounded(.towardZero) == value {
-            return String(Int(value))
+        guard value.isFinite else { return "" }
+        if value.rounded(.towardZero) == value, let whole = Int(exactly: value) {
+            return String(whole)
         }
         return String(value)
     }
@@ -596,6 +641,15 @@ private struct BookingDetailView: View {
 
     @State private var booking: AppBooking?
     @State private var selectedTab: BookingDrawerTab = .approval
+
+    /// `initialBooking` is the tapped list row: the sheet paints from it at
+    /// once and the full booking replaces it when it arrives.
+    init(bookingId: String, initialBooking: AppBooking? = nil, onChanged: @escaping () -> Void) {
+        self.bookingId = bookingId
+        self.onChanged = onChanged
+        _booking = State(initialValue: initialBooking)
+        _editDraft = State(initialValue: initialBooking.map { BookingDrawerEditDraft(booking: $0) } ?? BookingDrawerEditDraft())
+    }
     @State private var isEditing = false
     @State private var editDraft = BookingDrawerEditDraft()
     @State private var isLoading = false
@@ -1039,6 +1093,12 @@ private struct BookingDetailView: View {
         }
     }
 
+    /// "30 days"; nil for a missing, fractional-overflow or non-finite value.
+    private static func daysText(_ value: Double) -> String? {
+        guard value.isFinite, let days = Int(exactly: value.rounded()) else { return nil }
+        return "\(days) days"
+    }
+
     private static let drawerDateTimeFormatter: DateFormatter = {
         let f = CachedDateFormatters.formatter("dd MMM yyyy, h:mm a", posix: true)
         return f
@@ -1151,7 +1211,7 @@ private struct BookingDetailView: View {
                 drawerSectionHeader("Special Consideration", systemImage: "percent")
                 drawerInfoRow("Special Consideration", booking.specialConsideration.map(AppModuleFormatters.rupees))
                 drawerInfoRow("Reason", booking.specialConsiderationReason)
-                drawerInfoRow("Validity", booking.specialConsiderationValidity.map { "\(Int($0)) days" })
+                drawerInfoRow("Validity", booking.specialConsiderationValidity.flatMap(Self.daysText))
                 drawerInfoRow("Discount Approved By", booking.discountApprovedBy)
             }
 
@@ -1160,7 +1220,7 @@ private struct BookingDetailView: View {
                 drawerInfoRow("Promotional Offer", booking.promotionalOffers)
                 drawerInfoRow("Offer Value", booking.promotionalOfferValue.map(AppModuleFormatters.rupees))
                 drawerInfoRow("Terms & Conditions", booking.promotionalOffersTnC)
-                drawerInfoRow("Offer Validity", booking.offerValidityPeriod.map { "\(Int($0)) days" })
+                drawerInfoRow("Offer Validity", booking.offerValidityPeriod.flatMap(Self.daysText))
             }
 
             if hasAny(booking.customerPaymentCategory, booking.loanAmountRequested.map(AppModuleFormatters.rupees), booking.paymentPlan) {
@@ -1369,7 +1429,7 @@ private struct BookingDetailView: View {
     @MainActor
     private func load() async {
         guard let token = authStore.currentSession?.token else { return }
-        if booking == nil, let cachedBooking = BookingCache.readDetail(id: bookingId) {
+        if booking == nil, let cachedBooking = await BookingCache.readDetail(id: bookingId), booking == nil {
             booking = cachedBooking
             editDraft = BookingDrawerEditDraft(booking: cachedBooking)
             errorMessage = nil
