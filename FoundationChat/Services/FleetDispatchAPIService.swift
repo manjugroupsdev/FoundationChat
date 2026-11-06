@@ -68,6 +68,7 @@ enum FleetDispatchAPIService {
         let driverPhone: String
         let kmRate: Double?
         let packageAmount: Double?
+        let allowOvercapacity: Bool?
     }
 
     private struct DriverCreateRequest: Encodable {
@@ -191,7 +192,8 @@ enum FleetDispatchAPIService {
             driverName: draft.driverName,
             driverPhone: draft.driverPhone,
             kmRate: draft.pricingMode == "km" ? draft.amount : nil,
-            packageAmount: draft.pricingMode == "package" ? draft.amount : nil
+            packageAmount: draft.pricingMode == "package" ? draft.amount : nil,
+            allowOvercapacity: draft.allowOvercapacity ? true : nil
         )
         try await mutate(
             path: scope == .mms ? "/api/mms-fleet/dispatch/allocate" : "/api/travel-desk/trips/allocate",
@@ -717,5 +719,27 @@ enum FleetDispatchAPIService {
             throw FleetDispatchAPIError.server(statusCode: http.statusCode, message: message)
         }
         return data
+    }
+}
+
+/// The server refuses to assign a vehicle when the party size is unknown or
+/// bigger than the vehicle unless the dispatcher confirms (`allowOvercapacity`).
+/// The web asks "assign anyway?"; the app used to stop at the error.
+enum FleetCapacityConfirm {
+    /// The question to ask for a capacity error, or nil for any other error.
+    static func question(for message: String) -> String? {
+        if let range = message.range(
+            of: #"Vehicle capacity \d+ is below expected attendee count \d+"#,
+            options: .regularExpression
+        ) {
+            let numbers = message[range].split(whereSeparator: { !$0.isNumber }).map(String.init)
+            if numbers.count >= 2 {
+                return "This vehicle seats \(numbers[0]), but \(numbers[1]) people are expected. Assign it anyway?"
+            }
+        }
+        if message.localizedCaseInsensitiveContains("Cannot verify capacity") {
+            return "This site visit has no expected party size, so the vehicle's capacity can't be checked. Assign it anyway?"
+        }
+        return nil
     }
 }

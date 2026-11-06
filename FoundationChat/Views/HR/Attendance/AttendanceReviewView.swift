@@ -9,6 +9,7 @@ struct AttendanceReviewView: View {
     @State private var filter = AttendanceReviewFilter()
     @State private var selectedRecord: ConvexAttendanceRecord?
     @State private var approvingRecord: ConvexAttendanceRecord?
+    @State private var overridePrompt: ApprovalOverridePrompt?
     @State private var rejectingRecord: ConvexAttendanceRecord?
     @State private var rejectReason = ""
     @State private var actionInFlightId: String?
@@ -91,6 +92,9 @@ struct AttendanceReviewView: View {
             Button("Weekoff") { approveSelectedAttendance(as: "weekoff") }
             Button("Holiday") { approveSelectedAttendance(as: "holiday") }
             Button("Cancel", role: .cancel) {}
+        }
+        .approvalOverrideReasonAlert(prompt: $overridePrompt) { prompt, reason in
+            approveAttendance(id: prompt.recordId, as: prompt.chosen, overrideReason: reason)
         }
         .alert("Reject Attendance", isPresented: Binding(
             get: { rejectingRecord != nil },
@@ -298,12 +302,15 @@ struct AttendanceReviewView: View {
     }
 
     private func approveAttendance(_ record: ConvexAttendanceRecord, as approvedAttendance: String) {
-        guard let token = authStore.currentSession?.token else { return }
         guard let id = record.reviewId else {
             errorMessage = "Attendance id is missing."
             return
         }
+        approveAttendance(id: id, as: approvedAttendance, overrideReason: nil)
+    }
 
+    private func approveAttendance(id: String, as approvedAttendance: String, overrideReason: String?) {
+        guard let token = authStore.currentSession?.token else { return }
         actionInFlightId = id
         Task {
             defer { actionInFlightId = nil }
@@ -311,14 +318,24 @@ struct AttendanceReviewView: View {
                 try await HRConvexAPIService.approveAttendance(
                     token: token,
                     id: id,
-                    approvedAttendance: approvedAttendance
+                    approvedAttendance: approvedAttendance,
+                    overrideReason: overrideReason
                 )
                 await loadReviews()
             } catch {
                 if error is CancellationError || (error as NSError).code == NSURLErrorCancelled {
                     return
                 }
-                errorMessage = error.localizedDescription
+                let message = error.localizedDescription
+                if let system = ApprovalOverrideReason.systemResult(in: message) {
+                    if overrideReason == nil {
+                        overridePrompt = ApprovalOverridePrompt(recordId: id, chosen: approvedAttendance, system: system)
+                    } else {
+                        errorMessage = ApprovalOverrideReason.serverNotReadyMessage(system: system)
+                    }
+                    return
+                }
+                errorMessage = message
             }
         }
     }

@@ -165,6 +165,11 @@ enum PostSalesConvexAPIService {
     private struct ApproveCollectionRequest: Encodable {
         let collectionId: String
         let notes: String?
+        // Required by the server (web parity): "with_receipt" | "without_receipt",
+        // plus the receipt number when a receipt exists. Without them every
+        // approve answered HTTP 400.
+        let receiptMode: String?
+        let receiptNo: String?
     }
 
     private struct RejectCollectionRequest: Encodable {
@@ -252,11 +257,22 @@ enum PostSalesConvexAPIService {
         return wrapper.collection
     }
 
-    static func approveCollection(token: String, collectionId: String, notes: String? = nil) async throws -> CustomerCollectionRow? {
+    static func approveCollection(
+        token: String,
+        collectionId: String,
+        notes: String? = nil,
+        receiptMode: String,
+        receiptNo: String? = nil
+    ) async throws -> CustomerCollectionRow? {
         let data = try await post(
             path: "/api/postsales/collections/approve",
             token: token,
-            body: ApproveCollectionRequest(collectionId: collectionId, notes: notes)
+            body: ApproveCollectionRequest(
+                collectionId: collectionId,
+                notes: notes,
+                receiptMode: receiptMode,
+                receiptNo: receiptMode == "with_receipt" ? receiptNo : nil
+            )
         )
         let wrapper = try await decode(VerifyCollectionResponse.self, from: data)
         guard wrapper.success else { throw MarketingAPIError.server(wrapper.error ?? "Failed to approve collection") }

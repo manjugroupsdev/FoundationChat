@@ -270,6 +270,10 @@ struct AccountsCollectionsReviewView: View {
     @State private var errorMessage: String?
     @State private var selectedForReject: CustomerCollectionRow?
     @State private var rejectRemarks = ""
+    /// Approve asks first whether a receipt number exists (web parity).
+    @State private var selectedForApprove: CustomerCollectionRow?
+    @State private var receiptEntryFor: CustomerCollectionRow?
+    @State private var receiptNo = ""
     @State private var selectedFilter: CollectionPaymentFilter = .all
     @State private var selectedFromDate: Date?
     @State private var selectedToDate: Date?
@@ -372,6 +376,14 @@ struct AccountsCollectionsReviewView: View {
         } message: {
             Text(errorMessage ?? "")
         }
+        .modifier(CollectionApprovalPrompts(
+            selectedForApprove: $selectedForApprove,
+            receiptEntryFor: $receiptEntryFor,
+            receiptNo: $receiptNo,
+            errorMessage: $errorMessage
+        ) { collection, mode, number in
+            Task<Void, Never> { await approve(collection, receiptMode: mode, receiptNo: number) }
+        })
         .sheet(item: $selectedForReject) { collection in
             RejectCollectionSheet(
                 title: "Rejection Remarks",
@@ -422,7 +434,7 @@ struct AccountsCollectionsReviewView: View {
                                 selectedForReject = collection
                             } : nil,
                             onAccept: collection.isPendingVerification && !processingCollectionIds.contains(collection.id) ? {
-                                Task<Void, Never> { await approve(collection) }
+                                selectedForApprove = collection
                             } : nil
                         )
                     }
@@ -476,7 +488,7 @@ struct AccountsCollectionsReviewView: View {
     }
 
     @MainActor
-    private func approve(_ collection: CustomerCollectionRow) async {
+    private func approve(_ collection: CustomerCollectionRow, receiptMode: String, receiptNo: String?) async {
         guard let token = authStore.currentSession?.token else { return }
         guard collection.isPendingVerification else {
             errorMessage = "Only pending collections can be approved."
@@ -485,7 +497,12 @@ struct AccountsCollectionsReviewView: View {
         guard processingCollectionIds.insert(collection.id).inserted else { return }
         defer { processingCollectionIds.remove(collection.id) }
         do {
-            _ = try await PostSalesConvexAPIService.approveCollection(token: token, collectionId: collection.id)
+            _ = try await PostSalesConvexAPIService.approveCollection(
+                token: token,
+                collectionId: collection.id,
+                receiptMode: receiptMode,
+                receiptNo: receiptNo
+            )
             markRow(collection.id, status: "approved", notes: nil)
         } catch {
             errorMessage = error.localizedDescription
@@ -3091,5 +3108,53 @@ private extension String {
             .lowercased()
             .replacingOccurrences(of: "-", with: "_")
             .replacingOccurrences(of: " ", with: "_")
+    }
+}
+
+/// Collection approve, web parity: first "Is a receipt number available?",
+/// then the receipt number when there is one. Kept out of the view's body so
+/// the compiler can type-check that modifier chain.
+private struct CollectionApprovalPrompts: ViewModifier {
+    @Binding var selectedForApprove: CustomerCollectionRow?
+    @Binding var receiptEntryFor: CustomerCollectionRow?
+    @Binding var receiptNo: String
+    @Binding var errorMessage: String?
+    let onApprove: (CustomerCollectionRow, String, String?) -> Void
+
+    func body(content: Content) -> some View {
+        content
+            .confirmationDialog(
+                "Approve collection",
+                isPresented: Binding(get: { selectedForApprove != nil }, set: { if !$0 { selectedForApprove = nil } }),
+                titleVisibility: .visible,
+                presenting: selectedForApprove
+            ) { collection in
+                Button("With receipt") {
+                    receiptNo = ""
+                    receiptEntryFor = collection
+                }
+                Button("Without receipt") { onApprove(collection, "without_receipt", nil) }
+                Button("Cancel", role: .cancel) {}
+            } message: { _ in
+                Text("Is a receipt number available for this collection?")
+            }
+            .alert(
+                "Receipt number",
+                isPresented: Binding(get: { receiptEntryFor != nil }, set: { if !$0 { receiptEntryFor = nil } }),
+                presenting: receiptEntryFor
+            ) { collection in
+                TextField("Receipt number", text: $receiptNo)
+                Button("Approve") {
+                    let number = receiptNo.trimmingCharacters(in: .whitespacesAndNewlines)
+                    guard !number.isEmpty else {
+                        errorMessage = "Enter the receipt number."
+                        return
+                    }
+                    onApprove(collection, "with_receipt", number)
+                }
+                Button("Cancel", role: .cancel) {}
+            } message: { _ in
+                Text("Enter the receipt number to approve.")
+            }
     }
 }

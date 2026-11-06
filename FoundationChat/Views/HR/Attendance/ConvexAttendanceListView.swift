@@ -1793,6 +1793,7 @@ private struct AttendanceApprovalReviewSheet: View {
     @State private var showHoldReason = false
     @State private var holdReason = ""
     @State private var errorMessage: String?
+    @State private var overridePrompt: ApprovalOverridePrompt?
     @State private var routeData: GeoTrackSessionRouteData?
     @State private var snappedSegments: [GeoTrackSnappedSegment] = []
     @State private var isRouteLoading = false
@@ -1880,6 +1881,9 @@ private struct AttendanceApprovalReviewSheet: View {
             }
         }
         .interactiveDismissDisabled(isSubmitting)
+        .approvalOverrideReasonAlert(prompt: $overridePrompt) { prompt, reason in
+            approve(prompt.chosen, overrideReason: reason)
+        }
         .task(id: "\(record.staffId ?? "")-\(record.date ?? "")") {
             await loadRouteData()
         }
@@ -2433,18 +2437,32 @@ private struct AttendanceApprovalReviewSheet: View {
         isRouteLoading = false
     }
 
-    private func approve(_ status: String) {
+    private func approve(_ status: String, overrideReason: String? = nil) {
         guard let token = authStore.currentSession?.token else { return }
         isSubmitting = true
         Task {
             do {
-                try await HRConvexAPIService.approveAttendance(token: token, id: record.id, approvedAttendance: status)
+                try await HRConvexAPIService.approveAttendance(
+                    token: token,
+                    id: record.id,
+                    approvedAttendance: status,
+                    overrideReason: overrideReason
+                )
                 await onCompleted()
                 await MainActor.run { dismiss() }
             } catch {
                 await MainActor.run {
-                    errorMessage = error.localizedDescription
                     isSubmitting = false
+                    let message = error.localizedDescription
+                    if let system = ApprovalOverrideReason.systemResult(in: message) {
+                        if overrideReason == nil {
+                            overridePrompt = ApprovalOverridePrompt(recordId: record.id, chosen: status, system: system)
+                        } else {
+                            errorMessage = ApprovalOverrideReason.serverNotReadyMessage(system: system)
+                        }
+                    } else {
+                        errorMessage = message
+                    }
                 }
             }
         }

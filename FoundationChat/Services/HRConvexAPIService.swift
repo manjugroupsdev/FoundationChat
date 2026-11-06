@@ -958,9 +958,17 @@ enum HRConvexAPIService {
         return try await decode(AttendanceListResponse.self, from: data).page
     }
 
-    static func approveAttendance(token: String, id: String, approvedAttendance: String, isRequest: Bool? = nil) async throws {
+    static func approveAttendance(
+        token: String,
+        id: String,
+        approvedAttendance: String,
+        isRequest: Bool? = nil,
+        overrideReason: String? = nil
+    ) async throws {
         var body: [String: Any] = ["id": id, "approvedAttendance": approvedAttendance]
         if let isRequest { body["isRequest"] = isRequest }
+        // Needed when the value differs from the shift-based system result.
+        if let overrideReason, !overrideReason.isEmpty { body["approvalOverrideReason"] = overrideReason }
         let data = try await post(path: "/api/hr/attendance/approve", token: token, jsonBody: body)
         let wrapper = try await decode(GenericSuccessResponse.self, from: data)
         guard wrapper.success else { throw HRConvexAPIError.server(wrapper.error ?? "Failed to approve") }

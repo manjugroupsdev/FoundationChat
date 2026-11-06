@@ -315,6 +315,7 @@ struct FleetAllocationSheet: View {
     @State private var amount = ""
     @State private var isSubmitting = false
     @State private var errorMessage: String?
+    @State private var capacityQuestion: String?
 
     private var selectedVehicle: FleetDispatchVehicle? {
         vehicles.first { $0.id == selectedVehicleId }
@@ -357,6 +358,17 @@ struct FleetAllocationSheet: View {
                             .foregroundStyle(.red)
                     }
                 }
+            }
+            .alert(
+                "Check vehicle capacity",
+                isPresented: Binding(get: { capacityQuestion != nil }, set: { if !$0 { capacityQuestion = nil } })
+            ) {
+                Button("Assign anyway") {
+                    Task<Void, Never> { await submit(allowOvercapacity: true) }
+                }
+                Button("Cancel", role: .cancel) {}
+            } message: {
+                Text(capacityQuestion ?? "")
             }
             .navigationTitle("Allocate Trip")
             .navigationBarTitleDisplayMode(.inline)
@@ -414,7 +426,7 @@ struct FleetAllocationSheet: View {
     }
 
     @MainActor
-    private func submit() async {
+    private func submit(allowOvercapacity: Bool = false) async {
         guard canSubmit else { return }
         isSubmitting = true
         errorMessage = nil
@@ -431,13 +443,19 @@ struct FleetAllocationSheet: View {
                     pricingMode: pricingMode,
                     driverName: driverName.trimmingCharacters(in: .whitespacesAndNewlines),
                     driverPhone: driverPhone.trimmingCharacters(in: .whitespacesAndNewlines),
-                    amount: scope == .agency ? (Double(amount) ?? 0) : 0
+                    amount: scope == .agency ? (Double(amount) ?? 0) : 0,
+                    allowOvercapacity: allowOvercapacity
                 )
             )
             await onAllocated()
             dismiss()
         } catch {
-            errorMessage = error.localizedDescription
+            let message = error.localizedDescription
+            if !allowOvercapacity, let question = FleetCapacityConfirm.question(for: message) {
+                capacityQuestion = question
+            } else {
+                errorMessage = message
+            }
         }
     }
 }

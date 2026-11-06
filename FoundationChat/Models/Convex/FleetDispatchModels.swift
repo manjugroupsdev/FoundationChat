@@ -213,6 +213,8 @@ struct FleetAllocationDraft: Sendable {
     let driverName: String
     let driverPhone: String
     let amount: Double
+    /// Dispatcher confirmed assigning despite an unknown / larger party size.
+    var allowOvercapacity: Bool = false
 }
 
 struct FleetAgencyStaff: Decodable, Identifiable, Hashable, Sendable {
