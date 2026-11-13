@@ -18,6 +18,8 @@ struct LoginView: View {
     // view is bound to it with .focused(), and SwiftUI resets a @FocusState
     // with no focusable target to nil, which left the field untypeable.
     @State private var otpFocused = false
+    // WhatsApp "Copy code": only a copy made after the OTP screen opened.
+    @State private var pasteboardBaseline = UIPasteboard.general.changeCount
     @Environment(\.scenePhase) private var scenePhase
     @FocusState private var employeeFieldFocused: EmployeeField?
 
@@ -229,6 +231,12 @@ struct LoginView: View {
                 .foregroundStyle(Color.appPrimaryText)
                 .tint(Color(red: 0.10, green: 0.45, blue: 0.96))
                 .focused($phoneFieldFocused)
+                .onChange(of: phoneNumber) { _, value in
+                    // iPhone's own-number suggestion fills "+91 98765 43210";
+                    // keep the 10-digit mobile the +91 prefix expects.
+                    let mobile = Self.indianMobile10(value)
+                    if mobile != value { phoneNumber = mobile }
+                }
         }
         .padding(.horizontal, 12)
         .frame(height: 48)
@@ -250,13 +258,7 @@ struct LoginView: View {
             handleSendOtp()
         } label: {
             ZStack {
-                if authStore.isRequestingOTP {
-                    ProgressView().tint(.white)
-                } else {
-                    Text("Send OTP")
-                        .font(.system(size: 14, weight: .medium))
-                        .foregroundStyle(.white)
-                }
+                ButtonLoadingLabel("Send OTP", loading: authStore.isRequestingOTP, loadingTitle: "Sending OTP")
             }
             .frame(maxWidth: .infinity)
             .frame(height: 48)
@@ -452,13 +454,7 @@ struct LoginView: View {
             Task { await handleEmployeeLogin() }
         } label: {
             ZStack {
-                if authStore.isEmployeeLoginInProgress {
-                    ProgressView().tint(.white)
-                } else {
-                    Text("Sign In")
-                        .font(.system(size: 14, weight: .medium))
-                        .foregroundStyle(.white)
-                }
+                ButtonLoadingLabel("Sign In", loading: authStore.isEmployeeLoginInProgress, loadingTitle: "Signing in")
             }
             .frame(maxWidth: .infinity)
             .frame(height: 48)
@@ -542,8 +538,34 @@ struct LoginView: View {
             }
         }
         .onChange(of: scenePhase) { _, phase in
-            // Returning from Messages after copying the code.
-            if phase == .active { refocusOtp() }
+            // Returning from Messages / WhatsApp after copying the code.
+            if phase == .active {
+                refocusOtp()
+                fillFromPasteboard()
+            }
+        }
+    }
+
+    /// Back from WhatsApp after "Copy code": a 6-digit code copied since the
+    /// OTP screen opened fills the boxes and signs in. iPhone can't read
+    /// WhatsApp, so this is the WhatsApp autofill on iOS. Checking the pattern
+    /// first reads nothing; only a real code asks iOS's "Allow Paste".
+    private func fillFromPasteboard() {
+        guard step == .otp,
+              otpCode.count < OtpCodeInput.length,
+              !authStore.isAuthenticating else { return }
+        let board = UIPasteboard.general
+        let change = board.changeCount
+        guard change != pasteboardBaseline, board.hasStrings else { return }
+        pasteboardBaseline = change
+        board.detectPatterns(for: [.number]) { result in
+            guard case let .success(patterns) = result, patterns.contains(.number) else { return }
+            DispatchQueue.main.async {
+                guard let text = UIPasteboard.general.string?.trimmingCharacters(in: .whitespacesAndNewlines),
+                      text.count == OtpCodeInput.length,
+                      text.allSatisfy(\.isNumber) else { return }
+                handleOtpChange(text)
+            }
         }
     }
 
@@ -564,13 +586,7 @@ struct LoginView: View {
             Task { await handleVerifyOtp() }
         } label: {
             ZStack {
-                if authStore.isAuthenticating {
-                    AuthPulsingLoadingCircle()
-                } else {
-                    Text("Verify OTP")
-                        .font(.system(size: 14, weight: .medium))
-                        .foregroundStyle(.white)
-                }
+                ButtonLoadingLabel("Verify OTP", loading: authStore.isAuthenticating, loadingTitle: "Verifying")
             }
             .frame(maxWidth: .infinity)
             .frame(height: 48)
@@ -590,6 +606,14 @@ struct LoginView: View {
 
     // MARK: - Logic
 
+    /// Digits only, without a leading 91 / 0, at most 10.
+    static func indianMobile10(_ value: String) -> String {
+        var digits = value.filter(\.isNumber)
+        if digits.count == 12, digits.hasPrefix("91") { digits.removeFirst(2) }
+        if digits.count == 11, digits.hasPrefix("0") { digits.removeFirst() }
+        return String(digits.prefix(10))
+    }
+
     private func handleSendOtp() {
         let phone = phoneNumber.filter(\.isNumber)
         guard phone.count == 10, !authStore.isRequestingOTP else { return }
@@ -602,6 +626,7 @@ struct LoginView: View {
             verifiedPhone = phone
             otpCode = ""
             clearFocus()
+            pasteboardBaseline = UIPasteboard.general.changeCount
             withAnimation(.spring(response: 0.4)) { step = .otp }
         }
 
@@ -694,22 +719,6 @@ struct LoginView: View {
 // MARK: - OTP Box
 
 private enum AuthStep { case phone, otp, employee }
-
-private struct AuthPulsingLoadingCircle: View {
-    @State private var isBright = false
-
-    var body: some View {
-        Circle()
-            .fill(Color.appSurface.opacity(0.66))
-            .frame(width: 22, height: 22)
-            .opacity(isBright ? 1 : 0.35)
-            .onAppear {
-                withAnimation(.easeInOut(duration: 0.85).repeatForever(autoreverses: true)) {
-                    isBright = true
-                }
-            }
-    }
-}
 
 /// Six display-only boxes over one nearly transparent text field that holds
 /// the whole code. Typing never moves focus, so the keyboard stays open.

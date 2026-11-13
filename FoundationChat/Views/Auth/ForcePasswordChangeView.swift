@@ -73,13 +73,7 @@ struct ForcePasswordChangeView: View {
                     }
                 } label: {
                     ZStack {
-                        if authStore.isChangingPassword {
-                            ProgressView().tint(.white)
-                        } else {
-                            Text("Update Password")
-                                .font(.system(size: 14, weight: .medium))
-                                .foregroundStyle(.white)
-                        }
+                        ButtonLoadingLabel("Update Password", loading: authStore.isChangingPassword, loadingTitle: "Updating password")
                     }
                     .frame(maxWidth: .infinity)
                     .frame(height: 48)

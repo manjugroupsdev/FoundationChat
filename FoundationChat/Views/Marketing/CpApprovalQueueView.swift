@@ -390,6 +390,10 @@ private struct CpApprovalTripDetailSheet: View {
 
     @State private var route: CpApprovalRouteData?
     @State private var roadMatchedTrail: GeoTrackDirectionsClient.RoadMatchedTrail?
+    /// GPS trail from the geo service when Convex has none (tracking now lands there).
+    @State private var geoServiceTrail: [CLLocationCoordinate2D] = []
+    /// Likely road route between start and end when no GPS trail exists at all.
+    @State private var estimatedRoad: GeoTrackDirectionsClient.RoadMatchedTrail?
     @State private var isLoading = true
     @State private var errorMessage: String?
     @State private var mapPosition: MapCameraPosition = .automatic
@@ -465,6 +469,14 @@ private struct CpApprovalTripDetailSheet: View {
                                         lineJoin: .round
                                     )
                                 )
+                        } else if let estimatedRoad {
+                            ForEach(Array(estimatedRoad.legs.enumerated()), id: \.offset) { _, leg in
+                                MapPolyline(coordinates: leg.points)
+                                    .stroke(
+                                        Color(hex: 0x0B61CA),
+                                        style: StrokeStyle(lineWidth: 5, lineCap: .round, lineJoin: .round, dash: [10, 6])
+                                    )
+                            }
                         } else if displayCoordinates.count >= 2 {
                             MapPolyline(coordinates: displayCoordinates)
                                 .stroke(
@@ -516,7 +528,8 @@ private struct CpApprovalTripDetailSheet: View {
     }
 
     private var recordedCoordinates: [CLLocationCoordinate2D] {
-        route?.routePoints.compactMap { validCoordinate(lat: $0.lat, lng: $0.lng) } ?? []
+        let convex = route?.routePoints.compactMap { validCoordinate(lat: $0.lat, lng: $0.lng) } ?? []
+        return convex.count >= 2 ? convex : geoServiceTrail
     }
 
     private var startCoordinate: CLLocationCoordinate2D? {
@@ -553,6 +566,9 @@ private struct CpApprovalTripDetailSheet: View {
         if recordedCoordinates.count >= 2 {
             return "Recorded GPS trail shown because road matching is unavailable."
         }
+        if estimatedRoad != nil {
+            return "No GPS trail was recorded for this trip. The dashed line is the likely road route between the trip start and end."
+        }
         if displayCoordinates.count >= 2 {
             return "Recorded GPS trail unavailable. Line connects the recorded trip start and end."
         }
@@ -578,19 +594,54 @@ private struct CpApprovalTripDetailSheet: View {
         do {
             let loadedRoute = try await MarketingConvexAPIService.getCpApprovalRoute(token: token, id: item.id)
             route = loadedRoute
-            let loadedCoordinates = loadedRoute.routePoints.compactMap {
-                validCoordinate(lat: $0.lat, lng: $0.lng)
-            }
-            if loadedCoordinates.count >= 2 {
-                roadMatchedTrail = await GeoTrackDirectionsClient().fetchRoadMatchedTrail(
-                    recordedPoints: loadedCoordinates
-                )
-            }
-            mapPosition = .automatic
         } catch {
             errorMessage = error.localizedDescription
         }
+        if (route?.routePoints.compactMap({ validCoordinate(lat: $0.lat, lng: $0.lng) }).count ?? 0) < 2 {
+            geoServiceTrail = await loadGeoServiceTrail()
+        }
+        let trail = recordedCoordinates
+        if trail.count >= 2 {
+            // More anchors keep a long trip on the roads actually driven.
+            roadMatchedTrail = await GeoTrackDirectionsClient().fetchRoadMatchedTrail(
+                recordedPoints: trail,
+                maxAnchors: 20
+            )
+        } else if let start = startCoordinate, let end = endCoordinate {
+            let estimated = await GeoTrackDirectionsClient().fetchRoadMatchedTrail(
+                recordedPoints: [start, end],
+                maxAnchors: 2
+            )
+            estimatedRoad = (estimated?.matchedLegCount ?? 0) > 0 ? estimated : nil
+        }
+        mapPosition = .automatic
         isLoading = false
+    }
+
+    /// The trip's GPS trail from the geo service (api-geo) for the same staff
+    /// and time window. Tracking points no longer reach Convex's
+    /// locationPoints, so the approval route was empty and the map drew a
+    /// straight start-to-end line.
+    private func loadGeoServiceTrail() async -> [CLLocationCoordinate2D] {
+        guard let staffId = (route?.staffId ?? item.staffId)?.trimmingCharacters(in: .whitespaces),
+              !staffId.isEmpty,
+              let start = route?.startedAt ?? item.startedAt, start > 0,
+              let end = route?.endedAt ?? item.completedAt ?? item.requestedAt, end > start
+        else { return [] }
+        guard let data = try? await GeoTrackAPIService.shared.sessionRoute(
+            staffId: staffId,
+            dayStart: Int64(start),
+            dayEnd: Int64(end)
+        ) else { return [] }
+        let points = data.timeline
+            .filter { $0.recordedAt >= start && $0.recordedAt <= end }
+            .sorted { $0.recordedAt < $1.recordedAt }
+            .compactMap { validCoordinate(lat: $0.lat, lng: $0.lng) }
+        guard points.count >= 2 else { return [] }
+        let stride = max(1, (points.count + 299) / 300)
+        return points.enumerated()
+            .filter { $0.offset == 0 || $0.offset == points.count - 1 || $0.offset % stride == 0 }
+            .map(\.element)
     }
 
     private func validCoordinate(lat: Double?, lng: Double?) -> CLLocationCoordinate2D? {

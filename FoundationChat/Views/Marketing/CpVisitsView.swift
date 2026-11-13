@@ -2288,7 +2288,7 @@ private struct CreateCpVisitSheet: View {
     @State private var leadLookupTask: Task<Void, Never>?
     @State private var addressParseTask: Task<Void, Never>?
     @State private var lastParsedAddressLine1 = ""
-    @State private var createRequestId = UUID().uuidString
+    @State private var createRequestId = UUID().uuidString.lowercased()
     @State private var createRequestFingerprint: String?
     private let directionsClient = GeoTrackDirectionsClient()
 
@@ -3724,7 +3724,7 @@ private struct CreateCpVisitSheet: View {
             encoder.outputFormatting = [.sortedKeys]
             let fingerprint = try encoder.encode(request).base64EncodedString()
             if createRequestFingerprint != fingerprint {
-                createRequestId = UUID().uuidString
+                createRequestId = UUID().uuidString.lowercased()
                 createRequestFingerprint = fingerprint
             }
             // Replay of this exact request is not a second CP. The create
@@ -3739,7 +3739,9 @@ private struct CreateCpVisitSheet: View {
             guard let createdId = response.resolvedId else {
                 throw MarketingAPIError.server("The server did not return the created CP. Please retry.")
             }
-            guard response.requestId == createRequestId else {
+            // The server stores the key in lowercase (normalizeUuidRequestId), so
+            // compare without case; an uppercase UUID never matched.
+            guard response.requestId?.lowercased() == createRequestId.lowercased() else {
                 throw MarketingAPIError.server(
                     "The server did not confirm the created CP. Tap Create visit again to resume safely."
                 )
@@ -3764,7 +3766,7 @@ private struct CreateCpVisitSheet: View {
                     "CP was created, but its type could not be confirmed from the server. Refresh before continuing."
                 )
             }
-            createRequestId = UUID().uuidString
+            createRequestId = UUID().uuidString.lowercased()
             createRequestFingerprint = nil
             onCreated()
         } catch MarketingAPIError.newClientAlreadyExists(let client, _) {

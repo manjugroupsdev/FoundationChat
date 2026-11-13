@@ -1590,6 +1590,8 @@ private struct CpApprovalRouteResponse: Decodable {
 
 struct CpApprovalRouteData: Decodable, Sendable {
     let id: String
+    /// Whose GPS to read from the geo service when Convex has no points.
+    let staffId: String?
     let startedAt: Double?
     let endedAt: Double?
     let startLat: Double?
@@ -1600,12 +1602,13 @@ struct CpApprovalRouteData: Decodable, Sendable {
     let routeSource: String?
 
     private enum CodingKeys: String, CodingKey {
-        case id, startedAt, endedAt, startLat, startLng, endLat, endLng, routePoints, routeSource
+        case id, staffId, startedAt, endedAt, startLat, startLng, endLat, endLng, routePoints, routeSource
     }
 
     init(from decoder: Decoder) throws {
         let container = try decoder.container(keyedBy: CodingKeys.self)
         id = try container.decode(String.self, forKey: .id)
+        staffId = try container.decodeIfPresent(String.self, forKey: .staffId)
         startedAt = try container.decodeIfPresent(Double.self, forKey: .startedAt)
         endedAt = try container.decodeIfPresent(Double.self, forKey: .endedAt)
         startLat = try container.decodeIfPresent(Double.self, forKey: .startLat)
