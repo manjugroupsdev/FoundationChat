@@ -183,7 +183,8 @@ private struct FloaterStack: View {
             }
             Spacer(minLength: 0)
         }
-        .padding(.top, 4)
+        // Below the navigation bar (44pt + a gap), not on top of the title.
+        .padding(.top, 52)
         .padding(.horizontal, 16)
         .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .top)
     }

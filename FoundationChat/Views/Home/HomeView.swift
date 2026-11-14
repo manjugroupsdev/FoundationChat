@@ -56,6 +56,13 @@ struct HomeView: View {
     @State private var showQRPanel = false
     @State private var showQRScanner = false
     @State private var showPendingTasksSheet = false
+    // The GeoTrack consent / permission sheet comes first: the tasks sheet
+    // never opens in front of it, closes if it appears, and comes back after.
+    @State private var geoTrackBootstrap = GeoTrackBootstrapCoordinator.shared
+    @State private var pendingTasksClosedForPermissions = false
+    private var permissionGateShowing: Bool {
+        geoTrackBootstrap.shouldPresentConsent || geoTrackBootstrap.shouldPresentPermissionHelp
+    }
     @State private var showTaskManager = false
     @State private var selectedTaskDestination: HomeTaskDestination?
     @State private var webTaskLink: HomeWebTaskLink?
@@ -298,6 +305,19 @@ struct HomeView: View {
                     showPendingTasksSheet = false
                 } else {
                     presentPendingTasksSheetIfDue()
+                }
+            }
+            .onChange(of: permissionGateShowing) { _, gateShowing in
+                if gateShowing {
+                    if showPendingTasksSheet {
+                        pendingTasksClosedForPermissions = true
+                        showPendingTasksSheet = false
+                    }
+                } else {
+                    // Interrupted by the gate: show it again straight away.
+                    let reopen = pendingTasksClosedForPermissions
+                    pendingTasksClosedForPermissions = false
+                    presentPendingTasksSheet(force: reopen)
                 }
             }
             .onReceive(timer) { _ in
@@ -2035,6 +2055,7 @@ struct HomeView: View {
     @MainActor
     private func presentPendingTasksSheet(force: Bool) {
         guard !formActivityStore.isFormActive,
+              !permissionGateShowing,
               !pendingTaskNudgeTasks.isEmpty,
               !showPendingTasksSheet,
               !showQRPanel else { return }
