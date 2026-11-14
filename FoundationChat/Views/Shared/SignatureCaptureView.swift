@@ -76,14 +76,7 @@ struct SignatureCaptureView: View {
                         .disabled(isEmpty)
                 }
             }
-            .alert("Signature", isPresented: Binding(
-                get: { exportError != nil },
-                set: { if !$0 { exportError = nil } }
-            )) {
-                Button("OK", role: .cancel) { exportError = nil }
-            } message: {
-                Text(exportError ?? "")
-            }
+            .floaterAlert($exportError)
         }
     }
 

@@ -1528,14 +1528,7 @@ private struct OnDutyStartSheet: View {
         }
         .task { await loadMasterData() }
         .interactiveDismissDisabled(isSubmitting)
-        .alert("On Duty", isPresented: Binding(
-            get: { errorMessage != nil },
-            set: { if !$0 { errorMessage = nil } }
-        )) {
-            Button("OK", role: .cancel) {}
-        } message: {
-            Text(errorMessage ?? "")
-        }
+        .floaterAlert($errorMessage)
     }
 
     private func navigateBackOrDismiss() {

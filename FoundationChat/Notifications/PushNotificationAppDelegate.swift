@@ -26,6 +26,8 @@ final class PushNotificationAppDelegate: NSObject, UIApplicationDelegate, UNUser
   ) -> Bool {
     UNUserNotificationCenter.current().delegate = self
     ModernDialerCallKitCoordinator.shared.start()
+    // Crashes, failed calls and failed flows → Settings → Mobile → Issues.
+    IssueReporter.shared.start()
     print("\(logPrefix) app launched, UNUserNotificationCenter delegate set")
 
     // Relaunched by iOS for a location event (monitoring left on by an earlier

@@ -476,7 +476,7 @@ enum AuthAPIService {
     request.setValue("application/json", forHTTPHeaderField: "Content-Type")
     request.httpBody = try JSONSerialization.data(withJSONObject: body)
 
-    let (data, response) = try await URLSession.shared.data(for: request)
+    let (data, response) = try await IssueReporter.data(for: request)
     if (response as? HTTPURLResponse)?.statusCode == 401 {
       SessionInvalidationBus.emit(for: request, responseData: data)
     }
@@ -502,7 +502,7 @@ enum AuthAPIService {
     request.setValue(UIDevice.current.systemVersion, forHTTPHeaderField: "X-OS-Version")
     request.cachePolicy = .reloadIgnoringLocalCacheData
 
-    let (data, response) = try await URLSession.shared.data(for: request)
+    let (data, response) = try await IssueReporter.data(for: request)
     let statusCode = (response as? HTTPURLResponse)?.statusCode ?? 0
     if statusCode == 401 {
       SessionInvalidationBus.emit(for: request, responseData: data)
@@ -530,7 +530,7 @@ enum AuthAPIService {
     request.httpMethod = "GET"
     request.setValue("Bearer \(token)", forHTTPHeaderField: "Authorization")
 
-    let (data, response) = try await URLSession.shared.data(for: request)
+    let (data, response) = try await IssueReporter.data(for: request)
     if (response as? HTTPURLResponse)?.statusCode == 401 {
       SessionInvalidationBus.emit(for: request, responseData: data)
     }
@@ -554,7 +554,7 @@ enum AuthAPIService {
     request.setValue("Bearer \(token)", forHTTPHeaderField: "Authorization")
     request.setValue("application/json", forHTTPHeaderField: "Content-Type")
 
-    let (_, _) = try await URLSession.shared.data(for: request)
+    let (_, _) = try await IssueReporter.data(for: request)
     // Best-effort logout — ignore errors.
   }
 
@@ -565,7 +565,7 @@ enum AuthAPIService {
     request.setValue("Bearer \(token)", forHTTPHeaderField: "Authorization")
     request.setValue("application/json", forHTTPHeaderField: "Content-Type")
     request.httpBody = Data("{}".utf8)
-    _ = try await URLSession.shared.data(for: request)
+    _ = try await IssueReporter.data(for: request)
   }
 
   static func registerTravelDeskPushToken(token: String, deviceToken: String) async throws {
@@ -578,7 +578,7 @@ enum AuthAPIService {
       "pushToken": deviceToken,
       "platform": "ios",
     ])
-    let (data, response) = try await URLSession.shared.data(for: request)
+    let (data, response) = try await IssueReporter.data(for: request)
     let decoded = try await BackgroundJSONDecoder.decode(SimpleResponse.self, from: data)
     guard decoded.success else {
       throw AuthAPIError.server(

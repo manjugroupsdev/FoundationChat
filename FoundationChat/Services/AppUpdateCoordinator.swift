@@ -98,7 +98,7 @@ final class AppUpdateCoordinator {
             var request = URLRequest(url: url)
             request.cachePolicy = .reloadIgnoringLocalCacheData
             request.timeoutInterval = 15
-            let (data, response) = try await URLSession.shared.data(for: request)
+            let (data, response) = try await IssueReporter.data(for: request)
             guard (response as? HTTPURLResponse)?.statusCode == 200 else { return }
             guard let latest = try await BackgroundJSONDecoder.decode(LookupResponse.self, from: data).results.first else {
                 return
@@ -132,7 +132,7 @@ final class AppUpdateCoordinator {
             request.timeoutInterval = 15
             request.setValue(Self.currentVersion, forHTTPHeaderField: "X-App-Version")
             request.setValue(String(Self.currentBuildNumber), forHTTPHeaderField: "X-App-Build")
-            let (data, response) = try await URLSession.shared.data(for: request)
+            let (data, response) = try await IssueReporter.data(for: request)
             guard (response as? HTTPURLResponse)?.statusCode == 200 else { return false }
             let policy = try await BackgroundJSONDecoder.decode(VersionPolicyResponse.self, from: data)
             guard policy.success else { return false }

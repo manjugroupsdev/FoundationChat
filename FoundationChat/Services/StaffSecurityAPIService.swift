@@ -264,7 +264,7 @@ enum StaffSecurityAPIService {
             request.httpBody = try JSONSerialization.data(withJSONObject: body)
         }
 
-        let (data, response) = try await URLSession.shared.data(for: request)
+        let (data, response) = try await IssueReporter.data(for: request)
         let statusCode = (response as? HTTPURLResponse)?.statusCode ?? 0
         if statusCode == 401 { SessionInvalidationBus.emit(for: request, responseData: data) }
         guard (200..<300).contains(statusCode) else {

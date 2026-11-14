@@ -204,22 +204,8 @@ struct StaffSecurityView: View {
         } message: {
             Text("This clears their device locks and signs out active mobile sessions.")
         }
-        .alert("Device reset complete", isPresented: Binding(
-            get: { bulkResetMessage != nil },
-            set: { if !$0 { bulkResetMessage = nil } }
-        )) {
-            Button("OK") { bulkResetMessage = nil }
-        } message: {
-            Text(bulkResetMessage ?? "")
-        }
-        .alert("Security", isPresented: Binding(
-            get: { errorMessage != nil },
-            set: { if !$0 { errorMessage = nil } }
-        )) {
-            Button("OK") { errorMessage = nil }
-        } message: {
-            Text(errorMessage ?? "")
-        }
+        .floaterAlert($bulkResetMessage)
+        .floaterAlert($errorMessage)
     }
 
     @ViewBuilder
@@ -696,10 +682,7 @@ private struct StaffLoginDevicesSheet: View {
                 Button("Logout web and mobile", role: .destructive) { Task { await logoutAll() } }
                 Button("Cancel", role: .cancel) {}
             }
-            .alert("Security", isPresented: Binding(
-                get: { errorMessage != nil },
-                set: { if !$0 { errorMessage = nil } }
-            )) { Button("OK") {} } message: { Text(errorMessage ?? "") }
+            .floaterAlert($errorMessage)
         }
     }
 
@@ -878,12 +861,7 @@ private struct StaffSecurityDetailSheet: View {
                 }
                 Button("Cancel", role: .cancel) { confirmation = nil }
             }
-            .alert("Security", isPresented: Binding(
-                get: { errorMessage != nil },
-                set: { if !$0 { errorMessage = nil } }
-            )) {
-                Button("OK") { errorMessage = nil }
-            } message: { Text(errorMessage ?? "") }
+            .floaterAlert($errorMessage)
             .alert("Password ready to share", isPresented: Binding(
                 get: { savedPassword != nil },
                 set: { if !$0 { savedPassword = nil } }

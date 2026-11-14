@@ -706,14 +706,7 @@ private struct BookingDetailView: View {
         } message: {
             Text("Enter reject reason.")
         }
-        .alert("Booking", isPresented: Binding(
-            get: { errorMessage != nil },
-            set: { if !$0 { errorMessage = nil } }
-        )) {
-            Button("OK", role: .cancel) { errorMessage = nil }
-        } message: {
-            Text(errorMessage ?? "")
-        }
+        .floaterAlert($errorMessage)
     }
 
     private func bookingDrawerHeader(_ booking: AppBooking) -> some View {

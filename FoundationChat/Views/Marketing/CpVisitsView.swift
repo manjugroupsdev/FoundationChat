@@ -2521,14 +2521,7 @@ private struct CreateCpVisitSheet: View {
         .background(Color.appScreenBackground.ignoresSafeArea())
         .appCompactSheetCTAContainer()
         .disabled(isSubmitting)
-        .alert("CP Visit", isPresented: Binding(
-            get: { errorMessage != nil },
-            set: { if !$0 { errorMessage = nil } }
-        )) {
-            Button("OK", role: .cancel) { errorMessage = nil }
-        } message: {
-            Text(errorMessage ?? "")
-        }
+        .floaterAlert($errorMessage)
         .alert("Client already exists", isPresented: $showExistingClientWarning) {
             Button("Choose CP type") {
                 DispatchQueue.main.async { showCpTypePicker = true }

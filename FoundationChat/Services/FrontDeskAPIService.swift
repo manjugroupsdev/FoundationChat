@@ -128,7 +128,7 @@ enum FrontDeskAPIService {
             "format": "json"
         ])
 
-        let (data, response) = try await URLSession.shared.data(for: request)
+        let (data, response) = try await IssueReporter.data(for: request)
         guard let http = response as? HTTPURLResponse,
               (200..<300).contains(http.statusCode),
               let object = try JSONSerialization.jsonObject(with: data) as? [String: Any],
@@ -165,7 +165,7 @@ enum FrontDeskAPIService {
         request.setValue("application/json", forHTTPHeaderField: "Content-Type")
         request.httpBody = body
 
-        let (data, response) = try await URLSession.shared.data(for: request)
+        let (data, response) = try await IssueReporter.data(for: request)
         guard let http = response as? HTTPURLResponse else { return data }
         if http.statusCode == 401 {
             SessionInvalidationBus.emit(for: request, responseData: data)

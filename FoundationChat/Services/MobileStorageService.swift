@@ -325,7 +325,7 @@ enum MobileStorageService {
     request.httpMethod = "DELETE"
     request.timeoutInterval = 15
     request.setValue("Bearer \(token)", forHTTPHeaderField: "Authorization")
-    _ = try? await URLSession.shared.data(for: request)
+    _ = try? await IssueReporter.data(for: request)
   }
 
   private static func performWithRetry(
@@ -336,7 +336,7 @@ enum MobileStorageService {
     var lastError: Error?
     for attempt in 0..<attempts {
       do {
-        let result = try await URLSession.shared.data(for: request)
+        let result = try await IssueReporter.data(for: request)
         if let http = result.1 as? HTTPURLResponse,
            http.statusCode >= 500,
            (http.statusCode != 503 || retryServiceUnavailable),

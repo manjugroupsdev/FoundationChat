@@ -186,7 +186,7 @@ enum TelecallerConvexAPIService {
         var request = URLRequest(url: url)
         request.httpMethod = "GET"
         request.setValue("Bearer \(token)", forHTTPHeaderField: "Authorization")
-        let (data, response) = try await URLSession.shared.data(for: request)
+        let (data, response) = try await IssueReporter.data(for: request)
         if let http = response as? HTTPURLResponse {
             if http.statusCode == 401 {
                 SessionInvalidationBus.emit(for: request, responseData: data)
@@ -216,7 +216,7 @@ enum TelecallerConvexAPIService {
         request.setValue("application/json", forHTTPHeaderField: "Content-Type")
         for (name, value) in headers { request.setValue(value, forHTTPHeaderField: name) }
         request.httpBody = try JSONEncoder().encode(body)
-        let (data, response) = try await URLSession.shared.data(for: request)
+        let (data, response) = try await IssueReporter.data(for: request)
         if let http = response as? HTTPURLResponse {
             if http.statusCode == 401 {
                 SessionInvalidationBus.emit(for: request, responseData: data)

@@ -106,14 +106,7 @@ struct MyLeadsView: View {
                     .transition(.opacity)
             }
         }
-        .alert("Error", isPresented: Binding(
-            get: { errorMessage != nil },
-            set: { if !$0 { errorMessage = nil } }
-        )) {
-            Button("OK", role: .cancel) { errorMessage = nil }
-        } message: {
-            Text(errorMessage ?? "")
-        }
+        .floaterAlert($errorMessage)
         .task { await reload() }
         .onChange(of: mode) { _, _ in
             Task { await reload() }

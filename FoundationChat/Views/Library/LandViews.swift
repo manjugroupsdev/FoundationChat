@@ -105,17 +105,8 @@ struct LandInspectionView: View {
             .appFormActivity()
             .appLibraryNativeSheet([.medium])
         }
-        .alert("Land Inspection", isPresented: Binding(
-            get: { (errorMessage != nil && hasLoaded && inspections.isEmpty) || actionMessage != nil },
-            set: { if !$0 { errorMessage = nil } }
-        )) {
-            Button("OK", role: .cancel) {
-                errorMessage = nil
-                actionMessage = nil
-            }
-        } message: {
-            Text(actionMessage ?? errorMessage ?? "")
-        }
+        .floaterAlert($errorMessage)
+        .floaterAlert($actionMessage)
     }
 
     private var header: some View {
@@ -2171,14 +2162,7 @@ private struct LandQueryDetailSheet: View {
         .onAppear {
             remarks = query.remarks?.landNilIfBlank ?? query.latestUpdate?.landNilIfBlank ?? ""
         }
-        .alert("Query Update", isPresented: Binding(
-            get: { errorMessage != nil },
-            set: { if !$0 { errorMessage = nil } }
-        )) {
-            Button("OK", role: .cancel) {}
-        } message: {
-            Text(errorMessage ?? "")
-        }
+        .floaterAlert($errorMessage)
     }
 
     @MainActor

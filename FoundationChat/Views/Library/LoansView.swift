@@ -82,14 +82,7 @@ struct LoansView: View {
             }
             .appLibraryNativeSheet([.height(650), .large])
         }
-        .alert("Loans", isPresented: Binding(
-            get: { errorMessage != nil && hasLoaded },
-            set: { if !$0 { errorMessage = nil } }
-        )) {
-            Button("OK", role: .cancel) { errorMessage = nil }
-        } message: {
-            Text(errorMessage ?? "")
-        }
+        .floaterAlert($errorMessage)
     }
 
     private var header: some View {

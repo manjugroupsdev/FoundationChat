@@ -17,6 +17,6 @@ enum MMSRequestTransport {
     }
 
     static func data(for request: URLRequest) async throws -> (Data, URLResponse) {
-        try await session(for: request.httpMethod, path: request.url?.path).data(for: request)
+        try await IssueReporter.data(for: request, session: session(for: request.httpMethod, path: request.url?.path))
     }
 }

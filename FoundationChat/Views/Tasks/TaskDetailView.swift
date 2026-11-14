@@ -92,11 +92,7 @@ struct TaskDetailView: View {
                 .appLibraryNativeSheet([.height(720), .large])
                 .presentationBackground(Color.appElevatedSurface)
         }
-        .alert("Error", isPresented: errorAlertBinding) {
-            Button("OK", role: .cancel) { errorMessage = nil }
-        } message: {
-            Text(errorMessage ?? "")
-        }
+        .floaterAlert($errorMessage)
     }
 
     private func overview(_ task: ConvexTask) -> some View {
@@ -319,13 +315,6 @@ struct TaskDetailView: View {
             RoundedRectangle(cornerRadius: 14, style: .continuous)
                 .stroke(Color.appSeparator, lineWidth: 1)
         }
-    }
-
-    private var errorAlertBinding: Binding<Bool> {
-        Binding(
-            get: { errorMessage != nil },
-            set: { if !$0 { errorMessage = nil } }
-        )
     }
 
     private func refresh() async {

@@ -179,11 +179,7 @@ struct ArrivalOtpSheet: View {
         } message: {
             Text("Your GM will receive the client, location, distance, and OTP context.")
         }
-        .alert("Request Sent", isPresented: assistanceConfirmationBinding) {
-            Button("OK", role: .cancel) {}
-        } message: {
-            Text(assistanceConfirmation ?? "Your manager has been notified.")
-        }
+        .floaterAlert($assistanceConfirmation)
     }
 
     // MARK: - Subviews
@@ -262,13 +258,6 @@ struct ArrivalOtpSheet: View {
         } catch {
             errorText = "Network error: \(error.localizedDescription)"
         }
-    }
-
-    private var assistanceConfirmationBinding: Binding<Bool> {
-        Binding(
-            get: { assistanceConfirmation != nil },
-            set: { if !$0 { assistanceConfirmation = nil } }
-        )
     }
 
     private func requestGmAssistance() async {

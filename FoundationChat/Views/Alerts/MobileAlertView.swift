@@ -178,7 +178,7 @@ private struct MobileAlertImage: View {
             request.setValue("Bearer \(token)", forHTTPHeaderField: "Authorization")
         }
         do {
-            let (data, response) = try await URLSession.shared.data(for: request)
+            let (data, response) = try await IssueReporter.data(for: request)
             if let http = response as? HTTPURLResponse, !(200..<300).contains(http.statusCode) {
                 didFail = true
                 return

@@ -153,11 +153,7 @@ struct CollectionsView: View {
             StoragePreviewSheet(url: item.url)
                 .appLibraryNativeSheet([.medium, .large])
         }
-        .alert("Collections", isPresented: Binding(get: { errorMessage != nil }, set: { if !$0 { errorMessage = nil } })) {
-            Button("OK", role: .cancel) { errorMessage = nil }
-        } message: {
-            Text(errorMessage ?? "")
-        }
+        .floaterAlert($errorMessage)
     }
 
     private var content: some View {
@@ -371,11 +367,7 @@ struct AccountsCollectionsReviewView: View {
             guard !Task.isCancelled else { return }
             refilter()
         }
-        .alert("Accounts", isPresented: Binding(get: { errorMessage != nil }, set: { if !$0 { errorMessage = nil } })) {
-            Button("OK", role: .cancel) { errorMessage = nil }
-        } message: {
-            Text(errorMessage ?? "")
-        }
+        .floaterAlert($errorMessage)
         .modifier(CollectionApprovalPrompts(
             selectedForApprove: $selectedForApprove,
             receiptEntryFor: $receiptEntryFor,
@@ -622,11 +614,7 @@ struct LoanDeskView: View {
                 await load()
             }
         }
-        .alert("Loan Desk", isPresented: Binding(get: { errorMessage != nil }, set: { if !$0 { errorMessage = nil } })) {
-            Button("OK", role: .cancel) { errorMessage = nil }
-        } message: {
-            Text(errorMessage ?? "")
-        }
+        .floaterAlert($errorMessage)
         .sheet(item: $assigningCase) { loanCase in
             AssignLoanSheet(staff: legalStaff, selectedStaffId: $selectedStaffId) {
                 await assign(loanCase)
@@ -836,11 +824,7 @@ struct PostSalesCaseLookupView: View {
         .background(Color(.systemGroupedBackground))
         .navigationTitle("Case Lookup")
         .navigationBarTitleDisplayMode(.inline)
-        .alert("Case Lookup", isPresented: Binding(get: { errorMessage != nil }, set: { if !$0 { errorMessage = nil } })) {
-            Button("OK", role: .cancel) { errorMessage = nil }
-        } message: {
-            Text(errorMessage ?? "")
-        }
+        .floaterAlert($errorMessage)
     }
 
     @MainActor
@@ -2063,11 +2047,7 @@ private struct CollectionSubmitSheet: View {
                     .disabled(!canSubmit)
                 }
             }
-            .alert("Collection", isPresented: Binding(get: { errorMessage != nil }, set: { if !$0 { errorMessage = nil } })) {
-                Button("OK", role: .cancel) { errorMessage = nil }
-            } message: {
-                Text(errorMessage ?? "")
-            }
+            .floaterAlert($errorMessage)
         }
     }
 
@@ -2333,11 +2313,7 @@ private struct EditCollectionAmountSheet: View {
                     .disabled(isSubmitting || (Double(amountText) ?? 0) <= 0)
                 }
             }
-            .alert("Collection", isPresented: Binding(get: { errorMessage != nil }, set: { if !$0 { errorMessage = nil } })) {
-                Button("OK", role: .cancel) { errorMessage = nil }
-            } message: {
-                Text(errorMessage ?? "")
-            }
+            .floaterAlert($errorMessage)
         }
     }
 
@@ -2538,11 +2514,7 @@ private struct LoanCaseDocumentsSheet: View {
                     }
                 }
             }
-            .alert("Loan Desk", isPresented: Binding(get: { errorMessage != nil }, set: { if !$0 { errorMessage = nil } })) {
-                Button("OK", role: .cancel) { errorMessage = nil }
-            } message: {
-                Text(errorMessage ?? "")
-            }
+            .floaterAlert($errorMessage)
             .confirmationDialog(
                 "Delete this document?",
                 isPresented: Binding(

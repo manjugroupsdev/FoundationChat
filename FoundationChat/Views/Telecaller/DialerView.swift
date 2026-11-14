@@ -35,14 +35,7 @@ struct DialerView: View {
         }
         .navigationTitle("Dialer")
         .navigationBarTitleDisplayMode(.inline)
-        .alert("Cannot Call", isPresented: Binding(
-            get: { callError != nil },
-            set: { if !$0 { callError = nil } }
-        )) {
-            Button("OK", role: .cancel) { callError = nil }
-        } message: {
-            Text(callError ?? "")
-        }
+        .floaterAlert($callError)
         .overlay(alignment: .bottom) {
             if let statusMessage {
                 Text(statusMessage)
@@ -63,9 +56,9 @@ struct DialerView: View {
             }
         }
         .task { await prefetchDialerConfig() }
-        // Surface bridge toasts (placing/timeout) in the existing status pill.
+        // Surface bridge toasts (placing/timeout) as the top capsule.
         .onChange(of: dialer.toast) { _, newValue in
-            statusMessage = newValue
+            if let newValue { Floater.shared.show(newValue) }
         }
     }
 

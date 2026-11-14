@@ -175,11 +175,7 @@ struct ConvexPermissionListView: View {
                 }
             )
         }
-        .alert("Error", isPresented: .constant(errorMessage != nil), actions: {
-            Button("OK") { errorMessage = nil }
-        }, message: {
-            Text(errorMessage ?? "")
-        })
+        .floaterAlert($errorMessage)
         .alert("Reject Permission", isPresented: .init(
             get: { rejectingPermission != nil },
             set: { if !$0 { rejectingPermission = nil } }

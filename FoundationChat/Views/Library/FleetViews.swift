@@ -97,16 +97,8 @@ struct FleetMyTripsView: View {
                 }
             )
         }
-        .alert("Fleet", isPresented: Binding(get: { errorMessage != nil }, set: { if !$0 { errorMessage = nil } })) {
-            Button("OK", role: .cancel) { errorMessage = nil }
-        } message: {
-            Text(errorMessage ?? "")
-        }
-        .alert("Fleet", isPresented: Binding(get: { futureTripMessage != nil }, set: { if !$0 { futureTripMessage = nil } })) {
-            Button("OK", role: .cancel) { futureTripMessage = nil }
-        } message: {
-            Text(futureTripMessage ?? "")
-        }
+        .floaterAlert($errorMessage)
+        .floaterAlert($futureTripMessage)
     }
 
     private var tripTabs: some View {

@@ -114,18 +114,7 @@ struct TasksListView: View {
         .navigationDestination(item: $selectedRoute) { route in
             route.view
         }
-        .alert("Error", isPresented: errorAlertBinding, actions: {
-            Button("OK", role: .cancel) { errorMessage = nil }
-        }, message: {
-            Text(errorMessage ?? "")
-        })
-    }
-
-    private var errorAlertBinding: Binding<Bool> {
-        Binding(
-            get: { errorMessage != nil },
-            set: { if !$0 { errorMessage = nil } }
-        )
+        .floaterAlert($errorMessage)
     }
 
     private var metricsRow: some View {

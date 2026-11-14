@@ -120,14 +120,7 @@ private struct AdminFleetTripsView: View {
             .appFormActivity()
             .presentationDetents([.large])
         }
-        .alert("Fleet Trips", isPresented: Binding(
-            get: { errorMessage != nil },
-            set: { if !$0 { errorMessage = nil } }
-        )) {
-            Button("OK", role: .cancel) { errorMessage = nil }
-        } message: {
-            Text(errorMessage ?? "")
-        }
+        .floaterAlert($errorMessage)
     }
 
     private var summary: some View {
@@ -509,14 +502,7 @@ private struct AdminFleetVehiclesView: View {
             .appFormActivity()
             .presentationDetents([.medium, .large])
         }
-        .alert("Vehicles", isPresented: Binding(
-            get: { errorMessage != nil },
-            set: { if !$0 { errorMessage = nil } }
-        )) {
-            Button("OK", role: .cancel) { errorMessage = nil }
-        } message: {
-            Text(errorMessage ?? "")
-        }
+        .floaterAlert($errorMessage)
     }
 
     @MainActor
@@ -716,14 +702,7 @@ private struct AdminFleetDriversView: View {
             .appFormActivity()
             .presentationDetents([.medium, .large])
         }
-        .alert("Drivers", isPresented: Binding(
-            get: { errorMessage != nil },
-            set: { if !$0 { errorMessage = nil } }
-        )) {
-            Button("OK", role: .cancel) { errorMessage = nil }
-        } message: {
-            Text(errorMessage ?? "")
-        }
+        .floaterAlert($errorMessage)
     }
 
     @MainActor

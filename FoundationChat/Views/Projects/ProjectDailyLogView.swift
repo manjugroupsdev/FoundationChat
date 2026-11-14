@@ -21,7 +21,6 @@ struct ProjectDailyLogView: View {
     @State private var expandedLogProjects: Set<String> = []
     @State private var expandedDprProjects: Set<String> = []
     @State private var errorMessage: String?
-    @State private var toastMessage: String?
 
     private var activeRecipientCount: Int {
         recipients.filter(\.isActive).count
@@ -73,18 +72,6 @@ struct ProjectDailyLogView: View {
                 .refreshable { await reloadCurrentTab() }
                 .ignoresSafeArea(edges: .top)
             }
-
-            if let toastMessage {
-                Text(toastMessage)
-                    .font(.system(size: 13, weight: .semibold))
-                    .foregroundStyle(.white)
-                    .padding(.horizontal, 16)
-                    .frame(height: 42)
-                    .background(Color(hex: 0x111827), in: Capsule())
-                    .padding(.bottom, 28)
-                    .transition(.move(edge: .bottom).combined(with: .opacity))
-                    .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .bottom)
-            }
         }
         .toolbar(.hidden, for: .navigationBar)
         .toolbar(.hidden, for: .tabBar)
@@ -94,11 +81,7 @@ struct ProjectDailyLogView: View {
                 await loadAll()
             }
         }
-        .alert("Daily Log", isPresented: errorAlertBinding) {
-            Button("OK", role: .cancel) { errorMessage = nil }
-        } message: {
-            Text(errorMessage ?? "")
-        }
+        .floaterAlert($errorMessage)
         .sheet(isPresented: $showCreateLog) {
             CreateDailyLogSheet(projects: selectableProjects) {
                 await loadLogs()
@@ -350,13 +333,6 @@ struct ProjectDailyLogView: View {
         }
     }
 
-    private var errorAlertBinding: Binding<Bool> {
-        Binding(
-            get: { errorMessage != nil },
-            set: { if !$0 { errorMessage = nil } }
-        )
-    }
-
     @MainActor
     private func loadAll() async {
         await loadProjects()
@@ -449,15 +425,7 @@ struct ProjectDailyLogView: View {
 
     @MainActor
     private func showToast(_ message: String) {
-        withAnimation(.spring(response: 0.26, dampingFraction: 0.9)) {
-            toastMessage = message
-        }
-        Task { @MainActor in
-            try? await Task.sleep(for: .seconds(2))
-            withAnimation(.easeOut(duration: 0.2)) {
-                toastMessage = nil
-            }
-        }
+        Floater.shared.show(message)
     }
 
     private func toggleLogGroup(_ id: String) {

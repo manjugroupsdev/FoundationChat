@@ -297,14 +297,7 @@ private struct FleetPortalTripsView: View {
         } message: {
             Text("The site visit is cancelled and removed from the agency's trips.")
         }
-        .alert("Fleet Trips", isPresented: Binding(
-            get: { errorMessage != nil },
-            set: { if !$0 { errorMessage = nil } }
-        )) {
-            Button("OK", role: .cancel) { errorMessage = nil }
-        } message: {
-            Text(errorMessage ?? "")
-        }
+        .floaterAlert($errorMessage)
     }
 
     private var tripContent: some View {
@@ -1224,10 +1217,7 @@ private struct FleetPortalVehiclesView: View {
             .presentationDetents([.large])
             .presentationDragIndicator(.visible)
         }
-        .alert("Vehicles", isPresented: Binding(
-            get: { errorMessage != nil },
-            set: { if !$0 { errorMessage = nil } }
-        )) { Button("OK", role: .cancel) {} } message: { Text(errorMessage ?? "") }
+        .floaterAlert($errorMessage)
     }
 
     @ViewBuilder
@@ -1397,10 +1387,7 @@ private struct FleetPortalDriversView: View {
             .presentationDetents([.large])
             .presentationDragIndicator(.visible)
         }
-        .alert("Drivers", isPresented: Binding(
-            get: { errorMessage != nil },
-            set: { if !$0 { errorMessage = nil } }
-        )) { Button("OK", role: .cancel) {} } message: { Text(errorMessage ?? "") }
+        .floaterAlert($errorMessage)
     }
 
     @ViewBuilder
@@ -1579,9 +1566,7 @@ private struct FleetPortalStaffView: View {
         .sheet(item: $editingStaff) { member in
             FleetStaffFormSheet(member: member) { await load() }
         }
-        .alert("Fleet Staff", isPresented: Binding(get: { errorMessage != nil }, set: { if !$0 { errorMessage = nil } })) {
-            Button("OK", role: .cancel) {}
-        } message: { Text(errorMessage ?? "") }
+        .floaterAlert($errorMessage)
     }
 
     @MainActor

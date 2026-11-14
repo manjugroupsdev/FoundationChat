@@ -88,11 +88,7 @@ struct FinesDeductionsView: View {
             }
         }
         .task { await loadFines() }
-        .alert("Error", isPresented: .constant(errorMessage != nil), actions: {
-            Button("OK") { errorMessage = nil }
-        }, message: {
-            Text(errorMessage ?? "")
-        })
+        .floaterAlert($errorMessage)
         .sheet(item: $selectedFine) { fine in
             FineDeductionDetailSheet(fine: fine)
                 .appLibraryNativeSheet([.medium, .large])
@@ -302,11 +298,7 @@ private struct CreateFineDeductionSheet: View {
             employeePickerSheet
                 .appLibraryNativeSheet([.large])
         }
-        .alert("Error", isPresented: .constant(errorMessage != nil), actions: {
-            Button("OK") { errorMessage = nil }
-        }, message: {
-            Text(errorMessage ?? "")
-        })
+        .floaterAlert($errorMessage)
     }
 
     private var formContent: some View {

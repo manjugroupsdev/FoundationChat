@@ -107,11 +107,7 @@ struct AuthRootView: View {
                 catch { return }
             }
         }
-        .alert("Couldn't open alert", isPresented: Binding(
-            get: { mobileAlerts.openError != nil },
-            set: { if !$0 { mobileAlerts.openError = nil } }
-        )) { Button("OK") { mobileAlerts.openError = nil } }
-        message: { Text(mobileAlerts.openError ?? "") }
+        .floaterAlert($mobileAlerts.openError)
         .onChange(of: authStore.status) { _, newStatus in
             if newStatus == .signedIn, !authStore.passwordChangeRequired {
                 authStore.requestNotificationPermissions()

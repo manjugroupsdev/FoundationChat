@@ -1520,7 +1520,7 @@ enum HRConvexAPIService {
         var request = URLRequest(url: url)
         request.httpMethod = "DELETE"
         request.setValue("Bearer \(token)", forHTTPHeaderField: "Authorization")
-        let (data, response) = try await URLSession.shared.data(for: request)
+        let (data, response) = try await IssueReporter.data(for: request)
         try checkHTTPError(data: data, response: response, request: request)
         let wrapper = try await decode(ProfilePhotoResponse.self, from: data)
         guard wrapper.success else {

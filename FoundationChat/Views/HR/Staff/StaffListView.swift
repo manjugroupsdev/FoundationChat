@@ -67,11 +67,7 @@ struct StaffListView: View {
                 ProgressView()
             }
         }
-        .alert("Error", isPresented: .constant(errorMessage != nil), actions: {
-            Button("OK") { errorMessage = nil }
-        }, message: {
-            Text(errorMessage ?? "")
-        })
+        .floaterAlert($errorMessage)
         .refreshable { await reload() }
         .task {
             if staff.isEmpty { await reload() }

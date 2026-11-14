@@ -237,14 +237,8 @@ struct CabRequestsView: View {
                 rejectReason = ""
             }
         }
-        .alert("Cab Requests", isPresented: Binding(
-            get: { errorMessage != nil || infoMessage != nil },
-            set: { if !$0 { errorMessage = nil; infoMessage = nil } }
-        )) {
-            Button("OK") { errorMessage = nil; infoMessage = nil }
-        } message: {
-            Text(errorMessage ?? infoMessage ?? "")
-        }
+        .floaterAlert($errorMessage)
+        .floaterAlert($infoMessage)
     }
 
     private func label(for item: Tab) -> String {

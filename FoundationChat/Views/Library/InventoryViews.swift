@@ -219,14 +219,7 @@ struct ProjectInventoryView: View {
             .appLibraryNativeSheet([.height(720), .large])
             .presentationBackground(Color.appElevatedSurface)
         }
-        .alert("Inventory", isPresented: Binding(
-            get: { actionMessage != nil },
-            set: { if !$0 { actionMessage = nil } }
-        )) {
-            Button("OK", role: .cancel) { actionMessage = nil }
-        } message: {
-            Text(actionMessage ?? "")
-        }
+        .floaterAlert($actionMessage)
     }
 
     @ViewBuilder

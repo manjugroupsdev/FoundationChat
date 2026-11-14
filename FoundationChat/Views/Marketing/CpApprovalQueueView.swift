@@ -21,14 +21,41 @@ struct CpApprovalQueueView: View {
     @State private var rejectTarget: CpApprovalItem?
     @State private var rejectRemark = ""
     @State private var routeTarget: CpApprovalItem?
+    // Same views as the web CP Approval page: Team (waiting on you, from your
+    // team) first, All (every pending completion; only its own GM decides).
+    @State private var scope: String?
+
+    private var canViewTeam: Bool { authStore.hasPermission("marketing.cpApproval.viewTeam") }
+    private var canViewAll: Bool { authStore.hasPermission("marketing.cpApproval.viewAll") }
+    private var canApprove: Bool {
+        authStore.hasPermission("marketing.cpApproval.approve") || authStore.hasPermission("marketing.cpVisits.approve")
+    }
+    private var defaultScope: String? { canViewTeam ? "team" : canViewAll ? "all" : nil }
+    private var activeScope: String? { scope ?? defaultScope }
 
     private var cacheKey: String {
         let staffId = authStore.viewer?.subject ?? authStore.currentSession?.user._id ?? "anonymous"
-        return "marketing.cp-approvals.pending.\(staffId)"
+        return "marketing.cp-approvals.pending.\(staffId).\(activeScope ?? "default")"
     }
 
     var body: some View {
         ScrollView {
+            if canViewTeam && canViewAll {
+                Picker("Show", selection: Binding(
+                    get: { activeScope ?? "team" },
+                    set: { newValue in
+                        scope = newValue
+                        items = []
+                        Task { await load() }
+                    }
+                )) {
+                    Text("Team").tag("team")
+                    Text("All").tag("all")
+                }
+                .pickerStyle(.segmented)
+                .padding(.horizontal, 16)
+                .padding(.top, 12)
+            }
             if isLoading && items.isEmpty {
                 skeletonList
                     .padding(.horizontal, 16)
@@ -40,6 +67,7 @@ struct CpApprovalQueueView: View {
                     ForEach(items) { item in
                         CpApprovalCard(
                             item: item,
+                            canApprove: canApprove,
                             isBusy: busyItemId == item.id,
                             onViewRoute: { routeTarget = item },
                             onApprove: { Task { await approve(item) } },
@@ -86,14 +114,7 @@ struct CpApprovalQueueView: View {
         } message: {
             Text("This reopens the visit for \(rejectTarget?.staffName ?? "the staff") with your remark.")
         }
-        .alert("Approval couldn't be completed", isPresented: Binding(
-            get: { actionErrorMessage != nil },
-            set: { if !$0 { actionErrorMessage = nil } }
-        )) {
-            Button("OK", role: .cancel) { actionErrorMessage = nil }
-        } message: {
-            Text(actionErrorMessage ?? "Please try again.")
-        }
+        .floaterAlert($actionErrorMessage)
     }
 
     private var emptyState: some View {
@@ -143,7 +164,7 @@ struct CpApprovalQueueView: View {
         isLoading = items.isEmpty
         defer { isLoading = false; hasLoaded = true }
         do {
-            items = try await MarketingConvexAPIService.getPendingCpApprovals(token: token)
+            items = try await MarketingConvexAPIService.getPendingCpApprovals(token: token, scope: activeScope)
             LocalCache.put(cacheKey, items)
             errorMessage = nil
         } catch {
@@ -188,6 +209,7 @@ struct CpApprovalQueueView: View {
 
 private struct CpApprovalCard: View {
     let item: CpApprovalItem
+    let canApprove: Bool
     let isBusy: Bool
     let onViewRoute: () -> Void
     let onApprove: () -> Void
@@ -300,6 +322,20 @@ private struct CpApprovalCard: View {
             .buttonStyle(.plain)
             .padding(.top, 8)
 
+            if !canApprove {
+                // View-only without the approve permission (as on the web).
+                EmptyView()
+            } else if item.canDecide == false {
+                // Only the completion's own GM can decide; the server refuses
+                // anyone else, so show whose turn it is instead of buttons.
+                Text("Waiting for \(item.gmName?.blankToNil ?? "the assigned GM") to approve")
+                    .font(.system(size: 13, weight: .medium))
+                    .foregroundStyle(Color.appSecondaryText)
+                    .frame(maxWidth: .infinity)
+                    .frame(height: 44)
+                    .background(Color.adaptiveTint(0xF2F4F7), in: RoundedRectangle(cornerRadius: 10))
+                    .padding(.top, 12)
+            } else {
             HStack(spacing: 8) {
                 Button(action: onReject) {
                     Text("Reject")
@@ -330,6 +366,7 @@ private struct CpApprovalCard: View {
                 .disabled(isBusy)
             }
             .padding(.top, 12)
+            }
         }
         .padding(14)
         .frame(maxWidth: .infinity, alignment: .leading)

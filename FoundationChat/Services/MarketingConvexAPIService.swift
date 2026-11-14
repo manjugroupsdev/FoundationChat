@@ -987,8 +987,13 @@ enum MarketingConvexAPIService {
         guard wrapper.success else { throw MarketingAPIError.server(wrapper.error ?? "Failed to save geofence remark") }
     }
 
-    static func getPendingCpApprovals(token: String) async throws -> [CpApprovalItem] {
-        let data = try await get(path: "/api/marketing/cp-visits/pending-approvals", token: token)
+    /// [scope] team | all (same views as the web CP Approval page); nil = widest allowed.
+    static func getPendingCpApprovals(token: String, scope: String? = nil) async throws -> [CpApprovalItem] {
+        let data = try await get(
+            path: "/api/marketing/cp-visits/pending-approvals",
+            token: token,
+            queryItems: scope.map { [URLQueryItem(name: "scope", value: $0)] } ?? []
+        )
         let wrapper = try await decode(CpApprovalsResponse.self, from: data)
         guard wrapper.success else { throw MarketingAPIError.server(wrapper.error ?? "Failed to load pending approvals") }
         return wrapper.items ?? []
@@ -1451,7 +1456,7 @@ enum MarketingConvexAPIService {
     }
 
     private static func perform(_ request: URLRequest) async throws -> Data {
-        let (data, response) = try await URLSession.shared.data(for: request)
+        let (data, response) = try await IssueReporter.data(for: request)
         if let http = response as? HTTPURLResponse {
             if http.statusCode == 401 {
                 SessionInvalidationBus.emit(for: request, responseData: data)
@@ -1580,6 +1585,11 @@ struct CpApprovalItem: Codable, Identifiable, Sendable {
     let arrivalLng: Double?
     let placeLat: Double?
     let placeLng: Double?
+    // The GM this completion waits on; only they can approve/reject. Older
+    // backends omit these (canDecide nil = unknown, buttons shown).
+    var gmStaffId: String? = nil
+    var gmName: String? = nil
+    var canDecide: Bool? = nil
 }
 
 private struct CpApprovalRouteResponse: Decodable {

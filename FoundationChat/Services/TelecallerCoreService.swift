@@ -39,7 +39,7 @@ actor TelecallerCoreService {
         request.httpMethod = "POST"
         request.setValue("Bearer \(session)", forHTTPHeaderField: "Authorization")
         request.timeoutInterval = 20
-        let (data, _) = try await URLSession.shared.data(for: request)
+        let (data, _) = try await IssueReporter.data(for: request)
         let decoded = try? JSONDecoder().decode(ExchangeResponse.self, from: data)
         guard decoded?.success == true, let token = decoded?.accessToken, !token.isEmpty else {
             throw CoreError.message(decoded?.error ?? "Couldn't sign in to Insights")
@@ -63,7 +63,7 @@ actor TelecallerCoreService {
         request.httpBody = try JSONSerialization.data(withJSONObject: [
             "namespace": namespace, "apiName": apiName, "auth": auth, "data": data,
         ])
-        let (body, response) = try await URLSession.shared.data(for: request)
+        let (body, response) = try await IssueReporter.data(for: request)
         let code = (response as? HTTPURLResponse)?.statusCode ?? 0
         let envelope = (try? JSONSerialization.jsonObject(with: body)) as? [String: Any]
         let message = envelope?["message"] as? String

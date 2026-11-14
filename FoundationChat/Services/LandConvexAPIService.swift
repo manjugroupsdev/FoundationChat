@@ -119,7 +119,7 @@ enum LandConvexAPIService {
     }
 
     private static func perform(_ request: URLRequest) async throws -> Data {
-        let (data, response) = try await URLSession.shared.data(for: request)
+        let (data, response) = try await IssueReporter.data(for: request)
         if let http = response as? HTTPURLResponse {
             if http.statusCode == 401 {
                 SessionInvalidationBus.emit(for: request, responseData: data)

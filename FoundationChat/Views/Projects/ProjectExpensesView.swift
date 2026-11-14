@@ -107,20 +107,9 @@ struct ProjectExpensesView: View {
             .appLibraryNativeSheet([.height(390), .medium])
             .presentationBackground(Color.appElevatedSurface)
         }
-        .alert("Error", isPresented: errorAlertBinding, actions: {
-            Button("OK", role: .cancel) { errorMessage = nil }
-        }, message: {
-            Text(errorMessage ?? "")
-        })
+        .floaterAlert($errorMessage)
         .task { await loadProjects() }
         .onAppear { playEntryAnimation() }
-    }
-
-    private var errorAlertBinding: Binding<Bool> {
-        Binding(
-            get: { errorMessage != nil },
-            set: { if !$0 { errorMessage = nil } }
-        )
     }
 
     private func header(topInset: CGFloat) -> some View {

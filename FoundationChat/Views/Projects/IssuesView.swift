@@ -87,11 +87,7 @@ struct IssuesView: View {
         .task {
             await loadIssues()
         }
-        .alert("Issues", isPresented: errorAlertBinding, actions: {
-            Button("OK", role: .cancel) { errorMessage = nil }
-        }, message: {
-            Text(errorMessage ?? "")
-        })
+        .floaterAlert($errorMessage)
         .onDisappear {
             audioPlayer?.pause()
             audioPlayer = nil
@@ -103,13 +99,6 @@ struct IssuesView: View {
             .appFormActivity()
             .appLibraryNativeSheet([.height(620), .large])
         }
-    }
-
-    private var errorAlertBinding: Binding<Bool> {
-        Binding(
-            get: { errorMessage != nil },
-            set: { if !$0 { errorMessage = nil } }
-        )
     }
 
     private var emptyState: some View {

@@ -55,11 +55,7 @@ struct ProjectTasksView: View {
         .toolbar(.hidden, for: .navigationBar)
         .toolbar(.hidden, for: .tabBar)
         .task { await loadTasks() }
-        .alert("Tasks", isPresented: errorAlertBinding, actions: {
-            Button("OK", role: .cancel) { errorMessage = nil }
-        }, message: {
-            Text(errorMessage ?? "")
-        })
+        .floaterAlert($errorMessage)
     }
 
     private var headerTopFill: some View {
@@ -185,13 +181,6 @@ struct ProjectTasksView: View {
             .padding(.top, 16)
             .padding(.bottom, 28)
         }
-    }
-
-    private var errorAlertBinding: Binding<Bool> {
-        Binding(
-            get: { errorMessage != nil },
-            set: { if !$0 { errorMessage = nil } }
-        )
     }
 
     private func loadTasks() async {

@@ -139,11 +139,7 @@ struct LeavesListView: View {
                 }
             )
         }
-        .alert("Error", isPresented: .constant(errorMessage != nil), actions: {
-            Button("OK") { errorMessage = nil }
-        }, message: {
-            Text(errorMessage ?? "")
-        })
+        .floaterAlert($errorMessage)
         .alert("Reject Leave", isPresented: .init(
             get: { rejectingLeave != nil },
             set: { if !$0 { rejectingLeave = nil } }
