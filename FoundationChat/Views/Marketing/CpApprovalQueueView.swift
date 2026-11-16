@@ -689,9 +689,11 @@ private struct CpApprovalTripDetailSheet: View {
             dayStart: Int64(start),
             dayEnd: Int64(end)
         ) else { return [] }
-        let points = data.timeline
+        // Cleaned: stops become one point and spikes go, so neither the drawn
+        // trail nor the road matching zig-zags around the visit.
+        let points = GeoTrackTrackCleaner.clean(timeline: data.timeline
             .filter { $0.recordedAt >= start && $0.recordedAt <= end }
-            .sorted { $0.recordedAt < $1.recordedAt }
+            .sorted { $0.recordedAt < $1.recordedAt })
             .compactMap { validCoordinate(lat: $0.lat, lng: $0.lng) }
         guard points.count >= 2 else { return [] }
         let stride = max(1, (points.count + 299) / 300)

@@ -3387,6 +3387,10 @@ private enum AttendanceSheetFormat {
         if tripPath.count >= 2 {
             return tripPath
         }
+        // Cleaned: a stop is one point (and one replay step), not a star of
+        // jitter lines.
+        let cleaned = GeoTrackTrackCleaner.clean(timeline: data.timeline).map(\.coordinate)
+        if cleaned.count >= 2 { return cleaned }
         return data.timeline.map { CLLocationCoordinate2D(latitude: $0.lat, longitude: $0.lng) }
     }
 
