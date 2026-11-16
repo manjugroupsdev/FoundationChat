@@ -11,6 +11,25 @@ import MapKit
 struct CpApprovalQueueView: View {
     @Environment(AuthStore.self) private var authStore
 
+    /// Whether the server lists CP approvals for this staff member (same rule
+    /// as resolveCpApprovalViewScope / Android's canViewQueue). Without it the
+    /// queue is always refused ("missing permission marketing.cpApproval.view"),
+    /// so entries to this screen are hidden instead of opening onto an error.
+    static func canView(_ authStore: AuthStore) -> Bool {
+        if authStore.isAdmin { return true }
+        if authStore.currentSession?.user.role?.lowercased() == "super-admin" { return true }
+        let viewPermissions = [
+            "marketing.cpApproval.view",
+            "marketing.cpApproval.viewOwn",
+            "marketing.cpApproval.viewTeam",
+            "marketing.cpApproval.viewAll",
+        ]
+        if viewPermissions.contains(where: authStore.hasPermission) { return true }
+        let canApprove = authStore.hasPermission("marketing.cpApproval.approve")
+            || authStore.hasPermission("marketing.cpVisits.approve")
+        return canApprove && authStore.hasPermission("marketing.cpVisits.viewCompany")
+    }
+
     @State private var items: [CpApprovalItem] = []
     @State private var isLoading = false
     @State private var hasLoaded = false

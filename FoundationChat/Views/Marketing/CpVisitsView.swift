@@ -203,14 +203,18 @@ struct CpVisitsView: View {
                 .foregroundStyle(.primary)
         }
 
-        ToolbarItem(placement: .topBarTrailing) {
-            NavigationLink {
-                CpApprovalQueueView()
-            } label: {
-                Image(systemName: "checkmark.seal")
-                    .font(.system(size: 19, weight: .semibold))
+        // Only for staff the server lists approvals for; everyone else got a
+        // "missing permission" error opening it.
+        if CpApprovalQueueView.canView(authStore) {
+            ToolbarItem(placement: .topBarTrailing) {
+                NavigationLink {
+                    CpApprovalQueueView()
+                } label: {
+                    Image(systemName: "checkmark.seal")
+                        .font(.system(size: 19, weight: .semibold))
+                }
+                .accessibilityLabel("CP and SV approvals")
             }
-            .accessibilityLabel("CP and SV approvals")
         }
 
         ToolbarItem(placement: .topBarTrailing) {

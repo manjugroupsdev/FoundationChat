@@ -488,7 +488,8 @@ private struct AppLibrarySection: Identifiable {
             // Visits, which stays shown for everyone; this row is the direct
             // entry for holders of the approve right. Amber matches Android's
             // row and the approvals banner.
-            canAny(["marketing.cpVisits.approve"])
+            // Same access rule the server uses for the queue.
+            CpApprovalQueueView.canView(authStore)
                 ? .init(
                     title: "CP Approvals",
                     icon: "AppLibraryIconAppsDealer",
