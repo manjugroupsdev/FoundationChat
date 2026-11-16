@@ -8,9 +8,12 @@ struct AppLibraryView: View {
     @State private var listDidAppear = false
     @State private var navDidAppear = false
     @State private var isRefreshingPermissions = false
+    /// Open SV approvals waiting on this GM (badge + shows the row even
+    /// without marketing.siteVisits.confirm, like Android).
+    @State private var pendingSvApprovals = 0
 
     private var sections: [AppLibrarySection] {
-        AppLibrarySection.makeSections(authStore: authStore)
+        AppLibrarySection.makeSections(authStore: authStore, pendingSvApprovals: pendingSvApprovals)
     }
 
     private var availableFilters: [AppLibraryFilter] {
@@ -60,6 +63,9 @@ struct AppLibraryView: View {
             }
             .onAppear {
                 restartEntranceAnimation()
+                // Also runs when coming back from SV Approvals, so the badge
+                // drops as soon as the GM has decided.
+                Task { await refreshSvApprovalsCount() }
             }
             .onChange(of: selectedFilter) { _, _ in
                 listDidAppear = false
@@ -109,7 +115,16 @@ struct AppLibraryView: View {
     }
 
     @MainActor
+    private func refreshSvApprovalsCount() async {
+        // Best effort: a failed count keeps the last value and the row's
+        // permission rule still applies.
+        guard let pending = try? await SvApprovalQueueView.loadPending(authStore: authStore) else { return }
+        pendingSvApprovals = pending.count
+    }
+
+    @MainActor
     private func refreshLibraryPresentation() async {
+        Task { await refreshSvApprovalsCount() }
         restartEntranceAnimation()
         try? await Task.sleep(for: .milliseconds(600))
     }
@@ -276,6 +291,15 @@ private struct NativeAppLibraryRow: View {
                             .stroke(Color(hex: 0xFEDF89), lineWidth: 1)
                     )
             } else {
+                if item.badgeCount > 0 {
+                    Text("\(item.badgeCount)")
+                        .font(.system(size: 12, weight: .bold))
+                        .foregroundStyle(.white)
+                        .padding(.horizontal, 7)
+                        .frame(minWidth: 22, minHeight: 22)
+                        .background(Color(hex: 0xD92D20), in: Capsule())
+                        .accessibilityLabel("\(item.badgeCount) waiting")
+                }
                 Image(systemName: "chevron.right")
                     .font(AppModuleFont.rowMetaSemibold)
                     .foregroundStyle(Color(.tertiaryLabel))
@@ -408,7 +432,7 @@ private struct AppLibrarySection: Identifiable {
     var iconBackground: Color? = nil
     let items: [AppLibraryItem]
 
-    static func makeSections(authStore: AuthStore) -> [AppLibrarySection] {
+    static func makeSections(authStore: AuthStore, pendingSvApprovals: Int = 0) -> [AppLibrarySection] {
         func canAny(_ permissions: [String]) -> Bool {
             permissions.isEmpty || permissions.contains { authStore.hasPermission($0) }
         }
@@ -497,6 +521,20 @@ private struct AppLibrarySection: Identifiable {
                     systemIcon: "checkmark.seal",
                     iconTint: Color(hex: 0xB54708),
                     iconBackground: Color.adaptiveTint(0xFEF0C7)
+                )
+                : nil,
+            // SV Approvals — out-of-station / immediate-pickup / direct SVs
+            // handed to this GM. Shown with the confirm right, or whenever
+            // one is waiting on them (parity with Android's row).
+            canAny(["marketing.siteVisits.confirm"]) || pendingSvApprovals > 0
+                ? .init(
+                    title: "SV Approvals",
+                    icon: "AppLibraryIconAppsFieldVisits",
+                    destination: .svApprovals,
+                    systemIcon: "checkmark.circle",
+                    iconTint: Color(hex: 0x169B2F),
+                    iconBackground: Color.adaptiveTint(0xDCFAE6),
+                    badgeCount: pendingSvApprovals
                 )
                 : nil,
             canAny(["marketing.siteVisits.view"])
@@ -783,6 +821,7 @@ private struct AppLibraryItem: Identifiable {
     var iconTint: Color? = nil
     var iconBackground: Color? = nil
     var isComingSoon = false
+    var badgeCount = 0
 
     var id: String { destination.rawValue }
 }
@@ -797,6 +836,7 @@ private enum AppLibraryDestination: String {
     case siteVisits
     case cpVisits
     case cpApprovals
+    case svApprovals
     case leads
     case dialer
     case inventory
@@ -838,6 +878,8 @@ private enum AppLibraryDestination: String {
                 CpVisitsView()
             case .cpApprovals:
                 CpApprovalQueueView()
+            case .svApprovals:
+                SvApprovalQueueView()
             case .leads:
                 MyLeadsView()
             case .dialer:
