@@ -257,8 +257,17 @@ final class GeoTrackAPIService {
 
     /// GET /api/tracking/sessions/current
     func currentTrackingSession() async throws -> GeoTrackDirectSessionData? {
+        // Fallback identity for when the bearer token no longer resolves on the
+        // geo service (auth-disabled mode answers 400 "staffId is required").
+        // A valid token still wins server-side, so this never widens access.
+        var items: [URLQueryItem] = []
+        if let staffId = (try? KeychainTokenStore().load())?.user.staffId?
+            .trimmingCharacters(in: .whitespacesAndNewlines), !staffId.isEmpty {
+            items.append(URLQueryItem(name: "staffId", value: staffId))
+        }
         let request = try makeGETRequest(
             path: "/api/tracking/sessions/current",
+            queryItems: items,
             directGeoTrack: true
         )
         let result: GeoTrackDirectSessionResponse = try await perform(request)
