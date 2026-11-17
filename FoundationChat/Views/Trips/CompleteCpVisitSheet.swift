@@ -88,7 +88,9 @@ struct CompleteCpVisitSheet: View {
     @State private var selectedSeniorManager: ConvexStaffListItem?
     @State private var siteVisitDate = Date()
     @State private var siteVisitTime = Date()
-    @State private var travelMode: TravelMode = .cab
+    // Must be chosen (server requires it); no silent cab default.
+    @State private var travelMode: TravelMode?
+    @State private var cabPickupTime: Date = Date()
     @State private var pickupAddress = ""
     @State private var pickupLatitude: Double?
     @State private var pickupLongitude: Double?
@@ -651,7 +653,24 @@ struct CompleteCpVisitSheet: View {
                         travelMode = .ownVehicle
                     }
                     SegmentButton(title: "Cab Vehicle", isSelected: travelMode == .cab) {
+                        if travelMode != .cab {
+                            // Default the cab pickup to 30 minutes before the visit.
+                            cabPickupTime = siteVisitTime.addingTimeInterval(-30 * 60)
+                        }
                         travelMode = .cab
+                    }
+                }
+                if travelMode == .cab {
+                    VStack(alignment: .leading, spacing: 6) {
+                        Text("Cab pickup time *")
+                            .font(.system(size: 13, weight: .medium))
+                            .foregroundStyle(Color.appSecondaryText)
+                        DatePicker("", selection: $cabPickupTime, displayedComponents: .hourAndMinute)
+                            .labelsHidden()
+                            .frame(maxWidth: .infinity, alignment: .leading)
+                            .padding(.horizontal, 10)
+                            .frame(minHeight: 48)
+                            .background(Color.appFieldBackground, in: RoundedRectangle(cornerRadius: 14))
                     }
                 }
                 fieldEditor("Enter pickup address", text: $pickupAddress, minLines: 2, label: "Pickup address (if needed)")
@@ -1371,6 +1390,12 @@ struct CompleteCpVisitSheet: View {
         if let date = parseServerDate(proposed?.scheduledDate ?? visit.scheduledDate) {
             siteVisitDate = date
         }
+        if let mode = proposed?.travelMode?.nilIfBlank {
+            travelMode = TravelMode(rawValue: mode)
+        }
+        if let pickup = parseServerTime(proposed?.pickupTime) {
+            cabPickupTime = pickup
+        }
         if let time = parseServerTime(proposed?.scheduledTime ?? visit.scheduledTime) {
             siteVisitTime = time
         }
@@ -1567,9 +1592,31 @@ struct CompleteCpVisitSheet: View {
             return
         }
         let confirmsExistingLockedSiteVisit = isLockedSvMode && cpVisitDetail?.convertedSiteVisitId?.nilIfBlank != nil
-        if selectedOutcome == .siteVisit && selectedProject == nil && !confirmsExistingLockedSiteVisit {
+        let siteVisitProjectId = selectedProject?.id
+            ?? cpVisitDetail?.projectId?.nilIfBlank
+            ?? cpVisitDetail?.proposedSiteVisit?.projectId?.nilIfBlank
+        if selectedOutcome == .siteVisit && siteVisitProjectId == nil {
             errorMessage = "Please select a project"
             return
+        }
+        // Same rules as the server (convex/lib/siteVisitDetails.ts), for every
+        // Site Visit save: an existing SV cum CP is filled through convert too.
+        if selectedOutcome == .siteVisit {
+            let hasNamedVisitor = visitors.contains {
+                !$0.name.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
+            }
+            if !hasNamedVisitor {
+                errorMessage = "Add at least one visitor (name) before fixing this Site Visit"
+                return
+            }
+            guard let travelMode else {
+                errorMessage = "Choose Own Vehicle or Cab Vehicle under Pickup From"
+                return
+            }
+            if travelMode == .cab, timeString(cabPickupTime) > timeString(siteVisitTime) {
+                errorMessage = "Cab pickup time must be before the visit time"
+                return
+            }
         }
         let requiresSiteVisitConversion = selectedOutcome == .siteVisit && !confirmsExistingLockedSiteVisit
         let sessionStaffId = authStore.currentSession?.user.staffId?.nilIfBlank
@@ -1585,13 +1632,6 @@ struct CompleteCpVisitSheet: View {
             return
         }
         if requiresSiteVisitConversion {
-            let hasNamedVisitor = visitors.contains {
-                !$0.name.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
-            }
-            if !hasNamedVisitor {
-                errorMessage = "Add at least one visitor (name) before fixing this Site Visit"
-                return
-            }
             // The SV inherits the CP's client identity — block it when there's no
             // client name (renders as "—"). The backend enforces this too.
             let svClientName = cpVisitDetail?.lead?.contactName?.nilIfBlank
@@ -1669,13 +1709,16 @@ struct CompleteCpVisitSheet: View {
                     return
                 }
             } else if selectedOutcome == .siteVisit {
-                if !isLockedSvMode {
-                    guard let selectedProject else { return }
+                // Always convert, locked mode included: on an existing SV cum CP
+                // the server fills the details onto it (it refuses to confirm an
+                // incomplete SV); a proposed-only CP needs the SV materialised.
+                do {
+                    guard let siteVisitProjectId else { return }
                     _ = try await MarketingConvexAPIService.convertCpVisitToSiteVisit(
                         token: token,
                         request: ConvertCpVisitToSiteVisitRequest(
                             id: cpVisitId,
-                            projectId: selectedProject.id,
+                            projectId: siteVisitProjectId,
                             scheduledDate: dateString(siteVisitDate),
                             scheduledTime: timeString(siteVisitTime),
                             telecallerId: sessionStaffId,
@@ -1691,7 +1734,8 @@ struct CompleteCpVisitSheet: View {
                             pickupLat: pickupLatitude,
                             pickupLng: pickupLongitude,
                             pickupGoogleMapsLink: pickupGoogleMapsLink?.nilIfBlank,
-                            travelMode: travelMode.rawValue,
+                            pickupTime: travelMode == .cab ? timeString(cabPickupTime) : nil,
+                            travelMode: travelMode?.rawValue,
                             foodPreferences: foodPreferences.nilIfBlank,
                             notes: "Created from iOS CP visit"
                         )

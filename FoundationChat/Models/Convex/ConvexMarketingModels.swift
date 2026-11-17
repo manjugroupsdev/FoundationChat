@@ -595,6 +595,7 @@ struct ProposedSiteVisit: Codable, Sendable {
     let convertedBookingId: String?
     let cancelledAt: Int64?
     let travelMode: String?
+    let pickupTime: String?
     let vehicleId: String?
     let travelAgencyId: String?
     let driverName: String?
@@ -616,7 +617,7 @@ struct ProposedSiteVisit: Codable, Sendable {
         case id = "_id"
         case projectId, scheduledDate, scheduledTime, inchargeStaffId, hodStaffId
         case bdoStaffId, avpStaffId, gmStaffId, seniorManagerStaffId
-        case status, outcome, convertedBookingId, cancelledAt, travelMode, vehicleId, travelAgencyId
+        case status, outcome, convertedBookingId, cancelledAt, travelMode, pickupTime, vehicleId, travelAgencyId
         case driverName, driverPhone, pickedUpAt, arrivedSiteAt, consultingAt
         case consultingVerifiedByStaffId, pickedFromSiteAt, droppedAt, completedAt
         case travelDeskStartedAt, travelDeskArrivedAt, travelDeskOnSiteAt

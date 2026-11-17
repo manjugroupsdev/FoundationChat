@@ -2250,6 +2250,10 @@ private struct CreateCpVisitSheet: View {
     // SV cum CP only: the client is out of station, so it goes to the GM to
     // confirm instead of becoming a CP (same as the telecaller Fix Site Visit).
     @State private var isOutOfStation = false
+    // Out-of-station SV details (sent with the GM handoff; server requires them).
+    @State private var oosVisitorName = ""
+    @State private var oosTravelMode: String?
+    @State private var oosPickupTime = Date()
     @State private var selectedReferralSource: NewClientReferralSource?
     @State private var selectedReferringClient: ReferralClientCandidate?
     @State private var showReferringClientPicker = false
@@ -2316,6 +2320,9 @@ private struct CreateCpVisitSheet: View {
                     cpTypePicker
                     if canBeOutOfStation {
                         outOfStationToggle
+                        if isOutOfStation {
+                            outOfStationSvDetails
+                        }
                     }
                     if isNewClientCpPurpose {
                         referralSourcePicker
@@ -2989,6 +2996,51 @@ private struct CreateCpVisitSheet: View {
         .padding(.top, 12)
     }
 
+    /// Visitor / travel mode / cab pickup time the GM's approval puts on the SV.
+    private var outOfStationSvDetails: some View {
+        VStack(alignment: .leading, spacing: 8) {
+            Text("Visitor name *")
+                .font(.system(size: 13, weight: .medium))
+                .foregroundStyle(Color.appSecondaryText)
+            TextField("Who is visiting", text: $oosVisitorName)
+                .textInputAutocapitalization(.words)
+                .padding(.horizontal, 14)
+                .frame(minHeight: 48)
+                .background(Color.appFieldBackground, in: RoundedRectangle(cornerRadius: 12, style: .continuous))
+            Text("Pickup from *")
+                .font(.system(size: 13, weight: .medium))
+                .foregroundStyle(Color.appSecondaryText)
+                .padding(.top, 4)
+            Picker("Pickup from", selection: Binding(
+                get: { oosTravelMode ?? "" },
+                set: { value in
+                    if value == "cab", oosTravelMode != "cab" {
+                        oosPickupTime = date.addingTimeInterval(-30 * 60)
+                    }
+                    oosTravelMode = value.isEmpty ? nil : value
+                }
+            )) {
+                Text("Own Vehicle").tag("own_vehicle")
+                Text("Cab Vehicle").tag("cab")
+            }
+            .pickerStyle(.segmented)
+            if oosTravelMode == "cab" {
+                Text("Cab pickup time *")
+                    .font(.system(size: 13, weight: .medium))
+                    .foregroundStyle(Color.appSecondaryText)
+                    .padding(.top, 4)
+                DatePicker("", selection: $oosPickupTime, displayedComponents: .hourAndMinute)
+                    .labelsHidden()
+            }
+        }
+        .padding(.top, 10)
+        .onAppear {
+            if oosVisitorName.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
+                oosVisitorName = clientName.trimmingCharacters(in: .whitespacesAndNewlines)
+            }
+        }
+    }
+
     /// Out-of-station SV cum CP: no CP is created. A pending handoff goes to
     /// the GM, who confirms it on mobile and that creates the site visit. The
     /// address and pin are passed on when given but not required, since the
@@ -3003,6 +3055,21 @@ private struct CreateCpVisitSheet: View {
         let address = [doorNo, street, addressLine1, addressLine2, city, state, pincode]
             .compactMap(\.blankToNil)
             .joined(separator: ", ")
+        // Same rules as the server (convex/lib/siteVisitDetails.ts).
+        let visitorName = oosVisitorName.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !visitorName.isEmpty else {
+            errorMessage = "Enter the visitor's name"
+            return
+        }
+        guard let travelMode = oosTravelMode else {
+            errorMessage = "Choose Own Vehicle or Cab Vehicle under Pickup from"
+            return
+        }
+        let pickupTime = travelMode == "cab" ? Self.timeFormatter.string(from: oosPickupTime) : nil
+        if let pickupTime, pickupTime > Self.timeFormatter.string(from: date) {
+            errorMessage = "Cab pickup time must be before the visit time"
+            return
+        }
         let request = MarketingConvexAPIService.OutOfStationHandoffRequest(
             clientName: clientName,
             mobileNumber: phone,
@@ -3018,7 +3085,11 @@ private struct CreateCpVisitSheet: View {
             visitLat: coordinateValue(latitude),
             visitLng: coordinateValue(longitude),
             googleMapsLink: mapsLink.trimmingCharacters(in: .whitespacesAndNewlines).nilIfEmpty,
-            notes: notes.trimmingCharacters(in: .whitespacesAndNewlines).nilIfEmpty
+            notes: notes.trimmingCharacters(in: .whitespacesAndNewlines).nilIfEmpty,
+            attendees: [SiteVisitAttendeeRequest(name: visitorName, relation: nil, age: nil, isVeg: nil)],
+            expectedAttendeeCount: 1,
+            travelMode: travelMode,
+            pickupTime: pickupTime
         )
         do {
             try await MarketingConvexAPIService.requestOutOfStationHandoff(token: token, request: request)

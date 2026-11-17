@@ -828,6 +828,12 @@ enum MarketingConvexAPIService {
         let visitLng: Double?
         let googleMapsLink: String?
         let notes: String?
+        // SV details the GM's approval puts on the site visit (server requires
+        // a named visitor, travel mode, and a cab pickup time).
+        let attendees: [SiteVisitAttendeeRequest]?
+        let expectedAttendeeCount: Int?
+        let travelMode: String?
+        let pickupTime: String?
     }
 
     private struct OutOfStationHandoffResponse: Decodable {
