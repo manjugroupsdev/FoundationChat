@@ -34,6 +34,10 @@ final class MobileAlertCoordinator {
     @ObservationIgnored private var token: String?
     @ObservationIgnored private var isRefreshing = false
     @ObservationIgnored private var refreshAgain = false
+    /// Seconds the foreground poll waits before its next refresh: 5 normally,
+    /// doubling to 60 while fetches fail (429 under load, 5xx, offline), so
+    /// open phones stop piling onto a server that is already refusing them.
+    @ObservationIgnored private(set) var pollDelaySeconds: Double = 5
     @ObservationIgnored private var acknowledging: Set<String> = []
     @ObservationIgnored private var retryingAcknowledgements = false
     @ObservationIgnored private var viewedIds: [String]
@@ -72,11 +76,13 @@ final class MobileAlertCoordinator {
             Task { await retryAcknowledgements(token: activeToken) }
             do {
                 let pending = try await MobileAlertAPIService.fetchPending(token: activeToken)
+                pollDelaySeconds = 5
                 // Signed out or switched user while the request was out.
                 guard token == activeToken else { continue }
                 apply(pending)
                 await clearDeleted(pending: pending, token: activeToken)
             } catch {
+                pollDelaySeconds = min(60, pollDelaySeconds * 2)
                 // Keep whatever is queued; the next refresh tries again.
                 print("[mobile-alert] pending fetch failed: \(error.localizedDescription)")
             }

@@ -103,7 +103,7 @@ struct AuthRootView: View {
             guard scenePhase == .active, canShowMobileAlerts else { return }
             while !Task.isCancelled {
                 await refreshMobileAlerts()
-                do { try await Task.sleep(for: .seconds(5)) }
+                do { try await Task.sleep(for: .seconds(mobileAlerts.pollDelaySeconds)) }
                 catch { return }
             }
         }
