@@ -87,6 +87,11 @@ enum HRApplicationSupport {
         text = text.trimmingCharacters(in: .whitespaces)
         if text.hasPrefix("Error:") { text = String(text.dropFirst("Error:".count)).trimmingCharacters(in: .whitespaces) }
         if text.isEmpty || text.caseInsensitiveCompare("Server Error") == .orderedSame { return nil }
+        // A proxy's own page, not the server's reason: Cloudflare answers an
+        // unreachable origin with the plain text "error code: 502". Showing it
+        // read as a reason and hid that the request may still have been saved.
+        let gateway = #"^(?i)(error code:?\s*\d{3,4}|bad gateway|service unavailable|gateway time-?out|no healthy upstream|upstream connect error.*|upstream request timeout)$"#
+        if text.range(of: gateway, options: .regularExpression) != nil { return nil }
         return text
     }
 
