@@ -5,8 +5,9 @@ import SwiftUI
 /// (sourceReferenceType out_of_station_handoff). Approve completes it, which
 /// creates the site visit on the server; Reject cancels it.
 ///
-/// Mine = assigned to me; Team = my team's GMs (task list teamIds); All = every
-/// open one (task list scope "all", super admins). The server lets the GM, their
+/// Super admins get tabs: Mine = assigned to me; Team = my team's GMs (task list
+/// teamIds); All = every open one (scope "all"). Everyone else gets one list of
+/// their own + their team's approvals with no tab row. The server lets the GM, their
 /// supervisor, the requester or a super admin decide; anyone else sees whose
 /// turn it is. Parity with Mconnect `SvApprovalQueueFragment`.
 struct SvApprovalQueueView: View {
@@ -47,23 +48,31 @@ struct SvApprovalQueueView: View {
             }
             .sorted { ($0.deadline ?? "") < ($1.deadline ?? "") }
         let isAll = payload.scope == "all"
+        let isSuperAdmin = isAll || authStore.currentSession?.user.role?
+            .trimmingCharacters(in: .whitespacesAndNewlines)
+            .lowercased() == "super-admin"
         return SvApprovalQueue(
             me: me,
             mine: open.filter { $0.assignedTo == me },
             team: open.filter { $0.assignedTo != me && payload.teamIds.contains($0.assignedTo ?? "") },
             all: isAll ? open : [],
             isAll: isAll,
-            showTeam: !payload.teamIds.isEmpty
+            showTeam: isSuperAdmin,
+            singleList: !isSuperAdmin
         )
     }
 
+    /// Super admins: Mine / Team / All. Everyone else: one list (own + team), no tabs.
     private var tabs: [Tab] {
-        guard let queue else { return [.mine] }
+        guard let queue, !queue.singleList else { return [.mine] }
         return [.mine] + (queue.showTeam ? [.team] : []) + (queue.isAll ? [.all] : [])
     }
 
     private func items(_ t: Tab) -> [DailyTask] {
         guard let queue else { return [] }
+        if queue.singleList {
+            return (queue.mine + queue.team).sorted { ($0.deadline ?? "") < ($1.deadline ?? "") }
+        }
         switch t {
         case .mine: return queue.mine
         case .team: return queue.team
@@ -107,7 +116,7 @@ struct SvApprovalQueueView: View {
                     ForEach(items(tab)) { task in
                         SvApprovalCard(
                             task: task,
-                            showGm: tab != .mine,
+                            showGm: task.assignedTo != queue?.me,
                             canDecide: queue?.canDecide(task) ?? false,
                             busy: busyItemId == task.id,
                             disabled: busyItemId != nil,
@@ -245,6 +254,8 @@ struct SvApprovalQueue: Equatable {
     var all: [DailyTask]
     let isAll: Bool
     let showTeam: Bool
+    /// Not a super admin: own + team approvals in one list, no tab row.
+    var singleList: Bool = false
 
     /// Same rule as the server (canChangeDailyTaskStatus for handoff tasks).
     func canDecide(_ task: DailyTask) -> Bool {
