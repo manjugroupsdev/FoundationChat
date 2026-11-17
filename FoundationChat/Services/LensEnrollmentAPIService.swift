@@ -189,7 +189,9 @@ nonisolated enum LensMessages {
         if let server, !server.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty { return server }
         switch status {
         case 403: return "You don't have permission to enroll staff faces."
-        case 404: return "This staff member was not found."
+        // A 404 with no code means the Lens routes themselves are missing on the server
+        // (Convex "No matching routes found"); STAFF_NOT_FOUND is matched by code above.
+        case 404: return "Lens enrollment isn't set up on the server yet. Ask the admin to deploy it."
         case 429, 502, 503, 504: return "The face service is busy right now. Wait a moment and try again."
         default: return "Couldn't enroll the photos (\(status)). Try again."
         }
