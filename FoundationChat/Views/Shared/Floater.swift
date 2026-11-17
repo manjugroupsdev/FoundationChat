@@ -291,7 +291,8 @@ nonisolated enum FloaterText {
         case 415: return Notice(text: "That file type isn't supported.", kind: .warning)
         case 422: return Notice(text: "Some details are missing or invalid. Check the form and try again.", kind: .warning)
         case 426: return Notice(text: "Update the app to keep using this feature.", kind: .warning)
-        case 429: return Notice(text: "Too many requests. Wait a moment and try again.", kind: .warning)
+        // In practice the backend at capacity, not the person tapping too fast.
+        case 429: return Notice(text: busy, kind: .warning)
         case 500: return Notice(text: "Something went wrong on the server. Try again.", kind: .error)
         case 502, 503: return Notice(text: "The server is busy right now. Try again shortly.", kind: .error)
         case 504: return Notice(text: timeout, kind: .offline)
@@ -337,6 +338,16 @@ nonisolated enum FloaterText {
     ]
 
     /// nil = nothing to show.
+    static let busy = "The server is busy right now. Wait a moment and try again."
+
+    /// Convex's own capacity / timeout texts, never a reason to show a person.
+    static func isInfrastructureText(_ text: String) -> Bool {
+        text.range(
+            of: #"too many concurrent requests|upgrade to convex|function execution timed out|too many system operations|your request couldn'?t be completed"#,
+            options: [.regularExpression, .caseInsensitive]
+        ) != nil
+    }
+
     static func notice(for raw: String) -> Notice? {
         var text = raw.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !text.isEmpty else { return nil }
@@ -354,6 +365,9 @@ nonisolated enum FloaterText {
         let lower = text.lowercased()
         if lower == "cancelled" || lower == "canceled" { return nil }
         if let network = networkNotice(lower) { return network }
+        // The backend platform describing its own limits ("Too many concurrent
+        // requests … upgrade to Convex Pro") is never for staff.
+        if isInfrastructureText(text) { return Notice(text: busy, kind: .warning) }
 
         if let match = text.range(of: #"\(?\bHTTP\s+(\d{3})\b\)?[\s:.\-]*"#, options: [.regularExpression, .caseInsensitive]) {
             let token = String(text[match])
@@ -400,6 +414,8 @@ nonisolated enum FloaterText {
     ]
     private static let errorWords = [
         "fail", "error", "couldn't", "could not", "unable", "went wrong", "not saved", "crash", "exception",
+        // Checked before the success words, which hold "rejected" (a decision).
+        "rejected the request", "server rejected",
     ]
     private static let warningWords = [
         "please", "required", "select ", "enter ", "must", "invalid", "not allowed", "denied", "permission",

@@ -92,6 +92,8 @@ enum HRApplicationSupport {
         // read as a reason and hid that the request may still have been saved.
         let gateway = #"^(?i)(error code:?\s*\d{3,4}|bad gateway|service unavailable|gateway time-?out|no healthy upstream|upstream connect error.*|upstream request timeout)$"#
         if text.range(of: gateway, options: .regularExpression) != nil { return nil }
+        // Convex describing its own limits ("… upgrade to Convex Pro") is not a reason for staff.
+        if FloaterText.isInfrastructureText(text) { return nil }
         return text
     }
 
