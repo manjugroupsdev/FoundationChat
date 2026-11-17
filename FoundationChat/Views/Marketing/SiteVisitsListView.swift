@@ -1620,12 +1620,18 @@ private struct SiteVisitOverviewSheet: View {
                                 .foregroundStyle(index <= displayedCurrentStepIndex ? .white : Color.appTertiaryText)
                         }
 
-                        Text(step.title)
-                            .font(.system(size: 8, weight: .semibold))
-                            .foregroundStyle(index <= displayedCurrentStepIndex ? Color(hex: 0x0B61CA) : Color.appTertiaryText)
-                            .lineLimit(2)
-                            .minimumScaleFactor(0.65)
-                            .multilineTextAlignment(.center)
+                        // One word per line, each shrinking to fit: in ~39pt
+                        // columns "SCHEDULED" / "CONSULTING" were split mid-word.
+                        VStack(spacing: 1) {
+                            ForEach(step.title.split(separator: " ").map(String.init), id: \.self) { word in
+                                Text(word)
+                                    .font(.system(size: 8, weight: .semibold))
+                                    .lineLimit(1)
+                                    .minimumScaleFactor(0.6)
+                            }
+                        }
+                        .foregroundStyle(index <= displayedCurrentStepIndex ? Color(hex: 0x0B61CA) : Color.appTertiaryText)
+                        .multilineTextAlignment(.center)
                     }
                     .frame(maxWidth: .infinity)
                 }
