@@ -93,10 +93,13 @@ struct CpVisitsView: View {
                 searchTask?.cancel()
             }
             .sheet(isPresented: $showCreateSheet) {
-                CreateCpVisitSheet {
+                CreateCpVisitSheet(onCreated: {
                     showCreateSheet = false
                     Task { await load() }
-                }
+                }, onOpenExisting: { visitId in
+                    showCreateSheet = false
+                    Task { await openExistingVisit(visitId) }
+                })
                 .appFormActivity()
                 .appLibraryNativeSheet([.height(720), .large])
                 .presentationBackground(Color.appElevatedSurface)
@@ -331,6 +334,18 @@ struct CpVisitsView: View {
         } else {
             CpVisitCard(visit: visit, isClockedIn: isClockedIn)
         }
+    }
+
+    /// "CP visit already exists" → Open visit: find it in the list (reloading
+    /// once if needed) and push its trip screen, like tapping its card.
+    private func openExistingVisit(_ visitId: String) async {
+        func match() -> CpListVisit? {
+            visits.first { $0.clientPlaceVisitId == visitId || $0.id == visitId }
+        }
+        if match() == nil { await load() }
+        guard let visit = match(), visit.isOpenableCpVisit else { return }
+        selectedSpecialOutcomeVisit = visit
+        showSpecialOutcome = true
     }
 
     private func tripDestination(for visit: CpListVisit) -> some View {
@@ -2224,6 +2239,13 @@ private struct CreateCpVisitSheet: View {
     @Environment(AuthStore.self) private var authStore
     @Environment(\.dismiss) private var dismiss
     let onCreated: () -> Void
+    /// "CP visit already exists" → Open visit (only for the staff member's own visit).
+    var onOpenExisting: (String) -> Void = { _ in }
+
+    @State private var sameDayVisitId: String?
+    @State private var sameDayVisitIsMine = false
+    @State private var sameDayVisitMessage = ""
+    @State private var showSameDayVisit = false
 
     @State private var clientName = ""
     @State private var phone = ""
@@ -2533,6 +2555,16 @@ private struct CreateCpVisitSheet: View {
         .appCompactSheetCTAContainer()
         .disabled(isSubmitting)
         .floaterAlert($errorMessage)
+        .alert("CP visit already exists", isPresented: $showSameDayVisit) {
+            if sameDayVisitIsMine, let visitId = sameDayVisitId {
+                Button("Open visit") { onOpenExisting(visitId) }
+                Button("Change date", role: .cancel) {}
+            } else {
+                Button("OK", role: .cancel) {}
+            }
+        } message: {
+            Text(sameDayVisitMessage)
+        }
         .alert("Client already exists", isPresented: $showExistingClientWarning) {
             Button("Choose CP type") {
                 DispatchQueue.main.async { showCpTypePicker = true }
@@ -3840,6 +3872,17 @@ private struct CreateCpVisitSheet: View {
         } catch MarketingAPIError.newClientAlreadyExists(let client, _) {
             applyExistingClient(client, phone: normalizedPhone)
             blockNewClientCpForExistingClient()
+        } catch MarketingAPIError.sameDayCpVisitExists(let visitId, let ownerStaffId, _, let message) {
+            // One CP visit per client per day. Say whose it is, and let the
+            // owner open it, instead of a sentence with nowhere to go.
+            let me = authStore.currentSession?.user.staffId ?? authStore.currentSession?.user._id
+            let mine = ownerStaffId != nil && ownerStaffId == me
+            sameDayVisitId = visitId
+            sameDayVisitIsMine = mine
+            sameDayVisitMessage = mine
+                ? "You already have a CP visit with this client on this day. Only one CP visit per client is allowed per day."
+                : message // the server already names the owner when it knows it
+            showSameDayVisit = true
         } catch {
             errorMessage = error.localizedDescription
         }
