@@ -108,7 +108,10 @@ struct FrontDeskQRScannerView: View {
         guard let staffId = authStore.currentSession?.user.staffId ?? authStore.currentSession?.user._id,
               let visit = scannedSiteVisit
         else { return false }
-        return [visit.inchargeStaff?.id, visit.bdoStaff?.id, visit.telecallerStaff?.id]
+        // Same identity rule as the server's isQrOutcomeAuthorized: the BDO
+        // (the telecaller counts only when no BDO is set) or the Site Incharge.
+        let assignedBdoId = visit.bdoStaff?.id ?? visit.telecallerStaff?.id
+        return [visit.inchargeStaff?.id, assignedBdoId]
             .compactMap { $0 }
             .contains(staffId)
     }

@@ -31,6 +31,23 @@ nonisolated final class IssueReporter: NSObject, MXMetricManagerSubscriber, @unc
     private var sendScheduled = false
     private var started = false
     private var online = true
+    // DNS probe cache; read and written only on `queue`.
+    private var probeAt = Date.distantPast
+    private var probeOnline = false
+
+    /// Resolves a host that is always up (on `queue`, at most once a minute).
+    private func internetResolves() -> Bool {
+        if Date().timeIntervalSince(probeAt) < 60 { return probeOnline }
+        var hints = addrinfo()
+        hints.ai_family = AF_UNSPEC
+        hints.ai_socktype = SOCK_STREAM
+        var result: UnsafeMutablePointer<addrinfo>?
+        let status = getaddrinfo("captive.apple.com", nil, &hints, &result)
+        if let result { freeaddrinfo(result) }
+        probeOnline = status == 0
+        probeAt = Date()
+        return probeOnline
+    }
     private var networkType = "unknown"
     private let pathMonitor = NWPathMonitor()
     private var lastScreen = "App"
@@ -164,6 +181,11 @@ nonisolated final class IssueReporter: NSObject, MXMetricManagerSubscriber, @unc
         queue.async { [self] in
             // Phone offline: not an app problem.
             guard online, urlError?.code != .notConnectedToInternet else { return }
+            // "Can't find host" is nearly always offline too (Wi-Fi without
+            // upstream still reads as satisfied): report it only when a host
+            // that is always up resolves, i.e. our own name is the problem.
+            if urlError?.code == .cannotFindHost || urlError?.code == .dnsLookupFailed,
+               !internetResolves() { return }
             enqueueOnQueue([
                 "kind": "network",
                 "fingerprint": "\(endpoint) \(errorType)",

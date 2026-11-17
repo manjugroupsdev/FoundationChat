@@ -2153,12 +2153,26 @@ private struct SiteVisitOverviewSheet: View {
         return min(cabIndex, stepItems.count - 1)
     }
 
+    /// The SV's own status from the loaded detail: what setOutcome checks.
+    /// Never the list row's status, which merges travel-desk timestamps (a
+    /// dropped agency trip reads "completed" while the SV is "scheduled").
+    private var serverSiteVisitStatus: String? {
+        let raw = (detail?.proposedSiteVisit?.status ?? detail?.status)?
+            .trimmingCharacters(in: .whitespacesAndNewlines)
+            .lowercased()
+            .replacingOccurrences(of: "-", with: "_")
+        return raw?.isEmpty == false ? raw : nil
+    }
+
     private var isOutcomeEnabled: Bool {
         guard !isVisitClosed else { return false }
-        return isOutcomeRecoveryPending || [
+        // Locked until the detail has loaded (or if it failed), so a refused
+        // outcome form can't be opened from the merged list status.
+        guard let status = serverSiteVisitStatus else { return false }
+        return [
             "consulting", "on_counselling", "picked_from_site", "dropped",
             "completed", "complete", "done", "closed"
-        ].contains(normalizedStatus.normalizedSiteVisitValue)
+        ].contains(status.normalizedSiteVisitValue)
     }
 
     private var isFleetOutcomePending: Bool {
@@ -2501,10 +2515,46 @@ private struct CreateSiteVisitSheet: View {
     private var requiresPickup: Bool { routing != nil && routing != .direct }
     private var activeStaffItems: [ConvexStaffListItem] {
         guard let field = activeStaffField else { return [] }
+        // Each level must sit above the one before it (server: incharge → HOD →
+        // senior manager → GM → AVP, else 403 "X is not reporting to selected
+        // Y"). Offer only people on that line, walked as the server walks it.
         switch field {
         case .lmo, .bdo: return staff.filter(isEligibleLmo)
-        case .incharge, .field, .avp, .gm, .senior: return staff.filter(isSalesMarketing)
-        case .hod: return staff.filter { SiteVisitStaffRules.isActive($0.status) }
+        case .incharge, .field: return staff.filter(isSalesMarketing)
+        case .hod: return staff.filter { SiteVisitStaffRules.isActive($0.status) && reportsUp(from: selectedStaff[.incharge], to: $0) }
+        case .senior: return staff.filter { isSalesMarketing($0) && reportsUp(from: selectedStaff[.hod], to: $0) }
+        case .gm: return staff.filter { isSalesMarketing($0) && reportsUp(from: selectedStaff[.senior], to: $0) }
+        case .avp: return staff.filter { isSalesMarketing($0) && reportsUp(from: selectedStaff[.gm], to: $0) }
+        }
+    }
+
+    /// Ids above `from` on its reporting line, or nil when it can't be followed
+    /// here (no manager recorded, which the server accepts as anything, or the
+    /// line leaves the active list): then nobody is filtered out.
+    private func managersAbove(_ from: ConvexStaffListItem) -> Set<String>? {
+        guard var cursor = from.reportingTo?.nilIfBlank else { return nil }
+        let byId = Dictionary(staff.map { ($0.id, $0) }, uniquingKeysWith: { first, _ in first })
+        var above: Set<String> = []
+        while above.insert(cursor).inserted {
+            guard let manager = byId[cursor] else { return nil }
+            guard let next = manager.reportingTo?.nilIfBlank else { break }
+            cursor = next
+        }
+        return above
+    }
+
+    private func reportsUp(from: ConvexStaffListItem?, to candidate: ConvexStaffListItem) -> Bool {
+        guard let from else { return true }
+        return managersAbove(from)?.contains(candidate.id) ?? true
+    }
+
+    /// A changed level can strand the ones above it: clear those so the form never submits a refused chain.
+    private func dropBrokenChain() {
+        let order: [StaffField] = [.incharge, .hod, .senior, .gm, .avp]
+        for (below, above) in zip(order, order.dropFirst()) {
+            if let picked = selectedStaff[above], !reportsUp(from: selectedStaff[below], to: picked) {
+                selectedStaff[above] = nil
+            }
         }
     }
 
@@ -2647,7 +2697,7 @@ private struct CreateSiteVisitSheet: View {
                     selectedId: selectedStaff[field]?.id,
                     searchText: { [$0.displayName, $0.employeeId, $0.designation, $0.phone].compactMap { $0 }.joined(separator: " ") },
                     rowContent: { item, selected in selectionRow(item.displayName, item.subtitle, selected) },
-                    onSelect: { selectedStaff[field] = $0; activeStaffField = nil }
+                    onSelect: { selectedStaff[field] = $0; dropBrokenChain(); activeStaffField = nil }
                 ).appLibraryNativeSheet([.medium, .large])
             }
             .sheet(isPresented: $showMapPicker) {

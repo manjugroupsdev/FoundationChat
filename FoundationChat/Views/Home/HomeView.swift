@@ -12,7 +12,6 @@ struct HomeView: View {
     @State private var formActivityStore = AppFormActivityStore.shared
 
     @State private var todayVisits: [GeoTrackTodayVisit] = []
-    @State private var assignedPlaces: [GeoTrackAssignedPlace] = []
     @State private var todayAttendance: ConvexTodayAttendance?
     @State private var monthAttendanceRecords: [ConvexAttendanceRecord] = []
     @State private var attendanceSummaryGeneration = 0
@@ -1694,7 +1693,10 @@ struct HomeView: View {
                 group.addTask { await self.loadManagementDashboard() }
             } else {
                 group.addTask { await self.loadTodayVisits() }
-                group.addTask { await self.loadAssignedPlaces() }
+                // Assigned places are not shown on Home (the Assigned Places
+                // screen loads its own). Fetching them here cost the server up
+                // to ~400 reads per refresh and failed under load with "too
+                // many system operations", so Home no longer asks.
             }
         }
     }
@@ -1925,11 +1927,6 @@ struct HomeView: View {
             return true
         }
         return (error as NSError).code == NSURLErrorCancelled
-    }
-
-    @MainActor
-    private func loadAssignedPlaces() async {
-        assignedPlaces = (try? await geoAPI.assignedPlaces()) ?? []
     }
 
     @MainActor

@@ -1478,6 +1478,19 @@ enum MarketingConvexAPIService {
                         duplicate.error ?? "This number already exists as a client. Convert to another type of CP."
                     )
                 }
+                if http.statusCode == 400,
+                   let sameDay = try? JSONDecoder().decode(SameDayCpVisitResponse.self, from: data),
+                   sameDay.code == "DUPLICATE_CP_VISIT",
+                   let existing = sameDay.existingVisit,
+                   !existing.visitId.isEmpty {
+                    throw MarketingAPIError.sameDayCpVisitExists(
+                        visitId: existing.visitId,
+                        ownerStaffId: existing.ownerStaffId,
+                        ownerName: existing.ownerName,
+                        message: sameDay.error
+                            ?? "This client already has a CP visit on this day. Only one CP visit per client is allowed per day."
+                    )
+                }
                 if let normalized = try? JSONDecoder().decode(NormalizedAPIErrorResponse.self, from: data),
                    normalized.code != nil || normalized.error != nil {
                     throw MarketingAPIError.structuredServer(
@@ -1642,10 +1655,25 @@ struct CpApprovalRoutePoint: Decodable, Sendable {
     let recordedAt: Double
 }
 
+/// 400 reply for a second same-day CP visit for one client (DUPLICATE_CP_VISIT).
+private struct SameDayCpVisitResponse: Decodable {
+    struct Existing: Decodable {
+        let visitId: String
+        let ownerStaffId: String?
+        let ownerName: String?
+    }
+    let code: String?
+    let error: String?
+    let existingVisit: Existing?
+}
+
 enum MarketingAPIError: LocalizedError {
     case badURL
     case unauthorized
     case newClientAlreadyExists(BookingClientProfile, String)
+    /// One CP visit per client per day: the visit that already holds the day
+    /// and whose it is (server code DUPLICATE_CP_VISIT).
+    case sameDayCpVisitExists(visitId: String, ownerStaffId: String?, ownerName: String?, message: String)
     case structuredServer(code: String?, message: String, fieldErrors: [String: String]?, correlationId: String?)
     case server(String)
     case decoding(Error)
@@ -1655,6 +1683,7 @@ enum MarketingAPIError: LocalizedError {
         case .badURL: return "Invalid URL"
         case .unauthorized: return "Session expired. Please sign in again."
         case .newClientAlreadyExists(_, let message): return message
+        case .sameDayCpVisitExists(_, _, _, let message): return message
         case .structuredServer(_, let message, let fieldErrors, let correlationId):
             if !message.isEmpty && message != "Request failed" { return message }
             if let fieldMessage = fieldErrors?.values.first, !fieldMessage.isEmpty { return fieldMessage }
