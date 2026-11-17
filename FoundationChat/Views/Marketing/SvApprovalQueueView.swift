@@ -1,68 +1,114 @@
 import SwiftUI
 
-/// GM queue for site visits waiting on their approval: out-of-station,
-/// immediate-pickup and direct SVs a telecaller (or the CP form) handed to the
-/// GM. Each one is the GM's "SV approval" daily task (sourceReferenceType
-/// out_of_station_handoff, assigned to them). Approve completes that task,
-/// which on the server creates the real site visit (the same path as the web
-/// Fixed tab and the Task Manager); Reject cancels it, closing the handoff.
+/// SV approvals: out-of-station, immediate-pickup and direct site visits a
+/// telecaller (or the CP form) handed to a GM. Each is that GM's daily task
+/// (sourceReferenceType out_of_station_handoff). Approve completes it, which
+/// creates the site visit on the server; Reject cancels it.
 ///
-/// Parity with Mconnect `SvApprovalQueueFragment`.
+/// Mine = assigned to me; Team = my team's GMs (task list teamIds); All = every
+/// open one (task list scope "all", super admins). The server lets the GM, their
+/// supervisor, the requester or a super admin decide; anyone else sees whose
+/// turn it is. Parity with Mconnect `SvApprovalQueueFragment`.
 struct SvApprovalQueueView: View {
     @Environment(AuthStore.self) private var authStore
 
-    @State private var items: [DailyTask] = []
+    private enum Tab: String, CaseIterable, Identifiable {
+        case mine = "Mine", team = "Team", all = "All"
+        var id: String { rawValue }
+    }
+
+    @State private var queue: SvApprovalQueue?
+    @State private var tab: Tab = .mine
     @State private var isLoading = false
-    @State private var hasLoaded = false
     @State private var errorMessage: String?
     @State private var busyItemId: String?
     @State private var rejectTarget: DailyTask?
 
-    /// Open SV approvals assigned to the signed-in GM, earliest visit first.
+    /// Open SV approvals assigned to the signed-in GM (App Library badge).
     @MainActor
     static func loadPending(authStore: AuthStore) async throws -> [DailyTask] {
+        try await loadQueue(authStore: authStore)?.mine ?? []
+    }
+
+    /// Mine / Team / All from one task-list call, earliest visit first.
+    @MainActor
+    static func loadQueue(authStore: AuthStore) async throws -> SvApprovalQueue? {
         guard let token = authStore.currentSession?.token,
               let me = authStore.currentSession?.user.staffId?.nonBlank
                 ?? authStore.currentSession?.user._id.nonBlank
-        else { return [] }
+        else { return nil }
         let today = AppModuleFormatters.ymd.string(from: Date())
         let payload = try await TasksConvexAPIService.getTaskManagerTasks(token: token, today: today)
-        return payload.tasks
+        let open = payload.tasks
             .filter {
                 $0.sourceReferenceType == "out_of_station_handoff"
-                    && $0.assignedTo == me
                     && ($0.status == "pending" || $0.status == "in-progress")
                     && !SvApprovalDecisions.isRecentlyDecided($0.id)
             }
             .sorted { ($0.deadline ?? "") < ($1.deadline ?? "") }
+        let isAll = payload.scope == "all"
+        return SvApprovalQueue(
+            me: me,
+            mine: open.filter { $0.assignedTo == me },
+            team: open.filter { $0.assignedTo != me && payload.teamIds.contains($0.assignedTo ?? "") },
+            all: isAll ? open : [],
+            isAll: isAll,
+            showTeam: !payload.teamIds.isEmpty
+        )
+    }
+
+    private var tabs: [Tab] {
+        guard let queue else { return [.mine] }
+        return [.mine] + (queue.showTeam ? [.team] : []) + (queue.isAll ? [.all] : [])
+    }
+
+    private func items(_ t: Tab) -> [DailyTask] {
+        guard let queue else { return [] }
+        switch t {
+        case .mine: return queue.mine
+        case .team: return queue.team
+        case .all: return queue.all
+        }
     }
 
     var body: some View {
         ScrollView {
-            VStack(alignment: .leading, spacing: 4) {
-                Text("Site visits to approve")
-                    .font(.system(size: 18, weight: .semibold))
-                    .foregroundStyle(Color.appPrimaryText)
-                Text("Out-of-station, immediate-pickup and direct site visits waiting on you. Approve creates the site visit; reject sends it back.")
-                    .font(.system(size: 13))
-                    .foregroundStyle(Color.appSecondaryText)
-                    .lineSpacing(2)
+            if tabs.count > 1 {
+                ScrollView(.horizontal, showsIndicators: false) {
+                    HStack(spacing: 8) {
+                        ForEach(tabs) { t in
+                            Button { tab = t } label: {
+                                Text("\(t.rawValue)  \(items(t).count)")
+                                    .font(.system(size: 13, weight: .semibold))
+                                    .foregroundStyle(tab == t ? Color.white : Color.appPrimaryText)
+                                    .padding(.horizontal, 16)
+                                    .padding(.vertical, 9)
+                                    .background(
+                                        Capsule().fill(tab == t ? Color(hex: 0x0B61CA) : Color.appSurface)
+                                    )
+                                    .overlay(Capsule().stroke(tab == t ? Color.clear : Color(hex: 0xE4E7EC)))
+                            }
+                            .buttonStyle(.plain)
+                        }
+                    }
+                    .padding(.horizontal, 16)
+                }
+                .padding(.top, 12)
             }
-            .frame(maxWidth: .infinity, alignment: .leading)
-            .padding(.horizontal, 16)
-            .padding(.top, 16)
 
-            if isLoading && items.isEmpty {
+            if isLoading && queue == nil {
                 skeletonList
                     .padding(.horizontal, 16)
-                    .padding(.top, 16)
-            } else if items.isEmpty {
+                    .padding(.top, 12)
+            } else if items(tab).isEmpty {
                 emptyState
             } else {
                 LazyVStack(spacing: 12) {
-                    ForEach(items) { task in
+                    ForEach(items(tab)) { task in
                         SvApprovalCard(
                             task: task,
+                            showGm: tab != .mine,
+                            canDecide: queue?.canDecide(task) ?? false,
                             busy: busyItemId == task.id,
                             disabled: busyItemId != nil,
                             onApprove: { Task { await decide(task, status: "completed") } },
@@ -71,7 +117,7 @@ struct SvApprovalQueueView: View {
                     }
                 }
                 .padding(.horizontal, 16)
-                .padding(.top, 16)
+                .padding(.top, 12)
                 .padding(.bottom, 32)
             }
         }
@@ -88,11 +134,14 @@ struct SvApprovalQueueView: View {
                     .foregroundStyle(Color.appPrimaryText)
             }
         }
-        .task { if !hasLoaded { await load() } }
-        .alert("Reject this site visit?", isPresented: Binding(
-            get: { rejectTarget != nil },
-            set: { if !$0 { rejectTarget = nil } }
-        )) {
+        .task { if queue == nil { await load() } }
+        .alert(
+            "Reject site visit for \(rejectTarget.map(SvApprovalFormatting.clientName) ?? "this client")?",
+            isPresented: Binding(
+                get: { rejectTarget != nil },
+                set: { if !$0 { rejectTarget = nil } }
+            )
+        ) {
             Button("Keep", role: .cancel) { rejectTarget = nil }
             Button("Reject", role: .destructive) {
                 if let target = rejectTarget {
@@ -100,34 +149,29 @@ struct SvApprovalQueueView: View {
                     Task { await decide(target, status: "cancelled") }
                 }
             }
-        } message: {
-            let who = rejectTarget?.assignedByName?.nonBlank ?? "the telecaller"
-            let client = rejectTarget.map(SvApprovalFormatting.clientName) ?? "this client"
-            Text("The request from \(who) for \(client) is closed. No site visit is created.")
         }
     }
 
     private var emptyState: some View {
         VStack(spacing: 0) {
             Image(systemName: "checkmark.circle")
-                .font(.system(size: 54, weight: .regular))
+                .font(.system(size: 44, weight: .regular))
                 .foregroundStyle(Color.appTertiaryText)
-                .padding(.top, 64)
-            Text(errorMessage == nil ? "Nothing to Approve" : "Couldn't Load")
-                .font(.system(size: 18, weight: .semibold))
+                .padding(.top, 72)
+            Text(errorMessage == nil ? "No site visits to approve" : "Couldn't load")
+                .font(.system(size: 15, weight: .semibold))
                 .foregroundStyle(Color.appPrimaryText)
-                .padding(.top, 16)
-            Text(errorMessage ?? "Site visits waiting on your approval will appear here.")
-                .font(.system(size: 13))
-                .foregroundStyle(Color.appSecondaryText)
-                .multilineTextAlignment(.center)
-                .lineSpacing(2)
-                .padding(.horizontal, 32)
-                .padding(.top, 8)
-            if errorMessage != nil {
+                .padding(.top, 14)
+            if let errorMessage {
+                Text(errorMessage)
+                    .font(.system(size: 13))
+                    .foregroundStyle(Color.appSecondaryText)
+                    .multilineTextAlignment(.center)
+                    .padding(.horizontal, 32)
+                    .padding(.top, 6)
                 Button("Try again") { Task { await load() } }
                     .font(.system(size: 14, weight: .semibold))
-                    .padding(.top, 14)
+                    .padding(.top, 12)
             }
         }
         .frame(maxWidth: .infinity)
@@ -136,23 +180,45 @@ struct SvApprovalQueueView: View {
     private var skeletonList: some View {
         VStack(spacing: 12) {
             ForEach(0..<3, id: \.self) { _ in
-                RoundedRectangle(cornerRadius: 14)
-                    .fill(Color(hex: 0xE4E7EC))
-                    .frame(height: 200)
-                    .redacted(reason: .placeholder)
+                VStack(alignment: .leading, spacing: 10) {
+                    HStack {
+                        RoundedRectangle(cornerRadius: 6).frame(width: 150, height: 16)
+                        Spacer()
+                        Capsule().frame(width: 90, height: 20)
+                    }
+                    RoundedRectangle(cornerRadius: 5).frame(width: 130, height: 12)
+                    RoundedRectangle(cornerRadius: 5).frame(width: 190, height: 12)
+                    HStack(spacing: 10) {
+                        RoundedRectangle(cornerRadius: 12).frame(height: 44)
+                        RoundedRectangle(cornerRadius: 12).frame(height: 44)
+                    }
+                    .padding(.top, 4)
+                }
+                .foregroundStyle(Color(hex: 0xE4E7EC))
+                .padding(16)
+                .background(RoundedRectangle(cornerRadius: 16).fill(Color.appSurface))
             }
         }
     }
 
     @MainActor
     private func load() async {
-        isLoading = items.isEmpty
-        defer { isLoading = false; hasLoaded = true }
+        isLoading = queue == nil
+        defer { isLoading = false }
         do {
-            items = try await Self.loadPending(authStore: authStore)
+            let next = try await Self.loadQueue(authStore: authStore)
+            let first = queue == nil
+            queue = next
             errorMessage = nil
+            if first, let next {
+                tab = !next.mine.isEmpty ? .mine
+                    : (next.showTeam && !next.team.isEmpty) ? .team
+                    : (next.isAll && !next.all.isEmpty) ? .all
+                    : .mine
+            }
+            if !tabs.contains(tab) { tab = .mine }
         } catch {
-            if items.isEmpty { errorMessage = FloaterText.notice(for: error)?.text ?? error.localizedDescription }
+            if queue == nil { errorMessage = FloaterText.notice(for: error)?.text ?? error.localizedDescription }
         }
     }
 
@@ -163,18 +229,41 @@ struct SvApprovalQueueView: View {
         defer { busyItemId = nil }
         do {
             try await TasksConvexAPIService.updateDailyTaskStatus(token: token, id: task.id, status: status)
-            Floater.shared.success(status == "completed" ? "Site visit approved and created" : "Site visit rejected")
+            Floater.shared.success(status == "completed" ? "Site visit approved" : "Site visit rejected")
             SvApprovalDecisions.markDecided(task.id)
-            items.removeAll { $0.id == task.id }
-            await load()
+            queue = queue?.without(task.id)
         } catch {
             Floater.shared.show(error: error)
         }
     }
 }
 
+struct SvApprovalQueue: Equatable {
+    let me: String
+    var mine: [DailyTask]
+    var team: [DailyTask]
+    var all: [DailyTask]
+    let isAll: Bool
+    let showTeam: Bool
+
+    /// Same rule as the server (canChangeDailyTaskStatus for handoff tasks).
+    func canDecide(_ task: DailyTask) -> Bool {
+        task.assignedTo == me || task.supervisorId == me || task.assignedBy == me || isAll
+    }
+
+    func without(_ id: String) -> SvApprovalQueue {
+        var copy = self
+        copy.mine.removeAll { $0.id == id }
+        copy.team.removeAll { $0.id == id }
+        copy.all.removeAll { $0.id == id }
+        return copy
+    }
+}
+
 private struct SvApprovalCard: View {
     let task: DailyTask
+    let showGm: Bool
+    let canDecide: Bool
     let busy: Bool
     let disabled: Bool
     let onApprove: () -> Void
@@ -182,79 +271,100 @@ private struct SvApprovalCard: View {
 
     var body: some View {
         VStack(alignment: .leading, spacing: 0) {
-            HStack(alignment: .center, spacing: 10) {
+            HStack(alignment: .center, spacing: 8) {
                 Text(SvApprovalFormatting.clientName(task))
                     .font(.system(size: 16, weight: .semibold))
                     .foregroundStyle(Color.appPrimaryText)
+                    .lineLimit(1)
                     .frame(maxWidth: .infinity, alignment: .leading)
+                let colors = SvApprovalFormatting.routeColors(task)
                 Text(SvApprovalFormatting.routeLabel(task))
-                    .font(.system(size: 12, weight: .medium))
-                    .foregroundStyle(Color(hex: 0xB54708))
+                    .font(.system(size: 11, weight: .semibold))
+                    .foregroundStyle(Color(hex: colors.fg))
                     .padding(.horizontal, 10)
                     .padding(.vertical, 4)
-                    .background(Color.adaptiveTint(0xFFFAEB), in: Capsule())
-                    .overlay(Capsule().stroke(Color(hex: 0xFEDF89)))
+                    .background(Color.adaptiveTint(colors.bg), in: Capsule())
             }
 
-            fact("Visit date", SvApprovalFormatting.visitDate(task.deadline))
-            fact("Requested by", [task.assignedByName?.nonBlank, task.assignedByDesignation?.nonBlank]
-                .compactMap { $0 }
-                .joined(separator: " · ")
-                .nonBlank)
-            fact("Requested on", task.creationTime.map(SvApprovalFormatting.stamp))
-            fact("Notes", task.description?.nonBlank)
+            line("calendar", SvApprovalFormatting.visitDate(task.deadline) ?? "No date", primary: true)
+            if let requester = [task.assignedByName?.nonBlank, task.assignedByDesignation?.nonBlank]
+                .compactMap({ $0 }).joined(separator: " · ").nonBlank {
+                line("person", requester)
+            }
+            if showGm, let gm = task.assignedToName?.nonBlank {
+                line("building.2", "GM \(gm)")
+            }
+            if let notes = task.description?.nonBlank {
+                Text(notes)
+                    .font(.system(size: 13))
+                    .foregroundStyle(Color.appSecondaryText)
+                    .lineLimit(2)
+                    .padding(.horizontal, 12)
+                    .padding(.vertical, 10)
+                    .frame(maxWidth: .infinity, alignment: .leading)
+                    .background(Color.appFieldBackground, in: RoundedRectangle(cornerRadius: 10))
+                    .padding(.top, 10)
+            }
 
-            HStack(spacing: 8) {
-                Button(action: onReject) {
-                    Text("Reject")
-                        .font(.system(size: 14, weight: .semibold))
-                        .foregroundStyle(Color(hex: 0xB42318))
+            if canDecide {
+                HStack(spacing: 10) {
+                    Button(action: onReject) {
+                        Text("Reject")
+                            .font(.system(size: 14, weight: .semibold))
+                            .foregroundStyle(Color(hex: 0xB42318))
+                            .frame(maxWidth: .infinity)
+                            .frame(height: 44)
+                            .overlay(RoundedRectangle(cornerRadius: 12).stroke(Color(hex: 0xFDA29B)))
+                    }
+                    .buttonStyle(.plain)
+                    .disabled(disabled)
+
+                    Button(action: onApprove) {
+                        ButtonLoadingLabel(
+                            "Approve",
+                            loading: busy,
+                            loadingTitle: "Approving",
+                            font: .system(size: 14, weight: .semibold)
+                        )
                         .frame(maxWidth: .infinity)
-                        .frame(height: 46)
-                        .background(Color.adaptiveTint(0xFEE4E2), in: RoundedRectangle(cornerRadius: 12))
+                        .frame(height: 44)
+                        .background(Color(hex: 0x169B2F), in: RoundedRectangle(cornerRadius: 12))
+                    }
+                    .buttonStyle(.plain)
+                    .disabled(disabled)
                 }
-                .buttonStyle(.plain)
-                .disabled(disabled)
-
-                Button(action: onApprove) {
-                    ButtonLoadingLabel(
-                        "Approve",
-                        loading: busy,
-                        loadingTitle: "Approving",
-                        font: .system(size: 14, weight: .semibold)
-                    )
+                .padding(.top, 14)
+            } else {
+                Text("Waiting for \(task.assignedToName?.nonBlank ?? "the GM") to approve")
+                    .font(.system(size: 13, weight: .medium))
+                    .foregroundStyle(Color.appSecondaryText)
                     .frame(maxWidth: .infinity)
-                    .frame(height: 46)
-                    .background(Color(hex: 0x169B2F), in: RoundedRectangle(cornerRadius: 12))
-                }
-                .buttonStyle(.plain)
-                .disabled(disabled)
+                    .padding(.vertical, 11)
+                    .background(Color.appFieldBackground, in: RoundedRectangle(cornerRadius: 12))
+                    .padding(.top, 14)
             }
-            .padding(.top, 14)
         }
         .padding(16)
         .frame(maxWidth: .infinity, alignment: .leading)
         .background(
-            RoundedRectangle(cornerRadius: 14)
+            RoundedRectangle(cornerRadius: 16)
                 .fill(Color.appSurface)
                 .stroke(Color(hex: 0xEAECF0), lineWidth: 1)
         )
     }
 
-    @ViewBuilder
-    private func fact(_ label: String, _ value: String?) -> some View {
-        if let value, !value.isEmpty {
-            VStack(alignment: .leading, spacing: 2) {
-                Text(label)
-                    .font(.system(size: 11, weight: .medium))
-                    .foregroundStyle(Color.appSecondaryText)
-                Text(value)
-                    .font(.system(size: 13))
-                    .foregroundStyle(Color.appPrimaryText)
-                    .fixedSize(horizontal: false, vertical: true)
-            }
-            .padding(.top, 10)
+    private func line(_ icon: String, _ value: String, primary: Bool = false) -> some View {
+        HStack(spacing: 8) {
+            Image(systemName: icon)
+                .font(.system(size: 12, weight: .medium))
+                .foregroundStyle(Color.appTertiaryText)
+                .frame(width: 16)
+            Text(value)
+                .font(.system(size: 13))
+                .foregroundStyle(primary ? Color.appPrimaryText : Color.appSecondaryText)
+                .lineLimit(1)
         }
+        .padding(.top, 8)
     }
 }
 
@@ -299,6 +409,15 @@ private enum SvApprovalFormatting {
         default:
             guard let title = task.title?.nonBlank else { return "Site visit" }
             return title.hasSuffix(" Approval") ? String(title.dropLast(" Approval".count)) : title
+        }
+    }
+
+    /// Text and fill per route.
+    static func routeColors(_ task: DailyTask) -> (fg: UInt, bg: UInt) {
+        switch task.label {
+        case "immediate_pickup": return (0xB42318, 0xFEF3F2)
+        case "direct_sv": return (0x175CD3, 0xEFF8FF)
+        default: return (0xB54708, 0xFFFAEB)
         }
     }
 

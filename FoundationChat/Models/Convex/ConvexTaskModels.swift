@@ -155,6 +155,8 @@ struct DailyTask: Codable, Identifiable, Equatable, Sendable {
     let deadline: String?
     let assignedTo: String?
     let assignedBy: String?
+    /// Supervisor of a GM handoff task: may approve / reject it too.
+    let supervisorId: String?
     let assignedToName: String?
     let assignedByName: String?
     let assignedByRole: String?
@@ -172,7 +174,7 @@ struct DailyTask: Codable, Identifiable, Equatable, Sendable {
 
     enum CodingKeys: String, CodingKey {
         case _id, title, taskName, label, priority, description, deadline
-        case assignedTo, assignedBy, assignedToName, assignedByName
+        case assignedTo, assignedBy, supervisorId, assignedToName, assignedByName
         case assignedByRole, assignedByDesignation, creatorRole, creatorDesignation
         case taskCategory, status, module, pendingExtensionRequest
         case sourceReferenceType, sourceReferenceId, actionUrl
@@ -190,6 +192,7 @@ struct DailyTask: Codable, Identifiable, Equatable, Sendable {
         deadline = try container.decodeIfPresent(String.self, forKey: .deadline)
         assignedTo = try container.decodeIfPresent(String.self, forKey: .assignedTo)
         assignedBy = try container.decodeIfPresent(String.self, forKey: .assignedBy)
+        supervisorId = try? container.decodeIfPresent(String.self, forKey: .supervisorId)
         assignedToName = try container.decodeIfPresent(String.self, forKey: .assignedToName)
         assignedByName = try container.decodeIfPresent(String.self, forKey: .assignedByName)
         assignedByRole = try container.decodeIfPresent(String.self, forKey: .assignedByRole)
