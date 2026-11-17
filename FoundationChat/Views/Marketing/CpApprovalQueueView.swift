@@ -358,13 +358,8 @@ private struct CpApprovalCard: View {
             HStack(spacing: 8) {
                 Button(action: onReject) {
                     Text("Reject")
-                        .font(.system(size: 14, weight: .semibold))
-                        .foregroundStyle(Color(hex: 0xB42318))
-                        .frame(maxWidth: .infinity)
-                        .frame(height: 46)
-                        .background(Color.adaptiveTint(0xFEE4E2), in: RoundedRectangle(cornerRadius: 10))
                 }
-                .buttonStyle(.plain)
+                .buttonStyle(.mconnect(.dangerOutline))
                 .disabled(isBusy)
 
                 Button(action: onApprove) {
@@ -373,15 +368,10 @@ private struct CpApprovalCard: View {
                             ProgressView().tint(.white)
                         } else {
                             Text("Approve")
-                                .font(.system(size: 14, weight: .semibold))
                         }
                     }
-                    .foregroundStyle(.white)
-                    .frame(maxWidth: .infinity)
-                    .frame(height: 46)
-                    .background(Color(hex: 0x169B2F), in: RoundedRectangle(cornerRadius: 10))
                 }
-                .buttonStyle(.plain)
+                .buttonStyle(.mconnect(.success))
                 .disabled(isBusy)
             }
             .padding(.top, 12)

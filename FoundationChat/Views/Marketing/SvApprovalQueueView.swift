@@ -310,13 +310,8 @@ private struct SvApprovalCard: View {
                 HStack(spacing: 10) {
                     Button(action: onReject) {
                         Text("Reject")
-                            .font(.system(size: 14, weight: .semibold))
-                            .foregroundStyle(Color(hex: 0xB42318))
-                            .frame(maxWidth: .infinity)
-                            .frame(height: 44)
-                            .overlay(RoundedRectangle(cornerRadius: 12).stroke(Color(hex: 0xFDA29B)))
                     }
-                    .buttonStyle(.plain)
+                    .buttonStyle(.mconnect(.dangerOutline))
                     .disabled(disabled)
 
                     Button(action: onApprove) {
@@ -324,13 +319,10 @@ private struct SvApprovalCard: View {
                             "Approve",
                             loading: busy,
                             loadingTitle: "Approving",
-                            font: .system(size: 14, weight: .semibold)
+                            font: .system(size: 16, weight: .semibold)
                         )
-                        .frame(maxWidth: .infinity)
-                        .frame(height: 44)
-                        .background(Color(hex: 0x169B2F), in: RoundedRectangle(cornerRadius: 12))
                     }
-                    .buttonStyle(.plain)
+                    .buttonStyle(.mconnect(.success))
                     .disabled(disabled)
                 }
                 .padding(.top, 14)

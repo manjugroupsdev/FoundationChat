@@ -3918,11 +3918,7 @@ private struct SpecialCpCompletionSheet: View {
                     Text(submitTitle)
                 }
             }
-            .font(.system(size: 16, weight: .bold))
-            .foregroundStyle(.white)
-            .frame(maxWidth: .infinity)
-            .frame(height: 54)
-            .background(Color(hex: 0x1BCA0B), in: Capsule())
+            .buttonStyle(.mconnect(.success))
             .disabled(
                 isSaving || isLoading || isUploadingCollectionProof ||
                     (kind == .collection && !collectionNotCollected && selectedCaseId.isEmpty) ||

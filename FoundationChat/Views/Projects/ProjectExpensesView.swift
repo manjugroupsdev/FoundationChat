@@ -671,13 +671,8 @@ private struct ExpenseDateFilterSheet: View {
                 dismiss()
             } label: {
                 Text("Submit Date")
-                    .font(.system(size: 16, weight: .semibold))
-                    .foregroundStyle(.white)
-                    .frame(maxWidth: .infinity)
-                    .frame(height: 52)
-                    .background(Color(hex: 0x18B900), in: Capsule())
             }
-            .buttonStyle(.plain)
+            .buttonStyle(.mconnect(.success))
             .padding(.top, 20)
         }
         .padding(.horizontal, 24)
@@ -858,18 +853,11 @@ private struct ExpenseCreationSheet: View {
                 if isSaving {
                     ProgressView()
                         .tint(.white)
-                        .frame(maxWidth: .infinity)
-                        .frame(height: 56)
                 } else {
                     Text("Save It")
-                        .font(.system(size: 15, weight: .bold))
-                        .foregroundStyle(.white)
-                        .frame(maxWidth: .infinity)
-                        .frame(height: 56)
                 }
             }
-            .buttonStyle(.plain)
-            .background(Color(hex: 0x1BCA0B), in: Capsule())
+            .buttonStyle(.mconnect(.success))
             .disabled(isSaving)
             .padding(.horizontal, 20)
             .padding(.top, 4)

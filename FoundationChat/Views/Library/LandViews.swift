@@ -1046,22 +1046,10 @@ private struct LandInspectionSheet: View {
                 if !isViewOnly {
                     HStack(spacing: 10) {
                         Button("Cancel") { dismiss() }
-                            .font(.system(size: 15, weight: .semibold))
-                            .foregroundStyle(Color.adaptiveInk(0x111827))
-                            .frame(maxWidth: .infinity)
-                            .frame(height: 48)
-                            .background(Color.appSurface, in: RoundedRectangle(cornerRadius: 14))
-                            .overlay(
-                                RoundedRectangle(cornerRadius: 14)
-                                    .stroke(Color.black.opacity(0.10), lineWidth: 1)
-                            )
+                            .buttonStyle(.mconnect(.secondary))
 
                         Button(isSaving ? "Saving..." : "Save") { save() }
-                            .font(.system(size: 15, weight: .semibold))
-                            .foregroundStyle(.white)
-                            .frame(maxWidth: .infinity)
-                            .frame(height: 48)
-                            .background(Color(hex: 0x0B61CA), in: RoundedRectangle(cornerRadius: 14))
+                            .buttonStyle(.mconnect(.primary))
                             .disabled(isSaving)
                     }
                     .padding(.top, 2)

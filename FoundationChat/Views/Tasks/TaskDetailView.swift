@@ -46,14 +46,8 @@ struct TaskDetailView: View {
                     showUpdateSheet = true
                 } label: {
                     Text("Today's Update")
-                        .font(.system(size: 15, weight: .bold))
-                        .foregroundStyle(.white)
-                        .frame(maxWidth: .infinity)
-                        .frame(height: 56)
-                        .background(Color(hex: 0x1BCA0B), in: Capsule())
-                        .shadow(color: Color(hex: 0x1BCA0B).opacity(0.24), radius: 8, x: 0, y: 3)
                 }
-                .buttonStyle(.plain)
+                .buttonStyle(.mconnect(.success))
                 .padding(.horizontal, 16)
                 .padding(.bottom, 10)
             }

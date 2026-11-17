@@ -1398,18 +1398,11 @@ private struct BookingDetailView: View {
                     if isSaving {
                         ProgressView()
                             .tint(.white)
-                            .frame(maxWidth: .infinity)
-                            .frame(height: 54)
                     } else {
                         Text("Save Changes")
-                            .font(.system(size: 16, weight: .semibold))
-                            .foregroundStyle(.white)
-                            .frame(maxWidth: .infinity)
-                            .frame(height: 54)
                     }
                 }
-                .buttonStyle(.plain)
-                .background(Color(hex: 0x0B61CA), in: Capsule())
+                .buttonStyle(.mconnect(.primary))
                 .disabled(isSaving)
                 .padding(.horizontal, 24)
                 .padding(.top, 14)

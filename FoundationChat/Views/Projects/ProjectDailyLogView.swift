@@ -1027,18 +1027,11 @@ private struct CreateDailyLogSheet: View {
                 if isSaving {
                     ProgressView()
                         .tint(.white)
-                        .frame(maxWidth: .infinity)
-                        .frame(height: 54)
                 } else {
                     Text("Save Daily Log")
-                        .font(.system(size: 15, weight: .bold))
-                        .foregroundStyle(.white)
-                        .frame(maxWidth: .infinity)
-                        .frame(height: 54)
                 }
             }
-            .buttonStyle(.plain)
-            .background(Color(hex: 0x16A34A), in: Capsule())
+            .buttonStyle(.mconnect(.success))
             .disabled(isSaving)
             .padding(.horizontal, 20)
             .padding(.top, 8)
@@ -1394,18 +1387,11 @@ private struct DprAddRecipientSheet: View {
                 if isSubmitting {
                     ProgressView()
                         .tint(.white)
-                        .frame(maxWidth: .infinity)
-                        .frame(height: 54)
                 } else {
                     Text("Add Recipient")
-                        .font(.system(size: 15, weight: .bold))
-                        .foregroundStyle(.white)
-                        .frame(maxWidth: .infinity)
-                        .frame(height: 54)
                 }
             }
-            .buttonStyle(.plain)
-            .background(Color(hex: 0x16A34A), in: Capsule())
+            .buttonStyle(.mconnect(.success))
             .disabled(isSubmitting)
             .padding(.horizontal, 20)
             .padding(.top, 8)

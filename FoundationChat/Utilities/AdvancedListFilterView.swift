@@ -308,13 +308,8 @@ struct AdvancedListFilterView: View {
                 dismiss()
             } label: {
                 Text("Apply")
-                    .font(.system(size: 16, weight: .semibold))
-                    .foregroundStyle(.white)
-                    .frame(maxWidth: .infinity)
-                    .frame(height: 48)
-                    .background(Color(hex: 0x0B61CA), in: RoundedRectangle(cornerRadius: 8))
             }
-            .buttonStyle(.plain)
+            .buttonStyle(.mconnect(.primary))
         }
         .padding(.horizontal, 20)
         .padding(.vertical, 12)

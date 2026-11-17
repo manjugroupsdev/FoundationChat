@@ -943,13 +943,8 @@ private struct TaskWebLinkSheet: View {
                 dismiss()
             } label: {
                 Text("Open Link")
-                    .font(.system(size: 15, weight: .bold))
-                    .foregroundStyle(.white)
-                    .frame(maxWidth: .infinity)
-                    .frame(height: 50)
-                    .background(Color(hex: 0x0B61CA), in: Capsule())
             }
-            .buttonStyle(.plain)
+            .buttonStyle(.mconnect(.primary))
 
             Button {
                 #if canImport(UIKit)
@@ -958,13 +953,8 @@ private struct TaskWebLinkSheet: View {
                 dismiss()
             } label: {
                 Text("Copy Link")
-                    .font(.system(size: 15, weight: .bold))
-                    .foregroundStyle(Color(hex: 0x0B61CA))
-                    .frame(maxWidth: .infinity)
-                    .frame(height: 50)
-                    .background(Color.adaptiveTint(0xEAF2FE), in: Capsule())
             }
-            .buttonStyle(.plain)
+            .buttonStyle(.mconnect(.secondary))
 
             Spacer(minLength: 0)
         }

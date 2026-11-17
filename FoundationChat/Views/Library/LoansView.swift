@@ -794,11 +794,11 @@ private struct LoanSignatureApprovalSheet: View {
             Text(title).opacity(showsProgress ? 0 : 1)
             if showsProgress { ProgressView().tint(.white) }
         }
-        .font(.system(size: 15, weight: .semibold))
+        .font(.system(size: 16, weight: .semibold))
         .foregroundStyle(.white)
         .frame(maxWidth: .infinity)
-        .frame(height: 50)
-        .background(Color(hex: 0x16A34A), in: RoundedRectangle(cornerRadius: 10))
+        .frame(height: 52)
+        .background(MconnectButtonStyle.successColor, in: RoundedRectangle(cornerRadius: 12, style: .continuous))
     }
 
     @MainActor

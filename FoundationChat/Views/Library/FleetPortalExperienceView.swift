@@ -2501,8 +2501,8 @@ private struct FleetPrimaryButtonContent: View {
         .font(.system(size: 16, weight: .semibold))
         .foregroundStyle(.white)
         .frame(maxWidth: .infinity)
-        .frame(height: 50)
-        .background(Color(hex: 0x19C90B), in: Capsule())
+        .frame(height: 52)
+        .background(MconnectButtonStyle.successColor, in: RoundedRectangle(cornerRadius: 12, style: .continuous))
     }
 }
 
