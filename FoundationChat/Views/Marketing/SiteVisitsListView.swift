@@ -1664,7 +1664,7 @@ private struct SiteVisitOverviewSheet: View {
                 LazyVGrid(columns: [GridItem(.flexible()), GridItem(.flexible())], spacing: 10) {
                     outcomeButton("Converted as Booking", icon: "briefcase.fill", tint: Color(hex: 0x16A34A), outcome: .booking)
                     outcomeButton("Client Not Interested", icon: "hand.thumbsdown.fill", tint: Color(hex: 0xDC2626), outcome: .notInterested)
-                    outcomeButton("Follow up", icon: "calendar.badge.clock", tint: Color(hex: 0xD97706), outcome: .followUp)
+                    outcomeButton("Booking Follow Up", icon: "calendar.badge.clock", tint: Color(hex: 0xD97706), outcome: .followUp)
                     outcomeButton("Others", icon: "ellipsis.circle.fill", tint: Color.appSecondaryText, outcome: .other)
                 }
 
@@ -2231,7 +2231,7 @@ private struct SiteVisitOverviewSheet: View {
         case "not_interested":
             return ("Client Not Interested", Color(hex: 0xB42318))
         case "follow_up", "followup", "postponed":
-            return ("Follow up", Color(hex: 0xB54708))
+            return ("Booking Follow Up", Color(hex: 0xB54708))
         case "cancelled", "canceled":
             return ("Site Visit Cancelled", Color.appSecondaryText)
         case "no_show":
