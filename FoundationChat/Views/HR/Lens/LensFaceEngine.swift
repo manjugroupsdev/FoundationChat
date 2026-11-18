@@ -127,14 +127,16 @@ nonisolated final class LensFaceEngine: NSObject, AVCaptureVideoDataOutputSample
     private let ciContext = CIContext(options: [.useSoftwareRenderer: false])
 
     // Tunables (contract capture rules).
-    private let stableWindow: Double = 0.30
-    private let holdDuration: Double = 0.65
-    private let maxAngleDrift: Double = 3.0
-    private let maxCentreDrift: Double = 0.03
+    // Stillness is time-based (two samples spanning the window), so a slow
+    // Vision loop still reaches "still"; limits sit above detector jitter.
+    private let stableWindow: Double = 0.40
+    private let holdDuration: Double = 0.50
+    private let maxAngleDrift: Double = 6.0
+    private let maxCentreDrift: Double = 0.05
     private let minFaceWidthPx: Double = 120
     private let goodFaceWidthPx: Double = 200
-    private let maxPitch: Double = 10
-    private let maxRoll: Double = 10
+    private let maxPitch: Double = 15
+    private let maxRoll: Double = 12
     private let minEyeOpenRatio: Double = 0.14
     private let maxMouthOpenRatio: Double = 0.16
     private let minQuality: Double = 0.18
@@ -228,9 +230,53 @@ nonisolated final class LensFaceEngine: NSObject, AVCaptureVideoDataOutputSample
         Task { @MainActor in handler(state) }
     }
 
+    /// Back camera by default: an admin photographs the staff member. Touched on sessionQueue.
+    private var position: AVCaptureDevice.Position = .back
+
+    private func cameraDevice() -> AVCaptureDevice? {
+        AVCaptureDevice.default(.builtInWideAngleCamera, for: .video, position: position)
+            ?? AVCaptureDevice.default(.builtInWideAngleCamera, for: .video, position: position == .back ? .front : .back)
+    }
+
+    private func applyConnectionSettings() {
+        for output in session.outputs {
+            guard let connection = output.connection(with: .video) else { continue }
+            // Upright portrait pixels, not mirrored: what Lens receives.
+            if connection.isVideoRotationAngleSupported(90) { connection.videoRotationAngle = 90 }
+            if connection.isVideoMirroringSupported {
+                connection.automaticallyAdjustsVideoMirroring = false
+                connection.isVideoMirrored = false
+            }
+        }
+    }
+
+    /// Flip between the back and front camera; stillness history restarts.
+    func switchCamera(toFront front: Bool) {
+        sessionQueue.async {
+            self.position = front ? .front : .back
+            guard !self.session.inputs.isEmpty, let device = self.cameraDevice(),
+                  let input = try? AVCaptureDeviceInput(device: device) else { return }
+            self.session.beginConfiguration()
+            for old in self.session.inputs { self.session.removeInput(old) }
+            if self.session.canAddInput(input) { self.session.addInput(input) }
+            self.applyConnectionSettings()
+            self.session.commitConfiguration()
+            if (try? device.lockForConfiguration()) != nil {
+                if device.isFocusModeSupported(.continuousAutoFocus) { device.focusMode = .continuousAutoFocus }
+                if device.isExposureModeSupported(.continuousAutoExposure) { device.exposureMode = .continuousAutoExposure }
+                device.unlockForConfiguration()
+            }
+            self.videoQueue.async {
+                self.history = []
+                self.holdPose = nil
+                self.holdBest = nil
+            }
+        }
+    }
+
     private func configureAndRun() {
         if session.inputs.isEmpty {
-            guard let device = AVCaptureDevice.default(.builtInWideAngleCamera, for: .video, position: .front),
+            guard let device = cameraDevice(),
                   let input = try? AVCaptureDeviceInput(device: device) else {
                 report(.unavailable)
                 return
@@ -248,14 +294,7 @@ nonisolated final class LensFaceEngine: NSObject, AVCaptureVideoDataOutputSample
             output.alwaysDiscardsLateVideoFrames = true
             output.setSampleBufferDelegate(self, queue: videoQueue)
             if session.canAddOutput(output) { session.addOutput(output) }
-            if let connection = output.connection(with: .video) {
-                // Upright portrait pixels, not mirrored: what Lens receives.
-                if connection.isVideoRotationAngleSupported(90) { connection.videoRotationAngle = 90 }
-                if connection.isVideoMirroringSupported {
-                    connection.automaticallyAdjustsVideoMirroring = false
-                    connection.isVideoMirrored = false
-                }
-            }
+            applyConnectionSettings()
             session.commitConfiguration()
             if (try? device.lockForConfiguration()) != nil {
                 if device.isFocusModeSupported(.continuousAutoFocus) { device.focusMode = .continuousAutoFocus }
@@ -451,8 +490,10 @@ nonisolated final class LensFaceEngine: NSObject, AVCaptureVideoDataOutputSample
     }
 
     private func isStill(now: Double) -> Bool {
-        let recent = history.filter { now - $0.t <= stableWindow }
-        guard let first = recent.first, now - first.t >= stableWindow * 0.8, recent.count >= 4 else { return false }
+        // Newest sample at or before the window start anchors the window.
+        guard let anchorIndex = history.lastIndex(where: { now - $0.t >= stableWindow }) else { return false }
+        let recent = Array(history[anchorIndex...])
+        guard recent.count >= 2 else { return false }
         func spread(_ values: [Double]) -> Double { (values.max() ?? 0) - (values.min() ?? 0) }
         return spread(recent.map(\.yaw)) <= maxAngleDrift
             && spread(recent.map(\.pitch)) <= maxAngleDrift
@@ -544,12 +585,32 @@ nonisolated final class LensFaceEngine: NSObject, AVCaptureVideoDataOutputSample
 
     // MARK: Publishing
 
+    // Hint hysteresis: a new hint shows only after holding 0.45 s, so the line
+    // doesn't flicker between reasons frame to frame.
+    private var shownHint: LensHint?
+    private var candidateHint: LensHint?
+    private var candidateSince: Double = 0
+    private var hintShownOnce = false
+
+    private func stableHint(_ hint: LensHint?, now: Double) -> LensHint? {
+        if hint != candidateHint {
+            candidateHint = hint
+            candidateSince = now
+        }
+        if !hintShownOnce || hint == shownHint || now - candidateSince >= 0.45 {
+            shownHint = hint
+            hintShownOnce = true
+        }
+        return shownHint
+    }
+
     private func publish(now: Double, force: Bool, hint: LensHint? = nil, analysis: Analysis? = nil, justCaptured: LensPose? = nil) {
+        let steadyHint = stableHint(hint, now: now)
         guard force || now - lastPublish >= 1.0 / 15.0 else { return }
         lastPublish = now
         var snapshot = LensEngineSnapshot()
         snapshot.target = currentTarget
-        snapshot.hint = hint
+        snapshot.hint = steadyHint
         snapshot.faceFound = (analysis?.faceCount ?? 0) > 0
         if let analysis { snapshot.yaw = analysis.yaw * Double(analysis.side == 0 ? 1 : analysis.side) }
         snapshot.holdPose = holdPose

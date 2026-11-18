@@ -9,6 +9,8 @@ final class LensCaptureModel {
     var camera: LensFaceEngine.CameraState = .starting
     var flashTick = 0
     var targetSince = Date()
+    /** Back camera by default (an admin photographs the staff member). */
+    var usingFront = false
     @ObservationIgnored private(set) var engine: LensFaceEngine! = nil
     @ObservationIgnored private var lastTarget: LensPose?
 
@@ -17,6 +19,11 @@ final class LensCaptureModel {
             onSnapshot: { [weak self] snapshot in self?.apply(snapshot) },
             onCamera: { [weak self] state in self?.camera = state }
         )
+    }
+
+    func switchCamera() {
+        usingFront.toggle()
+        engine.switchCamera(toFront: usingFront)
     }
 
     private func apply(_ new: LensEngineSnapshot) {
@@ -67,7 +74,7 @@ struct LensCaptureView: View {
                         LensCameraPreview(session: model.engine.session)
                             .ignoresSafeArea()
                         dimmer(oval: oval, size: geo.size)
-                        LensPoseRing(snapshot: model.snapshot, targets: targets, oval: oval)
+                        LensPoseRing(snapshot: model.snapshot, targets: targets, oval: oval, mirrored: model.usingFront)
                         turnArrow(oval: oval)
                         Color.white.opacity(flashOpacity).ignoresSafeArea().allowsHitTesting(false)
                     }
@@ -126,6 +133,14 @@ struct LensCaptureView: View {
                     .contentTransition(.numericText())
             }
             Spacer()
+            Button { model.switchCamera() } label: {
+                Image(systemName: "arrow.triangle.2.circlepath.camera")
+                    .font(.system(size: 16, weight: .semibold))
+                    .foregroundStyle(.white)
+                    .frame(width: 40, height: 40)
+                    .background(.ultraThinMaterial.opacity(0.6), in: Circle())
+            }
+            .accessibilityLabel("Switch camera")
         }
         .padding(.horizontal, 16)
         .padding(.top, 12)
@@ -222,8 +237,9 @@ struct LensCaptureView: View {
     @ViewBuilder
     private func turnArrow(oval: CGRect) -> some View {
         if let target = model.snapshot.target, target.side != 0, model.snapshot.holdPose != target {
-            // Preview is mirrored, so the subject's left is the screen's left.
-            let left = target.side < 0
+            // Front preview is mirrored (subject's left = screen left); the back
+            // camera's isn't (subject's left = screen right).
+            let left = model.usingFront ? target.side < 0 : target.side > 0
             Image(systemName: left ? "chevron.left.2" : "chevron.right.2")
                 .font(.system(size: 34, weight: .heavy))
                 .foregroundStyle(.white)
@@ -281,6 +297,8 @@ private struct LensPoseRing: View {
     let snapshot: LensEngineSnapshot
     let targets: [LensPose]
     let oval: CGRect
+    /// Front camera (mirrored preview). The back camera's sides swap.
+    var mirrored: Bool = true
     @State private var pulse = false
 
     var body: some View {
@@ -319,8 +337,14 @@ private struct LensPoseRing: View {
         .allowsHitTesting(false)
     }
 
-    /// Degrees clockwise from the top. Screen left = subject's left (mirrored preview).
+    /// Degrees clockwise from the top. Screen left = subject's left on a mirrored
+    /// (front) preview; the back camera's preview flips the sides.
     private func arc(_ pose: LensPose) -> (Double, Double) {
+        let base = mirroredArc(pose)
+        return mirrored ? base : (-base.1, -base.0)
+    }
+
+    private func mirroredArc(_ pose: LensPose) -> (Double, Double) {
         switch pose {
         case .straight: return (-20, 20)
         case .slightRight: return (28, 64)
@@ -357,7 +381,7 @@ private struct EllipseArc: Shape {
     }
 }
 
-/// Live front-camera preview (mirrored like a selfie).
+/// Live camera preview (the layer mirrors the front camera like a selfie).
 private struct LensCameraPreview: UIViewRepresentable {
     let session: AVCaptureSession
 
