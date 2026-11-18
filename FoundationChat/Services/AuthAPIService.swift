@@ -34,6 +34,13 @@ enum AuthAPIService {
     let boundAccountName: String?
   }
 
+  /// Where the login OTP is: send-otp answers before SMS / WhatsApp do.
+  struct OTPDeliveryStatus: Decodable {
+    /// pending | sent | failed | none
+    let status: String?
+    let error: String?
+  }
+
   private struct VerifyOTPResponse: Decodable {
     let success: Bool
     let token: String?
@@ -122,6 +129,18 @@ enum AuthAPIService {
   }
 
   // MARK: - Public API
+
+  /// Polled briefly by the code screen so a failed delivery offers Resend at once.
+  static func otpDeliveryStatus(phone: String) async throws -> OTPDeliveryStatus {
+    let url = URL(string: "\(baseURL)/api/auth/otp-status")!
+    var request = URLRequest(url: url)
+    request.httpMethod = "POST"
+    request.setValue("application/json", forHTTPHeaderField: "Content-Type")
+    request.timeoutInterval = 10
+    request.httpBody = try JSONSerialization.data(withJSONObject: ["phone": phone])
+    let (data, _) = try await MMSRequestTransport.data(for: request)
+    return try await BackgroundJSONDecoder.decode(OTPDeliveryStatus.self, from: data)
+  }
 
   /// Send an OTP to the given 10-digit phone number.
   static func sendOTP(phone: String) async throws {

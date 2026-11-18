@@ -203,6 +203,34 @@ final class AuthStore {
     }
   }
 
+  private var otpDeliveryWatch: Task<Void, Never>?
+
+  /// send-otp answers before SMS / WhatsApp do. Check the delivery a few times;
+  /// when both channels failed, say so on the code screen so the staff resend
+  /// instead of waiting for a code that isn't coming. Older servers without
+  /// /api/auth/otp-status just make every check fail quietly.
+  private func watchOTPDelivery(phone: String) {
+    otpDeliveryWatch?.cancel()
+    otpDeliveryWatch = Task { [weak self] in
+      for waitSeconds in [1.5, 2.5, 3.0, 4.0, 6.0] {
+        try? await Task.sleep(for: .seconds(waitSeconds))
+        if Task.isCancelled { return }
+        guard let status = try? await AuthAPIService.otpDeliveryStatus(phone: phone) else { continue }
+        switch status.status {
+        case "failed":
+          self?.errorMessage = status.error?.isEmpty == false
+            ? status.error
+            : "We couldn't send the OTP. Tap Resend."
+          return
+        case "sent", "none":
+          return
+        default:
+          continue
+        }
+      }
+    }
+  }
+
   @discardableResult
   func requestOTP(phoneNumber: String) async throws -> String {
     let phone = Self.extractDigits(phoneNumber)
@@ -217,6 +245,7 @@ final class AuthStore {
     do {
       try await AuthAPIService.sendOTP(phone: phone)
       pendingOTPUsesTravelDesk = false
+      watchOTPDelivery(phone: phone)
       return phone
     } catch {
       if Self.otpRequestMayHaveReachedServer(error) {
@@ -244,6 +273,7 @@ final class AuthStore {
   }
 
   func verifyOTP(phoneNumber: String, code: String) async {
+    otpDeliveryWatch?.cancel()
     let phone = Self.extractDigits(phoneNumber)
     let trimmedCode = code.trimmingCharacters(in: .whitespacesAndNewlines)
     guard !phone.isEmpty else { errorMessage = AuthStoreError.invalidPhoneNumber.localizedDescription; return }
