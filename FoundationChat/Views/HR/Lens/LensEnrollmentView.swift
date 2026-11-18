@@ -14,8 +14,7 @@ struct LensEnrollmentView: View {
     @State private var hasLoaded = false
     @State private var errorMessage: String?
     @State private var selected: LensStaff?
-    @State private var pendingChoice: LensStaff?
-    @State private var sendingId: String?
+    @State private var savedPhotosOf: LensStaff?
 
     var body: some View {
         List {
@@ -30,13 +29,13 @@ struct LensEnrollmentView: View {
                 ForEach(items) { staff in
                     Button {
                         guard staff.canEnroll else { return }
-                        // Photos already saved and waiting: offer to send them instead of recording again.
-                        if staff.waitingPhotos > 0 { pendingChoice = staff } else { selected = staff }
+                        // Saved photos: Send to Lens, retake one or all, delete.
+                        if (staff.savedPhotos ?? 0) > 0 { savedPhotosOf = staff } else { selected = staff }
                     } label: {
-                        LensStaffRow(staff: staff, isSending: sendingId == staff.id)
+                        LensStaffRow(staff: staff)
                     }
                     .buttonStyle(.plain)
-                    .disabled(!staff.canEnroll || sendingId != nil)
+                    .disabled(!staff.canEnroll)
                     .listRowBackground(Color.appSurface)
                     .onAppear {
                         if staff.id == items.last?.id { Task { await loadMore() } }
@@ -62,17 +61,11 @@ struct LensEnrollmentView: View {
             await reload()
         }
         .floaterAlert($errorMessage)
-        .confirmationDialog(
-            "Photos waiting for Lens",
-            isPresented: Binding(get: { pendingChoice != nil }, set: { if !$0 { pendingChoice = nil } }),
-            titleVisibility: .visible,
-            presenting: pendingChoice
-        ) { staff in
-            Button("Send to Lens") { Task { await sendPending(staff) } }
-            Button("Record again") { selected = staff }
-            Button("Cancel", role: .cancel) {}
-        } message: { staff in
-            Text("\(staff.waitingPhotos) photos of \(staff.displayName) are saved on the profile and waiting for Lens.")
+        .fullScreenCover(item: $savedPhotosOf) { staff in
+            NavigationStack {
+                LensCapturesView(staff: staff) { Task { await reload() } }
+            }
+            .environment(authStore)
         }
         .fullScreenCover(item: $selected) { staff in
             LensEnrollmentFlowView(staff: staff) {
@@ -110,23 +103,6 @@ struct LensEnrollmentView: View {
         }
     }
 
-    private func sendPending(_ staff: LensStaff) async {
-        guard sendingId == nil, let token = authStore.currentSession?.token else { return }
-        sendingId = staff.id
-        Floater.shared.info("Sending the photos to Lens…")
-        do {
-            let result = try await LensEnrollmentAPIService.sendPending(token: token, staffId: staff.staffId)
-            UINotificationFeedbackGenerator().notificationOccurred(.success)
-            Floater.shared.success("Sent to Lens: \(result.addedSamples) added, \(result.faceSamples ?? result.addedSamples) photos for the cameras.")
-        } catch is CancellationError {
-        } catch {
-            UINotificationFeedbackGenerator().notificationOccurred(.warning)
-            Floater.shared.warning(error.localizedDescription)
-        }
-        sendingId = nil
-        await reload()
-    }
-
     private func loadMore() async {
         guard !isLoadingMore, !isLoading, let cursor = nextCursor,
               let token = authStore.currentSession?.token else { return }
@@ -145,7 +121,6 @@ struct LensEnrollmentView: View {
 
 private struct LensStaffRow: View {
     let staff: LensStaff
-    var isSending = false
 
     var body: some View {
         HStack(spacing: 12) {
@@ -175,9 +150,7 @@ private struct LensStaffRow: View {
 
     @ViewBuilder
     private var badge: some View {
-        if isSending {
-            ProgressView()
-        } else if staff.isEnrolled {
+        if staff.isEnrolled {
             Label("\(staff.enrollment?.faceSamples ?? 0)", systemImage: "faceid")
                 .font(.system(size: 12, weight: .semibold))
                 .foregroundStyle(Color(hex: 0x15803D))
@@ -224,7 +197,20 @@ private struct LensStaffSkeletonRow: View {
 
 struct LensEnrollmentFlowView: View {
     let staff: LensStaff
+    /// Retake of one saved photo: the camera asks for just this pose.
+    let single: LensPose?
+    /// "Retake all": starts with Replace earlier photos on.
+    let startReplace: Bool
     let onFinished: () -> Void
+
+    init(staff: LensStaff, single: LensPose? = nil, startReplace: Bool = false, onFinished: @escaping () -> Void) {
+        self.staff = staff
+        self.single = single
+        self.startReplace = startReplace
+        self.onFinished = onFinished
+        _phase = State(initialValue: .capture(single.map { [$0] } ?? LensPose.guidedOrder))
+        _replace = State(initialValue: startReplace && single == nil)
+    }
 
     @Environment(AuthStore.self) private var authStore
     @Environment(\.dismiss) private var dismiss
@@ -234,13 +220,14 @@ struct LensEnrollmentFlowView: View {
         case review
         case uploading
         case result(LensEnrollResult)
+        case retaken(LensEnrollResult)
         case saved
         case failure(String)
     }
 
-    @State private var phase: Phase = .capture(LensPose.guidedOrder)
+    @State private var phase: Phase
     @State private var shots: [LensPose: LensShot] = [:]
-    @State private var replace = false
+    @State private var replace: Bool
     @State private var lastError: LensEnrollError?
     @State private var didEnroll = false
 
@@ -251,8 +238,9 @@ struct LensEnrollmentFlowView: View {
                 LensCaptureView(
                     staffName: staff.displayName,
                     targets: targets,
+                    allowSkip: single == nil,
                     onDone: { captured in
-                        if targets.count == LensPose.guidedOrder.count {
+                        if single == nil && targets.count == LensPose.guidedOrder.count {
                             shots = captured
                         } else {
                             for (pose, shot) in captured { shots[pose] = shot }
@@ -269,6 +257,8 @@ struct LensEnrollmentFlowView: View {
                 NavigationStack { reviewScreen }
             case .result(let result):
                 NavigationStack { resultScreen(result) }
+            case .retaken(let result):
+                NavigationStack { retakenScreen(result) }
             case .saved:
                 NavigationStack { savedScreen }
             case .failure(let message):
@@ -286,8 +276,14 @@ struct LensEnrollmentFlowView: View {
     // MARK: Review
 
     private var requiredMissing: [LensPose] {
-        LensPose.guidedOrder.filter { $0.isRequired && shots[$0] == nil }
+        if let single { return shots[single] == nil ? [single] : [] }
+        return LensPose.guidedOrder.filter { $0.isRequired && shots[$0] == nil }
     }
+
+    /// Poses on the review screen: all of them, or the one being retaken.
+    private var reviewPoses: [LensPose] { single.map { [$0] } ?? LensPose.guidedOrder }
+
+    private var allTargets: [LensPose] { single.map { [$0] } ?? LensPose.guidedOrder }
 
     private var reviewScreen: some View {
         ScrollView {
@@ -295,14 +291,14 @@ struct LensEnrollmentFlowView: View {
                 staffHeader
 
                 LazyVGrid(columns: [GridItem(.flexible(), spacing: 12), GridItem(.flexible(), spacing: 12)], spacing: 12) {
-                    ForEach(LensPose.guidedOrder) { pose in
+                    ForEach(reviewPoses) { pose in
                         LensShotCard(pose: pose, shot: shots[pose], disabled: phase == .uploading) {
                             phase = .capture([pose])
                         }
                     }
                 }
 
-                if staff.isEnrolled {
+                if single == nil && (staff.isEnrolled || startReplace) {
                     Toggle(isOn: $replace) {
                         VStack(alignment: .leading, spacing: 2) {
                             Text("Replace earlier photos")
@@ -334,6 +330,8 @@ struct LensEnrollmentFlowView: View {
                 } label: {
                     if phase == .uploading {
                         HStack(spacing: 8) { ProgressView().tint(.white); Text("Enrolling…") }
+                    } else if single != nil {
+                        Text("Save photo")
                     } else {
                         Text("Enroll \(shots.count) photos")
                     }
@@ -343,7 +341,7 @@ struct LensEnrollmentFlowView: View {
 
                 Button("Record again") {
                     shots = [:]
-                    phase = .capture(LensPose.guidedOrder)
+                    phase = .capture(allTargets)
                 }
                 .buttonStyle(.mconnect(.secondary))
                 .disabled(phase == .uploading)
@@ -384,6 +382,22 @@ struct LensEnrollmentFlowView: View {
             shots[pose].map { LensPhotoUpload(pose: pose.rawValue, jpeg: $0.jpeg) }
         }
         phase = .uploading
+        if single != nil, let photo = photos.first {
+            do {
+                let result = try await LensEnrollmentAPIService.retake(token: token, staffId: staff.staffId, photo: photo)
+                didEnroll = true
+                UINotificationFeedbackGenerator().notificationOccurred(result.isWaitingForLens ? .warning : .success)
+                phase = .retaken(result)
+            } catch let error as LensEnrollError {
+                lastError = error
+                UINotificationFeedbackGenerator().notificationOccurred(.error)
+                phase = .failure(error.localizedDescription)
+            } catch {
+                lastError = nil
+                phase = .failure(error.localizedDescription)
+            }
+            return
+        }
         do {
             let result = try await LensEnrollmentAPIService.enroll(
                 token: token, staffId: staff.staffId, replace: replace, photos: photos
@@ -440,7 +454,7 @@ struct LensEnrollmentFlowView: View {
                     Button("Record again") {
                         shots = [:]
                         replace = false
-                        phase = .capture(LensPose.guidedOrder)
+                        phase = .capture(allTargets)
                     }
                     .buttonStyle(.mconnect(.primary))
                 }
@@ -452,6 +466,40 @@ struct LensEnrollmentFlowView: View {
             .background(.bar)
         }
         .navigationTitle("Enrollment")
+        .navigationBarTitleDisplayMode(.inline)
+    }
+
+    private func retakenScreen(_ result: LensEnrollResult) -> some View {
+        let waiting = result.isWaitingForLens
+        let poseName = (single?.title ?? "new").lowercased()
+        return ScrollView {
+            VStack(spacing: 18) {
+                Image(systemName: waiting ? "tray.and.arrow.down.fill" : "checkmark.seal.fill")
+                    .font(.system(size: 52, weight: .semibold))
+                    .foregroundStyle(waiting ? Color(hex: 0xD97706) : Color(hex: 0x16A34A))
+                    .padding(.top, 24)
+                Text(waiting ? "Photo saved" : "Photo replaced")
+                    .font(.system(size: 20, weight: .bold))
+                    .multilineTextAlignment(.center)
+                Text(result.message ?? (waiting
+                    ? "The new \(poseName) photo is saved on the profile. Waiting for Lens."
+                    : "The new \(poseName) photo is added to Lens."))
+                    .font(.system(size: 14))
+                    .foregroundStyle(Color.appSecondaryText)
+                    .multilineTextAlignment(.center)
+            }
+            .padding(16)
+            .frame(maxWidth: .infinity)
+        }
+        .background(Color.appScreenBackground)
+        .safeAreaInset(edge: .bottom) {
+            Button("Done") { close() }
+                .buttonStyle(.mconnect(.primary))
+                .padding(.horizontal, 16)
+                .padding(.vertical, 12)
+                .background(.bar)
+        }
+        .navigationTitle("Retake")
         .navigationBarTitleDisplayMode(.inline)
     }
 
@@ -515,7 +563,7 @@ struct LensEnrollmentFlowView: View {
                 if error?.asksForRetake == true {
                     Button("Record again") {
                         shots = [:]
-                        phase = .capture(LensPose.guidedOrder)
+                        phase = .capture(allTargets)
                     }
                     .buttonStyle(.mconnect(.primary))
                 } else if error?.isRetryable == true || error == nil {
@@ -617,5 +665,226 @@ private struct LensShotCard: View {
         }
         .padding(10)
         .background(Color.appSurface, in: RoundedRectangle(cornerRadius: 14, style: .continuous))
+    }
+}
+
+// MARK: - Saved photos (Send to Lens, retake, delete)
+
+/// A staff member's saved Lens photos. Per pose: retake (the camera asks for
+/// just that pose) or delete; plus Send to Lens, Retake all and Delete all.
+/// Delete removes our stored photo only; it never calls Lens.
+struct LensCapturesView: View {
+    let staff: LensStaff
+    let onChanged: () -> Void
+
+    @Environment(AuthStore.self) private var authStore
+    @Environment(\.dismiss) private var dismiss
+    @State private var captures: [LensCapture] = []
+    @State private var enrollment: LensStaffEnrollment?
+    @State private var loaded = false
+    @State private var busy: String?
+    @State private var errorMessage: String?
+    @State private var retakePose: LensPose?
+    @State private var retakeAll = false
+    @State private var confirmDelete: DeleteTarget?
+
+    private struct DeleteTarget: Identifiable {
+        let captureId: String?
+        let pose: LensPose?
+        var id: String { captureId ?? "all" }
+    }
+
+    private var waiting: Int { captures.filter { !$0.inLens }.count }
+
+    private func photo(for pose: LensPose) -> LensCapture? {
+        captures.first { $0.pose == pose.rawValue }
+    }
+
+    var body: some View {
+        ScrollView {
+            VStack(alignment: .leading, spacing: 14) {
+                Text(statusLine)
+                    .font(.system(size: 13, weight: .medium))
+                    .foregroundStyle(waiting > 0 ? Color(hex: 0xB45309) : Color.appSecondaryText)
+                LazyVGrid(columns: [GridItem(.flexible(), spacing: 12), GridItem(.flexible(), spacing: 12)], spacing: 12) {
+                    ForEach(LensPose.guidedOrder) { pose in
+                        card(pose)
+                    }
+                }
+                Text("Delete removes the photo from the staff profile only. Lens keeps what it already has, so the cameras still recognise this person.")
+                    .font(.system(size: 11))
+                    .foregroundStyle(Color.appTertiaryText)
+            }
+            .padding(16)
+            .redacted(reason: loaded ? [] : .placeholder)
+        }
+        .background(Color.appScreenBackground)
+        .safeAreaInset(edge: .bottom) { actions }
+        .navigationTitle(staff.displayName)
+        .navigationBarTitleDisplayMode(.inline)
+        .toolbar {
+            ToolbarItem(placement: .cancellationAction) {
+                Button("Close") { dismiss() }.disabled(busy != nil)
+            }
+        }
+        .task { await load() }
+        .floaterAlert($errorMessage)
+        .alert(
+            confirmDelete?.captureId == nil ? "Delete all photos?" : "Delete this photo?",
+            isPresented: Binding(get: { confirmDelete != nil }, set: { if !$0 { confirmDelete = nil } }),
+            presenting: confirmDelete
+        ) { target in
+            Button("Delete", role: .destructive) { Task { await delete(target.captureId) } }
+            Button("Cancel", role: .cancel) {}
+        } message: { target in
+            if let pose = target.pose {
+                Text("The \(pose.title.lowercased()) photo is removed from \(staff.displayName)'s profile. Lens keeps what it already has.")
+            } else {
+                Text("All \(captures.count) saved photos of \(staff.displayName) are removed from the profile. Lens keeps what it already has.")
+            }
+        }
+        .fullScreenCover(item: $retakePose) { pose in
+            LensEnrollmentFlowView(staff: staff, single: pose) { changed() }
+                .environment(authStore)
+        }
+        .fullScreenCover(isPresented: $retakeAll) {
+            LensEnrollmentFlowView(staff: staff, startReplace: true) { changed() }
+                .environment(authStore)
+        }
+    }
+
+    private var statusLine: String {
+        let samples = enrollment?.faceSamples ?? 0
+        if waiting > 0 { return "\(waiting) photos waiting for Lens" }
+        if samples > 0 { return "In Lens: \(samples) photos for the cameras" }
+        if captures.isEmpty && loaded { return "No saved photos. Record the head turn to enroll." }
+        return "In Lens: \(captures.count) photos for the cameras"
+    }
+
+    private func card(_ pose: LensPose) -> some View {
+        let shot = photo(for: pose)
+        return VStack(alignment: .leading, spacing: 8) {
+            ZStack {
+                RoundedRectangle(cornerRadius: 12, style: .continuous).fill(Color.appFieldBackground)
+                if let url = shot?.url.flatMap(URL.init(string:)) {
+                    AsyncImage(url: url) { image in
+                        image.resizable().scaledToFill()
+                    } placeholder: {
+                        ProgressView()
+                    }
+                    .clipShape(RoundedRectangle(cornerRadius: 12, style: .continuous))
+                } else {
+                    Text("No photo")
+                        .font(.system(size: 12, weight: .medium))
+                        .foregroundStyle(Color.appTertiaryText)
+                }
+            }
+            .frame(height: 170)
+            .clipped()
+            Text(pose.isRequired ? pose.title : "\(pose.title) · Optional")
+                .font(.system(size: 14, weight: .semibold))
+                .foregroundStyle(Color.appPrimaryText)
+            Text(shot == nil ? "No photo" : (shot!.inLens ? "In Lens" : "Waiting for Lens"))
+                .font(.system(size: 11, weight: .medium))
+                .foregroundStyle(shot == nil ? Color.appTertiaryText : (shot!.inLens ? Color(hex: 0x16A34A) : Color(hex: 0xB45309)))
+            Button(shot == nil ? "Capture" : "Retake") { retakePose = pose }
+                .buttonStyle(.mconnect(.secondary, compact: true))
+                .disabled(busy != nil || !loaded)
+            if let shot {
+                Button(busy == shot.captureId ? "Deleting…" : "Delete") {
+                    confirmDelete = DeleteTarget(captureId: shot.captureId, pose: pose)
+                }
+                .buttonStyle(.mconnect(.danger, compact: true))
+                .disabled(busy != nil)
+            }
+        }
+        .padding(10)
+        .background(Color.appSurface, in: RoundedRectangle(cornerRadius: 14, style: .continuous))
+    }
+
+    private var actions: some View {
+        VStack(spacing: 10) {
+            if waiting > 0 {
+                Button {
+                    Task { await sendPending() }
+                } label: {
+                    if busy == "send" {
+                        HStack(spacing: 8) { ProgressView().tint(.white); Text("Sending to Lens…") }
+                    } else {
+                        Text("Send to Lens (\(waiting))")
+                    }
+                }
+                .buttonStyle(.mconnect(.primary))
+                .disabled(busy != nil)
+            }
+            HStack(spacing: 10) {
+                Button("Retake all") { retakeAll = true }
+                    .buttonStyle(.mconnect(.secondary))
+                    .disabled(busy != nil || !loaded)
+                if !captures.isEmpty {
+                    Button(busy == "all" ? "Deleting…" : "Delete all") {
+                        confirmDelete = DeleteTarget(captureId: nil, pose: nil)
+                    }
+                    .buttonStyle(.mconnect(.danger))
+                    .disabled(busy != nil)
+                }
+            }
+        }
+        .padding(.horizontal, 16)
+        .padding(.vertical, 12)
+        .background(.bar)
+    }
+
+    private func changed() {
+        onChanged()
+        Task { await load() }
+    }
+
+    private func load() async {
+        guard let token = authStore.currentSession?.token else { return }
+        do {
+            let page = try await LensEnrollmentAPIService.captures(token: token, staffId: staff.staffId)
+            captures = page.captures ?? []
+            enrollment = page.enrollment
+            loaded = true
+        } catch is CancellationError {
+        } catch let error as URLError where error.code == .cancelled {
+        } catch {
+            loaded = true
+            errorMessage = error.localizedDescription
+        }
+    }
+
+    private func sendPending() async {
+        guard busy == nil, let token = authStore.currentSession?.token else { return }
+        busy = "send"
+        do {
+            let result = try await LensEnrollmentAPIService.sendPending(token: token, staffId: staff.staffId)
+            let notUsed = result.failed?.count ?? 0
+            UINotificationFeedbackGenerator().notificationOccurred(.success)
+            Floater.shared.success("Sent to Lens: \(result.addedSamples) added, \(result.faceSamples ?? result.addedSamples) photos for the cameras." + (notUsed > 0 ? " \(notUsed) not used." : ""))
+            onChanged()
+        } catch is CancellationError {
+        } catch {
+            UINotificationFeedbackGenerator().notificationOccurred(.warning)
+            Floater.shared.warning(error.localizedDescription)
+        }
+        busy = nil
+        await load()
+    }
+
+    private func delete(_ captureId: String?) async {
+        guard busy == nil, let token = authStore.currentSession?.token else { return }
+        busy = captureId ?? "all"
+        do {
+            let n = try await LensEnrollmentAPIService.deleteCaptures(token: token, staffId: staff.staffId, captureId: captureId)
+            Floater.shared.success(n == 1 ? "Photo deleted." : "\(n) photos deleted.")
+            onChanged()
+        } catch is CancellationError {
+        } catch {
+            Floater.shared.warning(error.localizedDescription)
+        }
+        busy = nil
+        await load()
     }
 }

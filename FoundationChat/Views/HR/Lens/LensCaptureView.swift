@@ -42,6 +42,8 @@ final class LensCaptureModel {
 struct LensCaptureView: View {
     let staffName: String
     let targets: [LensPose]
+    /// Optional poses may skip themselves (off for a single-photo retake).
+    var allowSkip = true
     let onDone: ([LensPose: LensShot]) -> Void
     let onCancel: () -> Void
 
@@ -104,7 +106,7 @@ struct LensCaptureView: View {
         }
         .task(id: model.snapshot.target) {
             // Optional poses skip themselves if they don't come.
-            guard let target = model.snapshot.target, !target.isRequired else { return }
+            guard allowSkip, let target = model.snapshot.target, !target.isRequired else { return }
             try? await Task.sleep(for: .seconds(12))
             if model.snapshot.target == target { model.engine.skip(target) }
         }
@@ -171,7 +173,7 @@ struct LensCaptureView: View {
             }
 
             HStack(spacing: 10) {
-                if let target = model.snapshot.target, !target.isRequired, requiredDone {
+                if allowSkip, let target = model.snapshot.target, !target.isRequired, requiredDone {
                     Button("Skip \(target.title.lowercased())") { model.engine.skip(target) }
                         .buttonStyle(.mconnect(.secondary, compact: true))
                         .environment(\.colorScheme, .dark)

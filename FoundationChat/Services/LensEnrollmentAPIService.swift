@@ -7,6 +7,9 @@ import Foundation
 //   GET  /api/lens/staff?search=&cursor=&limit=30
 //   POST /api/lens/enroll   { staffId, replace, photos: [{ pose, mimeType, dataBase64 }] }
 //   POST /api/lens/enroll/pending   { staffId }   (send photos saved while Lens was down)
+//   GET  /api/lens/captures?staffId=   (saved photos)
+//   POST /api/lens/captures/delete   { captureId } | { staffId, all: true }   (never Lens)
+//   POST /api/lens/captures/retake   { staffId, photo: { pose, mimeType, dataBase64 } }
 
 nonisolated struct LensStaffEnrollment: Decodable, Sendable, Equatable {
     let faceSamples: Int?
@@ -71,8 +74,35 @@ nonisolated struct LensEnrollResult: Decodable, Sendable, Equatable {
     let enrolledAt: Double?
     let failed: [LensFailedPhoto]?
     let needsRetake: Bool?
+    /// Retake of one pose: the pose, "enrolled" / "lens_pending", and a sentence.
+    let pose: String?
+    let lensStatus: String?
+    let message: String?
 
     var mustRetake: Bool { needsRetake ?? (addedSamples < 3) }
+    var isWaitingForLens: Bool { lensStatus == "lens_pending" }
+}
+
+/// One saved photo on the staff profile.
+nonisolated struct LensCapture: Decodable, Sendable, Identifiable, Equatable {
+    let captureId: String
+    let pose: String?
+    let lensStatus: String?
+    let capturedAt: Double?
+    let capturedByName: String?
+    let url: String?
+
+    var id: String { captureId }
+    var inLens: Bool { lensStatus == "enrolled" }
+}
+
+nonisolated struct LensCapturesPage: Decodable, Sendable {
+    let enrollment: LensStaffEnrollment?
+    let captures: [LensCapture]?
+}
+
+nonisolated struct LensDeleteResult: Decodable, Sendable {
+    let deleted: Int?
 }
 
 nonisolated struct LensPhotoUpload: Sendable {
@@ -104,7 +134,7 @@ nonisolated enum LensEnrollError: LocalizedError, Sendable {
     /// Failures the staff member fixes by recording again (vs. admin / retry).
     var asksForRetake: Bool {
         switch code {
-        case "NO_USABLE_FACE", "PHOTOS_SHOW_DIFFERENT_PEOPLE", "INVALID_REQUEST": return true
+        case "NO_USABLE_FACE", "PHOTOS_SHOW_DIFFERENT_PEOPLE", "INVALID_REQUEST", "PHOTO_NOT_USED": return true
         default: return false
         }
     }
@@ -161,6 +191,33 @@ nonisolated enum LensEnrollmentAPIService {
     static func sendPending(token: String, staffId: String) async throws -> LensEnrollResult {
         let json = try JSONSerialization.data(withJSONObject: ["staffId": staffId])
         let data = try await send(path: "/api/lens/enroll/pending", token: token, method: "POST", body: json, timeout: 120)
+        return try JSONDecoder().decode(LensEnrollResult.self, from: data)
+    }
+
+    /// The staff member's saved photos (newest first) with viewable URLs.
+    static func captures(token: String, staffId: String) async throws -> LensCapturesPage {
+        let data = try await send(
+            path: "/api/lens/captures", token: token, queryItems: [URLQueryItem(name: "staffId", value: staffId)]
+        )
+        return try JSONDecoder().decode(LensCapturesPage.self, from: data)
+    }
+
+    /// Deletes our saved photo (or all of them when `captureId` is nil). Never calls Lens.
+    static func deleteCaptures(token: String, staffId: String, captureId: String?) async throws -> Int {
+        let body: [String: Any] = captureId.map { ["captureId": $0] } ?? ["staffId": staffId, "all": true]
+        let json = try JSONSerialization.data(withJSONObject: body)
+        let data = try await send(path: "/api/lens/captures/delete", token: token, method: "POST", body: json)
+        return (try? JSONDecoder().decode(LensDeleteResult.self, from: data))?.deleted ?? 0
+    }
+
+    /// Retake of one pose: added to Lens as a new sample (or kept waiting); the old photo of that pose goes.
+    static func retake(token: String, staffId: String, photo: LensPhotoUpload) async throws -> LensEnrollResult {
+        let body: [String: Any] = [
+            "staffId": staffId,
+            "photo": ["pose": photo.pose, "mimeType": "image/jpeg", "dataBase64": photo.jpeg.base64EncodedString()]
+        ]
+        let json = try JSONSerialization.data(withJSONObject: body)
+        let data = try await send(path: "/api/lens/captures/retake", token: token, method: "POST", body: json, timeout: 120)
         return try JSONDecoder().decode(LensEnrollResult.self, from: data)
     }
 

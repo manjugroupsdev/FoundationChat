@@ -156,7 +156,8 @@ nonisolated final class LensFaceEngine: NSObject, AVCaptureVideoDataOutputSample
     private var history: [(t: Double, yaw: Double, pitch: Double, roll: Double, cx: Double, cy: Double)] = []
     private var holdPose: LensPose?
     private var holdStart: Double = 0
-    private var holdBest: (score: Double, image: CGImage, widthPx: Int)?
+    /// Best frame of the current hold, with the face box (normalized, top-left origin) for the head crop.
+    private var holdBest: (score: Double, image: CGImage, widthPx: Int, face: CGRect)?
     private var lastPublish: Double = 0
     private var finished = false
 
@@ -561,10 +562,13 @@ nonisolated final class LensFaceEngine: NSObject, AVCaptureVideoDataOutputSample
                 holdBest = nil
             }
             if holdBest == nil || score > holdBest!.score, let image = makeImage(pixelBuffer) {
-                holdBest = (score, image, Int(a.widthPx))
+                holdBest = (score, image, Int(a.widthPx), a.rectTopLeft)
             }
-            if now - holdStart >= holdDuration, let best = holdBest, let jpeg = jpegData(best.image) {
-                captured[pose] = LensShot(pose: pose, jpeg: jpeg, quality: best.score, faceWidthPx: best.widthPx)
+            if now - holdStart >= holdDuration, let best = holdBest {
+                let cropped = faceCrop(best.image, face: best.face)
+                guard let jpeg = jpegData(cropped.image) else { return }
+                let faceWidth = Int(Double(best.widthPx) * cropped.scale)
+                captured[pose] = LensShot(pose: pose, jpeg: jpeg, quality: best.score, faceWidthPx: faceWidth)
                 capturedYaw[pose] = signedYaw
                 holdPose = nil
                 holdBest = nil
@@ -597,6 +601,31 @@ nonisolated final class LensFaceEngine: NSObject, AVCaptureVideoDataOutputSample
     private func makeImage(_ pixelBuffer: CVPixelBuffer) -> CGImage? {
         let image = CIImage(cvPixelBuffer: pixelBuffer)
         return ciContext.createCGImage(image, from: image.extent)
+    }
+
+    /// The head with a small margin (LensFaceCrop), never the shirt and waist:
+    /// native pixels, upscaled only when the crop is tiny. Full frame if the crop fails.
+    private func faceCrop(_ image: CGImage, face: CGRect) -> (image: CGImage, scale: Double) {
+        let w = image.width, h = image.height
+        let box = LensFaceCrop.cropBox(
+            faceLeft: Double(face.minX) * Double(w), faceTop: Double(face.minY) * Double(h),
+            faceWidth: Double(face.width) * Double(w), faceHeight: Double(face.height) * Double(h),
+            imageWidth: w, imageHeight: h
+        )
+        guard let crop = image.cropping(to: CGRect(x: box.left, y: box.top, width: box.width, height: box.height)) else {
+            return (image, 1)
+        }
+        let out = LensFaceCrop.outputSize(cropWidth: box.width, cropHeight: box.height)
+        guard out.width != box.width || out.height != box.height else { return (crop, 1) }
+        guard let space = crop.colorSpace ?? CGColorSpace(name: CGColorSpace.sRGB),
+              let context = CGContext(
+                data: nil, width: out.width, height: out.height, bitsPerComponent: 8, bytesPerRow: 0,
+                space: space, bitmapInfo: CGImageAlphaInfo.premultipliedLast.rawValue
+              ) else { return (crop, 1) }
+        context.interpolationQuality = .high
+        context.draw(crop, in: CGRect(x: 0, y: 0, width: out.width, height: out.height))
+        guard let scaled = context.makeImage() else { return (crop, 1) }
+        return (scaled, Double(out.width) / Double(box.width))
     }
 
     private func jpegData(_ image: CGImage) -> Data? {
@@ -645,5 +674,57 @@ nonisolated final class LensFaceEngine: NSObject, AVCaptureVideoDataOutputSample
         snapshot.isFinished = finished
         let handler = onSnapshot
         Task { @MainActor in handler(snapshot) }
+    }
+}
+
+/// Face crop for the photo sent to Lens: the whole head with a small margin,
+/// never the shirt and waist (same math as Android's LensFaceCrop). Lens rule:
+/// never cut the chin or forehead. About 1.9x the face width and 2.3x its
+/// height, moved up 10% of the face height, 4:5 portrait by growing the short
+/// side, kept inside the frame (slides; shrinks only when the frame is smaller,
+/// never below the face plus a small margin).
+nonisolated enum LensFaceCrop {
+    struct Box: Equatable, Sendable {
+        let left: Int, top: Int, width: Int, height: Int
+    }
+
+    static let widthFactor = 1.9
+    static let heightFactor = 2.3
+    static let shiftUp = 0.10
+    static let aspect = 0.8
+    static let minMargin = 0.08
+    static let upscaleBelow = 360
+    static let upscaleTo = 480
+
+    static func cropBox(
+        faceLeft: Double, faceTop: Double, faceWidth: Double, faceHeight: Double,
+        imageWidth: Int, imageHeight: Int
+    ) -> Box {
+        guard imageWidth > 0, imageHeight > 0 else { return Box(left: 0, top: 0, width: max(0, imageWidth), height: max(0, imageHeight)) }
+        guard faceWidth > 0, faceHeight > 0 else { return Box(left: 0, top: 0, width: imageWidth, height: imageHeight) }
+        let cx = faceLeft + faceWidth / 2
+        let cy = faceTop + faceHeight / 2 - shiftUp * faceHeight
+        var w = faceWidth * widthFactor
+        var h = faceHeight * heightFactor
+        if w / h < aspect { w = h * aspect } else { h = w / aspect }
+        let minW = faceWidth * (1 + 2 * minMargin)
+        let minH = faceHeight * (1 + 2 * minMargin)
+        w = min(w, Double(imageWidth))
+        h = min(h, Double(imageHeight))
+        if w / h > aspect { w = max(h * aspect, min(w, minW)) } else { h = max(w / aspect, min(h, minH)) }
+        w = min(w, Double(imageWidth))
+        h = min(h, Double(imageHeight))
+        let width = min(max(1, Int(w.rounded())), imageWidth)
+        let height = min(max(1, Int(h.rounded())), imageHeight)
+        let left = min(max(0, Int((cx - Double(width) / 2).rounded())), imageWidth - width)
+        let top = min(max(0, Int((cy - Double(height) / 2).rounded())), imageHeight - height)
+        return Box(left: left, top: top, width: width, height: height)
+    }
+
+    /// Native pixels, or upscaled to `upscaleTo` wide when the crop is tiny.
+    static func outputSize(cropWidth: Int, cropHeight: Int) -> (width: Int, height: Int) {
+        guard cropWidth > 0, cropHeight > 0, cropWidth < upscaleBelow else { return (cropWidth, cropHeight) }
+        let scale = Double(upscaleTo) / Double(cropWidth)
+        return (upscaleTo, Int((Double(cropHeight) * scale).rounded()))
     }
 }
