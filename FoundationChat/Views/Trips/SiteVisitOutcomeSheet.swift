@@ -32,6 +32,8 @@ struct SiteVisitOutcomeSheet: View {
     @State private var selectedPostponeReasons: Set<SiteVisitPostponeReason> = []
     @State private var postponedNotes = ""
     @State private var followupDueDate = ""
+    /// Booking Follow Up reasons + their fields (SvFollowUpRules).
+    @State private var followUpDraft = SvFollowUpRules.Draft()
     @State private var otherRemarks = ""
     @State private var selectedNotInterestedReasons: Set<SiteVisitNotInterestedReason> = []
     @State private var notInterestedDetails: [SiteVisitNotInterestedReason: String] = [:]
@@ -231,7 +233,7 @@ struct SiteVisitOutcomeSheet: View {
         guard locksOutcome, let selectedOutcome else { return "Outcome Information" }
         switch selectedOutcome {
         case .booking: return "Converted as Booking"
-        case .followUp: return "Follow-up"
+        case .followUp: return "Booking Follow Up"
         case .notInterested: return "Client Not Interested"
         case .other: return "Other outcome"
         }
@@ -241,7 +243,7 @@ struct SiteVisitOutcomeSheet: View {
         guard locksOutcome, let selectedOutcome else { return "Information about Client Details" }
         switch selectedOutcome {
         case .booking: return "Booking form"
-        case .followUp: return "Follow-up details"
+        case .followUp: return "Follow-up date and the reasons"
         case .notInterested: return "Not interested reason"
         case .other: return "Add remarks to explain why this visit is being closed."
         }
@@ -473,15 +475,124 @@ struct SiteVisitOutcomeSheet: View {
             }
             SiteVisitOutcomeDateField("Follow-up date", text: $followupDueDate, minimumDate: Calendar.current.startOfDay(for: Date()))
 
+            followUpReasonsSection
+
             VStack(alignment: .leading, spacing: 4) {
-                Text("Reason")
+                Text("Notes (optional)")
                     .font(.system(size: 14, weight: .semibold))
                     .foregroundStyle(Color.appSecondaryText)
-                Text("Why does this client need a follow-up.")
+                Text("Anything else the telecaller should know.")
                     .font(.system(size: 12))
                     .foregroundStyle(Color.appTertiaryText)
             }
-            SiteVisitOutcomeTextField("Reason *", text: $postponedNotes, placeholder: "Reason for follow-up", icon: "doc", axis: .vertical)
+            SiteVisitOutcomeTextField("Notes", text: $postponedNotes, placeholder: "Notes for the telecaller", icon: "doc", axis: .vertical)
+        }
+    }
+
+    /// Booking Follow Up: tick the reasons that apply; each opens its fields.
+    private var followUpReasonsSection: some View {
+        VStack(alignment: .leading, spacing: 12) {
+            VStack(alignment: .leading, spacing: 4) {
+                Text("Reasons *")
+                    .font(.system(size: 14, weight: .semibold))
+                    .foregroundStyle(Color.appSecondaryText)
+                Text("Tick everything that applies. Each one asks for its details.")
+                    .font(.system(size: 12))
+                    .foregroundStyle(Color.appTertiaryText)
+            }
+            ForEach(SvFollowUpRules.reasons) { reason in
+                VStack(alignment: .leading, spacing: 10) {
+                    outcomeCheckCard(title: reason.label, isOn: followUpReasonBinding(reason.key))
+                    if followUpDraft.reasons.contains(reason.key) {
+                        followUpFields(for: reason.key)
+                            .padding(.leading, 12)
+                    }
+                }
+            }
+        }
+    }
+
+    private func followUpReasonBinding(_ key: String) -> Binding<Bool> {
+        Binding(
+            get: { followUpDraft.reasons.contains(key) },
+            set: { on in
+                if on { followUpDraft.reasons.insert(key) } else { followUpDraft.reasons.remove(key) }
+            }
+        )
+    }
+
+    private func budgetBinding(_ keyPath: WritableKeyPath<SvFollowUpRules.Draft, String>) -> Binding<String> {
+        Binding(
+            get: { SvFollowUpRules.budgets.first { $0.key == followUpDraft[keyPath: keyPath] }?.label ?? "" },
+            set: { label in followUpDraft[keyPath: keyPath] = SvFollowUpRules.budgets.first { $0.label == label }?.key ?? "" }
+        )
+    }
+
+    private func digitsBinding(_ keyPath: WritableKeyPath<SvFollowUpRules.Draft, String>, decimal: Bool = false) -> Binding<String> {
+        Binding(
+            get: { followUpDraft[keyPath: keyPath] },
+            set: { followUpDraft[keyPath: keyPath] = $0.filter { $0.isNumber || (decimal && $0 == ".") } }
+        )
+    }
+
+    @ViewBuilder
+    private func followUpFields(for key: String) -> some View {
+        switch key {
+        case "location":
+            SvFollowUpLocationField(draft: $followUpDraft)
+                .environment(authStore)
+        case "distance":
+            SiteVisitOutcomeTextField("Expected distance (km) *", text: digitsBinding(\.distanceKm, decimal: true), placeholder: "e.g. 15", icon: "location", keyboard: .decimalPad)
+        case "budget":
+            SiteVisitOutcomePicker("Preferred budget *", value: budgetBinding(\.preferredBudget), placeholder: "Choose a budget", icon: "indianrupeesign", options: SvFollowUpRules.budgets.map(\.label))
+        case "loan_eligibility":
+            SiteVisitOutcomeTextField("Hand cash the client can afford (₹) *", text: digitsBinding(\.handCashAmount), placeholder: "e.g. 300000", icon: "indianrupeesign", keyboard: .numberPad)
+        case "plot_not_available":
+            VStack(alignment: .leading, spacing: 10) {
+                Text("Expected facing *")
+                    .font(.system(size: 13, weight: .semibold))
+                    .foregroundStyle(Color.appSecondaryText)
+                LazyVGrid(columns: Array(repeating: GridItem(.flexible(), alignment: .leading), count: 3), spacing: 10) {
+                    ForEach(SvFollowUpRules.facings) { facing in
+                        Button {
+                            followUpDraft.plotFacing = facing.key
+                        } label: {
+                            HStack(spacing: 6) {
+                                Image(systemName: followUpDraft.plotFacing == facing.key ? "largecircle.fill.circle" : "circle")
+                                    .foregroundStyle(followUpDraft.plotFacing == facing.key ? Color(hex: 0x2DAE12) : Color.appTertiaryText)
+                                Text(facing.label)
+                                    .font(.system(size: 13, weight: .medium))
+                                    .foregroundStyle(.primary)
+                            }
+                        }
+                        .buttonStyle(.plain)
+                    }
+                }
+                SiteVisitOutcomeTextField("Expected plot area (sq.ft) *", text: digitsBinding(\.plotAreaSqft), placeholder: "e.g. 1200", icon: "square.dashed", keyboard: .numberPad)
+                SiteVisitOutcomePicker("Budget *", value: budgetBinding(\.plotBudget), placeholder: "Choose a budget", icon: "indianrupeesign", options: SvFollowUpRules.budgets.map(\.label))
+            }
+        case "misguided_visit":
+            followUpRemarks(text: $followUpDraft.misguidedRemarks)
+        case "hospitality_service":
+            followUpRemarks(text: $followUpDraft.hospitalityRemarks)
+        default:
+            EmptyView()
+        }
+    }
+
+    private func followUpRemarks(text: Binding<String>) -> some View {
+        let length = SvFollowUpRules.normalizeRemarks(text.wrappedValue).count
+        let problem = text.wrappedValue.isEmpty ? nil : SvFollowUpRules.remarksProblem(text.wrappedValue)
+        return VStack(alignment: .leading, spacing: 4) {
+            SiteVisitOutcomeTextField("Remarks *", text: text, placeholder: "What happened? 250 to 500 characters.", icon: "doc", axis: .vertical)
+            HStack {
+                Text(problem ?? "Looks good.")
+                    .foregroundStyle(problem == nil ? Color.appTertiaryText : Color.red)
+                Spacer()
+                Text("\(length)/\(SvFollowUpRules.remarksMax)")
+                    .foregroundStyle(Color.appTertiaryText)
+            }
+            .font(.system(size: 11, weight: .medium))
         }
     }
 
@@ -892,8 +1003,9 @@ struct SiteVisitOutcomeSheet: View {
                     errorMessage = "Pick the next visit date"
                     return
                 }
-                guard postponedNotes.outcomeNilIfBlank != nil else {
-                    errorMessage = "Enter a reason for follow up"
+                // Booking Follow Up: the ticked reasons and their fields; notes optional.
+                if let problem = SvFollowUpRules.validate(followUpDraft) {
+                    errorMessage = problem
                     return
                 }
                 try await saveOutcome(token: token, outcome: outcome)
@@ -950,7 +1062,9 @@ struct SiteVisitOutcomeSheet: View {
                 notInterestedDetails: outcome == .notInterested ? notInterestedDetailPayload : nil,
                 notes: outcome == .other ? otherRemarks.outcomeNilIfBlank : outcomeNotes(outcome: outcome, bookingId: nil),
                 followupDueDate: outcome == .followUp ? followupDueDate.outcomeNilIfBlank : nil,
-                followupDueTime: nil
+                followupDueTime: nil,
+                followUpReasons: outcome == .followUp ? followUpDraft.orderedReasons : nil,
+                followUpDetails: outcome == .followUp ? SvFollowUpRules.details(followUpDraft) : nil
             )
         )
     }
@@ -1052,7 +1166,7 @@ private enum SiteVisitOutcome: String, CaseIterable, Identifiable {
     var title: String {
         switch self {
         case .booking: return "Booking"
-        case .followUp: return "Follow up"
+        case .followUp: return "Booking Follow Up"
         case .notInterested: return "Not Interested"
         case .other: return "Others"
         }
@@ -1566,5 +1680,100 @@ private extension String {
     var outcomeNilIfBlank: String? {
         let trimmed = trimmingCharacters(in: .whitespacesAndNewlines)
         return trimmed.isEmpty ? nil : trimmed
+    }
+}
+
+
+/// Preferred location for a Booking Follow Up: type a 6-digit pincode (India
+/// Post, same lookup as the booking form) or a place name (map-service
+/// suggestions). The typed text itself is kept if no suggestion is picked.
+private struct SvFollowUpLocationField: View {
+    @Environment(AuthStore.self) private var authStore
+    @Binding var draft: SvFollowUpRules.Draft
+    @State private var suggestions: [(label: String, pincode: String?, lat: Double?, lng: Double?, placeId: String?)] = []
+    @State private var isSearching = false
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 6) {
+            Text("Preferred location *")
+                .font(.system(size: 13, weight: .semibold))
+                .foregroundStyle(Color.appSecondaryText)
+            HStack(spacing: 10) {
+                Image(systemName: "mappin.and.ellipse")
+                    .foregroundStyle(Color.appTertiaryText)
+                TextField("Pincode or area name", text: Binding(
+                    get: { draft.locationLabel },
+                    set: { value in
+                        draft.locationLabel = value
+                        let trimmed = value.trimmingCharacters(in: .whitespaces)
+                        draft.locationPincode = trimmed.range(of: #"^\d{6}$"#, options: .regularExpression) != nil ? trimmed : nil
+                        draft.locationLat = nil
+                        draft.locationLng = nil
+                        draft.locationPlaceId = nil
+                    }
+                ))
+                .font(.system(size: 14, weight: .medium))
+                .textInputAutocapitalization(.words)
+                if isSearching { ProgressView().controlSize(.small) }
+            }
+            .padding(14)
+            .background(Color.appSurface, in: RoundedRectangle(cornerRadius: 14))
+            .overlay(RoundedRectangle(cornerRadius: 14).stroke(Color(hex: 0xE4E7EC), lineWidth: 1))
+
+            ForEach(Array(suggestions.enumerated()), id: \.offset) { _, item in
+                Button {
+                    draft.locationLabel = item.label
+                    draft.locationPincode = item.pincode ?? draft.locationPincode
+                    draft.locationLat = item.lat
+                    draft.locationLng = item.lng
+                    draft.locationPlaceId = item.placeId
+                    suggestions = []
+                } label: {
+                    HStack(spacing: 8) {
+                        Image(systemName: "mappin")
+                            .foregroundStyle(Color.appTertiaryText)
+                        Text(item.label)
+                            .font(.system(size: 13))
+                            .foregroundStyle(.primary)
+                            .multilineTextAlignment(.leading)
+                        Spacer()
+                    }
+                    .padding(.horizontal, 14)
+                    .padding(.vertical, 8)
+                }
+                .buttonStyle(.plain)
+            }
+        }
+        .task(id: draft.locationLabel) { await search(draft.locationLabel) }
+    }
+
+    @MainActor
+    private func search(_ raw: String) async {
+        let query = raw.trimmingCharacters(in: .whitespaces)
+        guard query.count >= 3, !suggestions.contains(where: { $0.label == query }) else {
+            suggestions = []
+            return
+        }
+        try? await Task.sleep(for: .milliseconds(350))
+        guard !Task.isCancelled else { return }
+        isSearching = true
+        defer { isSearching = false }
+        if query.range(of: #"^\d{6}$"#, options: .regularExpression) != nil {
+            guard let token = authStore.currentSession?.token,
+                  let prefill = try? await MarketingConvexAPIService.lookupPincode(token: token, pincode: query)
+            else { suggestions = []; return }
+            let label = [prefill.locality, prefill.district, prefill.state]
+                .compactMap { $0?.trimmingCharacters(in: .whitespaces) }
+                .filter { !$0.isEmpty }
+                .joined(separator: ", ")
+            suggestions = label.isEmpty ? [] : [(label, query, nil, nil, nil)]
+        } else {
+            let results = (try? await MapServiceAPI.search(query: query, limit: 6)) ?? []
+            guard !Task.isCancelled else { return }
+            suggestions = results.compactMap { r in
+                let label = [r.name, r.address].compactMap { $0 }.filter { !$0.isEmpty }.joined(separator: ", ")
+                return label.isEmpty ? nil : (label, nil, r.location?.lat, r.location?.lng, r.placeId)
+            }
+        }
     }
 }
