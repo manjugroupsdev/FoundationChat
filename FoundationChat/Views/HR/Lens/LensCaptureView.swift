@@ -216,8 +216,8 @@ struct LensCaptureView: View {
     private func icon(for pose: LensPose) -> String {
         switch pose.side {
         case 0: return "face.dashed"
-        case -1: return pose.idealYaw > 20 ? "chevron.left.2" : "chevron.left"
-        default: return pose.idealYaw > 20 ? "chevron.right.2" : "chevron.right"
+        case -1: return pose.idealYaw > 30 ? "chevron.left.2" : "chevron.left"
+        default: return pose.idealYaw > 30 ? "chevron.right.2" : "chevron.right"
         }
     }
 
@@ -350,8 +350,8 @@ private struct LensPoseRing: View {
             turn = a <= 5 ? 1 : max(0, 1 - (a - 5) / 20)
         } else {
             let toward = pose.side < 0 ? -yaw : yaw
-            let lo: Double = pose.idealYaw > 20 ? 32 : 11
-            let hi: Double = pose.idealYaw > 20 ? 45 : 19
+            let lo: Double = pose.idealYaw > 30 ? 45 : 15
+            let hi: Double = pose.idealYaw > 30 ? 50 : 30
             if toward <= 0 { turn = 0 }
             else if toward < lo { turn = toward / lo }
             else if toward <= hi { turn = 1 }
