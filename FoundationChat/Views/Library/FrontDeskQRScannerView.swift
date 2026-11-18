@@ -340,16 +340,25 @@ struct FrontDeskQRScannerView: View {
         VStack {
             Spacer()
             HStack {
+                // Round frosted button + caption (same as Android's "Upload QR").
                 PhotosPicker(selection: $galleryItem, matching: .images, photoLibrary: .shared()) {
-                    Label("From gallery", systemImage: "photo.on.rectangle")
-                        .font(.system(size: 15, weight: .semibold))
-                        .foregroundStyle(.white)
-                        .padding(.horizontal, 16)
-                        .frame(height: 46)
-                        .background(.black.opacity(0.45), in: Capsule())
+                    VStack(spacing: 8) {
+                        Image(systemName: "photo.on.rectangle")
+                            .font(.system(size: 22, weight: .semibold))
+                            .foregroundStyle(.white)
+                            .frame(width: 56, height: 56)
+                            .background(.white.opacity(0.2), in: Circle())
+                            .overlay(Circle().stroke(.white.opacity(0.5), lineWidth: 1))
+                        Text("Upload QR")
+                            .font(.system(size: 12, weight: .semibold))
+                            .foregroundStyle(.white)
+                    }
+                    .padding(.leading, 12)
+                    .padding(.bottom, 16)
                 }
+                .buttonStyle(.plain)
                 .disabled(scannedValue != nil)
-                .accessibilityLabel("Scan a QR code from a photo")
+                .accessibilityLabel("Upload a QR picture from the gallery")
                 Spacer()
             }
             if let galleryMessage {

@@ -106,7 +106,9 @@ final class AppUpdateCoordinator {
             guard Self.isNewer(latest.version, than: Self.currentVersion),
                   let url = URL(string: latest.trackViewUrl)
             else {
-                clearKnownUpdate()
+                // A server minimum (build-based) is never cleared by the store
+                // lookup; only a requirement that came from the store itself.
+                if requiredBuild == nil { clearKnownUpdate() }
                 return
             }
             saveKnownUpdate(version: latest.version, build: nil, url: url)
