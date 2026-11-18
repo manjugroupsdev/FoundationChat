@@ -350,8 +350,8 @@ private struct LensPoseRing: View {
             turn = a <= 5 ? 1 : max(0, 1 - (a - 5) / 20)
         } else {
             let toward = pose.side < 0 ? -yaw : yaw
-            let lo: Double = pose.idealYaw > 20 ? 26 : 11
-            let hi: Double = pose.idealYaw > 20 ? 40 : 19
+            let lo: Double = pose.idealYaw > 20 ? 32 : 11
+            let hi: Double = pose.idealYaw > 20 ? 45 : 19
             if toward <= 0 { turn = 0 }
             else if toward < lo { turn = toward / lo }
             else if toward <= hi { turn = 1 }
