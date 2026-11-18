@@ -32,6 +32,8 @@ struct SiteVisitOutcomeSheet: View {
     @State private var selectedPostponeReasons: Set<SiteVisitPostponeReason> = []
     @State private var postponedNotes = ""
     @State private var followupDueDate = ""
+    /// Booking Follow Up reasons + their fields (SvFollowUpRules).
+    @State private var followUpDraft = SvFollowUpRules.Draft()
     @State private var otherRemarks = ""
     @State private var selectedNotInterestedReasons: Set<SiteVisitNotInterestedReason> = []
     @State private var notInterestedDetails: [SiteVisitNotInterestedReason: String] = [:]
@@ -190,10 +192,10 @@ struct SiteVisitOutcomeSheet: View {
     private var header: some View {
         HStack(alignment: .center, spacing: 12) {
             VStack(alignment: .leading, spacing: 2) {
-                Text("Outcome Information")
+                Text(headerTitle)
                     .font(.system(size: 16, weight: .semibold))
                     .foregroundStyle(.primary)
-                Text("Information about Client Details")
+                Text(headerSubtitle)
                     .font(.system(size: 11))
                     .foregroundStyle(.secondary)
             }
@@ -226,7 +228,35 @@ struct SiteVisitOutcomeSheet: View {
         }
     }
 
+    /// Android: a form opened from one outcome button is titled for that outcome.
+    private var headerTitle: String {
+        guard locksOutcome, let selectedOutcome else { return "Outcome Information" }
+        switch selectedOutcome {
+        case .booking: return "Converted as Booking"
+        case .followUp: return "Booking Follow Up"
+        case .notInterested: return "Client Not Interested"
+        case .other: return "Other outcome"
+        }
+    }
+
+    private var headerSubtitle: String {
+        guard locksOutcome, let selectedOutcome else { return "Information about Client Details" }
+        switch selectedOutcome {
+        case .booking: return "Booking form"
+        case .followUp: return "Follow-up date and the reasons"
+        case .notInterested: return "Not interested reason"
+        case .other: return "Add remarks to explain why this visit is being closed."
+        }
+    }
+
+    @ViewBuilder
     private var outcomeChips: some View {
+        // Android removes the outcome switcher when the form was opened from a
+        // specific outcome button; only the unlocked chooser shows it.
+        if !locksOutcome { outcomeChipRow }
+    }
+
+    private var outcomeChipRow: some View {
         HStack(spacing: 0) {
             ForEach(Array(SiteVisitOutcome.allCases.enumerated()), id: \.element.id) { index, outcome in
                 Button {
@@ -435,27 +465,144 @@ struct SiteVisitOutcomeSheet: View {
 
     private var followUpSection: some View {
         VStack(alignment: .leading, spacing: 14) {
-            SiteVisitOutcomeDateField("Follow-up due date", text: $followupDueDate)
-
-            Text("Reasons")
-                .font(.system(size: 14, weight: .semibold))
-                .foregroundStyle(Color.appSecondaryText)
-
-            ForEach(SiteVisitPostponeReason.allCases) { reason in
-                outcomeCheckCard(title: reason.title, isOn: binding(for: reason))
+            VStack(alignment: .leading, spacing: 4) {
+                Text("Follow-up date")
+                    .font(.system(size: 14, weight: .semibold))
+                    .foregroundStyle(Color.appSecondaryText)
+                Text("When should the client be followed up.")
+                    .font(.system(size: 12))
+                    .foregroundStyle(Color.appTertiaryText)
             }
+            SiteVisitOutcomeDateField("Follow-up date", text: $followupDueDate, minimumDate: Calendar.current.startOfDay(for: Date()))
 
-            SiteVisitOutcomeTextField("Additional notes", text: $postponedNotes, placeholder: "Add notes", icon: "doc", axis: .vertical)
+            followUpReasonsSection
+
+            VStack(alignment: .leading, spacing: 4) {
+                Text("Notes (optional)")
+                    .font(.system(size: 14, weight: .semibold))
+                    .foregroundStyle(Color.appSecondaryText)
+                Text("Anything else the telecaller should know.")
+                    .font(.system(size: 12))
+                    .foregroundStyle(Color.appTertiaryText)
+            }
+            SiteVisitOutcomeTextField("Notes", text: $postponedNotes, placeholder: "Notes for the telecaller", icon: "doc", axis: .vertical)
+        }
+    }
+
+    /// Booking Follow Up: tick the reasons that apply; each opens its fields.
+    private var followUpReasonsSection: some View {
+        VStack(alignment: .leading, spacing: 12) {
+            VStack(alignment: .leading, spacing: 4) {
+                Text("Reasons *")
+                    .font(.system(size: 14, weight: .semibold))
+                    .foregroundStyle(Color.appSecondaryText)
+                Text("Tick everything that applies. Each one asks for its details.")
+                    .font(.system(size: 12))
+                    .foregroundStyle(Color.appTertiaryText)
+            }
+            ForEach(SvFollowUpRules.reasons) { reason in
+                VStack(alignment: .leading, spacing: 10) {
+                    outcomeCheckCard(title: reason.label, isOn: followUpReasonBinding(reason.key))
+                    if followUpDraft.reasons.contains(reason.key) {
+                        followUpFields(for: reason.key)
+                            .padding(.leading, 12)
+                    }
+                }
+            }
+        }
+    }
+
+    private func followUpReasonBinding(_ key: String) -> Binding<Bool> {
+        Binding(
+            get: { followUpDraft.reasons.contains(key) },
+            set: { on in
+                if on { followUpDraft.reasons.insert(key) } else { followUpDraft.reasons.remove(key) }
+            }
+        )
+    }
+
+    private func budgetBinding(_ keyPath: WritableKeyPath<SvFollowUpRules.Draft, String>) -> Binding<String> {
+        Binding(
+            get: { SvFollowUpRules.budgets.first { $0.key == followUpDraft[keyPath: keyPath] }?.label ?? "" },
+            set: { label in followUpDraft[keyPath: keyPath] = SvFollowUpRules.budgets.first { $0.label == label }?.key ?? "" }
+        )
+    }
+
+    private func digitsBinding(_ keyPath: WritableKeyPath<SvFollowUpRules.Draft, String>, decimal: Bool = false) -> Binding<String> {
+        Binding(
+            get: { followUpDraft[keyPath: keyPath] },
+            set: { followUpDraft[keyPath: keyPath] = $0.filter { $0.isNumber || (decimal && $0 == ".") } }
+        )
+    }
+
+    @ViewBuilder
+    private func followUpFields(for key: String) -> some View {
+        switch key {
+        case "location":
+            SvFollowUpLocationField(draft: $followUpDraft)
+                .environment(authStore)
+        case "distance":
+            SiteVisitOutcomeTextField("Expected distance (km) *", text: digitsBinding(\.distanceKm, decimal: true), placeholder: "e.g. 15", icon: "location", keyboard: .decimalPad)
+        case "budget":
+            SiteVisitOutcomePicker("Preferred budget *", value: budgetBinding(\.preferredBudget), placeholder: "Choose a budget", icon: "indianrupeesign", options: SvFollowUpRules.budgets.map(\.label))
+        case "loan_eligibility":
+            SiteVisitOutcomeTextField("Hand cash the client can afford (₹) *", text: digitsBinding(\.handCashAmount), placeholder: "e.g. 300000", icon: "indianrupeesign", keyboard: .numberPad)
+        case "plot_not_available":
+            VStack(alignment: .leading, spacing: 10) {
+                Text("Expected facing *")
+                    .font(.system(size: 13, weight: .semibold))
+                    .foregroundStyle(Color.appSecondaryText)
+                LazyVGrid(columns: Array(repeating: GridItem(.flexible(), alignment: .leading), count: 3), spacing: 10) {
+                    ForEach(SvFollowUpRules.facings) { facing in
+                        Button {
+                            followUpDraft.plotFacing = facing.key
+                        } label: {
+                            HStack(spacing: 6) {
+                                Image(systemName: followUpDraft.plotFacing == facing.key ? "largecircle.fill.circle" : "circle")
+                                    .foregroundStyle(followUpDraft.plotFacing == facing.key ? Color(hex: 0x2DAE12) : Color.appTertiaryText)
+                                Text(facing.label)
+                                    .font(.system(size: 13, weight: .medium))
+                                    .foregroundStyle(.primary)
+                            }
+                        }
+                        .buttonStyle(.plain)
+                    }
+                }
+                SiteVisitOutcomeTextField("Expected plot area (sq.ft) *", text: digitsBinding(\.plotAreaSqft), placeholder: "e.g. 1200", icon: "square.dashed", keyboard: .numberPad)
+                SiteVisitOutcomePicker("Budget *", value: budgetBinding(\.plotBudget), placeholder: "Choose a budget", icon: "indianrupeesign", options: SvFollowUpRules.budgets.map(\.label))
+            }
+        case "misguided_visit":
+            followUpRemarks(text: $followUpDraft.misguidedRemarks)
+        case "hospitality_service":
+            followUpRemarks(text: $followUpDraft.hospitalityRemarks)
+        default:
+            EmptyView()
+        }
+    }
+
+    private func followUpRemarks(text: Binding<String>) -> some View {
+        let length = SvFollowUpRules.normalizeRemarks(text.wrappedValue).count
+        let problem = text.wrappedValue.isEmpty ? nil : SvFollowUpRules.remarksProblem(text.wrappedValue)
+        return VStack(alignment: .leading, spacing: 4) {
+            SiteVisitOutcomeTextField("Remarks *", text: text, placeholder: "What happened? 250 to 500 characters.", icon: "doc", axis: .vertical)
+            HStack {
+                Text(problem ?? "Looks good.")
+                    .foregroundStyle(problem == nil ? Color.appTertiaryText : Color.red)
+                Spacer()
+                Text("\(length)/\(SvFollowUpRules.remarksMax)")
+                    .foregroundStyle(Color.appTertiaryText)
+            }
+            .font(.system(size: 11, weight: .medium))
         }
     }
 
     private var otherSection: some View {
         VStack(alignment: .leading, spacing: 14) {
-            Text("Remarks")
+            Text("Add remarks to explain why this visit is being closed.")
                 .font(.system(size: 14, weight: .semibold))
                 .foregroundStyle(Color.appSecondaryText)
 
-            SiteVisitOutcomeTextField("Remarks *", text: $otherRemarks, placeholder: "Explain why this visit is being closed", icon: "doc", axis: .vertical)
+            SiteVisitOutcomeTextField("Remarks *", text: $otherRemarks, placeholder: "What happened with the client?", icon: "doc", axis: .vertical)
         }
     }
 
@@ -476,9 +623,14 @@ struct SiteVisitOutcomeSheet: View {
 
     private var notInterestedSection: some View {
         VStack(alignment: .leading, spacing: 14) {
-            Text("Why is the client not interested?")
-                .font(.system(size: 14, weight: .semibold))
-                .foregroundStyle(.secondary)
+            VStack(alignment: .leading, spacing: 4) {
+                Text("Why is the client not interested?")
+                    .font(.system(size: 14, weight: .semibold))
+                    .foregroundStyle(.secondary)
+                Text("Select one or more — visit will be marked complete.")
+                    .font(.system(size: 12))
+                    .foregroundStyle(Color.appTertiaryText)
+            }
 
             ForEach(SiteVisitNotInterestedReason.allCases) { reason in
                 VStack(alignment: .leading, spacing: 10) {
@@ -487,7 +639,7 @@ struct SiteVisitOutcomeSheet: View {
                         SiteVisitOutcomeTextField(
                             "\(reason.title) detail",
                             text: detailBinding(for: reason),
-                            placeholder: "Add reason-wise detail",
+                            placeholder: "More about \(reason.title.lowercased())",
                             icon: "doc",
                             axis: .vertical
                         )
@@ -495,7 +647,15 @@ struct SiteVisitOutcomeSheet: View {
                 }
             }
 
-            SiteVisitOutcomeTextField("Additional notes", text: $notInterestedNotes, placeholder: "Add notes", icon: "doc", axis: .vertical)
+            VStack(alignment: .leading, spacing: 4) {
+                Text("Additional notes")
+                    .font(.system(size: 14, weight: .semibold))
+                    .foregroundStyle(Color.appSecondaryText)
+                Text("Optional — any context the office should see.")
+                    .font(.system(size: 12))
+                    .foregroundStyle(Color.appTertiaryText)
+            }
+            SiteVisitOutcomeTextField("Additional notes", text: $notInterestedNotes, placeholder: "Additional context", icon: "doc", axis: .vertical)
         }
     }
 
@@ -699,9 +859,9 @@ struct SiteVisitOutcomeSheet: View {
     private var ctaTitle: String {
         switch selectedOutcome {
         case .booking: return booking.saveAs == .confirmed ? "Create Confirmed Booking" : "Save Booking Draft"
-        case .followUp: return "Save Follow-up Outcome"
-        case .notInterested: return "Save Not Interested Outcome"
-        case .other: return "Save Outcome"
+        case .followUp: return "Save"
+        case .notInterested: return "Save"
+        case .other: return "Save"
         case .none: return "Save Outcome"
         }
     }
@@ -838,28 +998,26 @@ struct SiteVisitOutcomeSheet: View {
                 // Creating with sourceSiteVisitId converts the SV atomically.
                 // Do not submit a second outcome against an already-terminal SV.
             case .followUp:
-                guard !selectedPostponeReasons.isEmpty else {
-                    errorMessage = "Select at least one follow-up reason"
+                // Android: the date (today or later) and a typed reason, both required.
+                guard followupDueDate.outcomeNilIfBlank != nil else {
+                    errorMessage = "Pick the next visit date"
                     return
                 }
-                // The follow-up date is now required: an SV "Follow up" spawns an
-                // sv_cum_cp revisit for that date (replacing the telecaller call-back),
-                // and the backend only spawns when a date is present. Without it the
-                // staff would get no follow-up at all.
-                guard followupDueDate.outcomeNilIfBlank != nil else {
-                    errorMessage = "Pick a follow-up date to schedule the revisit"
+                // Booking Follow Up: the ticked reasons and their fields; notes optional.
+                if let problem = SvFollowUpRules.validate(followUpDraft) {
+                    errorMessage = problem
                     return
                 }
                 try await saveOutcome(token: token, outcome: outcome)
             case .notInterested:
                 guard !selectedNotInterestedReasons.isEmpty else {
-                    errorMessage = "Select at least one not interested reason"
+                    errorMessage = "Select at least one reason"
                     return
                 }
                 try await saveOutcome(token: token, outcome: outcome)
             case .other:
                 guard otherRemarks.outcomeNilIfBlank != nil else {
-                    errorMessage = "Add remarks to explain this outcome"
+                    errorMessage = "Remarks are required"
                     return
                 }
                 try await saveOutcome(token: token, outcome: outcome)
@@ -897,12 +1055,16 @@ struct SiteVisitOutcomeSheet: View {
             request: SetSiteVisitOutcomeRequest(
                 id: siteVisitId,
                 outcome: outcome.rawValue,
-                postponeReasons: outcome == .followUp ? reasonCodes : nil,
+                // Android sends no postponeReasons for an SV follow-up: the typed
+                // reason travels as the notes.
+                postponeReasons: nil,
                 notInterestedReasons: outcome == .notInterested ? reasonCodes : nil,
                 notInterestedDetails: outcome == .notInterested ? notInterestedDetailPayload : nil,
                 notes: outcome == .other ? otherRemarks.outcomeNilIfBlank : outcomeNotes(outcome: outcome, bookingId: nil),
                 followupDueDate: outcome == .followUp ? followupDueDate.outcomeNilIfBlank : nil,
-                followupDueTime: nil
+                followupDueTime: nil,
+                followUpReasons: outcome == .followUp ? followUpDraft.orderedReasons : nil,
+                followUpDetails: outcome == .followUp ? SvFollowUpRules.details(followUpDraft) : nil
             )
         )
     }
@@ -912,15 +1074,16 @@ struct SiteVisitOutcomeSheet: View {
         case .booking, .other:
             return nil
         case .followUp:
-            return selectedPostponeReasons.map(\.rawValue).sorted()
+            return nil
         case .notInterested:
-            return selectedNotInterestedReasons.map(\.rawValue).sorted()
+            // Android (and the web SV detail) store the reason labels.
+            return SiteVisitNotInterestedReason.allCases.filter(selectedNotInterestedReasons.contains).map(\.title)
         }
     }
 
     private var notInterestedDetailPayload: [SiteVisitNotInterestedDetail]? {
-        let items = selectedNotInterestedReasons.sorted { $0.title < $1.title }.map {
-            SiteVisitNotInterestedDetail(reason: $0.rawValue, detail: notInterestedDetails[$0]?.outcomeNilIfBlank)
+        let items = SiteVisitNotInterestedReason.allCases.filter(selectedNotInterestedReasons.contains).map {
+            SiteVisitNotInterestedDetail(reason: $0.title, detail: notInterestedDetails[$0]?.outcomeNilIfBlank)
         }
         return items.isEmpty ? nil : items
     }
@@ -933,17 +1096,21 @@ struct SiteVisitOutcomeSheet: View {
             rows.append("Outcome: Converted to Booking")
             if let notes = booking.notes.outcomeNilIfBlank { rows.append("Notes: \(notes)") }
         case .followUp:
-            rows.append("Reasons: \(selectedPostponeReasons.map(\.title).sorted().joined(separator: ", "))")
-            if let due = followupDueDate.outcomeNilIfBlank { rows.append("Follow-up: \(due)") }
-            if let notes = postponedNotes.outcomeNilIfBlank { rows.append("Notes: \(notes)") }
+            // Android: the notes are exactly the typed reason.
+            return postponedNotes.outcomeNilIfBlank
         case .notInterested:
-            rows.append(contentsOf: selectedNotInterestedReasons.sorted { $0.title < $1.title }.map { reason in
+            // Android's format: "Reasons: A, B", then "• A: detail" lines, then the notes.
+            let picked = SiteVisitNotInterestedReason.allCases.filter(selectedNotInterestedReasons.contains)
+            var text = picked.isEmpty ? "" : "Reasons: " + picked.map(\.title).joined(separator: ", ")
+            for reason in picked {
                 if let detail = notInterestedDetails[reason]?.outcomeNilIfBlank {
-                    return "\(reason.title): \(detail)"
+                    text += "\n• \(reason.title): \(detail)"
                 }
-                return reason.title
-            })
-            if let notes = notInterestedNotes.outcomeNilIfBlank { rows.append("Notes: \(notes)") }
+            }
+            if let notes = notInterestedNotes.outcomeNilIfBlank {
+                text += text.isEmpty ? notes : "\n\n\(notes)"
+            }
+            return text.outcomeNilIfBlank
         case .other:
             if let notes = otherRemarks.outcomeNilIfBlank { rows.append("Notes: \(notes)") }
         }
@@ -999,7 +1166,7 @@ private enum SiteVisitOutcome: String, CaseIterable, Identifiable {
     var title: String {
         switch self {
         case .booking: return "Booking"
-        case .followUp: return "Follow up"
+        case .followUp: return "Booking Follow Up"
         case .notInterested: return "Not Interested"
         case .other: return "Others"
         }
@@ -1390,16 +1557,27 @@ private struct SiteVisitOutcomePickerShell: View {
 }
 
 private struct SiteVisitOutcomeDateField: View {
+    @ViewBuilder
+    private var datePicker: some View {
+        if let minimumDate {
+            DatePicker(title, selection: $date, in: minimumDate..., displayedComponents: .date)
+        } else {
+            DatePicker(title, selection: $date, displayedComponents: .date)
+        }
+    }
+
     let title: String
     @Binding var text: String
     let defaultsToToday: Bool
+    let minimumDate: Date?
     @State private var date = Date()
     @State private var showPicker = false
 
-    init(_ title: String, text: Binding<String>, defaultsToToday: Bool = false) {
+    init(_ title: String, text: Binding<String>, defaultsToToday: Bool = false, minimumDate: Date? = nil) {
         self.title = title
         self._text = text
         self.defaultsToToday = defaultsToToday
+        self.minimumDate = minimumDate
     }
 
     var body: some View {
@@ -1416,7 +1594,7 @@ private struct SiteVisitOutcomeDateField: View {
         }
         .sheet(isPresented: $showPicker) {
             NavigationStack {
-                DatePicker(title, selection: $date, displayedComponents: .date)
+                datePicker
                     .datePickerStyle(.graphical)
                     .padding()
                     .navigationTitle(title)
@@ -1482,8 +1660,8 @@ private enum SiteVisitNotInterestedReason: String, CaseIterable, Identifiable {
         case .developmentInSourcingArea: return "Development in sourcing area"
         case .preferredPlotNotChoice: return "Preferred plot not choice"
         case .loanEligibility: return "Loan eligibility"
-        case .staffBehaviour: return "Staff behaviour"
-        case .driverBehaviour: return "Driver behaviour"
+        case .staffBehaviour: return "Internal staff approach or behaviour"
+        case .driverBehaviour: return "Driver approach or behaviour"
         }
     }
 }
@@ -1502,5 +1680,100 @@ private extension String {
     var outcomeNilIfBlank: String? {
         let trimmed = trimmingCharacters(in: .whitespacesAndNewlines)
         return trimmed.isEmpty ? nil : trimmed
+    }
+}
+
+
+/// Preferred location for a Booking Follow Up: type a 6-digit pincode (India
+/// Post, same lookup as the booking form) or a place name (map-service
+/// suggestions). The typed text itself is kept if no suggestion is picked.
+private struct SvFollowUpLocationField: View {
+    @Environment(AuthStore.self) private var authStore
+    @Binding var draft: SvFollowUpRules.Draft
+    @State private var suggestions: [(label: String, pincode: String?, lat: Double?, lng: Double?, placeId: String?)] = []
+    @State private var isSearching = false
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 6) {
+            Text("Preferred location *")
+                .font(.system(size: 13, weight: .semibold))
+                .foregroundStyle(Color.appSecondaryText)
+            HStack(spacing: 10) {
+                Image(systemName: "mappin.and.ellipse")
+                    .foregroundStyle(Color.appTertiaryText)
+                TextField("Pincode or area name", text: Binding(
+                    get: { draft.locationLabel },
+                    set: { value in
+                        draft.locationLabel = value
+                        let trimmed = value.trimmingCharacters(in: .whitespaces)
+                        draft.locationPincode = trimmed.range(of: #"^\d{6}$"#, options: .regularExpression) != nil ? trimmed : nil
+                        draft.locationLat = nil
+                        draft.locationLng = nil
+                        draft.locationPlaceId = nil
+                    }
+                ))
+                .font(.system(size: 14, weight: .medium))
+                .textInputAutocapitalization(.words)
+                if isSearching { ProgressView().controlSize(.small) }
+            }
+            .padding(14)
+            .background(Color.appSurface, in: RoundedRectangle(cornerRadius: 14))
+            .overlay(RoundedRectangle(cornerRadius: 14).stroke(Color(hex: 0xE4E7EC), lineWidth: 1))
+
+            ForEach(Array(suggestions.enumerated()), id: \.offset) { _, item in
+                Button {
+                    draft.locationLabel = item.label
+                    draft.locationPincode = item.pincode ?? draft.locationPincode
+                    draft.locationLat = item.lat
+                    draft.locationLng = item.lng
+                    draft.locationPlaceId = item.placeId
+                    suggestions = []
+                } label: {
+                    HStack(spacing: 8) {
+                        Image(systemName: "mappin")
+                            .foregroundStyle(Color.appTertiaryText)
+                        Text(item.label)
+                            .font(.system(size: 13))
+                            .foregroundStyle(.primary)
+                            .multilineTextAlignment(.leading)
+                        Spacer()
+                    }
+                    .padding(.horizontal, 14)
+                    .padding(.vertical, 8)
+                }
+                .buttonStyle(.plain)
+            }
+        }
+        .task(id: draft.locationLabel) { await search(draft.locationLabel) }
+    }
+
+    @MainActor
+    private func search(_ raw: String) async {
+        let query = raw.trimmingCharacters(in: .whitespaces)
+        guard query.count >= 3, !suggestions.contains(where: { $0.label == query }) else {
+            suggestions = []
+            return
+        }
+        try? await Task.sleep(for: .milliseconds(350))
+        guard !Task.isCancelled else { return }
+        isSearching = true
+        defer { isSearching = false }
+        if query.range(of: #"^\d{6}$"#, options: .regularExpression) != nil {
+            guard let token = authStore.currentSession?.token,
+                  let prefill = try? await MarketingConvexAPIService.lookupPincode(token: token, pincode: query)
+            else { suggestions = []; return }
+            let label = [prefill.locality, prefill.district, prefill.state]
+                .compactMap { $0?.trimmingCharacters(in: .whitespaces) }
+                .filter { !$0.isEmpty }
+                .joined(separator: ", ")
+            suggestions = label.isEmpty ? [] : [(label, query, nil, nil, nil)]
+        } else {
+            let results = (try? await MapServiceAPI.search(query: query, limit: 6)) ?? []
+            guard !Task.isCancelled else { return }
+            suggestions = results.compactMap { r in
+                let label = [r.name, r.address].compactMap { $0 }.filter { !$0.isEmpty }.joined(separator: ", ")
+                return label.isEmpty ? nil : (label, nil, r.location?.lat, r.location?.lng, r.placeId)
+            }
+        }
     }
 }

@@ -487,6 +487,18 @@ private struct AppLibrarySection: Identifiable {
                     iconTint: Color(hex: 0x6941C6),
                     iconBackground: Color.adaptiveTint(0xF4F3FF)
                 )
+                : nil,
+            // Lens face enrollment: super admins or an explicit `lens.enroll`
+            // grant only (never the broad isAdmin flag). Server enforces the same.
+            isSuperAdmin || authStore.iamPermissions.contains("lens.enroll")
+                ? .init(
+                    title: "Lens Enrollment",
+                    icon: "sf:faceid",
+                    destination: .lensEnrollment,
+                    systemIcon: "faceid",
+                    iconTint: Color(hex: 0x0B61CA),
+                    iconBackground: Color.adaptiveTint(0xEAF4FF)
+                )
                 : nil
         ].compactMap(\.self)
 
@@ -833,6 +845,7 @@ private enum AppLibraryDestination: String {
     case permissions
     case loans
     case security
+    case lensEnrollment
     case siteVisits
     case cpVisits
     case cpApprovals
@@ -872,6 +885,8 @@ private enum AppLibraryDestination: String {
                 LoansView()
             case .security:
                 StaffSecurityView()
+            case .lensEnrollment:
+                LensEnrollmentView()
             case .siteVisits:
                 SiteVisitsView()
             case .cpVisits:

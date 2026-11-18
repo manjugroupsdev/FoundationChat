@@ -1376,6 +1376,14 @@ private struct SiteVisitOverviewSheet: View {
                     .buttonStyle(.bordered)
                     .controlSize(.large)
                     .tint(Color(hex: 0xD92D20))
+                    // Client already on site (or later): shown, but can't cancel.
+                    .disabled(isClientOnSiteOrLater)
+                    if isClientOnSiteOrLater {
+                        Text("The client is already on site, so this site visit can't be cancelled.")
+                            .font(.system(size: 12, weight: .medium))
+                            .foregroundStyle(Color.appSecondaryText)
+                            .frame(maxWidth: .infinity, alignment: .leading)
+                    }
                 }
 
                 outcomeButtons
@@ -1662,9 +1670,9 @@ private struct SiteVisitOverviewSheet: View {
                 recordedOutcomeCard
             } else {
                 LazyVGrid(columns: [GridItem(.flexible()), GridItem(.flexible())], spacing: 10) {
-                    outcomeButton("Booking", icon: "briefcase.fill", tint: Color(hex: 0x16A34A), outcome: .booking)
+                    outcomeButton("Converted as Booking", icon: "briefcase.fill", tint: Color(hex: 0x16A34A), outcome: .booking)
                     outcomeButton("Client Not Interested", icon: "hand.thumbsdown.fill", tint: Color(hex: 0xDC2626), outcome: .notInterested)
-                    outcomeButton("Follow up", icon: "calendar.badge.clock", tint: Color(hex: 0xD97706), outcome: .followUp)
+                    outcomeButton("Booking Follow Up", icon: "calendar.badge.clock", tint: Color(hex: 0xD97706), outcome: .followUp)
                     outcomeButton("Others", icon: "ellipsis.circle.fill", tint: Color.appSecondaryText, outcome: .other)
                 }
 
@@ -2231,7 +2239,7 @@ private struct SiteVisitOverviewSheet: View {
         case "not_interested":
             return ("Client Not Interested", Color(hex: 0xB42318))
         case "follow_up", "followup", "postponed":
-            return ("Follow up", Color(hex: 0xB54708))
+            return ("Booking Follow Up", Color(hex: 0xB54708))
         case "cancelled", "canceled":
             return ("Site Visit Cancelled", Color.appSecondaryText)
         case "no_show":
@@ -2250,6 +2258,12 @@ private struct SiteVisitOverviewSheet: View {
             "consulting", "on_counselling", "picked_from_site", "dropped",
             "completed", "complete", "done", "closed", "cancelled", "canceled", "no_show"
         ].contains(status)
+    }
+
+    /// From the client's arrival onward a site visit can't be cancelled (Android parity).
+    private var isClientOnSiteOrLater: Bool {
+        ["on_site", "consulting", "on_counselling", "picked_from_site", "dropped"]
+            .contains(normalizedStatus.normalizedSiteVisitValue)
     }
 
     private var canCancelVisit: Bool {

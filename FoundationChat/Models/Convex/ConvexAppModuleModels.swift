@@ -1125,6 +1125,9 @@ struct SetSiteVisitOutcomeRequest: Encodable, Sendable {
     let notes: String?
     let followupDueDate: String?
     let followupDueTime: String?
+    /// Booking Follow Up: ticked reason keys + their fields (SvFollowUpRules).
+    let followUpReasons: [String]?
+    let followUpDetails: SvFollowUpDetailsPayload?
 
     init(
         id: String,
@@ -1134,7 +1137,9 @@ struct SetSiteVisitOutcomeRequest: Encodable, Sendable {
         notInterestedDetails: [SiteVisitNotInterestedDetail]? = nil,
         notes: String? = nil,
         followupDueDate: String? = nil,
-        followupDueTime: String? = nil
+        followupDueTime: String? = nil,
+        followUpReasons: [String]? = nil,
+        followUpDetails: SvFollowUpDetailsPayload? = nil
     ) {
         self.id = id
         self.outcome = outcome
@@ -1144,6 +1149,8 @@ struct SetSiteVisitOutcomeRequest: Encodable, Sendable {
         self.notes = notes
         self.followupDueDate = followupDueDate
         self.followupDueTime = followupDueTime
+        self.followUpReasons = followUpReasons
+        self.followUpDetails = followUpDetails
     }
 }
 

@@ -1,4 +1,5 @@
 import CoreLocation
+import CoreTelephony
 import Foundation
 import Network
 
@@ -32,6 +33,18 @@ final class GeoTrackTamperMonitor {
 
     /// Returns the current wall-clock time (wraps Date()).
     var nowProvider: () -> Date
+
+    /// True when the phone's cellular radio reports no access technology at
+    /// all. iOS has no public flight-mode API; with no Wi-Fi and no cellular
+    /// path this is the best available sign that the radios are switched off
+    /// (flight mode) rather than the phone merely being out of coverage.
+    var cellularRadioOffProvider: () -> Bool = {
+        let techs = CTTelephonyNetworkInfo().serviceCurrentRadioAccessTechnology
+        return techs?.values.allSatisfy { $0.isEmpty } ?? true
+    }
+
+    /// A flight-mode ON was reported and its OFF is still owed.
+    private(set) var flightModeReported = false
 
     /// Async closure that dispatches a detected event to the GeoTrack transport.
     /// Injectable so tests can capture events without network I/O.
@@ -210,13 +223,29 @@ final class GeoTrackTamperMonitor {
     /// Evaluates raw network-path booleans for airplane-mode detection.
     /// Exposed as `internal` so tests can exercise the logic directly
     /// without needing a real NWPath object.
-    func evaluateNetworkPath(isUnsatisfied: Bool, hasWifi: Bool, hasCellular: Bool) {
-        guard isUnsatisfied && !hasWifi && !hasCellular else { return }
-        report(.airplaneModeOn, metadata: [
-            "pathStatus": "unsatisfied",
-            "wifi": String(hasWifi),
-            "cellular": String(hasCellular),
-        ])
+    func evaluateNetworkPath(isUnsatisfied: Bool, hasWifi: Bool, hasCellular: Bool, radiosOff: Bool? = nil) {
+        if isUnsatisfied && !hasWifi && !hasCellular {
+            // No path at all. Only call it flight mode when the cellular radio
+            // is off too; a phone in a lift or a dead zone keeps its radio on
+            // and is just out of signal (the server reports that as a silence).
+            guard !flightModeReported, radiosOff ?? cellularRadioOffProvider() else { return }
+            flightModeReported = true
+            report(.airplaneModeOn, metadata: [
+                "pathStatus": "unsatisfied",
+                "wifi": String(hasWifi),
+                "cellular": String(hasCellular),
+                "source": "ios_radio_off",
+            ])
+        } else if !isUnsatisfied && flightModeReported {
+            // Network is back: close the flight-mode period with this time.
+            flightModeReported = false
+            report(.airplaneModeOff, metadata: [
+                "pathStatus": "satisfied",
+                "wifi": String(hasWifi),
+                "cellular": String(hasCellular),
+                "source": "ios_radio_off",
+            ])
+        }
     }
 
     // MARK: - Private detection helpers
