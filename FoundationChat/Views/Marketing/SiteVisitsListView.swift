@@ -1662,7 +1662,7 @@ private struct SiteVisitOverviewSheet: View {
                 recordedOutcomeCard
             } else {
                 LazyVGrid(columns: [GridItem(.flexible()), GridItem(.flexible())], spacing: 10) {
-                    outcomeButton("Booking", icon: "briefcase.fill", tint: Color(hex: 0x16A34A), outcome: .booking)
+                    outcomeButton("Converted as Booking", icon: "briefcase.fill", tint: Color(hex: 0x16A34A), outcome: .booking)
                     outcomeButton("Client Not Interested", icon: "hand.thumbsdown.fill", tint: Color(hex: 0xDC2626), outcome: .notInterested)
                     outcomeButton("Follow up", icon: "calendar.badge.clock", tint: Color(hex: 0xD97706), outcome: .followUp)
                     outcomeButton("Others", icon: "ellipsis.circle.fill", tint: Color.appSecondaryText, outcome: .other)

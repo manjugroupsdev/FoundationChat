@@ -1,6 +1,8 @@
 import AVFoundation
 import Foundation
+import PhotosUI
 import SwiftUI
+import Vision
 
 private struct SiteVisitQRLookupTimeout: Error {}
 
@@ -21,6 +23,9 @@ struct FrontDeskQRScannerView: View {
     @State private var showSiteVisitOutcome = false
     @State private var outcomeSiteVisitID: String?
     @State private var lookupTask: Task<Void, Never>?
+    /// "From gallery": a QR image someone shared, decoded on the phone.
+    @State private var galleryItem: PhotosPickerItem?
+    @State private var galleryMessage: String?
     let showsCloseButton: Bool
 
     init(showsCloseButton: Bool = false) {
@@ -36,11 +41,30 @@ struct FrontDeskQRScannerView: View {
 
             scannerOverlay
             scannerHeader
+            galleryButton
 
             if cameraAccessDenied {
                 cameraDeniedCard
             }
 
+            if isSiteVisitScan && isResolvingInvitation && !showScanResult {
+                // SV lookup runs before any sheet: a visit already in counselling
+                // opens its outcome page directly, others get the details sheet.
+                VStack(spacing: 12) {
+                    ProgressView().controlSize(.large).tint(.white)
+                    Text("Validating site visit...")
+                        .font(.system(size: 15, weight: .semibold))
+                        .foregroundStyle(.white)
+                }
+                .padding(24)
+                .background(.black.opacity(0.55), in: RoundedRectangle(cornerRadius: 20, style: .continuous))
+            }
+
+        }
+        .onChange(of: galleryItem) { _, item in
+            guard let item else { return }
+            galleryItem = nil
+            Task { await readGalleryQR(item) }
         }
         .navigationBarBackButtonHidden(true)
         .toolbar(.hidden, for: .navigationBar)
@@ -267,12 +291,12 @@ struct FrontDeskQRScannerView: View {
         visitorActionError = nil
         isSiteVisitScan = true
         isResolvingInvitation = true
-        showScanResult = true
 
         lookupTask = Task {
             guard let token = authStore.currentSession?.token else {
                 isResolvingInvitation = false
                 scanError = "Please sign in again to validate this site visit."
+                showScanResult = true
                 return
             }
             do {
@@ -282,6 +306,16 @@ struct FrontDeskQRScannerView: View {
                 )
                 guard !Task.isCancelled else { return }
                 scannedSiteVisit = resolved
+                isResolvingInvitation = false
+                if Self.opensOutcomeDirectly(resolved, canOperate: canOperateScannedSiteVisit) {
+                    // Counselling already started (QR scanned before): no details
+                    // sheet, no countdown - straight to the SV outcome page.
+                    outcomeSiteVisitID = resolved.id
+                    showSiteVisitOutcome = true
+                } else {
+                    showScanResult = true
+                }
+                return
             } catch {
                 guard !Task.isCancelled else { return }
                 scanError = error is SiteVisitQRLookupTimeout
@@ -289,6 +323,82 @@ struct FrontDeskQRScannerView: View {
                     : error.localizedDescription
             }
             isResolvingInvitation = false
+            showScanResult = true
+        }
+    }
+
+    /// A visit whose counselling already started (QR scanned before) and that this
+    /// person may record the outcome for. Same rule as Android's QrScannerFragment.
+    fileprivate static func opensOutcomeDirectly(_ visit: ScannedSiteVisit, canOperate: Bool) -> Bool {
+        let status = visit.status?.trimmingCharacters(in: .whitespacesAndNewlines).lowercased() ?? ""
+        let recordable = ["on_counselling", "picked_from_site", "dropped"].contains(status)
+        let completed = status == "completed" || visit.outcome?.nilIfBlank != nil
+        return recordable && !completed && (visit.canRecordOutcome ?? canOperate)
+    }
+
+    private var galleryButton: some View {
+        VStack {
+            Spacer()
+            HStack {
+                PhotosPicker(selection: $galleryItem, matching: .images, photoLibrary: .shared()) {
+                    Label("From gallery", systemImage: "photo.on.rectangle")
+                        .font(.system(size: 15, weight: .semibold))
+                        .foregroundStyle(.white)
+                        .padding(.horizontal, 16)
+                        .frame(height: 46)
+                        .background(.black.opacity(0.45), in: Capsule())
+                }
+                .disabled(scannedValue != nil)
+                .accessibilityLabel("Scan a QR code from a photo")
+                Spacer()
+            }
+            if let galleryMessage {
+                Text(galleryMessage)
+                    .font(.system(size: 13, weight: .semibold))
+                    .foregroundStyle(.white)
+                    .padding(.horizontal, 14)
+                    .padding(.vertical, 8)
+                    .background(.black.opacity(0.6), in: Capsule())
+                    .frame(maxWidth: .infinity, alignment: .leading)
+                    .padding(.top, 8)
+            }
+        }
+        .padding(.horizontal, 24)
+        .padding(.bottom, 40)
+    }
+
+    /// Decode a QR from a picked photo (e.g. a screenshot a colleague shared) and
+    /// hand it to the same handler as a camera scan.
+    @MainActor
+    private func readGalleryQR(_ item: PhotosPickerItem) async {
+        guard scannedValue == nil else { return }
+        galleryMessage = nil
+        guard let data = try? await item.loadTransferable(type: Data.self),
+              let image = UIImage(data: data), let cgImage = image.cgImage else {
+            showGalleryMessage("Couldn't open that photo.")
+            return
+        }
+        let payload: String? = await Task.detached(priority: .userInitiated) {
+            let request = VNDetectBarcodesRequest()
+            request.symbologies = [.qr]
+            let handler = VNImageRequestHandler(cgImage: cgImage, options: [:])
+            try? handler.perform([request])
+            return request.results?
+                .compactMap { $0.payloadStringValue?.trimmingCharacters(in: .whitespacesAndNewlines) }
+                .first { !$0.isEmpty }
+        }.value
+        guard let payload else {
+            showGalleryMessage("No QR code found in that photo.")
+            return
+        }
+        scannedValue = payload
+    }
+
+    private func showGalleryMessage(_ text: String) {
+        galleryMessage = text
+        Task { @MainActor in
+            try? await Task.sleep(for: .seconds(3))
+            if galleryMessage == text { galleryMessage = nil }
         }
     }
 

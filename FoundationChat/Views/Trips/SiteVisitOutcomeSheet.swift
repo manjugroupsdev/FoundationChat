@@ -190,10 +190,10 @@ struct SiteVisitOutcomeSheet: View {
     private var header: some View {
         HStack(alignment: .center, spacing: 12) {
             VStack(alignment: .leading, spacing: 2) {
-                Text("Outcome Information")
+                Text(headerTitle)
                     .font(.system(size: 16, weight: .semibold))
                     .foregroundStyle(.primary)
-                Text("Information about Client Details")
+                Text(headerSubtitle)
                     .font(.system(size: 11))
                     .foregroundStyle(.secondary)
             }
@@ -226,7 +226,35 @@ struct SiteVisitOutcomeSheet: View {
         }
     }
 
+    /// Android: a form opened from one outcome button is titled for that outcome.
+    private var headerTitle: String {
+        guard locksOutcome, let selectedOutcome else { return "Outcome Information" }
+        switch selectedOutcome {
+        case .booking: return "Converted as Booking"
+        case .followUp: return "Follow-up"
+        case .notInterested: return "Client Not Interested"
+        case .other: return "Other outcome"
+        }
+    }
+
+    private var headerSubtitle: String {
+        guard locksOutcome, let selectedOutcome else { return "Information about Client Details" }
+        switch selectedOutcome {
+        case .booking: return "Booking form"
+        case .followUp: return "Follow-up details"
+        case .notInterested: return "Not interested reason"
+        case .other: return "Add remarks to explain why this visit is being closed."
+        }
+    }
+
+    @ViewBuilder
     private var outcomeChips: some View {
+        // Android removes the outcome switcher when the form was opened from a
+        // specific outcome button; only the unlocked chooser shows it.
+        if !locksOutcome { outcomeChipRow }
+    }
+
+    private var outcomeChipRow: some View {
         HStack(spacing: 0) {
             ForEach(Array(SiteVisitOutcome.allCases.enumerated()), id: \.element.id) { index, outcome in
                 Button {
@@ -435,27 +463,35 @@ struct SiteVisitOutcomeSheet: View {
 
     private var followUpSection: some View {
         VStack(alignment: .leading, spacing: 14) {
-            SiteVisitOutcomeDateField("Follow-up due date", text: $followupDueDate)
-
-            Text("Reasons")
-                .font(.system(size: 14, weight: .semibold))
-                .foregroundStyle(Color.appSecondaryText)
-
-            ForEach(SiteVisitPostponeReason.allCases) { reason in
-                outcomeCheckCard(title: reason.title, isOn: binding(for: reason))
+            VStack(alignment: .leading, spacing: 4) {
+                Text("Follow-up date")
+                    .font(.system(size: 14, weight: .semibold))
+                    .foregroundStyle(Color.appSecondaryText)
+                Text("When should the client be followed up.")
+                    .font(.system(size: 12))
+                    .foregroundStyle(Color.appTertiaryText)
             }
+            SiteVisitOutcomeDateField("Follow-up date", text: $followupDueDate, minimumDate: Calendar.current.startOfDay(for: Date()))
 
-            SiteVisitOutcomeTextField("Additional notes", text: $postponedNotes, placeholder: "Add notes", icon: "doc", axis: .vertical)
+            VStack(alignment: .leading, spacing: 4) {
+                Text("Reason")
+                    .font(.system(size: 14, weight: .semibold))
+                    .foregroundStyle(Color.appSecondaryText)
+                Text("Why does this client need a follow-up.")
+                    .font(.system(size: 12))
+                    .foregroundStyle(Color.appTertiaryText)
+            }
+            SiteVisitOutcomeTextField("Reason *", text: $postponedNotes, placeholder: "Reason for follow-up", icon: "doc", axis: .vertical)
         }
     }
 
     private var otherSection: some View {
         VStack(alignment: .leading, spacing: 14) {
-            Text("Remarks")
+            Text("Add remarks to explain why this visit is being closed.")
                 .font(.system(size: 14, weight: .semibold))
                 .foregroundStyle(Color.appSecondaryText)
 
-            SiteVisitOutcomeTextField("Remarks *", text: $otherRemarks, placeholder: "Explain why this visit is being closed", icon: "doc", axis: .vertical)
+            SiteVisitOutcomeTextField("Remarks *", text: $otherRemarks, placeholder: "What happened with the client?", icon: "doc", axis: .vertical)
         }
     }
 
@@ -476,9 +512,14 @@ struct SiteVisitOutcomeSheet: View {
 
     private var notInterestedSection: some View {
         VStack(alignment: .leading, spacing: 14) {
-            Text("Why is the client not interested?")
-                .font(.system(size: 14, weight: .semibold))
-                .foregroundStyle(.secondary)
+            VStack(alignment: .leading, spacing: 4) {
+                Text("Why is the client not interested?")
+                    .font(.system(size: 14, weight: .semibold))
+                    .foregroundStyle(.secondary)
+                Text("Select one or more — visit will be marked complete.")
+                    .font(.system(size: 12))
+                    .foregroundStyle(Color.appTertiaryText)
+            }
 
             ForEach(SiteVisitNotInterestedReason.allCases) { reason in
                 VStack(alignment: .leading, spacing: 10) {
@@ -487,7 +528,7 @@ struct SiteVisitOutcomeSheet: View {
                         SiteVisitOutcomeTextField(
                             "\(reason.title) detail",
                             text: detailBinding(for: reason),
-                            placeholder: "Add reason-wise detail",
+                            placeholder: "More about \(reason.title.lowercased())",
                             icon: "doc",
                             axis: .vertical
                         )
@@ -495,7 +536,15 @@ struct SiteVisitOutcomeSheet: View {
                 }
             }
 
-            SiteVisitOutcomeTextField("Additional notes", text: $notInterestedNotes, placeholder: "Add notes", icon: "doc", axis: .vertical)
+            VStack(alignment: .leading, spacing: 4) {
+                Text("Additional notes")
+                    .font(.system(size: 14, weight: .semibold))
+                    .foregroundStyle(Color.appSecondaryText)
+                Text("Optional — any context the office should see.")
+                    .font(.system(size: 12))
+                    .foregroundStyle(Color.appTertiaryText)
+            }
+            SiteVisitOutcomeTextField("Additional notes", text: $notInterestedNotes, placeholder: "Additional context", icon: "doc", axis: .vertical)
         }
     }
 
@@ -699,9 +748,9 @@ struct SiteVisitOutcomeSheet: View {
     private var ctaTitle: String {
         switch selectedOutcome {
         case .booking: return booking.saveAs == .confirmed ? "Create Confirmed Booking" : "Save Booking Draft"
-        case .followUp: return "Save Follow-up Outcome"
-        case .notInterested: return "Save Not Interested Outcome"
-        case .other: return "Save Outcome"
+        case .followUp: return "Save"
+        case .notInterested: return "Save"
+        case .other: return "Save"
         case .none: return "Save Outcome"
         }
     }
@@ -838,28 +887,25 @@ struct SiteVisitOutcomeSheet: View {
                 // Creating with sourceSiteVisitId converts the SV atomically.
                 // Do not submit a second outcome against an already-terminal SV.
             case .followUp:
-                guard !selectedPostponeReasons.isEmpty else {
-                    errorMessage = "Select at least one follow-up reason"
+                // Android: the date (today or later) and a typed reason, both required.
+                guard followupDueDate.outcomeNilIfBlank != nil else {
+                    errorMessage = "Pick the next visit date"
                     return
                 }
-                // The follow-up date is now required: an SV "Follow up" spawns an
-                // sv_cum_cp revisit for that date (replacing the telecaller call-back),
-                // and the backend only spawns when a date is present. Without it the
-                // staff would get no follow-up at all.
-                guard followupDueDate.outcomeNilIfBlank != nil else {
-                    errorMessage = "Pick a follow-up date to schedule the revisit"
+                guard postponedNotes.outcomeNilIfBlank != nil else {
+                    errorMessage = "Enter a reason for follow up"
                     return
                 }
                 try await saveOutcome(token: token, outcome: outcome)
             case .notInterested:
                 guard !selectedNotInterestedReasons.isEmpty else {
-                    errorMessage = "Select at least one not interested reason"
+                    errorMessage = "Select at least one reason"
                     return
                 }
                 try await saveOutcome(token: token, outcome: outcome)
             case .other:
                 guard otherRemarks.outcomeNilIfBlank != nil else {
-                    errorMessage = "Add remarks to explain this outcome"
+                    errorMessage = "Remarks are required"
                     return
                 }
                 try await saveOutcome(token: token, outcome: outcome)
@@ -897,7 +943,9 @@ struct SiteVisitOutcomeSheet: View {
             request: SetSiteVisitOutcomeRequest(
                 id: siteVisitId,
                 outcome: outcome.rawValue,
-                postponeReasons: outcome == .followUp ? reasonCodes : nil,
+                // Android sends no postponeReasons for an SV follow-up: the typed
+                // reason travels as the notes.
+                postponeReasons: nil,
                 notInterestedReasons: outcome == .notInterested ? reasonCodes : nil,
                 notInterestedDetails: outcome == .notInterested ? notInterestedDetailPayload : nil,
                 notes: outcome == .other ? otherRemarks.outcomeNilIfBlank : outcomeNotes(outcome: outcome, bookingId: nil),
@@ -912,15 +960,16 @@ struct SiteVisitOutcomeSheet: View {
         case .booking, .other:
             return nil
         case .followUp:
-            return selectedPostponeReasons.map(\.rawValue).sorted()
+            return nil
         case .notInterested:
-            return selectedNotInterestedReasons.map(\.rawValue).sorted()
+            // Android (and the web SV detail) store the reason labels.
+            return SiteVisitNotInterestedReason.allCases.filter(selectedNotInterestedReasons.contains).map(\.title)
         }
     }
 
     private var notInterestedDetailPayload: [SiteVisitNotInterestedDetail]? {
-        let items = selectedNotInterestedReasons.sorted { $0.title < $1.title }.map {
-            SiteVisitNotInterestedDetail(reason: $0.rawValue, detail: notInterestedDetails[$0]?.outcomeNilIfBlank)
+        let items = SiteVisitNotInterestedReason.allCases.filter(selectedNotInterestedReasons.contains).map {
+            SiteVisitNotInterestedDetail(reason: $0.title, detail: notInterestedDetails[$0]?.outcomeNilIfBlank)
         }
         return items.isEmpty ? nil : items
     }
@@ -933,17 +982,21 @@ struct SiteVisitOutcomeSheet: View {
             rows.append("Outcome: Converted to Booking")
             if let notes = booking.notes.outcomeNilIfBlank { rows.append("Notes: \(notes)") }
         case .followUp:
-            rows.append("Reasons: \(selectedPostponeReasons.map(\.title).sorted().joined(separator: ", "))")
-            if let due = followupDueDate.outcomeNilIfBlank { rows.append("Follow-up: \(due)") }
-            if let notes = postponedNotes.outcomeNilIfBlank { rows.append("Notes: \(notes)") }
+            // Android: the notes are exactly the typed reason.
+            return postponedNotes.outcomeNilIfBlank
         case .notInterested:
-            rows.append(contentsOf: selectedNotInterestedReasons.sorted { $0.title < $1.title }.map { reason in
+            // Android's format: "Reasons: A, B", then "• A: detail" lines, then the notes.
+            let picked = SiteVisitNotInterestedReason.allCases.filter(selectedNotInterestedReasons.contains)
+            var text = picked.isEmpty ? "" : "Reasons: " + picked.map(\.title).joined(separator: ", ")
+            for reason in picked {
                 if let detail = notInterestedDetails[reason]?.outcomeNilIfBlank {
-                    return "\(reason.title): \(detail)"
+                    text += "\n• \(reason.title): \(detail)"
                 }
-                return reason.title
-            })
-            if let notes = notInterestedNotes.outcomeNilIfBlank { rows.append("Notes: \(notes)") }
+            }
+            if let notes = notInterestedNotes.outcomeNilIfBlank {
+                text += text.isEmpty ? notes : "\n\n\(notes)"
+            }
+            return text.outcomeNilIfBlank
         case .other:
             if let notes = otherRemarks.outcomeNilIfBlank { rows.append("Notes: \(notes)") }
         }
@@ -1390,16 +1443,27 @@ private struct SiteVisitOutcomePickerShell: View {
 }
 
 private struct SiteVisitOutcomeDateField: View {
+    @ViewBuilder
+    private var datePicker: some View {
+        if let minimumDate {
+            DatePicker(title, selection: $date, in: minimumDate..., displayedComponents: .date)
+        } else {
+            DatePicker(title, selection: $date, displayedComponents: .date)
+        }
+    }
+
     let title: String
     @Binding var text: String
     let defaultsToToday: Bool
+    let minimumDate: Date?
     @State private var date = Date()
     @State private var showPicker = false
 
-    init(_ title: String, text: Binding<String>, defaultsToToday: Bool = false) {
+    init(_ title: String, text: Binding<String>, defaultsToToday: Bool = false, minimumDate: Date? = nil) {
         self.title = title
         self._text = text
         self.defaultsToToday = defaultsToToday
+        self.minimumDate = minimumDate
     }
 
     var body: some View {
@@ -1416,7 +1480,7 @@ private struct SiteVisitOutcomeDateField: View {
         }
         .sheet(isPresented: $showPicker) {
             NavigationStack {
-                DatePicker(title, selection: $date, displayedComponents: .date)
+                datePicker
                     .datePickerStyle(.graphical)
                     .padding()
                     .navigationTitle(title)
@@ -1482,8 +1546,8 @@ private enum SiteVisitNotInterestedReason: String, CaseIterable, Identifiable {
         case .developmentInSourcingArea: return "Development in sourcing area"
         case .preferredPlotNotChoice: return "Preferred plot not choice"
         case .loanEligibility: return "Loan eligibility"
-        case .staffBehaviour: return "Staff behaviour"
-        case .driverBehaviour: return "Driver behaviour"
+        case .staffBehaviour: return "Internal staff approach or behaviour"
+        case .driverBehaviour: return "Driver approach or behaviour"
         }
     }
 }
