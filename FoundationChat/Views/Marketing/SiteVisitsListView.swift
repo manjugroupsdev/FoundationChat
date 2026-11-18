@@ -1376,6 +1376,14 @@ private struct SiteVisitOverviewSheet: View {
                     .buttonStyle(.bordered)
                     .controlSize(.large)
                     .tint(Color(hex: 0xD92D20))
+                    // Client already on site (or later): shown, but can't cancel.
+                    .disabled(isClientOnSiteOrLater)
+                    if isClientOnSiteOrLater {
+                        Text("The client is already on site, so this site visit can't be cancelled.")
+                            .font(.system(size: 12, weight: .medium))
+                            .foregroundStyle(Color.appSecondaryText)
+                            .frame(maxWidth: .infinity, alignment: .leading)
+                    }
                 }
 
                 outcomeButtons
@@ -2250,6 +2258,12 @@ private struct SiteVisitOverviewSheet: View {
             "consulting", "on_counselling", "picked_from_site", "dropped",
             "completed", "complete", "done", "closed", "cancelled", "canceled", "no_show"
         ].contains(status)
+    }
+
+    /// From the client's arrival onward a site visit can't be cancelled (Android parity).
+    private var isClientOnSiteOrLater: Bool {
+        ["on_site", "consulting", "on_counselling", "picked_from_site", "dropped"]
+            .contains(normalizedStatus.normalizedSiteVisitValue)
     }
 
     private var canCancelVisit: Bool {
