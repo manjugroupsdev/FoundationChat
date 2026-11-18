@@ -319,12 +319,14 @@ private struct LensPoseRing: View {
                     EllipseArc(start: range.0, end: range.1)
                         .stroke(Color.white.opacity(0.15), style: StrokeStyle(lineWidth: 7, lineCap: .round, dash: [4, 6]))
                 } else if isTarget {
-                    EllipseArc(start: range.0, end: range.1)
-                        .stroke(Color(hex: 0x3B82F6).opacity(pulse ? 0.95 : 0.5), style: StrokeStyle(lineWidth: 7, lineCap: .round))
-                    if snapshot.holdPose == pose {
-                        EllipseArc(start: range.0, end: range.0 + (range.1 - range.0) * snapshot.holdProgress)
-                            .stroke(Color(hex: 0x22C55E), style: StrokeStyle(lineWidth: 7, lineCap: .round))
-                    }
+                    // Progress bar for the asked-for pose: fills as the head turns
+                    // toward it (0..0.75), then through the still hold (0.75..1).
+                    let p = progress(for: pose)
+                    let span = filledRange(range, p)
+                    EllipseArc(start: span.0, end: span.1)
+                        .stroke(p >= 0.75 ? Color(hex: 0x22C55E) : Color(hex: 0x3B82F6),
+                                style: StrokeStyle(lineWidth: 7, lineCap: .round))
+                        .animation(.easeOut(duration: 0.15), value: p)
                 }
             }
         }
@@ -335,6 +337,41 @@ private struct LensPoseRing: View {
             withAnimation(.easeInOut(duration: 0.7).repeatForever(autoreverses: true)) { pulse = true }
         }
         .allowsHitTesting(false)
+    }
+
+    /// 0..1 progress toward `pose` from the live yaw (signed: negative = subject's left).
+    private func progress(for pose: LensPose) -> Double {
+        if snapshot.holdPose == pose { return 0.75 + 0.25 * snapshot.holdProgress }
+        guard snapshot.faceFound else { return 0 }
+        let yaw = snapshot.yaw
+        let turn: Double
+        if pose.side == 0 {
+            let a = abs(yaw)
+            turn = a <= 5 ? 1 : max(0, 1 - (a - 5) / 20)
+        } else {
+            let toward = pose.side < 0 ? -yaw : yaw
+            let lo: Double = pose.idealYaw > 20 ? 22 : 11
+            let hi: Double = pose.idealYaw > 20 ? 30 : 19
+            if toward <= 0 { turn = 0 }
+            else if toward < lo { turn = toward / lo }
+            else if toward <= hi { turn = 1 }
+            else { turn = max(0.4, 1 - (toward - hi) / 12) }
+        }
+        return 0.75 * turn
+    }
+
+    /// The filled part of an arc: from the end nearest the top outward (sides),
+    /// or out from the middle (straight).
+    private func filledRange(_ r: (Double, Double), _ p: Double) -> (Double, Double) {
+        let p = min(max(p, 0), 1)
+        if r.0 < 0 && r.1 > 0 {
+            let mid = (r.0 + r.1) / 2, half = (r.1 - r.0) / 2 * p
+            return (mid - half, mid + half)
+        }
+        let near = abs(r.0) < abs(r.1) ? r.0 : r.1
+        let far = near == r.0 ? r.1 : r.0
+        let end = near + (far - near) * p
+        return (min(near, end), max(near, end))
     }
 
     /// Degrees clockwise from the top. Screen left = subject's left on a mirrored
