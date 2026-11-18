@@ -169,7 +169,7 @@ nonisolated enum LensEnrollmentAPIService {
         let query = search.trimmingCharacters(in: .whitespacesAndNewlines)
         if !query.isEmpty { items.append(URLQueryItem(name: "search", value: query)) }
         if let cursor, !cursor.isEmpty { items.append(URLQueryItem(name: "cursor", value: cursor)) }
-        let data = try await send(path: "/api/lens/staff", token: token, queryItems: items)
+        let data = try await retryingBusy { try await send(path: "/api/lens/staff", token: token, queryItems: items) }
         return try JSONDecoder().decode(LensStaffPage.self, from: data)
     }
 
@@ -196,9 +196,11 @@ nonisolated enum LensEnrollmentAPIService {
 
     /// The staff member's saved photos (newest first) with viewable URLs.
     static func captures(token: String, staffId: String) async throws -> LensCapturesPage {
-        let data = try await send(
-            path: "/api/lens/captures", token: token, queryItems: [URLQueryItem(name: "staffId", value: staffId)]
-        )
+        let data = try await retryingBusy {
+            try await send(
+                path: "/api/lens/captures", token: token, queryItems: [URLQueryItem(name: "staffId", value: staffId)]
+            )
+        }
         return try JSONDecoder().decode(LensCapturesPage.self, from: data)
     }
 
@@ -219,6 +221,34 @@ nonisolated enum LensEnrollmentAPIService {
         let json = try JSONSerialization.data(withJSONObject: body)
         let data = try await send(path: "/api/lens/captures/retake", token: token, method: "POST", body: json, timeout: 120)
         return try JSONDecoder().decode(LensEnrollResult.self, from: data)
+    }
+
+    /// The prod server sometimes answers 429 (too many requests at once) or a
+    /// gateway error for a moment. Reads retry those, and network drops, twice
+    /// (0.8 s, 2 s) before the staff sees "busy". Never used for uploads.
+    static func retryingBusy<T>(
+        delays: [UInt64] = [800_000_000, 2_000_000_000],
+        _ block: () async throws -> T
+    ) async throws -> T {
+        var attempt = 0
+        while true {
+            do {
+                return try await block()
+            } catch {
+                if error is CancellationError || Task.isCancelled { throw error }
+                guard attempt < delays.count, isBusy(error) else { throw error }
+                try await Task.sleep(nanoseconds: delays[attempt])
+                attempt += 1
+            }
+        }
+    }
+
+    static func isBusy(_ error: Error) -> Bool {
+        if case LensEnrollError.server(let status, _, _, _) = error {
+            return [429, 502, 503, 504].contains(status)
+        }
+        if let urlError = error as? URLError { return urlError.code != .cancelled }
+        return false
     }
 
     private static func send(
