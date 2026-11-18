@@ -14,6 +14,8 @@ struct LensEnrollmentView: View {
     @State private var hasLoaded = false
     @State private var errorMessage: String?
     @State private var selected: LensStaff?
+    @State private var pendingChoice: LensStaff?
+    @State private var sendingId: String?
 
     var body: some View {
         List {
@@ -27,12 +29,14 @@ struct LensEnrollmentView: View {
             } else {
                 ForEach(items) { staff in
                     Button {
-                        if staff.canEnroll { selected = staff }
+                        guard staff.canEnroll else { return }
+                        // Photos already saved and waiting: offer to send them instead of recording again.
+                        if staff.waitingPhotos > 0 { pendingChoice = staff } else { selected = staff }
                     } label: {
-                        LensStaffRow(staff: staff)
+                        LensStaffRow(staff: staff, isSending: sendingId == staff.id)
                     }
                     .buttonStyle(.plain)
-                    .disabled(!staff.canEnroll)
+                    .disabled(!staff.canEnroll || sendingId != nil)
                     .listRowBackground(Color.appSurface)
                     .onAppear {
                         if staff.id == items.last?.id { Task { await loadMore() } }
@@ -58,6 +62,18 @@ struct LensEnrollmentView: View {
             await reload()
         }
         .floaterAlert($errorMessage)
+        .confirmationDialog(
+            "Photos waiting for Lens",
+            isPresented: Binding(get: { pendingChoice != nil }, set: { if !$0 { pendingChoice = nil } }),
+            titleVisibility: .visible,
+            presenting: pendingChoice
+        ) { staff in
+            Button("Send to Lens") { Task { await sendPending(staff) } }
+            Button("Record again") { selected = staff }
+            Button("Cancel", role: .cancel) {}
+        } message: { staff in
+            Text("\(staff.waitingPhotos) photos of \(staff.displayName) are saved on the profile and waiting for Lens.")
+        }
         .fullScreenCover(item: $selected) { staff in
             LensEnrollmentFlowView(staff: staff) {
                 Task { await reload() }
@@ -94,6 +110,23 @@ struct LensEnrollmentView: View {
         }
     }
 
+    private func sendPending(_ staff: LensStaff) async {
+        guard sendingId == nil, let token = authStore.currentSession?.token else { return }
+        sendingId = staff.id
+        Floater.shared.info("Sending the photos to Lens…")
+        do {
+            let result = try await LensEnrollmentAPIService.sendPending(token: token, staffId: staff.staffId)
+            UINotificationFeedbackGenerator().notificationOccurred(.success)
+            Floater.shared.success("Sent to Lens: \(result.addedSamples) added, \(result.faceSamples ?? result.addedSamples) photos for the cameras.")
+        } catch is CancellationError {
+        } catch {
+            UINotificationFeedbackGenerator().notificationOccurred(.warning)
+            Floater.shared.warning(error.localizedDescription)
+        }
+        sendingId = nil
+        await reload()
+    }
+
     private func loadMore() async {
         guard !isLoadingMore, !isLoading, let cursor = nextCursor,
               let token = authStore.currentSession?.token else { return }
@@ -112,6 +145,7 @@ struct LensEnrollmentView: View {
 
 private struct LensStaffRow: View {
     let staff: LensStaff
+    var isSending = false
 
     var body: some View {
         HStack(spacing: 12) {
@@ -141,7 +175,9 @@ private struct LensStaffRow: View {
 
     @ViewBuilder
     private var badge: some View {
-        if staff.isEnrolled {
+        if isSending {
+            ProgressView()
+        } else if staff.isEnrolled {
             Label("\(staff.enrollment?.faceSamples ?? 0)", systemImage: "faceid")
                 .font(.system(size: 12, weight: .semibold))
                 .foregroundStyle(Color(hex: 0x15803D))
@@ -149,6 +185,14 @@ private struct LensStaffRow: View {
                 .padding(.vertical, 4)
                 .background(Color.adaptiveTint(0xDCFCE7), in: Capsule())
                 .accessibilityLabel("Enrolled, \(staff.enrollment?.faceSamples ?? 0) photos")
+        } else if staff.canEnroll && staff.waitingPhotos > 0 {
+            // Saved while Lens was down / not configured: not lost, waiting.
+            Text("Saved · waiting for Lens")
+                .font(.system(size: 12, weight: .semibold))
+                .foregroundStyle(Color(hex: 0xB45309))
+                .padding(.horizontal, 8)
+                .padding(.vertical, 4)
+                .background(Color.adaptiveTint(0xFEF3C7), in: Capsule())
         } else if staff.canEnroll {
             Text("Not enrolled")
                 .font(.system(size: 12, weight: .semibold))
@@ -190,6 +234,7 @@ struct LensEnrollmentFlowView: View {
         case review
         case uploading
         case result(LensEnrollResult)
+        case saved
         case failure(String)
     }
 
@@ -224,6 +269,8 @@ struct LensEnrollmentFlowView: View {
                 NavigationStack { reviewScreen }
             case .result(let result):
                 NavigationStack { resultScreen(result) }
+            case .saved:
+                NavigationStack { savedScreen }
             case .failure(let message):
                 NavigationStack { failureScreen(message) }
             }
@@ -344,6 +391,12 @@ struct LensEnrollmentFlowView: View {
             didEnroll = result.addedSamples > 0
             UINotificationFeedbackGenerator().notificationOccurred(result.mustRetake ? .warning : .success)
             phase = .result(result)
+        } catch let error as LensEnrollError where error.savedForLater {
+            // Lens is down / not configured but the photos are on the profile.
+            lastError = error
+            didEnroll = true
+            UINotificationFeedbackGenerator().notificationOccurred(.warning)
+            phase = .saved
         } catch let error as LensEnrollError {
             lastError = error
             UINotificationFeedbackGenerator().notificationOccurred(.error)
@@ -397,6 +450,36 @@ struct LensEnrollmentFlowView: View {
             .padding(.horizontal, 16)
             .padding(.vertical, 12)
             .background(.bar)
+        }
+        .navigationTitle("Enrollment")
+        .navigationBarTitleDisplayMode(.inline)
+    }
+
+    private var savedScreen: some View {
+        ScrollView {
+            VStack(spacing: 18) {
+                Image(systemName: "tray.and.arrow.down.fill")
+                    .font(.system(size: 52, weight: .semibold))
+                    .foregroundStyle(Color(hex: 0xD97706))
+                    .padding(.top, 24)
+                Text("Photos saved")
+                    .font(.system(size: 20, weight: .bold))
+                    .multilineTextAlignment(.center)
+                Text("Photos saved on \(staff.displayName)'s profile. Waiting for Lens.")
+                    .font(.system(size: 14))
+                    .foregroundStyle(Color.appSecondaryText)
+                    .multilineTextAlignment(.center)
+            }
+            .padding(16)
+            .frame(maxWidth: .infinity)
+        }
+        .background(Color.appScreenBackground)
+        .safeAreaInset(edge: .bottom) {
+            Button("Done") { close() }
+                .buttonStyle(.mconnect(.primary))
+                .padding(.horizontal, 16)
+                .padding(.vertical, 12)
+                .background(.bar)
         }
         .navigationTitle("Enrollment")
         .navigationBarTitleDisplayMode(.inline)

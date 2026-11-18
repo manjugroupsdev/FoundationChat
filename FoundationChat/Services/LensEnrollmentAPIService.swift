@@ -6,6 +6,7 @@ import Foundation
 //
 //   GET  /api/lens/staff?search=&cursor=&limit=30
 //   POST /api/lens/enroll   { staffId, replace, photos: [{ pose, mimeType, dataBase64 }] }
+//   POST /api/lens/enroll/pending   { staffId }   (send photos saved while Lens was down)
 
 nonisolated struct LensStaffEnrollment: Decodable, Sendable, Equatable {
     let faceSamples: Int?
@@ -22,8 +23,12 @@ nonisolated struct LensStaff: Decodable, Identifiable, Sendable, Equatable {
     let designation: String?
     let photoUrl: String?
     let enrollment: LensStaffEnrollment?
+    /// Live photos saved on the profile, and how many still wait for Lens.
+    let savedPhotos: Int?
+    let pendingPhotos: Int?
 
     var id: String { staffId }
+    var waitingPhotos: Int { pendingPhotos ?? 0 }
 
     var displayName: String {
         let trimmed = name?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
@@ -104,6 +109,14 @@ nonisolated enum LensEnrollError: LocalizedError, Sendable {
         }
     }
 
+    /// Lens wasn't configured / reachable, but the server kept the photos on
+    /// the staff profile ("Photos saved…"): not lost, waiting for Lens.
+    var savedForLater: Bool {
+        guard case .server(_, let code, let message, _) = self,
+              code == "LENS_NOT_CONFIGURED" || code == "LENS_NOT_READY" else { return false }
+        return message.trimmingCharacters(in: .whitespacesAndNewlines).lowercased().hasPrefix("photos saved")
+    }
+
     var isRetryable: Bool {
         switch self {
         case .server(let status, let code, _, _):
@@ -141,6 +154,13 @@ nonisolated enum LensEnrollmentAPIService {
         let json = try JSONSerialization.data(withJSONObject: body)
         // Lens builds an embedding per photo; give it time on a slow network.
         let data = try await send(path: "/api/lens/enroll", token: token, method: "POST", body: json, timeout: 120)
+        return try JSONDecoder().decode(LensEnrollResult.self, from: data)
+    }
+
+    /// Sends the photos already saved on the staff profile to Lens (no re-recording).
+    static func sendPending(token: String, staffId: String) async throws -> LensEnrollResult {
+        let json = try JSONSerialization.data(withJSONObject: ["staffId": staffId])
+        let data = try await send(path: "/api/lens/enroll/pending", token: token, method: "POST", body: json, timeout: 120)
         return try JSONDecoder().decode(LensEnrollResult.self, from: data)
     }
 
@@ -185,6 +205,11 @@ nonisolated enum LensEnrollmentAPIService {
 /// local copy covers old servers / bodies without `error`.
 nonisolated enum LensMessages {
     static func sentence(code: String?, status: Int, server: String?) -> String {
+        // Keep the server's "Photos saved…" wording: it tells the staff the photos weren't lost.
+        if code == "LENS_NOT_CONFIGURED" || code == "LENS_NOT_READY",
+           let server, server.trimmingCharacters(in: .whitespacesAndNewlines).lowercased().hasPrefix("photos saved") {
+            return server
+        }
         if let local = byCode(code) { return local }
         if let server, !server.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty { return server }
         switch status {
