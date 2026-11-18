@@ -231,6 +231,10 @@ enum GeoTrackTamperSeverity: String, Decodable, Sendable {
 }
 
 struct GeoTrackTamperReportRequest: Encodable, Sendable {
+    // Fallback identity when the bearer token no longer resolves on the geo
+    // service and no session id is known (400 "staffId and eventType are
+    // required"). A valid token still wins server-side. Omitted when nil.
+    let staffId: String?
     let sessionId: String?
     let eventType: String
     let metadata: [String: String]
@@ -243,12 +247,14 @@ struct GeoTrackTamperReportRequest: Encodable, Sendable {
     let requestId: String
 
     init(
+        staffId: String? = nil,
         sessionId: String? = nil,
         eventType: String,
         metadata: [String: String] = [:],
         detectedAt: Int64? = nil,
         requestId: String
     ) {
+        self.staffId = staffId
         self.sessionId = sessionId
         self.eventType = eventType
         self.metadata = metadata

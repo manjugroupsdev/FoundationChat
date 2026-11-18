@@ -532,7 +532,10 @@ final class GeoTrackAPIService {
         default:
             directEventType = eventType.rawValue
         }
+        let staffId = (try? KeychainTokenStore().load())?.user.staffId?
+            .trimmingCharacters(in: .whitespacesAndNewlines)
         let body = GeoTrackTamperReportRequest(
+            staffId: staffId?.isEmpty == false ? staffId : nil,
             sessionId: metadata["_sessionId"] ?? GeoTrackBootstrapCoordinator.shared.activeSessionId,
             eventType: directEventType,
             metadata: publicMetadata,
