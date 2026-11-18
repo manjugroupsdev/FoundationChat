@@ -215,6 +215,7 @@ struct GeoTrackHeartbeatRequest: Encodable, Sendable {
 enum GeoTrackTamperEventType: String, Encodable, Sendable {
     case mockLocation = "MOCK_LOCATION"
     case airplaneModeOn = "AIRPLANE_MODE_ON"
+    case airplaneModeOff = "AIRPLANE_MODE_OFF"
     case gpsDisabled = "GPS_DISABLED"
     case heartbeatMissed = "HEARTBEAT_MISSED"
     case teleportation = "TELEPORTATION"
