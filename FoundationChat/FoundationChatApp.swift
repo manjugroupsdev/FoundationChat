@@ -103,6 +103,13 @@ struct FoundationChatApp: App {
             .environment(authStore)
             .onChange(of: scenePhase) { oldPhase, newPhase in
                 handleScenePhaseChange(from: oldPhase, to: newPhase)
+                MandatoryUpdateWindowPresenter.shared.sync(with: appUpdateCoordinator)
+            }
+            // The update page also lives in its own top-level window, above
+            // sheets, full-screen covers and alerts, so nothing presented over
+            // the app (on reopen or later) can hide it.
+            .onChange(of: appUpdateCoordinator.mustShowUpdate, initial: true) { _, _ in
+                MandatoryUpdateWindowPresenter.shared.sync(with: appUpdateCoordinator)
             }
             .onChange(of: authStore.currentSession?.token) { _, token in
                 Task { await refreshMandatoryUpdate() }
@@ -333,6 +340,43 @@ struct FoundationChatApp: App {
         if let presentedViewController = viewController.presentedViewController {
             markLayoutForRefresh(presentedViewController)
         }
+    }
+}
+
+/// Shows the mandatory update page in a dedicated UIWindow above every sheet,
+/// cover and alert while `mustShowUpdate` holds. The requirement itself is
+/// saved by AppUpdateCoordinator, so it is back on screen the moment the app
+/// reopens, offline included; it goes away only when the installed build is
+/// new enough or the server drops its minimum.
+@MainActor
+final class MandatoryUpdateWindowPresenter {
+    static let shared = MandatoryUpdateWindowPresenter()
+    private var window: UIWindow?
+
+    func sync(with coordinator: AppUpdateCoordinator) {
+        guard coordinator.mustShowUpdate else {
+            window?.isHidden = true
+            window = nil
+            return
+        }
+        if let window, !window.isHidden { return }
+        guard let scene = UIApplication.shared.connectedScenes
+            .compactMap({ $0 as? UIWindowScene })
+            .first(where: { $0.activationState == .foregroundActive || $0.activationState == .foregroundInactive })
+            ?? UIApplication.shared.connectedScenes.compactMap({ $0 as? UIWindowScene }).first
+        else { return }
+        let host = UIHostingController(
+            rootView: MandatoryAppUpdateView(
+                version: coordinator.requiredVersion,
+                onUpdate: { coordinator.openAppStore() }
+            )
+        )
+        host.view.backgroundColor = .systemBackground
+        let overlay = UIWindow(windowScene: scene)
+        overlay.windowLevel = .alert + 1
+        overlay.rootViewController = host
+        overlay.isHidden = false
+        window = overlay
     }
 }
 
