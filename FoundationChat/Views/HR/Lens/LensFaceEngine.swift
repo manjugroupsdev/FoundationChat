@@ -59,7 +59,7 @@ nonisolated enum LensPose: String, CaseIterable, Identifiable, Sendable {
         switch self {
         case .straight: return 0
         case .slightLeft, .slightRight: return 15
-        case .moreLeft, .moreRight: return 25
+        case .moreLeft, .moreRight: return 33
         }
     }
 
@@ -69,7 +69,8 @@ nonisolated enum LensPose: String, CaseIterable, Identifiable, Sendable {
         // Capture windows sit inside the doc's ranges with gaps between them, so
         // a head held near a boundary (e.g. 20 degrees) can't fill two poses.
         if yaw >= 11 && yaw <= 19 { return side < 0 ? .slightLeft : .slightRight }
-        if yaw >= 22 && yaw <= 30 { return side < 0 ? .moreLeft : .moreRight }
+        // "More" = a real side turn (slight and more looked the same at 22..30).
+        if yaw >= 26 && yaw <= 40 { return side < 0 ? .moreLeft : .moreRight }
         return nil
     }
 }
@@ -399,7 +400,10 @@ nonisolated final class LensFaceEngine: NSObject, AVCaptureVideoDataOutputSample
                 result.mouthClosed = openness(inner) <= maxMouthOpenRatio
             }
         } else {
+            // No eye/nose landmarks (typical of a real side turn): Vision's yaw
+            // still gives the angle and the side.
             result.yaw = abs(yawDeg)
+            if result.yaw > 8 { result.side = yawDeg < 0 ? 1 : -1 }
         }
 
         lumaAndSharpness(pixelBuffer, faceTopLeft: result.rectTopLeft, into: &result)
@@ -483,10 +487,13 @@ nonisolated final class LensFaceEngine: NSObject, AVCaptureVideoDataOutputSample
         if a.widthNorm > 0.78 { return .moveBack }
         if abs(a.cx - 0.5) > 0.2 || abs(a.cy - 0.45) > 0.22
             || a.rectTopLeft.minY < 0.02 || a.rectTopLeft.maxY > 0.98 { return .centerFace }
-        if !a.landmarksOK { return .faceCovered }
-        if a.yaw > 30 { return .turnLess }
+        // Side turns (more left/right, >= 26 deg) hide the far eye: no landmark
+        // or eye rule there, one clear, still, sharp face is enough.
+        let sideTurn = a.yaw >= 26
+        if !a.landmarksOK && !sideTurn { return .faceCovered }
+        if a.yaw > 40 { return .turnLess }
         if a.pitch > maxPitch || a.roll > maxRoll { return .keepLevel }
-        if !a.eyesOpen { return .openEyes }
+        if !a.eyesOpen && !sideTurn { return .openEyes }
         if !a.mouthClosed { return .closeMouth }
         if a.faceLuma < 55 { return .tooDark }
         if a.faceLuma > 220 { return .tooBright }
@@ -527,7 +534,7 @@ nonisolated final class LensFaceEngine: NSObject, AVCaptureVideoDataOutputSample
         // Only the pose being asked for (guided order) can capture, and only from a
         // head angle clearly different from the photos already taken (8 deg).
         let signedYaw = a.yaw * Double(a.side == 0 ? 1 : a.side)
-        let distinct = capturedYaw.allSatisfy { pose, yaw in pose == bucket || abs(signedYaw - yaw) >= 8 }
+        let distinct = capturedYaw.allSatisfy { pose, yaw in pose == bucket || abs(signedYaw - yaw) >= 10 }
         let wanted = bucket != nil && bucket == currentTarget && distinct
         let still = isStill(now: now)
 
