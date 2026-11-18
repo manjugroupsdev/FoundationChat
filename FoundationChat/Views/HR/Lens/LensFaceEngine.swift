@@ -66,15 +66,17 @@ nonisolated enum LensPose: String, CaseIterable, Identifiable, Sendable {
     static func bucket(yaw: Double, side: Int) -> LensPose? {
         if yaw <= 5 { return .straight }
         guard side != 0 else { return nil }
-        if yaw >= 10 && yaw < 20 { return side < 0 ? .slightLeft : .slightRight }
-        if yaw >= 20 && yaw <= 30 { return side < 0 ? .moreLeft : .moreRight }
+        // Capture windows sit inside the doc's ranges with gaps between them, so
+        // a head held near a boundary (e.g. 20 degrees) can't fill two poses.
+        if yaw >= 11 && yaw <= 19 { return side < 0 ? .slightLeft : .slightRight }
+        if yaw >= 22 && yaw <= 30 { return side < 0 ? .moreLeft : .moreRight }
         return nil
     }
 }
 
 nonisolated enum LensHint: Equatable, Sendable {
     case noFace, multipleFaces, moveCloser, moveBack, centerFace, keepLevel, openEyes, closeMouth
-    case tooDark, tooBright, backlight, faceCovered, holdStill, turnLess, turnMore, blurry
+    case tooDark, tooBright, backlight, faceCovered, holdStill, turnLess, turnMore, blurry, turnOtherWay
 
     var text: String {
         switch self {
@@ -94,6 +96,7 @@ nonisolated enum LensHint: Equatable, Sendable {
         case .turnLess: return "Turn a little less"
         case .turnMore: return "Turn a little more"
         case .blurry: return "Hold the phone steady"
+        case .turnOtherWay: return "Turn the other way"
         }
     }
 }
@@ -145,6 +148,8 @@ nonisolated final class LensFaceEngine: NSObject, AVCaptureVideoDataOutputSample
     // State below is touched on videoQueue only.
     private var targets: [LensPose] = LensPose.guidedOrder
     private var captured: [LensPose: LensShot] = [:]
+    /// Signed yaw each captured pose was taken at (separation check).
+    private var capturedYaw: [LensPose: Double] = [:]
     private var skipped: Set<LensPose> = []
     private var history: [(t: Double, yaw: Double, pitch: Double, roll: Double, cx: Double, cy: Double)] = []
     private var holdPose: LensPose?
@@ -195,6 +200,7 @@ nonisolated final class LensFaceEngine: NSObject, AVCaptureVideoDataOutputSample
         videoQueue.async {
             self.targets = LensPose.guidedOrder.filter { targets.contains($0) }
             self.captured = [:]
+            self.capturedYaw = [:]
             self.skipped = []
             self.history = []
             self.holdPose = nil
@@ -518,13 +524,19 @@ nonisolated final class LensFaceEngine: NSObject, AVCaptureVideoDataOutputSample
         history.removeAll { now - $0.t > 1.0 }
 
         let bucket = liveHint == nil ? LensPose.bucket(yaw: a.yaw, side: a.side) : nil
-        let wanted = bucket.map { remaining.contains($0) } ?? false
+        // Only the pose being asked for (guided order) can capture, and only from a
+        // head angle clearly different from the photos already taken (8 deg).
+        let signedYaw = a.yaw * Double(a.side == 0 ? 1 : a.side)
+        let distinct = capturedYaw.allSatisfy { pose, yaw in pose == bucket || abs(signedYaw - yaw) >= 8 }
+        let wanted = bucket != nil && bucket == currentTarget && distinct
         let still = isStill(now: now)
 
         if liveHint == nil, let target = currentTarget, !wanted {
             // Guide toward the target pose.
             if target.side == 0 {
                 liveHint = a.yaw > 5 ? .turnLess : nil
+            } else if a.side == -target.side && a.yaw > 5 {
+                liveHint = .turnOtherWay
             } else if a.side == target.side || a.yaw <= 5 {
                 liveHint = a.yaw < target.idealYaw - 5 ? .turnMore : (a.yaw > target.idealYaw + 5 ? .turnLess : nil)
             }
@@ -542,6 +554,7 @@ nonisolated final class LensFaceEngine: NSObject, AVCaptureVideoDataOutputSample
             }
             if now - holdStart >= holdDuration, let best = holdBest, let jpeg = jpegData(best.image) {
                 captured[pose] = LensShot(pose: pose, jpeg: jpeg, quality: best.score, faceWidthPx: best.widthPx)
+                capturedYaw[pose] = signedYaw
                 holdPose = nil
                 holdBest = nil
                 checkFinished()
