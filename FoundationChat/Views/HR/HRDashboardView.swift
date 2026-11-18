@@ -40,7 +40,11 @@ struct HRDashboardView: View {
     @AppStorage("attendance.onDuty.tripId") private var onDutyTripId = ""
 
     private let timer = Timer.publish(every: 1, on: .main, in: .common).autoconnect()
-    private let externalPunchRefreshTimer = Timer.publish(every: 45, on: .main, in: .common).autoconnect()
+    // Picks up clock-ins made elsewhere (biometric, web). Every 45 s this ran
+    // today + day-sessions + the month's history (when clocked in) on every
+    // open HR tab, adding to the Convex 16-concurrent-request limit (429s seen
+    // 18 Nov). Biometric punches also arrive by push; 3 min is enough here.
+    private let externalPunchRefreshTimer = Timer.publish(every: 180, on: .main, in: .common).autoconnect()
     private let attendancePanelTopOffset: CGFloat = 116
 
     init(
