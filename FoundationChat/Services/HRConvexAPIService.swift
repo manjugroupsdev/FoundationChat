@@ -1547,6 +1547,14 @@ enum HRConvexAPIService {
         // pre-punch answer right after a clock-in or clock-out.
         if path.hasPrefix("/api/hr/attendance/today") || path.hasPrefix("/api/hr/attendance/day-sessions") {
             request.cachePolicy = .reloadIgnoringLocalCacheData
+            // App open fired these twice each (Home + HR + tracking gate). Identical
+            // reads that overlap share one request; nothing is kept once it answers.
+            let shared = request
+            return try await HRAttendanceReadSharing.shared.data(key: token + "|" + path) { @MainActor in
+                let (data, response) = try await MMSRequestTransport.data(for: shared)
+                try checkHTTPError(data: data, response: response, request: shared)
+                return data
+            }
         }
         let (data, response) = try await MMSRequestTransport.data(for: request)
         try checkHTTPError(data: data, response: response, request: request)
@@ -1649,5 +1657,21 @@ private extension String {
     var nilIfBlankAPI: String? {
         let trimmed = trimmingCharacters(in: .whitespacesAndNewlines)
         return trimmed.isEmpty ? nil : trimmed
+    }
+}
+
+/// Overlapping identical attendance reads (today / day-sessions) share one
+/// request (19 Nov 2026: the busiest endpoints on the server). The task is
+/// dropped as soon as it answers, so a read after a clock-in/out is fresh.
+actor HRAttendanceReadSharing {
+    static let shared = HRAttendanceReadSharing()
+    private var inFlight: [String: Task<Data, Error>] = [:]
+
+    func data(key: String, fetch: @escaping @Sendable () async throws -> Data) async throws -> Data {
+        if let existing = inFlight[key] { return try await existing.value }
+        let task = Task<Data, Error> { try await fetch() }
+        inFlight[key] = task
+        defer { inFlight[key] = nil }
+        return try await task.value
     }
 }
