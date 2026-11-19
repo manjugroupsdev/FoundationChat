@@ -11,6 +11,7 @@ enum HRDashboardRoute: Hashable {
 
 struct HRDashboardView: View {
     @Environment(AuthStore.self) private var authStore
+    @Environment(\.scenePhase) private var scenePhase
 
     let isActive: Bool
     let openRoute: HRDashboardRoute?
@@ -26,6 +27,8 @@ struct HRDashboardView: View {
     @State private var todayShift: HRConvexAPIService.TodayShiftResponse?
     @State private var historyRecords: [ConvexAttendanceRecord] = []
     @State private var isLoading = false
+    @State private var activeReloads = 0
+    @State private var isRefreshingExternalAttendance = false
     @State private var nowTick = Date()
     @State private var showPunchIn = false
     @State private var showPunchOut = false
@@ -44,7 +47,13 @@ struct HRDashboardView: View {
     // today + day-sessions + the month's history (when clocked in) on every
     // open HR tab, adding to the Convex 16-concurrent-request limit (429s seen
     // 18 Nov). Biometric punches also arrive by push; 3 min is enough here.
-    private let externalPunchRefreshTimer = Timer.publish(every: 180, on: .main, in: .common).autoconnect()
+    private var shouldPollExternalAttendance: Bool {
+        HRRefreshPolicy.canRefresh(
+            isSelected: isActive && path.isEmpty,
+            isForeground: scenePhase == .active,
+            isPunchPresented: showPunchIn || showPunchOut || showOnDutySheet || showClockOutConfirm
+        )
+    }
     private let attendancePanelTopOffset: CGFloat = 116
 
     init(
@@ -194,12 +203,18 @@ struct HRDashboardView: View {
                 onOpenRouteHandled()
             }
             .onReceive(timer) { date in
-                guard isActive else { return }
+                guard isActive, scenePhase == .active else { return }
                 nowTick = date
             }
-            .onReceive(externalPunchRefreshTimer) { _ in
-                guard isActive else { return }
-                Task { await refreshAttendanceForExternalPunches() }
+            .task(id: shouldPollExternalAttendance) {
+                guard shouldPollExternalAttendance else { return }
+                while !Task.isCancelled {
+                    do {
+                        try await Task.sleep(nanoseconds: HRRefreshPolicy.intervalNanoseconds)
+                        try Task.checkCancellation()
+                    } catch { return }
+                    await refreshAttendanceForExternalPunches()
+                }
             }
             .sheet(isPresented: $showPunchIn) {
                 PunchFlowView(mode: .punchIn) { Task { await reloadAll() } }
@@ -968,6 +983,8 @@ struct HRDashboardView: View {
 
     @MainActor
     private func reloadAll() async {
+        activeReloads += 1
+        defer { activeReloads -= 1 }
         await authStore.refreshIAMPermissions()
         await withTaskGroup(of: Void.self) { group in
             group.addTask { await self.loadToday() }
@@ -990,11 +1007,15 @@ struct HRDashboardView: View {
 
     @MainActor
     private func refreshAttendanceForExternalPunches() async {
-        guard authStore.currentSession?.token != nil else { return }
+        guard shouldPollExternalAttendance, !Task.isCancelled,
+              activeReloads == 0, !isRefreshingExternalAttendance,
+              authStore.currentSession?.token != nil else { return }
+        isRefreshingExternalAttendance = true
+        defer { isRefreshingExternalAttendance = false }
         let wasOpen = isOpen
         let wasClockedOut = isClockedOut
         await loadToday()
-
+        guard !Task.isCancelled, shouldPollExternalAttendance else { return }
         if wasOpen != isOpen || wasClockedOut != isClockedOut || isOpen {
             await loadMonthHistory(showLoader: false)
         }
@@ -1027,8 +1048,10 @@ struct HRDashboardView: View {
             let attendanceRequest = Task { try await HRConvexAPIService.getTodayAttendance(token: token) }
             defer { attendanceRequest.cancel() }
 
-            todayDaySessions = await sessionsRequest.value
+            let fetchedSessions = await sessionsRequest.value
             let fetched = try await attendanceRequest.value
+            try Task.checkCancellation()
+            if let fetchedSessions { todayDaySessions = fetchedSessions }
             todayAttendance = fetched
             // Persist the authoritative snapshot for the next offline launch.
             if let key = cacheKey { LocalCache.put(key, fetched) }

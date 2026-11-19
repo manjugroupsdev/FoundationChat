@@ -1545,12 +1545,12 @@ enum HRConvexAPIService {
         request.setValue("Bearer \(token)", forHTTPHeaderField: "Authorization")
         // The server marks these `private, max-age=15`; honouring that served a
         // pre-punch answer right after a clock-in or clock-out.
-        if path.hasPrefix("/api/hr/attendance/today") || path.hasPrefix("/api/hr/attendance/day-sessions") {
+        if let sharingKey = HRAttendanceReadSharing.key(for: request) {
             request.cachePolicy = .reloadIgnoringLocalCacheData
-            // App open fired these twice each (Home + HR + tracking gate). Identical
-            // reads that overlap share one request; nothing is kept once it answers.
+            // Home, HR and tracking can ask for the same attendance concurrently.
+            // Share the read only while it is in flight; never cache punch status.
             let shared = request
-            return try await HRAttendanceReadSharing.shared.data(key: token + "|" + path) { @MainActor in
+            return try await HRAttendanceReadSharing.shared.data(key: sharingKey) { @MainActor in
                 let (data, response) = try await MMSRequestTransport.data(for: shared)
                 try checkHTTPError(data: data, response: response, request: shared)
                 return data
@@ -1577,7 +1577,16 @@ enum HRConvexAPIService {
         request.setValue("Bearer \(token)", forHTTPHeaderField: "Authorization")
         request.setValue("application/json", forHTTPHeaderField: "Content-Type")
         request.httpBody = try JSONSerialization.data(withJSONObject: jsonBody)
-        let (data, response) = try await MMSRequestTransport.data(for: request)
+        let changesPunch = path == "/api/hr/attendance/punch-in" || path == "/api/hr/attendance/punch-out"
+        let result: (Data, URLResponse)
+        do {
+            result = try await MMSRequestTransport.data(for: request)
+        } catch {
+            if changesPunch { await HRAttendanceReadSharing.shared.invalidate() }
+            throw error
+        }
+        if changesPunch { await HRAttendanceReadSharing.shared.invalidate() }
+        let (data, response) = result
         try checkHTTPError(data: data, response: response, request: request)
         return data
     }
@@ -1657,21 +1666,5 @@ private extension String {
     var nilIfBlankAPI: String? {
         let trimmed = trimmingCharacters(in: .whitespacesAndNewlines)
         return trimmed.isEmpty ? nil : trimmed
-    }
-}
-
-/// Overlapping identical attendance reads (today / day-sessions) share one
-/// request (19 Nov 2026: the busiest endpoints on the server). The task is
-/// dropped as soon as it answers, so a read after a clock-in/out is fresh.
-actor HRAttendanceReadSharing {
-    static let shared = HRAttendanceReadSharing()
-    private var inFlight: [String: Task<Data, Error>] = [:]
-
-    func data(key: String, fetch: @escaping @Sendable () async throws -> Data) async throws -> Data {
-        if let existing = inFlight[key] { return try await existing.value }
-        let task = Task<Data, Error> { try await fetch() }
-        inFlight[key] = task
-        defer { inFlight[key] = nil }
-        return try await task.value
     }
 }

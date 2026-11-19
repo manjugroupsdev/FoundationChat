@@ -750,10 +750,20 @@ enum ChatAPIService {
 
   private static func get(path: String, token: String) async throws -> Data {
     guard let url = URL(string: "\(baseURL)\(path)") else { throw ChatAPIError.badURL }
+    if ChatPollingBackoffPolicy.isBackgroundRead(path),
+       await ChatPollingBackoff.shared.isLimited(token: token) {
+      throw ChatAPIError.server("The server is busy. Chat will refresh shortly.", statusCode: 429)
+    }
     var request = URLRequest(url: url)
     request.httpMethod = "GET"
     request.setValue("Bearer \(token)", forHTTPHeaderField: "Authorization")
     let (data, response) = try await IssueReporter.data(for: request)
+    if let http = response as? HTTPURLResponse {
+      await ChatPollingBackoff.shared.record(
+        token: token, status: http.statusCode,
+        retryAfter: http.value(forHTTPHeaderField: "Retry-After").flatMap(TimeInterval.init)
+      )
+    }
     try checkHTTPError(data: data, response: response)
     return data
   }
