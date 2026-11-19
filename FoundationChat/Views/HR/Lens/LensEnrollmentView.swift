@@ -32,7 +32,8 @@ struct LensEnrollmentView: View {
                         // Saved photos: Send to Lens, retake one or all, delete.
                         // Close the search keyboard before the camera / photos open.
                         UIApplication.shared.sendAction(#selector(UIResponder.resignFirstResponder), to: nil, from: nil, for: nil)
-                        if (staff.savedPhotos ?? 0) > 0 { savedPhotosOf = staff } else { selected = staff }
+                        // Saved photos or already in Lens: show what's there first, never straight to the camera.
+                        if (staff.savedPhotos ?? 0) > 0 || staff.isEnrolled { savedPhotosOf = staff } else { selected = staff }
                     } label: {
                         LensStaffRow(staff: staff)
                     }
@@ -300,20 +301,19 @@ struct LensEnrollmentFlowView: View {
                     }
                 }
 
-                if single == nil && (staff.isEnrolled || startReplace) {
-                    Toggle(isOn: $replace) {
-                        VStack(alignment: .leading, spacing: 2) {
-                            Text("Replace earlier photos")
-                                .font(.system(size: 15, weight: .semibold))
-                            Text("\(staff.enrollment?.faceSamples ?? 0) photos are already enrolled")
-                                .font(.system(size: 12))
-                                .foregroundStyle(Color.appSecondaryText)
-                        }
+                // No switch: "Retake all" is the replace (chosen on the saved photos
+                // screen); here it's only a note. Other enrolls add to what's there.
+                if single == nil && replace && staff.isEnrolled {
+                    VStack(alignment: .leading, spacing: 2) {
+                        Text("Replace earlier photos")
+                            .font(.system(size: 15, weight: .semibold))
+                        Text("These photos replace the \(staff.enrollment?.faceSamples ?? 0) already in Lens.")
+                            .font(.system(size: 12))
+                            .foregroundStyle(Color.appSecondaryText)
                     }
-                    .tint(Color(hex: 0x0B61CA))
+                    .frame(maxWidth: .infinity, alignment: .leading)
                     .padding(14)
                     .background(Color.appSurface, in: RoundedRectangle(cornerRadius: 14, style: .continuous))
-                    .disabled(phase == .uploading)
                 }
 
                 if !requiredMissing.isEmpty {
@@ -760,6 +760,9 @@ struct LensCapturesView: View {
     private var statusLine: String {
         let samples = enrollment?.faceSamples ?? 0
         if waiting > 0 { return "\(waiting) photos waiting for Lens" }
+        if samples > 0 && captures.isEmpty && loaded {
+            return "In Lens: \(samples) photos for the cameras. None are saved on the profile; use Retake all to save new ones."
+        }
         if samples > 0 { return "In Lens: \(samples) photos for the cameras" }
         if captures.isEmpty && loaded { return "No saved photos. Record the head turn to enroll." }
         return "In Lens: \(captures.count) photos for the cameras"

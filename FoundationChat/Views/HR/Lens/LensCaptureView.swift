@@ -181,6 +181,11 @@ struct LensCaptureView: View {
                 if requiredDone && !model.snapshot.isFinished && targets.count > 1 {
                     Button("Use these photos") { model.engine.finishNow() }
                         .buttonStyle(.mconnect(.primary, compact: true))
+                } else if !requiredDone && !model.snapshot.captured.isEmpty && !model.snapshot.isFinished && targets.count > 1 {
+                    // Same as Android: review from the first photo.
+                    Button("Review photos") { model.engine.reviewNow() }
+                        .buttonStyle(.mconnect(.secondary, compact: true))
+                        .environment(\.colorScheme, .dark)
                 }
             }
             .frame(minHeight: 36)

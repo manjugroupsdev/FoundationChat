@@ -234,6 +234,16 @@ nonisolated final class LensFaceEngine: NSObject, AVCaptureVideoDataOutputSample
         }
     }
 
+    /// Review what's captured so far (from the first photo). The review
+    /// screen asks for any missing required angle before enrolling.
+    func reviewNow() {
+        videoQueue.async {
+            guard !self.captured.isEmpty else { return }
+            self.finished = true
+            self.publish(now: CACurrentMediaTime(), force: true)
+        }
+    }
+
     private func report(_ state: CameraState) {
         let handler = onCamera
         Task { @MainActor in handler(state) }
