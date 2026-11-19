@@ -208,11 +208,17 @@ struct FrontDeskQRScannerView: View {
                     isAnimating: scanLineAnimating && scannedValue == nil
                 )
 
-                Text("Align QR code inside the box to scan")
-                    .font(.system(size: 15, weight: .semibold))
-                    .foregroundStyle(.white.opacity(0.88))
-                    .multilineTextAlignment(.center)
-                    .shadow(color: .black.opacity(0.28), radius: 8, y: 2)
+                // Same wording as Android: title, then the Upload QR hint.
+                VStack(spacing: 6) {
+                    Text("Scan a visitor or site visit QR code")
+                        .font(.system(size: 15, weight: .semibold))
+                        .foregroundStyle(.white.opacity(0.92))
+                    Text("Have it as a picture? Tap Upload QR")
+                        .font(.system(size: 13, weight: .medium))
+                        .foregroundStyle(.white.opacity(0.7))
+                }
+                .multilineTextAlignment(.center)
+                .shadow(color: .black.opacity(0.28), radius: 8, y: 2)
             }
             .frame(maxWidth: .infinity, maxHeight: .infinity)
             .offset(y: centerYOffset)
