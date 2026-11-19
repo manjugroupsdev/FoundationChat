@@ -677,10 +677,10 @@ nonisolated final class LensFaceEngine: NSObject, AVCaptureVideoDataOutputSample
     }
 }
 
-/// Face crop for the photo sent to Lens: the whole head with a small margin,
-/// never the shirt and waist (same math as Android's LensFaceCrop). Lens rule:
-/// never cut the chin or forehead. About 1.9x the face width and 2.3x its
-/// height, moved up 10% of the face height, 4:5 portrait by growing the short
+/// Face crop for the photo sent to Lens: the face and its sides (ears, hair)
+/// only, never the neck, chest or shirt (same math as Android's LensFaceCrop).
+/// Lens rule: never cut the chin or forehead. About 1.45x the face width and
+/// 1.6x its height, moved up 8% of the face height, 4:5 portrait by growing the short
 /// side, kept inside the frame (slides; shrinks only when the frame is smaller,
 /// never below the face plus a small margin).
 nonisolated enum LensFaceCrop {
@@ -688,9 +688,9 @@ nonisolated enum LensFaceCrop {
         let left: Int, top: Int, width: Int, height: Int
     }
 
-    static let widthFactor = 1.9
-    static let heightFactor = 2.3
-    static let shiftUp = 0.10
+    static let widthFactor = 1.45
+    static let heightFactor = 1.6
+    static let shiftUp = 0.08
     static let aspect = 0.8
     static let minMargin = 0.08
     static let upscaleBelow = 360
