@@ -30,6 +30,8 @@ struct LensEnrollmentView: View {
                     Button {
                         guard staff.canEnroll else { return }
                         // Saved photos: Send to Lens, retake one or all, delete.
+                        // Close the search keyboard before the camera / photos open.
+                        UIApplication.shared.sendAction(#selector(UIResponder.resignFirstResponder), to: nil, from: nil, for: nil)
                         if (staff.savedPhotos ?? 0) > 0 { savedPhotosOf = staff } else { selected = staff }
                     } label: {
                         LensStaffRow(staff: staff)
