@@ -729,19 +729,21 @@ struct LensCapturesView: View {
         }
         .task { await load() }
         .floaterAlert($errorMessage)
-        .alert(
-            confirmDelete?.captureId == nil ? "Delete all photos?" : "Delete this photo?",
-            isPresented: Binding(get: { confirmDelete != nil }, set: { if !$0 { confirmDelete = nil } }),
-            presenting: confirmDelete
+        // Shared Mconnect confirm sheet (never the stock alert).
+        .mconnectConfirm(
+            item: $confirmDelete,
+            title: { $0.captureId == nil ? "Delete all photos?" : "Delete this photo?" },
+            message: { target in
+                if let pose = target.pose {
+                    return "The \(pose.title.lowercased()) photo is removed from \(staff.displayName)'s profile. Lens keeps what it already has."
+                }
+                return "All \(captures.count) saved photos of \(staff.displayName) are removed from the profile. Lens keeps what it already has."
+            },
+            confirmLabel: "Delete",
+            destructive: true,
+            systemImage: "trash"
         ) { target in
-            Button("Delete", role: .destructive) { Task { await delete(target.captureId) } }
-            Button("Cancel", role: .cancel) {}
-        } message: { target in
-            if let pose = target.pose {
-                Text("The \(pose.title.lowercased()) photo is removed from \(staff.displayName)'s profile. Lens keeps what it already has.")
-            } else {
-                Text("All \(captures.count) saved photos of \(staff.displayName) are removed from the profile. Lens keeps what it already has.")
-            }
+            Task { await delete(target.captureId) }
         }
         .fullScreenCover(item: $retakePose) { pose in
             LensEnrollmentFlowView(staff: staff, single: pose) { changed() }
