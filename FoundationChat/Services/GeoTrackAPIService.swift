@@ -10,6 +10,12 @@ protocol GeoTrackHTTPSession: Sendable {
 
 extension URLSession: GeoTrackHTTPSession {}
 
+nonisolated private struct GeoTrackObservedHTTPSession: GeoTrackHTTPSession {
+    func data(for request: URLRequest) async throws -> (Data, URLResponse) {
+        try await IssueReporter.data(for: request)
+    }
+}
+
 // MARK: - GeoTrack API Error
 
 enum GeoTrackAPIError: LocalizedError {
@@ -80,7 +86,7 @@ final class GeoTrackAPIService {
         baseURL: String? = nil,
         trackingBaseURL: String? = nil,
         tokenProvider: (() -> String?)? = nil,
-        urlSession: (any GeoTrackHTTPSession) = URLSession.shared
+        urlSession: (any GeoTrackHTTPSession) = GeoTrackObservedHTTPSession()
     ) {
         self.baseURL = baseURL ?? AppConfig.baseURL
         self.trackingBaseURL = trackingBaseURL ?? (baseURL ?? AppConfig.geoTrackBaseURL)
