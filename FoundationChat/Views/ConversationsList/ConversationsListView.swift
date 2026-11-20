@@ -1,4 +1,3 @@
-import Combine
 import SwiftData
 import SwiftUI
 
@@ -71,6 +70,7 @@ struct ConversationsListView: View {
 
   @Environment(\.modelContext) private var modelContext
   @Environment(AuthStore.self) private var authStore
+  @Environment(\.scenePhase) private var scenePhase
   @Query private var conversations: [Conversation]
   @Binding var selectedTab: AppTab
   let openConversationID: String?
@@ -79,6 +79,7 @@ struct ConversationsListView: View {
   let onOpenChannelHandled: () -> Void
 
   @State private var path = NavigationPath()
+  @State private var isVisible = false
   @State private var searchText = ""
   @State private var selectedFilter: ChatFilter = .all
   @State private var isNewConversationSheetPresented = false
@@ -88,9 +89,17 @@ struct ConversationsListView: View {
   @State private var favoriteChannelIDs: Set<String> = []
   @State private var selectedHomeItemIDs: Set<String> = []
   @State private var longPressSelectionGuards: Set<String> = []
-  @State private var conversationsSubscription: AnyCancellable?
   @State private var conversationsRefreshTask: Task<Void, Never>?
   @State private var latestMessagesRefreshTask: Task<Void, Never>?
+
+  private var shouldRefreshConversations: Bool {
+    ScreenReadRefreshPolicy.canRefresh(
+      isSelected: selectedTab == .chats && path.isEmpty,
+      isVisible: isVisible, isForeground: scenePhase == .active
+    )
+  }
+
+  private var channelSearchKey: String? { shouldRefreshConversations ? searchText : nil }
 
   private var filteredConversations: [Conversation] {
     let remoteBackedConversations = conversations.filter {
@@ -294,19 +303,18 @@ struct ConversationsListView: View {
         prompt: "Search Chats"
       )
       .onAppear {
-        startConversationsSubscription()
-        startConversationsRefresh()
-        Task {
-          await loadChannels(search: searchText)
-        }
+        isVisible = true
       }
       .onDisappear {
-        conversationsSubscription?.cancel()
-        conversationsSubscription = nil
-        conversationsRefreshTask?.cancel()
-        conversationsRefreshTask = nil
-        latestMessagesRefreshTask?.cancel()
-        latestMessagesRefreshTask = nil
+        isVisible = false
+        stopConversationsRefresh()
+      }
+      .task(id: shouldRefreshConversations) {
+        stopConversationsRefresh()
+        guard shouldRefreshConversations else { return }
+        // subscribeConversations is a one-shot Future, not a live stream.
+        // This loop already performs the same initial HTTP fetch.
+        startConversationsRefresh()
       }
       .toolbar {
         if isSelectionMode {
@@ -389,8 +397,9 @@ struct ConversationsListView: View {
           }
         )
       }
-      .task(id: searchText) {
-        await loadChannels(search: searchText)
+      .task(id: channelSearchKey) {
+        guard let channelSearchKey else { return }
+        await loadChannels(search: channelSearchKey)
       }
       .task(id: openConversationID) {
         guard let openConversationID else { return }
@@ -439,58 +448,43 @@ struct ConversationsListView: View {
   }
 
   @MainActor
-  private func startConversationsSubscription() {
-    conversationsSubscription?.cancel()
-    do {
-      conversationsSubscription = try authStore
-        .subscribeConversations()
-        .receive(on: DispatchQueue.main)
-        .sink(
-          receiveCompletion: { completion in
-            guard case .failure = completion else { return }
-            Task { @MainActor in
-              try? await Task.sleep(for: .seconds(1))
-              startConversationsSubscription()
-            }
-          },
-          receiveValue: { remoteConversations in
-            let conversations = remoteConversations ?? []
-            applyRemoteConversations(conversations)
-            scheduleLatestMessagesRefresh(remoteConversations: conversations)
-          }
-        )
-    } catch {
-      conversationsSubscription = nil
-      Task { @MainActor in
-        try? await Task.sleep(for: .seconds(1))
-        startConversationsSubscription()
-      }
-    }
+  private func stopConversationsRefresh() {
+    conversationsRefreshTask?.cancel()
+    conversationsRefreshTask = nil
+    latestMessagesRefreshTask?.cancel()
+    latestMessagesRefreshTask = nil
   }
 
   @MainActor
   private func startConversationsRefresh() {
+    guard shouldRefreshConversations else { return }
     conversationsRefreshTask?.cancel()
     conversationsRefreshTask = Task { @MainActor in
-      while !Task.isCancelled {
-        do {
-          let remoteConversations = try await authStore.fetchConversations()
-          applyRemoteConversations(remoteConversations)
-          scheduleLatestMessagesRefresh(remoteConversations: remoteConversations)
-        } catch {
-          // Keep the cached list visible during transient network failures.
+      while !Task.isCancelled && shouldRefreshConversations {
+        if let token = authStore.currentSession?.token,
+           !(await ChatPollingBackoff.shared.isLimited(token: token)) {
+          guard !Task.isCancelled, shouldRefreshConversations else { return }
+          do {
+            let remoteConversations = try await authStore.fetchConversations()
+            guard !Task.isCancelled, shouldRefreshConversations else { return }
+            applyRemoteConversations(remoteConversations)
+            scheduleLatestMessagesRefresh(remoteConversations: remoteConversations)
+          } catch {
+            // Keep the cached list visible during transient network failures.
+          }
         }
-        try? await Task.sleep(for: .seconds(30))
+        do { try await Task.sleep(for: .seconds(30)) } catch { return }
       }
     }
   }
 
   @MainActor
   private func scheduleLatestMessagesRefresh(remoteConversations: [ConvexConversationSummary]) {
+    guard shouldRefreshConversations else { return }
     latestMessagesRefreshTask?.cancel()
     latestMessagesRefreshTask = Task { @MainActor in
       try? await Task.sleep(for: .milliseconds(350))
-      guard !Task.isCancelled else { return }
+      guard !Task.isCancelled, shouldRefreshConversations else { return }
       await refreshLatestMessagesForList(remoteConversations: remoteConversations)
     }
   }
@@ -503,12 +497,17 @@ struct ConversationsListView: View {
       .map(\.id)
 
     for conversationID in recentConversationIDs {
+      guard !Task.isCancelled, shouldRefreshConversations else { return }
+      if let token = authStore.currentSession?.token,
+         await ChatPollingBackoff.shared.isLimited(token: token) { return }
+      guard !Task.isCancelled, shouldRefreshConversations else { return }
       guard let localConversation = conversations.first(where: { $0.remoteConversationID == conversationID }) else {
         continue
       }
 
       do {
         let messages = try await authStore.fetchMessages(conversationID: conversationID)
+        guard !Task.isCancelled, shouldRefreshConversations else { return }
         for message in messages {
           upsertMessage(message, into: localConversation)
         }

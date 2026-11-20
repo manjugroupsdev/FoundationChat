@@ -21,7 +21,7 @@ struct HRAttendanceReadSharingTests {
         }
         func release() { continuation?.resume(returning: Data([7])); continuation = nil }
     }
-    enum Failure: Error { case expected }
+    enum Failure: Error { case expected, status(Int) }
     static func request(_ path: String, token: String = "test-token") -> URLRequest {
         var request = URLRequest(url: URL(string: "https://attendance.example" + path)!)
         request.httpMethod = "GET"
@@ -94,6 +94,51 @@ struct HRAttendanceReadSharingTests {
         let owned = try await owner.value
         _ = try await release.value
         precondition(joined == owned)
-        print("Attendance sharing and lifecycle: 26 checks passed")
+
+        // Cancelling one UI consumer must not cancel a shared tracking read or
+        // cause all remaining consumers to issue replacement requests.
+        let cancellationReads = HRAttendanceReadSharing()
+        let cancellationLatch = Latch()
+        let cancelledOwner = Task {
+            try await cancellationReads.data(key: "cancel-owner") { try await cancellationLatch.fetch() }
+        }
+        await cancellationLatch.waitUntilStarted()
+        cancelledOwner.cancel()
+        let survivors = (0..<20).map { _ in Task {
+            try await cancellationReads.data(key: "cancel-owner") { preconditionFailure("Cancellation fan-out") }
+        } }
+        try await Task.sleep(nanoseconds: 100_000_000)
+        await cancellationLatch.release()
+        do { _ = try await cancelledOwner.value; preconditionFailure("Cancelled caller received data") }
+        catch is CancellationError {}
+        for survivor in survivors {
+            let value = try await survivor.value
+            precondition(value == Data([7]))
+        }
+
+        let waiterLatch = Latch()
+        let waiterOwner = Task { try await cancellationReads.data(key: "cancel-waiter") { try await waiterLatch.fetch() } }
+        await waiterLatch.waitUntilStarted()
+        let cancelledWaiter = Task {
+            try await cancellationReads.data(key: "cancel-waiter") { preconditionFailure("Duplicate waiter fetch") }
+        }
+        try await Task.sleep(nanoseconds: 30_000_000)
+        cancelledWaiter.cancel()
+        await waiterLatch.release()
+        do { _ = try await cancelledWaiter.value; preconditionFailure("Cancelled waiter received data") }
+        catch is CancellationError {}
+        let waiterOwnerValue = try await waiterOwner.value
+        precondition(waiterOwnerValue == Data([7]))
+
+        for status in [429, 503] {
+            let overloaded = HRAttendanceReadSharing()
+            do {
+                _ = try await overloaded.data(key: "overload") { throw Failure.status(status) }
+                preconditionFailure("Expected overload, not fake success")
+            } catch Failure.status(let actual) { precondition(actual == status) }
+            let fresh = try await overloaded.data(key: "overload") { Data([8]) }
+            precondition(fresh == Data([8]), "Failure must not cache or poison a later fresh read")
+        }
+        print("Attendance sharing, cancellation fan-out, freshness and 429/503 isolation: passed")
     }
 }

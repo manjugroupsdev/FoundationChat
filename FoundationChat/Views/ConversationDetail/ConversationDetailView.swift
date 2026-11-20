@@ -12,6 +12,8 @@ struct ConversationDetailView: View {
   @Environment(\.modelContext) private var modelContext
   @Environment(\.dismiss) private var dismiss
   @Environment(AuthStore.self) private var authStore
+  @Environment(\.scenePhase) private var scenePhase
+  @State private var isVisible = false
   @Query private var allConversations: [Conversation]
 
   @State var newMessage: String = ""
@@ -60,6 +62,12 @@ struct ConversationDetailView: View {
   @State private var mentionUsers: [DirectoryUser] = []
   @State private var mentionSearchTask: Task<Void, Never>?
   @FocusState var isInputFocused: Bool
+
+  private var shouldRefreshChat: Bool {
+    ScreenReadRefreshPolicy.canRefresh(
+      isSelected: true, isVisible: isVisible, isForeground: scenePhase == .active
+    )
+  }
 
   enum ActiveDetailSheet: Identifiable {
     case media
@@ -256,27 +264,24 @@ struct ConversationDetailView: View {
       }
     }
     .onAppear {
-      startMessagesSubscription()
-      startConversationStatusSubscription()
-      startPolling()
+      isVisible = true
       flushPendingOutbox()
-      startTypingPolling()
-      startPresencePolling()
       withAnimation {
         scrollPosition.scrollTo(edge: .bottom)
       }
     }
+    .task(id: shouldRefreshChat) {
+      stopChatReads()
+      guard shouldRefreshChat else { return }
+      startMessagesSubscription()
+      startConversationStatusSubscription()
+      startPolling()
+      startTypingPolling()
+      startPresencePolling()
+    }
     .onDisappear {
-      messagesSubscription?.cancel()
-      messagesSubscription = nil
-      conversationStatusSubscription?.cancel()
-      conversationStatusSubscription = nil
-      pollingTask?.cancel()
-      pollingTask = nil
-      typingPollTask?.cancel()
-      typingPollTask = nil
-      presencePollTask?.cancel()
-      presencePollTask = nil
+      isVisible = false
+      stopChatReads()
       typingExpiryTask?.cancel()
       typingExpiryTask = nil
       voiceTypingTask?.cancel()
@@ -291,10 +296,11 @@ struct ConversationDetailView: View {
       otherParticipantPresence = nil
       remoteParticipants = []
       remoteOtherParticipant = nil
+      flushPendingOutbox()
+      guard shouldRefreshChat else { return }
       startMessagesSubscription()
       startConversationStatusSubscription()
       startPolling()
-      flushPendingOutbox()
       startTypingPolling()
       startPresencePolling()
     }
@@ -942,28 +948,30 @@ struct ConversationDetailView: View {
 
   @MainActor
   private func startTypingPolling() {
-    guard let remoteConversationID = conversation.remoteConversationID else { return }
+    guard shouldRefreshChat, let remoteConversationID = conversation.remoteConversationID else { return }
     typingPollTask?.cancel()
     typingPollTask = Task { @MainActor in
-      while !Task.isCancelled {
+      while !Task.isCancelled && shouldRefreshChat {
         do {
           let users = try await authStore.fetchTypingUsers(conversationId: remoteConversationID)
           typingUsers = users.filter { $0.stackUserId != authStore.viewer?.subject }
         } catch {
           typingUsers = []
         }
-        try? await Task.sleep(for: .seconds(2))
+        do { try await Task.sleep(for: .seconds(2)) } catch { return }
       }
     }
   }
 
   @MainActor
   private func startPresencePolling() {
+    guard shouldRefreshChat else { return }
     presencePollTask?.cancel()
     presencePollTask = Task { @MainActor in
       await refreshConversationPresence()
-      while !Task.isCancelled {
-        try? await Task.sleep(for: .seconds(15))
+      while !Task.isCancelled && shouldRefreshChat {
+        do { try await Task.sleep(for: .seconds(15)) } catch { return }
+        guard !Task.isCancelled, shouldRefreshChat else { return }
         await refreshConversationPresence()
       }
     }
@@ -971,6 +979,7 @@ struct ConversationDetailView: View {
 
   @MainActor
   private func refreshConversationPresence() async {
+    guard !Task.isCancelled, shouldRefreshChat else { return }
     if remoteParticipants.isEmpty, let remoteConversationID = conversation.remoteConversationID {
       if let summary = try? await authStore.fetchConversation(conversationID: remoteConversationID) {
         remoteParticipants = summary.participants ?? []
@@ -982,7 +991,7 @@ struct ConversationDetailView: View {
       }
     }
 
-    guard let otherParticipantStackUserId else { return }
+    guard !Task.isCancelled, shouldRefreshChat, let otherParticipantStackUserId else { return }
     do {
       otherParticipantPresence = try await authStore.fetchPresence(for: [otherParticipantStackUserId]).first
     } catch {
@@ -2873,6 +2882,7 @@ extension ConversationDetailView {
 
   @MainActor
   private func startConversationStatusSubscription() {
+    guard shouldRefreshChat else { return }
     guard let remoteConversationID = conversation.remoteConversationID else { return }
 
     conversationStatusSubscription?.cancel()
@@ -2916,6 +2926,7 @@ extension ConversationDetailView {
 
   @MainActor
   private func startMessagesSubscription() {
+    guard shouldRefreshChat else { return }
     guard let remoteConversationID = conversation.remoteConversationID else { return }
 
     messagesSubscription?.cancel()
@@ -2957,13 +2968,20 @@ extension ConversationDetailView {
 
   @MainActor
   private func startPolling() {
-    guard let remoteConversationID = conversation.remoteConversationID else { return }
+    guard shouldRefreshChat, let remoteConversationID = conversation.remoteConversationID else { return }
     pollingTask?.cancel()
     pollingTask = Task { @MainActor in
-      try? await Task.sleep(for: .seconds(3))
-      while !Task.isCancelled {
+      do { try await Task.sleep(for: .seconds(3)) } catch { return }
+      while !Task.isCancelled && shouldRefreshChat {
+        if let token = authStore.currentSession?.token,
+           await ChatPollingBackoff.shared.isLimited(token: token) {
+          do { try await Task.sleep(for: .seconds(3)) } catch { return }
+          continue
+        }
+        guard !Task.isCancelled, shouldRefreshChat else { return }
         do {
           let latestMessages = try await authStore.fetchMessages(conversationID: remoteConversationID)
+          guard !Task.isCancelled, shouldRefreshChat else { return }
           let previousCount = conversation.messages.count
           applyRemoteMessages(latestMessages)
           markConversationAsSeenIfNeeded(latestMessages)
@@ -2974,6 +2992,7 @@ extension ConversationDetailView {
             try? modelContext.save()
           }
         } catch {
+          guard !Task.isCancelled, shouldRefreshChat else { return }
           do {
             let newMessages = try await authStore.pollMessages(conversationId: remoteConversationID, after: lastPollTimestamp)
             if !newMessages.isEmpty {
@@ -2988,9 +3007,23 @@ extension ConversationDetailView {
             // Keep the open chat usable if the network has a transient failure.
           }
         }
-        try? await Task.sleep(for: .seconds(3))
+        do { try await Task.sleep(for: .seconds(3)) } catch { return }
       }
     }
+  }
+
+  @MainActor
+  private func stopChatReads() {
+    messagesSubscription?.cancel()
+    messagesSubscription = nil
+    conversationStatusSubscription?.cancel()
+    conversationStatusSubscription = nil
+    pollingTask?.cancel()
+    pollingTask = nil
+    typingPollTask?.cancel()
+    typingPollTask = nil
+    presencePollTask?.cancel()
+    presencePollTask = nil
   }
 
   private func streamNewMessage() async {

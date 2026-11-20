@@ -71,7 +71,7 @@ struct MainTabView: View {
     var body: some View {
         TabView(selection: $selectedTab) {
             Tab("Home", image: "AndroidNavHomeIcon", value: .home) {
-                HomeView(hasPlayedEntryAnimation: $hasPlayedHomeEntryAnimation)
+                HomeView(hasPlayedEntryAnimation: $hasPlayedHomeEntryAnimation, isActive: selectedTab == .home)
             }
 
             Tab("Attendance", image: "AndroidNavAttendanceIcon", value: .hr) {

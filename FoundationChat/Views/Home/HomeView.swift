@@ -1,4 +1,3 @@
-import Combine
 import CoreLocation
 import SwiftUI
 import UIKit
@@ -8,7 +7,10 @@ import UIKit
 /// Scope note: this view owns the Home surface only.
 struct HomeView: View {
     @Environment(AuthStore.self) private var authStore
+    @Environment(\.scenePhase) private var scenePhase
     @Binding private var hasPlayedEntryAnimation: Bool
+    let isActive: Bool
+    @State private var isVisible = false
     @State private var formActivityStore = AppFormActivityStore.shared
 
     @State private var todayVisits: [GeoTrackTodayVisit] = []
@@ -73,10 +75,16 @@ struct HomeView: View {
     @AppStorage("home.pendingTasksSheet.lastPresentedAt") private var pendingTaskSheetLastPresentedAt = 0.0
 
     private let geoAPI = GeoTrackAPIService.shared
-    private let timer = Timer.publish(every: 60, on: .main, in: .common).autoconnect()
     private let pendingTaskSheetInterval: TimeInterval = 15 * 60
 
-    init(hasPlayedEntryAnimation: Binding<Bool> = .constant(false)) {
+    private var shouldRefreshHome: Bool {
+        ScreenReadRefreshPolicy.canRefresh(
+            isSelected: isActive, isVisible: isVisible, isForeground: scenePhase == .active
+        )
+    }
+
+    init(hasPlayedEntryAnimation: Binding<Bool> = .constant(false), isActive: Bool = true) {
+        self.isActive = isActive
         _hasPlayedEntryAnimation = hasPlayedEntryAnimation
         let isSettled = hasPlayedEntryAnimation.wrappedValue
         _appeared = State(initialValue: isSettled)
@@ -272,8 +280,10 @@ struct HomeView: View {
                     FrontDeskQRScannerView(showsCloseButton: true)
                 }
             }
-            .task {
+            .task(id: shouldRefreshHome) {
+                guard shouldRefreshHome else { return }
                 await reload()
+                guard !Task.isCancelled else { return }
                 appeared = true
                 if hasPlayedEntryAnimation {
                     headerEntryStarted = true
@@ -282,21 +292,28 @@ struct HomeView: View {
                     playHomeHeaderAnimation()
                     hasPlayedEntryAnimation = true
                 }
+                await ScreenReadRefreshPolicy.poll(every: 60_000_000_000) {
+                    guard shouldRefreshHome, !isLoading else { return }
+                    presentPendingTasksSheetIfDue()
+                    guard todayAttendance?.isOpen == true || hasOpenSession else { return }
+                    await loadAttendanceSummary()
+                }
             }
             .onAppear {
+                isVisible = true
                 UIApplication.shared.fc_dismissKeyboard()
                 guard appeared else { return }
                 headerEntryStarted = true
                 headerFloating = true
-                Task { await reload() }
             }
             .onDisappear {
+                isVisible = false
                 if !hasPlayedEntryAnimation {
                     headerFloating = false
                 }
             }
             .onChange(of: canViewManagementDashboard) { oldValue, newValue in
-                guard oldValue != newValue, appeared else { return }
+                guard oldValue != newValue, appeared, shouldRefreshHome else { return }
                 Task { await reload() }
             }
             .onChange(of: formActivityStore.isFormActive) { _, isFormActive in
@@ -318,11 +335,6 @@ struct HomeView: View {
                     pendingTasksClosedForPermissions = false
                     presentPendingTasksSheet(force: reopen)
                 }
-            }
-            .onReceive(timer) { _ in
-                presentPendingTasksSheetIfDue()
-                guard todayAttendance?.isOpen == true || hasOpenSession else { return }
-                Task { await loadAttendanceSummary() }
             }
         }
     }

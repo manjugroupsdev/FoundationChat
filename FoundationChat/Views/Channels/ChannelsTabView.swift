@@ -218,6 +218,8 @@ struct ChannelsTabView: View {
 struct ChannelChatView: View {
   @Environment(AuthStore.self) private var authStore
   @Environment(\.dismiss) private var dismiss
+  @Environment(\.scenePhase) private var scenePhase
+  @State private var isVisible = false
   let channel: ChannelSummary
 
   @State private var newMessage = ""
@@ -251,6 +253,12 @@ struct ChannelChatView: View {
   @State private var pollingTask: Task<Void, Never>?
   @State private var lastPollTimestamp: Double = 0
   @FocusState private var isInputFocused: Bool
+
+  private var shouldRefreshChannel: Bool {
+    ScreenReadRefreshPolicy.canRefresh(
+      isSelected: true, isVisible: isVisible, isForeground: scenePhase == .active
+    )
+  }
 
   private var needsJoin: Bool {
     channel.type?.lowercased() == "public"
@@ -474,19 +482,22 @@ struct ChannelChatView: View {
       Task { await handleImportedFile(result) }
     }
     .onAppear {
+      isVisible = true
+      isInputFocused = true
+    }
+    .task(id: shouldRefreshChannel) {
+      stopChannelReads()
+      guard shouldRefreshChannel else { return }
       startMessagesSubscription()
       startPolling()
-      isInputFocused = true
     }
     .onChange(of: newMessage) { _, _ in
       scheduleMentionDirectoryLoad()
       sendTypingSignalIfNeeded()
     }
     .onDisappear {
-      messagesSubscription?.cancel()
-      messagesSubscription = nil
-      pollingTask?.cancel()
-      pollingTask = nil
+      isVisible = false
+      stopChannelReads()
       voiceTypingTask?.cancel()
       voiceTypingTask = nil
       cancelVoiceRecording()
@@ -543,12 +554,14 @@ struct ChannelChatView: View {
 
   @MainActor
   private func startPolling() {
+    guard shouldRefreshChannel else { return }
     pollingTask?.cancel()
     pollingTask = Task {
-      try? await Task.sleep(for: .seconds(3))
-      while !Task.isCancelled {
+      do { try await Task.sleep(for: .seconds(3)) } catch { return }
+      while !Task.isCancelled && shouldRefreshChannel {
         do {
           let newMessages = try await authStore.pollMessages(channelId: channel.id, after: lastPollTimestamp)
+          guard !Task.isCancelled, shouldRefreshChannel else { return }
           if !newMessages.isEmpty {
             let mapped = newMessages.map(ChannelChatMessage.init)
             for msg in mapped where !messages.contains(where: { $0.id == msg.id }) {
@@ -562,13 +575,14 @@ struct ChannelChatView: View {
         } catch {
           // Ignore polling errors
         }
-        try? await Task.sleep(for: .seconds(3))
+        do { try await Task.sleep(for: .seconds(3)) } catch { return }
       }
     }
   }
 
   @MainActor
   private func startMessagesSubscription() {
+    guard shouldRefreshChannel else { return }
     messagesSubscription?.cancel()
     do {
       messagesSubscription = try authStore
@@ -593,6 +607,14 @@ struct ChannelChatView: View {
         startMessagesSubscription()
       }
     }
+  }
+
+  @MainActor
+  private func stopChannelReads() {
+    messagesSubscription?.cancel()
+    messagesSubscription = nil
+    pollingTask?.cancel()
+    pollingTask = nil
   }
 
   @MainActor

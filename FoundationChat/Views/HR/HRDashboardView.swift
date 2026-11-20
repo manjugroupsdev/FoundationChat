@@ -18,6 +18,7 @@ struct HRDashboardView: View {
     var onOpenRouteHandled: () -> Void
 
     @State private var path = NavigationPath()
+    @State private var isVisible = false
     @State private var todayAttendance: ConvexTodayAttendance?
     @State private var todayDaySessions: ConvexDaySessionsResponse?
     /// Offline punches queued for TODAY that the server hasn't seen yet. Without
@@ -49,9 +50,14 @@ struct HRDashboardView: View {
     // 18 Nov). Biometric punches also arrive by push; 3 min is enough here.
     private var shouldPollExternalAttendance: Bool {
         HRRefreshPolicy.canRefresh(
-            isSelected: isActive && path.isEmpty,
+            isSelected: isActive && isVisible && path.isEmpty,
             isForeground: scenePhase == .active,
             isPunchPresented: showPunchIn || showPunchOut || showOnDutySheet || showClockOutConfirm
+        )
+    }
+    private var isDashboardVisible: Bool {
+        ScreenReadRefreshPolicy.canRefresh(
+            isSelected: isActive && path.isEmpty, isVisible: isVisible, isForeground: scenePhase == .active
         )
     }
     private let attendancePanelTopOffset: CGFloat = 116
@@ -192,8 +198,10 @@ struct HRDashboardView: View {
                 }
                 .toolbar(.hidden, for: .tabBar)
             }
-            .task(id: isActive) {
-                guard isActive else { return }
+            .onAppear { isVisible = true }
+            .onDisappear { isVisible = false }
+            .task(id: isDashboardVisible) {
+                guard isDashboardVisible else { return }
                 await reloadAll()
             }
             .task(id: openRoute) {
@@ -203,16 +211,12 @@ struct HRDashboardView: View {
                 onOpenRouteHandled()
             }
             .onReceive(timer) { date in
-                guard isActive, scenePhase == .active else { return }
+                guard isDashboardVisible else { return }
                 nowTick = date
             }
             .task(id: shouldPollExternalAttendance) {
                 guard shouldPollExternalAttendance else { return }
-                while !Task.isCancelled {
-                    do {
-                        try await Task.sleep(nanoseconds: HRRefreshPolicy.intervalNanoseconds)
-                        try Task.checkCancellation()
-                    } catch { return }
+                await ScreenReadRefreshPolicy.poll(every: HRRefreshPolicy.intervalNanoseconds) {
                     await refreshAttendanceForExternalPunches()
                 }
             }
@@ -986,6 +990,7 @@ struct HRDashboardView: View {
         activeReloads += 1
         defer { activeReloads -= 1 }
         await authStore.refreshIAMPermissions()
+        guard !Task.isCancelled else { return }
         await withTaskGroup(of: Void.self) { group in
             group.addTask { await self.loadToday() }
             group.addTask { await self.loadTodayShift() }
