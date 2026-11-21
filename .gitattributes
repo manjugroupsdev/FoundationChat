@@ -1,0 +1,5 @@
+# The helper harness also runs from Windows checkouts through WSL.
+tests/*.sh text eol=lf
+.github/workflows/*.yml text eol=lf
+ci/*.py text eol=lf
+ci/tests/*.py text eol=lf

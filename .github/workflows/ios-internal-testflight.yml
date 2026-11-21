@@ -1,0 +1,112 @@
+name: iOS Internal TestFlight
+
+on:
+  push:
+    branches: [darx]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+# Finish an upload already in progress; GitHub keeps only the newest pending run.
+concurrency:
+  group: mms-ios-internal-testflight-${{ github.ref }}
+  cancel-in-progress: false
+
+defaults:
+  run:
+    shell: bash
+
+env:
+  DEVELOPER_DIR: /Applications/Xcode_26.3.app/Contents/Developer
+
+jobs:
+  validate:
+    if: github.repository == 'manjugroupsdev/FoundationChat' && github.ref == 'refs/heads/darx'
+    runs-on: macos-26
+    timeout-minutes: 35
+    steps:
+      - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6
+        with:
+          persist-credentials: false
+      - name: Check native toolchain
+        run: |
+          test "$(uname -m)" = arm64
+          xcodebuild -version
+          swift --version
+          xcodebuild -help > "$RUNNER_TEMP/xcode-help.txt" 2>&1
+          grep -q testFlightInternalTestingOnly "$RUNNER_TEMP/xcode-help.txt"
+      - name: Test CI safety policies
+        run: python3 -m unittest discover -s ci/tests -v
+      - name: Run existing Swift helper regressions
+        run: bash tests/run-mobile-helper-tests.sh
+      - name: Resolve locked Swift packages
+        run: |
+          xcodebuild -resolvePackageDependencies \
+            -project FoundationChat.xcodeproj -scheme FoundationChat \
+            -clonedSourcePackagesDirPath "$RUNNER_TEMP/packages" \
+            -onlyUsePackageVersionsFromResolvedFile
+      - name: Build native simulator app
+        run: |
+          set -o pipefail
+          xcodebuild build -project FoundationChat.xcodeproj -scheme FoundationChat \
+            -configuration Release -destination 'generic/platform=iOS Simulator' \
+            -derivedDataPath "$RUNNER_TEMP/ios-derived" \
+            -clonedSourcePackagesDirPath "$RUNNER_TEMP/packages" \
+            -onlyUsePackageVersionsFromResolvedFile \
+            CODE_SIGNING_ALLOWED=NO \
+            2>&1 | tee "$RUNNER_TEMP/ios-simulator-build.log"
+      - name: Retain native build diagnostics
+        if: always()
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7
+        with:
+          name: ios-validation-${{ github.run_number }}-${{ github.run_attempt }}
+          path: ${{ runner.temp }}/ios-simulator-build.log
+          if-no-files-found: ignore
+          retention-days: 7
+
+  internal-testflight:
+    needs: validate
+    if: github.repository == 'manjugroupsdev/FoundationChat' && github.ref == 'refs/heads/darx'
+    runs-on: macos-26
+    timeout-minutes: 45
+    steps:
+      - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6
+        with:
+          persist-credentials: false
+      - name: Skip a commit superseded on darx
+        id: latest
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          head_sha=$(gh api repos/manjugroupsdev/FoundationChat/git/ref/heads/darx --jq .object.sha)
+          if [[ "$head_sha" == "$GITHUB_SHA" ]]; then
+            echo 'current=true' >> "$GITHUB_OUTPUT"
+          else
+            echo 'current=false' >> "$GITHUB_OUTPUT"
+            echo 'Skipped: darx now contains a newer commit.' >> "$GITHUB_STEP_SUMMARY"
+          fi
+      - name: Validate credentials, sign and upload internal-only build
+        id: release
+        if: steps.latest.outputs.current == 'true'
+        env:
+          IOS_DISTRIBUTION_P12_BASE64: ${{ secrets.IOS_DISTRIBUTION_P12_BASE64 }}
+          IOS_DISTRIBUTION_P12_PASSWORD: ${{ secrets.IOS_DISTRIBUTION_P12_PASSWORD }}
+          IOS_PROVISION_PROFILE_BASE64: ${{ secrets.IOS_PROVISION_PROFILE_BASE64 }}
+          ASC_API_KEY_ID: ${{ secrets.ASC_API_KEY_ID }}
+          ASC_API_ISSUER_ID: ${{ secrets.ASC_API_ISSUER_ID }}
+          ASC_API_PRIVATE_KEY_BASE64: ${{ secrets.ASC_API_PRIVATE_KEY_BASE64 }}
+          IOS_BUILD_NUMBER_BASE: ${{ vars.IOS_BUILD_NUMBER_BASE || '100' }}
+          GH_TOKEN: ${{ github.token }}
+        run: python3 ci/ios_testflight.py release
+      - name: Always remove signing material
+        if: always()
+        run: python3 ci/ios_testflight.py cleanup
+      - name: Retain symbols without signing secrets
+        if: success() && steps.release.outputs.uploaded == 'true'
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7
+        with:
+          name: ios-symbols-${{ github.run_number }}-${{ github.run_attempt }}
+          path: ${{ runner.temp }}/mms-internal.xcarchive/dSYMs
+          if-no-files-found: error
+          retention-days: 14

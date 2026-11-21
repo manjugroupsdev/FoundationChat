@@ -74,3 +74,10 @@ build/
 
 # Unfinished test targets
 FoundationChatTests/
+
+# CI caches and private signing files must never enter Git.
+__pycache__/
+*.pyc
+*.p12
+*.p8
+*.mobileprovision
