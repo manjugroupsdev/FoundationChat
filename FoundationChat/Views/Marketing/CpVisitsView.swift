@@ -18,7 +18,6 @@ struct CpVisitsView: View {
     /// for a staffer with an open session); Start Trip re-checks for real.
     @State private var clockInState: Bool?
     private var isClockedIn: Bool { clockInState ?? true }
-    @State private var selectedOutcomeVisit: CpListVisit?
     @State private var pendingCpRevisit: CpRevisitInfo?
     @State private var showCpRevisitConfirmation = false
     @State private var selectedSpecialOutcomeVisit: CpListVisit?
@@ -103,21 +102,6 @@ struct CpVisitsView: View {
                 .appFormActivity()
                 .appLibraryNativeSheet([.height(720), .large])
                 .presentationBackground(Color.appElevatedSurface)
-            }
-            .sheet(item: $selectedOutcomeVisit) { visit in
-                CompleteCpVisitSheet(
-                    cpVisitId: visit.clientPlaceVisitId,
-                    initialOutcome: visit.outcome,
-                    cpType: visit.cpType,
-                    cpClientPhone: visit.leadPhone,
-                    onCompleted: { revisit in
-                        selectedOutcomeVisit = nil
-                        pendingCpRevisit = revisit
-                        showCpRevisitConfirmation = revisit != nil
-                        Task { await load() }
-                    }
-                )
-                .environment(authStore)
             }
             .sheet(item: $otpRevealTarget) { visit in
                 CpOtpRevealSheet(
@@ -303,8 +287,10 @@ struct CpVisitsView: View {
             }
             .buttonStyle(.plain)
         } else if visit.isPendingOutcomeCpVisit {
-            Button {
-                selectedOutcomeVisit = visit
+            NavigationLink {
+                // Locked SV confirmation returns a completion payload. The
+                // trip screen owns its save/approval handler, not this list.
+                tripDestination(for: visit)
             } label: {
                 CpVisitCard(visit: visit, isClockedIn: isClockedIn)
             }

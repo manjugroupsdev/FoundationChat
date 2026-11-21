@@ -435,9 +435,13 @@ struct TripNavigationView: View {
             Text(cpRevisitDialogMessage)
         }
         .alert("Waiting for GM approval", isPresented: $showCpPendingApproval) {
-            Button("Done") { dismiss() }
+            Button("Done") {
+                pendingCpRevisit = nil
+                dismiss()
+            }
         } message: {
-            Text("The visit outcome was saved. It will be completed after GM approval.")
+            Text("The visit outcome was saved. It will be completed after GM approval."
+                 + (pendingCpRevisit == nil ? "" : "\n\n" + cpRevisitDialogMessage))
         }
         .alert(
             "Photo didn't upload",
@@ -2387,14 +2391,15 @@ struct TripNavigationView: View {
             }
 
             let isPendingApproval = completion.resolvedCpStatus?.normalizedTripCpMarker == "pending_gm_approval"
-            if pendingCpRevisit != nil {
+            if isPendingApproval {
+                completeWithClientNotSeenSheet = false
+                showCpPendingApproval = true
+            } else if pendingCpRevisit != nil {
                 completeWithClientNotSeenSheet = false
                 showCpRevisitConfirmation = true
             } else if completeWithClientNotSeenSheet {
                 completeWithClientNotSeenSheet = false
                 showCpTripCompletedSheet = true
-            } else if isPendingApproval {
-                showCpPendingApproval = true
             } else {
                 dismiss()
             }
