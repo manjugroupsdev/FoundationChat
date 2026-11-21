@@ -1251,6 +1251,7 @@ struct TripNavigationView: View {
             "completed", "complete", "done", "closed", "cancelled", "canceled",
             "postponed", "pending_gm_approval"
         ].contains(normalized)
+        if !terminal { visitCompletedSuccessfully = false }
         serverOutcomePendingFinalClose = persistedOutcome != nil && !terminal
         if normalized == CpVisitStatusPolicy.jointPendingReview {
             // Outcome sent, reviewer not done. Not complete, and not Start Trip.
@@ -1272,7 +1273,6 @@ struct TripNavigationView: View {
             statusLine = "Complete"
         } else if ["arrived", "arrival_verified", "arrival-verified", "on_site", "on-site"].contains(normalized) {
             visitStarted = true
-            visitCompletedSuccessfully = false
             statusLine = "On Site"
         } else if ["in-progress", "in_progress", "ongoing", "started", "active"].contains(normalized) {
             visitStarted = true
