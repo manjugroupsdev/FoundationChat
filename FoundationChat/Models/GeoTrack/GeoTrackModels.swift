@@ -16,9 +16,7 @@ struct GeoTrackBaseResponse: Decodable, Sendable {
     let alreadyCompleted: Bool?
 
     var resolvedCpStatus: String? {
-        [effectiveStatus, status, visit?.effectiveStatus, visit?.status]
-            .compactMap { $0?.trimmingCharacters(in: .whitespacesAndNewlines) }
-            .first { !$0.isEmpty }
+        preferredCpCompletionStatus([effectiveStatus, status, visit?.effectiveStatus, visit?.status])
     }
 }
 

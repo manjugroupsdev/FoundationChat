@@ -4113,10 +4113,8 @@ private struct CpDateRangeFilterSheet: View {
 
 private extension CpVisitDetail {
     var syntheticOutcome: String? {
-        if let outcome = outcome?.blankToNil { return outcome }
-        if convertedBookingId?.blankToNil != nil { return "converted_to_booking" }
-        if convertedSiteVisitId?.blankToNil != nil { return "converted_to_site_visit" }
-        return nil
+        confirmedCpOutcome(status: status, outcome: outcome,
+                           convertedSiteVisitId: convertedSiteVisitId, convertedBookingId: convertedBookingId)
     }
 
     var isSvCumCp: Bool {

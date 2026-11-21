@@ -53,6 +53,7 @@ struct TripNavigationView: View {
     @State private var reconciledStatus: String?
     @State private var reconciledCpClientMet: Bool?
     @State private var reconciledCpOutcome: String?
+    @State private var hasConfirmedCpDecision = false
     @State private var verifiedArrivalCoordinate: CLLocationCoordinate2D?
     @State private var serverOutcomePendingFinalClose = false
     @State private var isLoadingStart = false
@@ -177,7 +178,7 @@ struct TripNavigationView: View {
         _resolvedJointSummary = State(initialValue: jointSummary)
         _reconciledStatus = State(initialValue: initialStatus)
         _reconciledCpClientMet = State(initialValue: cpClientMet)
-        _reconciledCpOutcome = State(initialValue: cpOutcome)
+        _reconciledCpOutcome = State(initialValue: nil)
     }
 
     private var currentLocation: CLLocationCoordinate2D? {
@@ -323,7 +324,7 @@ struct TripNavigationView: View {
             if let cpVisitId = clientPlaceVisitId {
                 CompleteCpVisitSheet(
                     cpVisitId: cpVisitId,
-                    initialOutcome: jointWorkflow?.outcome ?? cpOutcome,
+                    initialOutcome: jointWorkflow?.outcome ?? pendingCpTripCompletion?.outcome ?? reconciledCpOutcome,
                     cpType: cpType,
                     cpClientPhone: clientMobile,
                     jointCtaMode: verifiedJointCtaMode,
@@ -858,7 +859,7 @@ struct TripNavigationView: View {
                     .tint(Color(hex: 0x1BCA0B))
                 } else if isCpVisit && tripProgressStage == .reached && shouldCollectCpOutcome {
                     Button {
-                        showCpCompletionSheet = true
+                        Task { await completeVisitAfterOtp(otp: "") }
                     } label: {
                         HStack {
                             if arrivalInProgress {
@@ -1222,10 +1223,12 @@ struct TripNavigationView: View {
         let parentIsOwnTrip = jointParentIsOwnTrip(detail, actorStaffId: actorStaffId)
 
         reconciledCpClientMet = detail.clientMet ?? reconciledCpClientMet
-        let persistedOutcome = detail.outcome?.nilIfBlank
-            ?? (detail.convertedSiteVisitId?.nilIfBlank == nil ? nil : "converted_to_site_visit")
-            ?? (detail.convertedBookingId?.nilIfBlank == nil ? nil : "converted_to_booking")
-        reconciledCpOutcome = persistedOutcome ?? reconciledCpOutcome
+        let persistedOutcome = confirmedCpOutcome(
+            status: detail.status, outcome: detail.outcome,
+            convertedSiteVisitId: detail.convertedSiteVisitId, convertedBookingId: detail.convertedBookingId
+        )
+        reconciledCpOutcome = persistedOutcome
+        hasConfirmedCpDecision = isCpDecisionCommitted(detail.status)
 
         if parentIsOwnTrip, let proof = detail.arrivalProof, proof.otpVerifiedAt != nil {
             pendingStorageId = proof.photoStorageId?.nilIfBlank ?? pendingStorageId
@@ -1236,7 +1239,8 @@ struct TripNavigationView: View {
             }
         }
 
-        let status = resolvedCpStatus(detail, actorStaffId: actorStaffId)
+        let status = cpOutcomeCaptureStatus(parentStatus: detail.status,
+                                           effectiveStatus: resolvedCpStatus(detail, actorStaffId: actorStaffId))
         reconciledStatus = status
         let normalized = status.trimmingCharacters(in: .whitespacesAndNewlines).lowercased()
         let terminal = [
@@ -1264,6 +1268,7 @@ struct TripNavigationView: View {
             statusLine = "Complete"
         } else if ["arrived", "arrival_verified", "arrival-verified", "on_site", "on-site"].contains(normalized) {
             visitStarted = true
+            visitCompletedSuccessfully = false
             statusLine = "On Site"
         } else if ["in-progress", "in_progress", "ongoing", "started", "active"].contains(normalized) {
             visitStarted = true
@@ -2074,8 +2079,21 @@ struct TripNavigationView: View {
 
     private func completeVisitAfterOtp(otp _: String) async {
         guard let id = resolvedVisitId else { return }
+        guard !isHeldForApproval else { return }
         if shouldCollectCpOutcome {
             arrivalStatusText = nil
+            if let workflow = jointWorkflow {
+                let role = verifiedJointActorRole(workflow)
+                if jointReviewerCanReview(workflow, actorRole: role) {
+                    showJointReviewerRemarks = true
+                } else if jointOutcomeOwnerCanEnterOutcome(workflow, actorRole: role) {
+                    showCpCompletionSheet = true
+                } else {
+                    arrivalInProgress = false
+                    errorMessage = jointWaitingMessage(workflow)
+                }
+                return
+            }
             if let specialCpCompletionKind {
                 if specialCpCompletionKind == .collection {
                     showCollectionDecision = true
@@ -2315,6 +2333,11 @@ struct TripNavigationView: View {
     /// Arrival photo and OTP are already recorded in their dedicated fields;
     /// there is no vehicle odometer step for CP staff.
     private func completeFieldVisit(visitId id: String) async {
+        guard !isHeldForApproval else { return }
+        if shouldCollectCpOutcome {
+            await completeVisitAfterOtp(otp: "")
+            return
+        }
         let hasPersistedCpOutcome = isCpVisit && (
             pendingCpTripCompletion != nil || reconciledCpOutcome?.nilIfBlank != nil
         )
@@ -2345,7 +2368,7 @@ struct TripNavigationView: View {
             // must keep the trip's tag.
             TrackingContextStore.endTripContext()
             if pendingCpTripCompletion != nil {
-                let confirmed = completion.resolvedCpStatus?.lowercased()
+                let confirmed = completion.resolvedCpStatus?.normalizedTripCpMarker
                 // Current/legacy handlers confirm the field-visit write with
                 // success + fieldVisitId and omit status. That is a valid
                 // committed response, matching Android's compatibility rule.
@@ -2363,7 +2386,7 @@ struct TripNavigationView: View {
                 await GeoTrackBootstrapCoordinator.shared.sync(reason: "field-visit-completed", force: true)
             }
 
-            let isPendingApproval = completion.resolvedCpStatus?.lowercased() == "pending_gm_approval"
+            let isPendingApproval = completion.resolvedCpStatus?.normalizedTripCpMarker == "pending_gm_approval"
             if pendingCpRevisit != nil {
                 completeWithClientNotSeenSheet = false
                 showCpRevisitConfirmation = true
@@ -2573,9 +2596,7 @@ struct TripNavigationView: View {
     }
 
     private var shouldCollectCpOutcome: Bool {
-        guard let clientPlaceVisitId, !clientPlaceVisitId.isEmpty else { return false }
-        guard reconciledCpClientMet != true || (reconciledCpOutcome ?? "").isEmpty else { return false }
-        return true
+        isCpVisit && pendingCpTripCompletion == nil && !hasConfirmedCpDecision
     }
 
     private var specialCpCompletionKind: CpSpecialCompletionKind? {
