@@ -32,7 +32,7 @@ Do not paste their values into chat, a Cheetos task, a commit or an issue.
 | `IOS_PROVISION_PROFILE_BASE64` | Base64 of the matching **App Store** `.mobileprovision` for `com.manju.chat`, team `WLMZ5G3G5G`, production push entitlement, valid for more than 24 hours. Not Development, Ad Hoc or Enterprise. Must contain the P12 certificate. |
 | `ASC_API_KEY_ID` | The 10-character ID of a dedicated **team** App Store Connect API key. Developer upload permissions suffice with existing manual signing assets; broader permissions are not required by this workflow. |
 | `ASC_API_ISSUER_ID` | Issuer UUID shown with that team API key. An individual key without an issuer is not this setup. |
-| `ASC_API_PRIVATE_KEY_BASE64` | Base64 of that key's downloaded `AuthKey_….p8` private-key file. |
+| `ASC_API_PRIVATE_KEY_BASE64` | Base64 of that key's downloaded `AuthKey_KEYID.p8` private-key file (replace KEYID with the matching API key ID). |
 
 Use existing valid signing assets when possible. Cloud-managed signing keys
 are not exportable: if there is no matching exportable distribution private
