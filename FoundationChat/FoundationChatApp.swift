@@ -1,6 +1,7 @@
 import Combine
 import SwiftData
 import SwiftUI
+import UIKit
 
 enum LaunchPhase {
     case splash
@@ -360,11 +361,11 @@ final class MandatoryUpdateWindowPresenter {
             return
         }
         if let window, !window.isHidden { return }
-        guard let scene = UIApplication.shared.connectedScenes
-            .compactMap({ $0 as? UIWindowScene })
-            .first(where: { $0.activationState == .foregroundActive || $0.activationState == .foregroundInactive })
-            ?? UIApplication.shared.connectedScenes.compactMap({ $0 as? UIWindowScene }).first
-        else { return }
+        let scenes: [UIWindowScene] = UIApplication.shared.connectedScenes.compactMap { $0 as? UIWindowScene }
+        let foregroundScene = scenes.first { scene in
+            scene.activationState == .foregroundActive || scene.activationState == .foregroundInactive
+        }
+        guard let scene = foregroundScene ?? scenes.first else { return }
         let host = UIHostingController(
             rootView: MandatoryAppUpdateView(
                 version: coordinator.requiredVersion,
@@ -373,7 +374,7 @@ final class MandatoryUpdateWindowPresenter {
         )
         host.view.backgroundColor = .systemBackground
         let overlay = UIWindow(windowScene: scene)
-        overlay.windowLevel = .alert + 1
+        overlay.windowLevel = UIWindow.Level(rawValue: UIWindow.Level.alert.rawValue + 1)
         overlay.rootViewController = host
         overlay.isHidden = false
         window = overlay
