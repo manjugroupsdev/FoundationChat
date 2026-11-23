@@ -183,11 +183,9 @@ enum TasksConvexAPIService {
     /// Task-Manager daily task status change (e.g. out-of-station handoff
     /// Complete / Cancel). Mirrors Android `dailyTasks/updateStatus`; distinct
     /// from `updateStatus` above, which targets project tasks.
-    static func updateDailyTaskStatus(token: String, id: String, status: String) async throws {
-        let body: [String: Any] = [
-            "id": id,
-            "status": status
-        ]
+    /// `reason` is sent only with a rejection ("cancelled"), e.g. an SV approval.
+    static func updateDailyTaskStatus(token: String, id: String, status: String, reason: String? = nil) async throws {
+        let body = RequiredReason.dailyTaskStatusBody(id: id, status: status, reason: reason)
         let data = try await post(path: "/api/dailyTasks/updateStatus", token: token, jsonBody: body)
         let wrapper = try await BackgroundJSONDecoder.decode(TaskActionResponse.self, from: data)
         guard wrapper.success else {

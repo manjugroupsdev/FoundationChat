@@ -144,20 +144,17 @@ struct SvApprovalQueueView: View {
             }
         }
         .task { if queue == nil { await load() } }
-        .alert(
-            "Reject site visit for \(rejectTarget.map(SvApprovalFormatting.clientName) ?? "this client")?",
-            isPresented: Binding(
-                get: { rejectTarget != nil },
-                set: { if !$0 { rejectTarget = nil } }
-            )
-        ) {
-            Button("Keep", role: .cancel) { rejectTarget = nil }
-            Button("Reject", role: .destructive) {
-                if let target = rejectTarget {
-                    rejectTarget = nil
-                    Task { await decide(target, status: "cancelled") }
-                }
-            }
+        // Same as the web handoff dialog: a rejection needs a reason.
+        .mconnectRequiredReason(
+            item: $rejectTarget,
+            title: { "Reject site visit for \(SvApprovalFormatting.clientName($0))?" },
+            message: { _ in "The site visit won't be created and the request closes. Share why so the team can follow up." },
+            reasonPrompt: "Why is this site visit being rejected?",
+            confirmLabel: "Reject",
+            cancelLabel: "Keep",
+            missingReasonError: "Please share a reason for the rejection"
+        ) { target, reason in
+            Task { await decide(target, status: "cancelled", reason: reason) }
         }
     }
 
@@ -232,12 +229,20 @@ struct SvApprovalQueueView: View {
     }
 
     @MainActor
-    private func decide(_ task: DailyTask, status: String) async {
+    private func decide(_ task: DailyTask, status: String, reason: String? = nil) async {
         guard busyItemId == nil, let token = authStore.currentSession?.token else { return }
+        let rejectReason = RequiredReason.normalized(reason)
+        if status == "cancelled" && rejectReason == nil {
+            Floater.shared.error("Please share a reason for the rejection")
+            return
+        }
         busyItemId = task.id
         defer { busyItemId = nil }
         do {
-            try await TasksConvexAPIService.updateDailyTaskStatus(token: token, id: task.id, status: status)
+            try await TasksConvexAPIService.updateDailyTaskStatus(
+                token: token, id: task.id, status: status,
+                reason: status == "cancelled" ? rejectReason : nil
+            )
             Floater.shared.success(status == "completed" ? "Site visit approved" : "Site visit rejected")
             SvApprovalDecisions.markDecided(task.id)
             queue = queue?.without(task.id)

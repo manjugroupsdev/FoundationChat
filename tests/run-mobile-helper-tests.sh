@@ -36,4 +36,5 @@ run AdaptiveColorRulesTests FoundationChat/Utilities/AdaptiveColorRules.swift
 run OtpCodeInputTests FoundationChat/Views/Auth/OtpCodeInput.swift
 run CpSavedDecisionTests FoundationChat/Utilities/CpOutcomePolicy.swift
 run SiteVisitDraftPolicyTests FoundationChat/Services/SiteVisitDraftPolicy.swift FoundationChat/Services/SiteVisitStaffRules.swift
-echo "All 17 standalone mobile helper harnesses passed. Not a native archive or iPhone UI test."
+run RequiredReasonTests FoundationChat/Services/RequiredReason.swift
+echo "All 18 standalone mobile helper harnesses passed. Not a native archive or iPhone UI test."
