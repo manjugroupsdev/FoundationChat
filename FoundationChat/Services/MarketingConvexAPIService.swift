@@ -1076,8 +1076,11 @@ enum MarketingConvexAPIService {
         detail: CpVisitDetail,
         expectedOutcome: String
     ) -> Bool {
-        let status = normalizeContractValue(detail.proposedSiteVisit?.status ?? detail.status)
-        let actualOutcome = normalizeContractValue(detail.proposedSiteVisit?.outcome ?? detail.outcome)
+        // A CP-linked SV envelope carries the CP's outcome at the top level.
+        // Read only the SV's own outcome when proposedSiteVisit is present.
+        let sv = detail.proposedSiteVisit
+        let status = normalizeContractValue(sv?.status ?? detail.status)
+        let actualOutcome = normalizeContractValue(sv != nil ? sv?.outcome : detail.outcome)
         let expected = normalizeContractValue(expectedOutcome)
         let outcomeMatches = actualOutcome == expected
             || (expected == "follow_up" && actualOutcome == "postponed")

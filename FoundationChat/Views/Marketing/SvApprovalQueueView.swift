@@ -8,8 +8,9 @@ import SwiftUI
 /// Super admins get tabs: Mine = assigned to me; Team = my team's GMs (task list
 /// teamIds); All = every open one (scope "all"). Everyone else gets one list of
 /// their own + their team's approvals with no tab row. The server lets the GM, their
-/// supervisor, the requester or a super admin decide; anyone else sees whose
-/// turn it is. Parity with Mconnect `SvApprovalQueueFragment`.
+/// supervisor, the requester or a super admin reject, but only the assigned GM,
+/// an admin or a `marketing.siteVisits.confirm` holder approve; anyone else sees
+/// whose turn it is. Parity with Mconnect `SvApprovalQueueFragment`.
 struct SvApprovalQueueView: View {
     @Environment(AuthStore.self) private var authStore
 
@@ -39,7 +40,14 @@ struct SvApprovalQueueView: View {
                 ?? authStore.currentSession?.user._id.nonBlank
         else { return nil }
         let today = AppModuleFormatters.ymd.string(from: Date())
-        let payload = try await TasksConvexAPIService.getTaskManagerTasks(token: token, today: today)
+        // The queue is filtered from the task list on the phone, so read the
+        // largest page the server allows (500); the 200 default dropped older
+        // approvals on busy days.
+        let payload = try await TasksConvexAPIService.getTaskManagerTasks(
+            token: token,
+            today: today,
+            limit: SvCpFlowRules.svApprovalTaskListLimit
+        )
         let open = payload.tasks
             .filter {
                 $0.sourceReferenceType == "out_of_station_handoff"
@@ -58,7 +66,8 @@ struct SvApprovalQueueView: View {
             all: isAll ? open : [],
             isAll: isAll,
             showTeam: isSuperAdmin,
-            singleList: !isSuperAdmin
+            singleList: !isSuperAdmin,
+            canApproveAny: isAll || authStore.hasPermission("marketing.siteVisits.confirm")
         )
     }
 
@@ -118,6 +127,7 @@ struct SvApprovalQueueView: View {
                             task: task,
                             showGm: task.assignedTo != queue?.me,
                             canDecide: queue?.canDecide(task) ?? false,
+                            canApprove: queue?.canApprove(task) ?? false,
                             busy: busyItemId == task.id,
                             disabled: busyItemId != nil,
                             onApprove: { Task { await decide(task, status: "completed") } },
@@ -275,9 +285,20 @@ struct SvApprovalQueue: Equatable {
     /// Not a super admin: own + team approvals in one list, no tab row.
     var singleList: Bool = false
 
+    /// Admin, super-admin scope or `marketing.siteVisits.confirm`: may approve
+    /// a handoff assigned to another GM.
+    var canApproveAny: Bool = false
+
     /// Same rule as the server (canChangeDailyTaskStatus for handoff tasks).
+    /// Covers Reject; Approve is narrower, see `canApprove`.
     func canDecide(_ task: DailyTask) -> Bool {
         task.assignedTo == me || task.supervisorId == me || task.assignedBy == me || isAll
+    }
+
+    /// The server lets only the handoff's assigned GM, an admin or a holder of
+    /// `marketing.siteVisits.confirm` approve (dailyTasks.updateStatus).
+    func canApprove(_ task: DailyTask) -> Bool {
+        SvCpFlowRules.canApproveSvHandoff(assignedTo: task.assignedTo, me: me, canApproveAny: canApproveAny)
     }
 
     func without(_ id: String) -> SvApprovalQueue {
@@ -293,6 +314,7 @@ private struct SvApprovalCard: View {
     let task: DailyTask
     let showGm: Bool
     let canDecide: Bool
+    let canApprove: Bool
     let busy: Bool
     let disabled: Bool
     let onApprove: () -> Void
@@ -343,18 +365,27 @@ private struct SvApprovalCard: View {
                     .buttonStyle(.mconnect(.dangerOutline))
                     .disabled(disabled)
 
-                    Button(action: onApprove) {
-                        ButtonLoadingLabel(
-                            "Approve",
-                            loading: busy,
-                            loadingTitle: "Approving",
-                            font: .system(size: 16, weight: .semibold)
-                        )
+                    if canApprove {
+                        Button(action: onApprove) {
+                            ButtonLoadingLabel(
+                                "Approve",
+                                loading: busy,
+                                loadingTitle: "Approving",
+                                font: .system(size: 16, weight: .semibold)
+                            )
+                        }
+                        .buttonStyle(.mconnect(.success))
+                        .disabled(disabled)
                     }
-                    .buttonStyle(.mconnect(.success))
-                    .disabled(disabled)
                 }
                 .padding(.top, 14)
+                if !canApprove {
+                    Text("Only \(task.assignedToName?.nonBlank ?? "the assigned GM") can approve")
+                        .font(.system(size: 12, weight: .medium))
+                        .foregroundStyle(Color.appSecondaryText)
+                        .frame(maxWidth: .infinity)
+                        .padding(.top, 8)
+                }
             } else {
                 Text("Waiting for \(task.assignedToName?.nonBlank ?? "the GM") to approve")
                     .font(.system(size: 13, weight: .medium))

@@ -232,10 +232,15 @@ struct SiteVisitsListView: View {
                 }
                 ForEach(SiteVisitListFilter.allCases) { filter in
                     Button {
+                        // load() sends the pill's status to the server, so a pill
+                        // change must reload; otherwise the rows (and the paging
+                        // cursor) stay those of the previous status.
+                        let needsReload = selectedFilter.apiValue != filter.apiValue
                         activeOwnershipScope = nil
                         listScope = .all
                         selectedFilter = filter
                         advancedFilter.setSelected(filter == .all ? [] : [filter.rawValue], for: "status")
+                        if needsReload { Task { await load() } }
                     } label: {
                         Text(filter.title)
                             .font(.system(size: 14, weight: activeOwnershipScope == nil && selectedFilter == filter ? .semibold : .medium))
@@ -370,10 +375,12 @@ struct SiteVisitsListView: View {
     private func scopePill(_ scope: SiteVisitListScope) -> some View {
         let isActive = activeOwnershipScope == scope
         return Button {
+            let needsReload = selectedFilter.apiValue != nil
             listScope = scope
             activeOwnershipScope = scope
             selectedFilter = .all
             advancedFilter.setSelected([], for: "status")
+            if needsReload { Task { await load() } }
         } label: {
             Text(scope.title)
                 .font(.system(size: 14, weight: isActive ? .semibold : .medium))
@@ -2184,8 +2191,12 @@ private struct SiteVisitOverviewSheet: View {
     }
 
     private var isFleetOutcomePending: Bool {
-        (detail?.completedOffline ?? visit.completedOffline) == true
-            && siteVisitOutcome?.nilIfBlank == nil
+        // completedOffline is a siteVisits field. The linked-CP envelope's top
+        // level is the CP, so it is read from the SV list row in that case.
+        let completedOffline = detail?.proposedSiteVisit != nil
+            ? visit.completedOffline
+            : (detail?.completedOffline ?? visit.completedOffline)
+        return completedOffline == true && siteVisitOutcome?.nilIfBlank == nil
     }
 
     private var isOutcomeRecoveryPending: Bool {
@@ -2196,20 +2207,24 @@ private struct SiteVisitOverviewSheet: View {
             .contains(normalizedStatus.normalizedSiteVisitValue)
     }
 
+    // For a CP-linked SV the detail envelope's top level is the linked CP
+    // (outcome converted_to_site_visit, its own convertedBookingId and
+    // cancelledAt). When proposedSiteVisit is present read ONLY the SV's own
+    // fields, or an empty SV outcome falls through to the CP's and the SV
+    // reads as already completed (Android SiteVisitOverviewFragment parity).
     private var siteVisitOutcome: String? {
-        detail?.proposedSiteVisit?.outcome?.nilIfBlank
-            ?? detail?.outcome?.nilIfBlank
-            ?? visit.outcome?.nilIfBlank
+        if let sv = detail?.proposedSiteVisit { return sv.outcome?.nilIfBlank }
+        return detail?.outcome?.nilIfBlank ?? visit.outcome?.nilIfBlank
     }
 
     private var siteVisitConvertedBookingID: String? {
-        detail?.proposedSiteVisit?.convertedBookingId?.nilIfBlank
-            ?? detail?.convertedBookingId?.nilIfBlank
-            ?? visit.convertedBookingId?.nilIfBlank
+        if let sv = detail?.proposedSiteVisit { return sv.convertedBookingId?.nilIfBlank }
+        return detail?.convertedBookingId?.nilIfBlank ?? visit.convertedBookingId?.nilIfBlank
     }
 
     private var siteVisitCancelledAt: Int64? {
-        detail?.proposedSiteVisit?.cancelledAt ?? detail?.cancelledAt
+        if let sv = detail?.proposedSiteVisit { return sv.cancelledAt }
+        return detail?.cancelledAt
     }
 
     private var recordedOutcomeValue: String? {

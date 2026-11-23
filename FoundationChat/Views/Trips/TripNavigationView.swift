@@ -84,6 +84,9 @@ struct TripNavigationView: View {
     @State private var isDriverEndSubmitting = false
 
     @State private var showOtpSheet = false
+    /// Set when Yes/No was tapped on the client-seen sheet, so its onDismiss
+    /// can tell a choice from a swipe-down close.
+    @State private var cpClientSeenAnswered = false
     @State private var showSiteVisitOutcomeSheet = false
     @State private var showCpCompletionSheet = false
     @State private var activeSpecialCpCompletion: CpSpecialCompletionKind?
@@ -258,6 +261,12 @@ struct TripNavigationView: View {
                 .ignoresSafeArea()
         }
         .sheet(isPresented: $showCpClientSeenSheet, onDismiss: {
+            // Closed without Yes/No: release the arrival lock, or the swipe
+            // stays disabled until the screen is reopened.
+            if !cpClientSeenAnswered && !visitCompletedSuccessfully {
+                arrivalInProgress = false
+            }
+            cpClientSeenAnswered = false
             if !arrivalInProgress && !visitCompletedSuccessfully {
                 arrivalStatusText = nil
                 resetArrivalSwipe()
@@ -265,10 +274,12 @@ struct TripNavigationView: View {
         }) {
             CpClientSeenSheet(
                 onYes: {
+                    cpClientSeenAnswered = true
                     showCpClientSeenSheet = false
                     startCpYesPath()
                 },
                 onNo: {
+                    cpClientSeenAnswered = true
                     showCpClientSeenSheet = false
                     startCpNoPath()
                 }
@@ -4163,14 +4174,9 @@ private struct SpecialCpCompletionSheet: View {
         }
 
         let effectiveNotCollected = notCollected || collectionNotCollected
-        let dateFormatter = DateFormatter()
-        dateFormatter.dateFormat = "yyyy-MM-dd"
-        dateFormatter.locale = Locale(identifier: "en_IN")
-        let timeFormatter = DateFormatter()
-        timeFormatter.dateFormat = "HH:mm"
-        timeFormatter.locale = Locale(identifier: "en_IN")
-        let followUpDateValue = dateFormatter.string(from: followUpDate)
-        let followUpTimeValue = timeFormatter.string(from: followUpDate)
+        // Wire values: POSIX (Gregorian, 24-hour) whatever the phone's settings.
+        let followUpDateValue = AppModuleFormatters.ymd.string(from: followUpDate)
+        let followUpTimeValue = CachedDateFormatters.formatter("HH:mm", posix: true).string(from: followUpDate)
 
         isSaving = true
         defer { isSaving = false }

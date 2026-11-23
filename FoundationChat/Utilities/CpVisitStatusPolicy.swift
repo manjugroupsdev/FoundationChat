@@ -24,7 +24,11 @@ enum CpVisitStatusPolicy {
         serverEffectiveStatus: String? = nil
     ) -> String {
         let server = serverEffectiveStatus?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
-        if !server.isEmpty { return server }
+        if !server.isEmpty {
+            // The server reports an arrived field visit as in_progress; keep
+            // "arrived" so the card offers the CP details step, not "Enroute".
+            return SvCpFlowRules.cpServerStatusKeepingArrival(server: server, fieldVisitStatus: fieldVisitStatus)
+        }
 
         let cp = cpStatus?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
         if terminalStatuses.contains(cp.lowercased()) {

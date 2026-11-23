@@ -773,10 +773,13 @@ final class GeoTrackAPIService {
     }
 
     /// GET /api/marketing/clientPlaceVisits/my
-    func marketingCPVisits(fromDate: String? = nil, toDate: String? = nil, scope: String = "all") async throws -> [GeoTrackCPVisitDetail] {
+    /// With no `limit` the server returns only 10 rows (newest scheduledDate
+    /// first); it caps an explicit limit at 200.
+    func marketingCPVisits(fromDate: String? = nil, toDate: String? = nil, scope: String = "all", limit: Int? = nil) async throws -> [GeoTrackCPVisitDetail] {
         var items = [URLQueryItem(name: "scope", value: scope)]
         if let fromDate { items.append(URLQueryItem(name: "fromDate", value: fromDate)) }
         if let toDate { items.append(URLQueryItem(name: "toDate", value: toDate)) }
+        if let limit { items.append(URLQueryItem(name: "limit", value: String(limit))) }
         let request = try makeGETRequest(path: "/api/marketing/clientPlaceVisits/my", queryItems: items)
         let result: GeoTrackMarketingCPVisitsResponse = try await perform(request)
         if let err = result.error { throw GeoTrackAPIError.serverError(err) }
@@ -867,7 +870,10 @@ final class GeoTrackAPIService {
         let body = GeoTrackStartVisitRequest(visitId: visitId, lat: lat, lng: lng)
         let request = try makeRequest(path: "/api/geotrack/visit/start", method: "POST", body: body)
         let result: GeoTrackBaseResponse = try await perform(request)
+        // The route answers 200 + {success:false, error} when the start is
+        // refused. Never treat that as started, even without an error string.
         if let err = result.error { throw GeoTrackAPIError.serverError(err) }
+        guard result.success else { throw GeoTrackAPIError.serverError("Failed to start visit") }
     }
 
     /// POST /api/mms-fleet/driver/arrive

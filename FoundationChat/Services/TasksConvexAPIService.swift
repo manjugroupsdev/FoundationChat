@@ -72,10 +72,18 @@ enum TasksConvexAPIService {
         return wrapper.tasks ?? []
     }
 
-    static func getTaskManagerTasks(token: String, today: String? = nil) async throws -> DailyTaskManagerPayload {
-        var path = "/api/dailyTasks/listForTaskManager"
+    /// `limit`: the server defaults to 200 rows and caps at 500.
+    static func getTaskManagerTasks(token: String, today: String? = nil, limit: Int? = nil) async throws -> DailyTaskManagerPayload {
+        var query: [String] = []
         if let today, !today.isEmpty {
-            path += "?today=\(urlEncode(today))"
+            query.append("today=\(urlEncode(today))")
+        }
+        if let limit {
+            query.append("limit=\(min(500, max(1, limit)))")
+        }
+        var path = "/api/dailyTasks/listForTaskManager"
+        if !query.isEmpty {
+            path += "?" + query.joined(separator: "&")
         }
         let data = try await get(path: path, token: token)
         let wrapper = try await BackgroundJSONDecoder.decode(DailyTaskManagerResponse.self, from: data)

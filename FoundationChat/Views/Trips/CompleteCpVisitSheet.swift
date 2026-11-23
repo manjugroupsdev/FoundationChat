@@ -407,16 +407,15 @@ struct CompleteCpVisitSheet: View {
     /// Selectable range for the postpone / next-visit date. VP follow-up window
     /// caps: a collection follow-up lands within 5 days, a booking-CP postpone
     /// within 7. Other cpTypes are effectively uncapped. Mirrors the setOutcome
-    /// server-side check so the picker can't offer an invalid date.
+    /// server-side check (on the effective purpose, so a Joint CP uses its
+    /// jointCpCategory) so the picker can't offer an invalid date.
     private var postponeDateRange: ClosedRange<Date> {
         let cal = Calendar.current
         let start = cal.startOfDay(for: Date())
-        let capDays: Int?
-        switch effectiveCpType.normalizedCpMarker {
-        case "collection_cp": capDays = 5
-        case "booking_cp": capDays = 7
-        default: capDays = nil
-        }
+        let capDays = SvCpFlowRules.cpFollowUpCapDays(
+            cpType: effectiveCpType,
+            jointCpCategory: cpVisitDetail?.jointCpCategory
+        )
         let end = cal.date(byAdding: .day, value: capDays ?? 365 * 5, to: start) ?? start
         return start...end
     }
@@ -1952,16 +1951,14 @@ struct CompleteCpVisitSheet: View {
         }
     }
 
+    // Wire values: POSIX (Gregorian, 24-hour) whatever the phone's calendar,
+    // region or 12/24-hour setting.
     private func dateString(_ date: Date) -> String {
-        let formatter = DateFormatter()
-        formatter.dateFormat = "yyyy-MM-dd"
-        return formatter.string(from: date)
+        AppModuleFormatters.ymd.string(from: date)
     }
 
     private func timeString(_ date: Date) -> String {
-        let formatter = DateFormatter()
-        formatter.dateFormat = "HH:mm"
-        return formatter.string(from: date)
+        CachedDateFormatters.formatter("HH:mm", posix: true).string(from: date)
     }
 
     private func parseServerDate(_ raw: String?) -> Date? {
@@ -2501,7 +2498,10 @@ private struct BookingDraft: Codable, Equatable {
             cpVisitId: cpVisitId,
             source: "cp_visit",
             status: saveAs == .confirmed ? "pending_confirmation" : "draft",
-            sourceType: sourceType.nilIfBlank ?? "cp_visit",
+            // Always "cp_visit", never the Source Type picker (kept in the notes
+            // summary): the server links the booking to this CP only for this
+            // value; any other string drops the link (Android parity).
+            sourceType: "cp_visit",
             // Mark the CP the booking's source (mirrors Android) so the backend
             // spawns a booking_cp for the same staff/client on the booking date.
             sourceClientPlaceVisitId: cpVisitId,

@@ -1617,7 +1617,8 @@ struct HomeView: View {
         if visit.needsCpOutcomeDetails {
             return .reaching
         }
-        if ["in-progress", "in_progress", "ongoing", "started", "active", "arrived"].contains(status) {
+        if ["in-progress", "in_progress", "ongoing", "started", "active", "arrived",
+            "on_site", "picked_from_site"].contains(status) {
             return status == "arrived" ? .reaching : .enroute
         }
         // Starting a NEW trip requires a live open session (strict gate). An
@@ -1886,7 +1887,9 @@ struct HomeView: View {
 
     private func loadMarketingCPVisitsForHome() async -> Result<[GeoTrackCPVisitDetail], Error> {
         do {
-            return .success(try await geoAPI.marketingCPVisits())
+            // The server defaults to 10 rows (newest scheduledDate first), so a
+            // staffer with 10+ future CPs lost today's. Ask for the max (200).
+            return .success(try await geoAPI.marketingCPVisits(limit: 200))
         } catch {
             return .failure(error)
         }
@@ -1911,8 +1914,8 @@ struct HomeView: View {
         let legacyCPIds = Set(legacyVisits.compactMap { $0.clientPlaceVisitId?.nilIfBlank })
         let cpExtras = cpVisits.compactMap { detail -> GeoTrackTodayVisit? in
             guard let id = detail.id?.nilIfBlank, !legacyCPIds.contains(id) else { return nil }
-            let status = detail.status?.lowercased() ?? ""
-            guard status != "cancelled", status != "completed" else { return nil }
+            // A postponed CP is closed until its follow-up: never offer Start Trip.
+            guard !SvCpFlowRules.homeHidesCpStatus(detail.status) else { return nil }
             return detail.toTodayVisitOrNil(currentStaffIds: currentStaffIds)
         }
         let existingIds = Set((legacyVisits + cpExtras).map(\.id))
@@ -3531,6 +3534,10 @@ private extension FleetDriverTrip {
             status = "completed"
         case "on_site":
             status = "on_site"
+        case "picked_from_site":
+            // Kept as its own phase so the trip screen offers End Trip. It
+            // used to fall to "scheduled", which showed Start Trip again.
+            status = "picked_from_site"
         case "in_progress", "started", "arrived":
             status = "in-progress"
         default:

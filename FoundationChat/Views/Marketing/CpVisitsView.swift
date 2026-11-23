@@ -368,7 +368,10 @@ struct CpVisitsView: View {
                 ForEach(CpVisitFilter.allCases) { filter in
                     Button {
                         let defaultScope: CpListScope = authStore.isAdmin ? .all : .mine
+                        // load() sends the pill's status to the server: reload on
+                        // a status change too, so rows and the cursor match it.
                         let needsReload = listScope != defaultScope
+                            || selectedFilter.apiValue != filter.apiValue
                         activeOwnershipScope = nil
                         listScope = defaultScope
                         selectedFilter = filter

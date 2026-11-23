@@ -1405,9 +1405,15 @@ private struct SiteVisitBookingDraft: Codable, Equatable, Sendable {
             siteVisitId: siteVisitId,
             source: "site_visit",
             status: saveAs == .confirmed ? "pending_confirmation" : "draft",
-            sourceType: sourceType.outcomeNilIfBlank ?? "site_visit",
+            // Always "site_visit", never the Source Type picker: the server links
+            // the booking to this SV (outcome + convertedBookingId) only for this
+            // value (Android parity). The picker has no matching server field.
+            sourceType: "site_visit",
             sourceClientPlaceVisitId: nil,
             sourceSiteVisitId: siteVisitId,
+            // The server spawns the follow-up Booking CP only when this is set
+            // (Android buildBookingRequest sends the booking date for SVs too).
+            bookingCpDate: bookingDate.outcomeNilIfBlank ?? AppModuleFormatters.ymd.string(from: Date()),
             notes: notes.outcomeNilIfBlank
         )
     }
