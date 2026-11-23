@@ -144,17 +144,26 @@ struct SvApprovalQueueView: View {
             }
         }
         .task { if queue == nil { await load() } }
-        // Same as the web handoff dialog: a rejection needs a reason.
-        .mconnectRequiredReason(
-            item: $rejectTarget,
-            title: { "Reject site visit for \(SvApprovalFormatting.clientName($0))?" },
-            message: { _ in "The site visit won't be created and the request closes. Share why so the team can follow up." },
-            reasonPrompt: "Why is this site visit being rejected?",
-            confirmLabel: "Reject",
-            cancelLabel: "Keep",
-            missingReasonError: "Please share a reason for the rejection"
-        ) { target, reason in
-            Task { await decide(target, status: "cancelled", reason: reason) }
+        // Same as the web handoff dialog: a rejection needs a reason. Shared
+        // ActionReasonSheet, as on the CP outcome sheet's Reject SV.
+        .sheet(item: $rejectTarget) { target in
+            ActionReasonSheet(
+                title: "Reject site visit",
+                subtitle: "Add a reason for rejecting \(SvApprovalFormatting.clientName(target))'s site visit.",
+                fieldLabel: "Rejection reason",
+                placeholder: "Why is this site visit being rejected?",
+                submitTitle: "Reject",
+                submitKind: .danger,
+                missingReasonError: "Please share a reason for the rejection",
+                savingTitle: "Rejecting",
+                isSaving: busyItemId == target.id,
+                onSubmit: { reason in
+                    if await decide(target, status: "cancelled", reason: reason) {
+                        rejectTarget = nil
+                    }
+                }
+            )
+            .appLibraryNativeSheet([.medium, .large])
         }
     }
 
@@ -229,12 +238,14 @@ struct SvApprovalQueueView: View {
     }
 
     @MainActor
-    private func decide(_ task: DailyTask, status: String, reason: String? = nil) async {
-        guard busyItemId == nil, let token = authStore.currentSession?.token else { return }
+    /// Returns true when the server accepted the decision.
+    @discardableResult
+    private func decide(_ task: DailyTask, status: String, reason: String? = nil) async -> Bool {
+        guard busyItemId == nil, let token = authStore.currentSession?.token else { return false }
         let rejectReason = RequiredReason.normalized(reason)
         if status == "cancelled" && rejectReason == nil {
             Floater.shared.error("Please share a reason for the rejection")
-            return
+            return false
         }
         busyItemId = task.id
         defer { busyItemId = nil }
@@ -246,8 +257,10 @@ struct SvApprovalQueueView: View {
             Floater.shared.success(status == "completed" ? "Site visit approved" : "Site visit rejected")
             SvApprovalDecisions.markDecided(task.id)
             queue = queue?.without(task.id)
+            return true
         } catch {
             Floater.shared.show(error: error)
+            return false
         }
     }
 }

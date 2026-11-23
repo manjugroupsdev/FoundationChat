@@ -1,8 +1,8 @@
 import Foundation
 
 /// Trimmed reason, or nil when nothing meaningful was typed. Shared by
-/// `MconnectReasonSheet` and the callers that must refuse a blank reason
-/// (parity with Android `AppBottomSheets.requiredReason`).
+/// `ActionReasonSheet` and the callers that must refuse a blank reason
+/// (parity with Android `RejectWithReasonBottomSheet.requiredReason`).
 enum RequiredReason {
     static func normalized(_ text: String?) -> String? {
         let value = (text ?? "").trimmingCharacters(in: .whitespacesAndNewlines)

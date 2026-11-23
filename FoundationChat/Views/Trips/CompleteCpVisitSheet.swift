@@ -197,7 +197,7 @@ struct CompleteCpVisitSheet: View {
             }
             .onChange(of: booking) { _, _ in scheduleBookingDraftAutosave() }
             .sheet(isPresented: $showRejectReasonSheet) {
-                CpActionReasonSheet(
+                ActionReasonSheet(
                     title: "Reject SV",
                     subtitle: "Add the reason for rejecting this fixed site visit.",
                     fieldLabel: "Rejection reason",
@@ -211,7 +211,7 @@ struct CompleteCpVisitSheet: View {
                 .appLibraryNativeSheet([.medium, .large])
             }
             .sheet(isPresented: $showCancelReasonSheet) {
-                CpActionReasonSheet(
+                ActionReasonSheet(
                     title: "Cancel SV",
                     subtitle: "Cancellation closes the linked CP, site visit, field visit, and task.",
                     fieldLabel: "Cancellation remarks",
@@ -2517,80 +2517,6 @@ private struct CpVisitorDraft: Identifiable, Hashable {
     var relation = ""
     var age = ""
     var isVeg = true
-}
-
-private struct CpActionReasonSheet: View {
-    let title: String
-    let subtitle: String
-    let fieldLabel: String
-    let placeholder: String
-    let submitTitle: String
-    let isSaving: Bool
-    let onSubmit: (String) async -> Void
-
-    @Environment(\.dismiss) private var dismiss
-    @State private var reason = ""
-    @State private var errorMessage: String?
-
-    var body: some View {
-        ScrollView {
-            VStack(alignment: .leading, spacing: 18) {
-                VStack(alignment: .leading, spacing: 4) {
-                    Text(title)
-                        .font(.system(size: 17, weight: .semibold))
-                        .foregroundStyle(.primary)
-                    Text(subtitle)
-                        .font(.system(size: 13))
-                        .foregroundStyle(.secondary)
-                }
-
-                VStack(alignment: .leading, spacing: 8) {
-                    Text(fieldLabel)
-                        .font(.system(size: 13, weight: .medium))
-                        .foregroundStyle(.primary)
-                    TextField(placeholder, text: $reason, axis: .vertical)
-                        .font(.system(size: 13))
-                        .lineLimit(3...6)
-                        .padding(14)
-                        .background(Color.appFieldBackground, in: RoundedRectangle(cornerRadius: 12))
-                }
-
-                if let errorMessage {
-                    Text(errorMessage)
-                        .font(.system(size: 12, weight: .medium))
-                        .foregroundStyle(Color(hex: 0xB42318))
-                }
-
-                Button {
-                    let trimmed = reason.trimmingCharacters(in: .whitespacesAndNewlines)
-                    guard !trimmed.isEmpty else {
-                        errorMessage = "Remarks are required"
-                        return
-                    }
-                    errorMessage = nil
-                    Task { await onSubmit(trimmed) }
-                } label: {
-                    if isSaving {
-                        ProgressView()
-                            .frame(maxWidth: .infinity)
-                    } else {
-                        Text(submitTitle)
-                            .font(.system(size: 14, weight: .semibold))
-                            .frame(maxWidth: .infinity)
-                    }
-                }
-                .buttonStyle(.borderedProminent)
-                .controlSize(.large)
-                .tint(Color(hex: 0x2DAE12))
-                .disabled(isSaving)
-            }
-            .padding(.horizontal, 20)
-            .padding(.top, 20)
-            .padding(.bottom, 20)
-        }
-        .background(Color.appSurface)
-        .appCompactSheetCTAContainer()
-    }
 }
 
 private struct OutcomeTabView: View {
