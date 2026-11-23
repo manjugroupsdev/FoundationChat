@@ -2500,6 +2500,8 @@ private struct CreateSiteVisitSheet: View {
 
     let onCreated: () -> Void
     @State private var requestId = UUID().uuidString
+    @State private var requestFingerprint: Data?
+    @State private var previousPhone = ""
     @State private var routing: Routing?
     @State private var origin = "telecaller"
     @State private var phone = ""
@@ -2523,6 +2525,8 @@ private struct CreateSiteVisitSheet: View {
     @State private var isLoadingOptions = true
     @State private var isSearchingLead = false
     @State private var isSubmitting = false
+    @State private var optionsFailed = false
+    @State private var lookupFailed = false
     @State private var errorMessage: String?
 
     private var digits: String { String(phone.filter(\.isNumber).suffix(10)) }
@@ -2580,6 +2584,14 @@ private struct CreateSiteVisitSheet: View {
                         Label(errorMessage, systemImage: "exclamationmark.triangle.fill")
                             .font(.footnote)
                             .foregroundStyle(.red)
+                        if optionsFailed {
+                            Button("Retry projects and staff", systemImage: "arrow.clockwise") { Task { await loadOptions() } }
+                                .disabled(isLoadingOptions || isSubmitting)
+                        }
+                        if lookupFailed && digits.count == 10 {
+                            Button("Retry client lookup", systemImage: "arrow.clockwise") { Task { await searchLead(phone: digits) } }
+                                .disabled(isSearchingLead || isSubmitting)
+                        }
                     }
                 }
 
@@ -2678,20 +2690,29 @@ private struct CreateSiteVisitSheet: View {
                 ToolbarItem(placement: .confirmationAction) {
                     Button(isSubmitting ? "Scheduling..." : "Schedule") { Task { await submit() } }
                         .fontWeight(.semibold)
-                        .disabled(isSubmitting || isLoadingOptions)
+                        .disabled(isSubmitting || isLoadingOptions || isSearchingLead)
                 }
             }
             .task { await loadOptions() }
             .task(id: digits) {
-                guard digits.count == 10 else {
-                    leadMatches = []; selectedLead = nil; return
+                let requestedPhone = digits
+                if previousPhone != requestedPhone {
+                    if previousPhone.count == 10 {
+                        clientName = ""; pickupAddress = ""; pickupPin = nil
+                    }
+                    previousPhone = requestedPhone
+                    leadMatches = []; selectedLead = nil
                 }
+                lookupFailed = false
+                if !optionsFailed { errorMessage = nil }
+                isSearchingLead = requestedPhone.count == 10
+                guard requestedPhone.count == 10 else { return }
                 try? await Task.sleep(for: .milliseconds(350))
                 guard !Task.isCancelled else { return }
-                await searchLead()
+                await searchLead(phone: requestedPhone)
             }
             .onChange(of: routing) { _, newValue in
-                errorMessage = nil
+                if !optionsFailed && !lookupFailed { errorMessage = nil }
                 if newValue == .direct { travelMode = "own_vehicle" }
                 if newValue != .sameArea { selectedStaff[.field] = nil }
             }
@@ -2756,30 +2777,49 @@ private struct CreateSiteVisitSheet: View {
     }
 
     private func loadOptions() async {
+        guard !isSubmitting else { return }
         guard let token = authStore.currentSession?.token else { errorMessage = "Session expired. Please sign in again."; return }
         isLoadingOptions = true
+        optionsFailed = false
+        errorMessage = nil
         defer { isLoadingOptions = false }
         do {
-            async let projectRequest = MarketingConvexAPIService.getMarketingProjects(token: token)
-            async let staffRequest = HRConvexAPIService.listAllStaff(token: token, status: "active")
-            let loadedProjects = try await projectRequest
+            async let projectRequest = projects.isEmpty ? MarketingConvexAPIService.getMarketingProjects(token: token) : projects
+            async let staffRequest = staff.isEmpty ? HRConvexAPIService.listAllStaff(token: token, status: "active") : staff
+            projects = try await projectRequest
             let loadedStaff = try await staffRequest
-            projects = loadedProjects
             staff = loadedStaff.filter { SiteVisitStaffRules.isActive($0.status) }
+            guard !projects.isEmpty else { throw MarketingAPIError.server("No projects are available.") }
+            guard !staff.isEmpty else { throw MarketingAPIError.server("No active staff are available.") }
+        } catch is CancellationError {
+            return
         } catch {
+            optionsFailed = true
             errorMessage = friendlyError(error)
         }
     }
 
-    private func searchLead() async {
+    private func searchLead(phone: String) async {
         guard let token = authStore.currentSession?.token else { return }
         isSearchingLead = true
-        defer { isSearchingLead = false }
+        defer {
+            if !Task.isCancelled && SiteVisitDraftPolicy.lookupMatches(requestedPhone: phone, currentPhone: digits) {
+                isSearchingLead = false
+            }
+        }
         do {
-            leadMatches = try await MarketingConvexAPIService.searchTelecallerLeadsByPhone(token: token, phone: digits)
+            let matches = try await MarketingConvexAPIService.searchTelecallerLeadsByPhone(token: token, phone: phone)
+            try Task.checkCancellation()
+            guard SiteVisitDraftPolicy.lookupMatches(requestedPhone: phone, currentPhone: digits) else { return }
+            leadMatches = matches
             selectedLead = leadMatches.first
-            if leadMatches.isEmpty { clientName = "" }
+            lookupFailed = false
+            if !optionsFailed { errorMessage = nil }
+        } catch is CancellationError {
+            return
         } catch {
+            guard !Task.isCancelled, SiteVisitDraftPolicy.lookupMatches(requestedPhone: phone, currentPhone: digits) else { return }
+            lookupFailed = true
             errorMessage = friendlyError(error)
         }
     }
@@ -2799,15 +2839,23 @@ private struct CreateSiteVisitSheet: View {
     }
 
     private func submit() async {
+        guard !isSubmitting && !isSearchingLead else { return }
         guard let token = authStore.currentSession?.token else { errorMessage = "Session expired. Please sign in again."; return }
-        guard let request = validatedRequest() else { return }
+        guard var request = validatedRequest() else { return }
         isSubmitting = true
         errorMessage = nil
         defer { isSubmitting = false }
         do {
+            let fingerprint = try SiteVisitDraftPolicy.fingerprint(encodedRequest: JSONEncoder().encode(request))
+            if requestFingerprint != fingerprint {
+                requestId = UUID().uuidString
+                requestFingerprint = fingerprint
+            }
+            request.requestId = requestId
             let response = try await MarketingConvexAPIService.createSiteVisit(token: token, request: request)
             try validateCreatedVisit(response, routing: request.routing)
             requestId = UUID().uuidString
+            requestFingerprint = nil
             onCreated()
             dismiss()
         } catch {
@@ -2856,19 +2904,21 @@ private struct CreateSiteVisitSheet: View {
         guard let lmo = selectedStaff[.lmo], let bdo = selectedStaff[.bdo], let incharge = selectedStaff[.incharge] else { return fail("Select LMO, BDO, and Site Incharge.") }
         if routing == .sameArea, selectedStaff[.field] == nil { return fail("Select the Same Area verification staff.") }
         guard let hod = selectedStaff[.hod], let avp = selectedStaff[.avp], let gm = selectedStaff[.gm], let senior = selectedStaff[.senior] else { return fail("Complete all required reporting assignments.") }
+        guard SiteVisitDraftPolicy.hasRequiredVisitor(routing: routing.rawValue, names: visitors.map(\.name)) else {
+            return fail("Add at least one visitor's name.")
+        }
         let address = pickupAddress.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !address.isEmpty else { return fail("Enter the pickup address.") }
         guard let pin = pickupPin else { return fail("Set the client pickup location on the map.") }
-        guard pin.latitude.isFinite, pin.longitude.isFinite,
-              pin.latitude != 0, pin.longitude != 0,
-              (-90...90).contains(pin.latitude), (-180...180).contains(pin.longitude)
+        guard SiteVisitDraftPolicy.usableCoordinates(latitude: pin.latitude, longitude: pin.longitude)
         else { return fail("Select a valid pickup location on the map.") }
         let dateFormatter = DateFormatter(); dateFormatter.locale = Locale(identifier: "en_US_POSIX"); dateFormatter.dateFormat = "yyyy-MM-dd"
         let timeFormatter = DateFormatter(); timeFormatter.locale = Locale(identifier: "en_US_POSIX"); timeFormatter.dateFormat = "HH:mm"
         let attendeeRequests = visitors.map { SiteVisitAttendeeRequest(name: $0.name.nilIfBlank, relation: $0.relation.nilIfBlank, age: $0.age.nilIfBlank, isVeg: $0.isVeg) }
+        let identity = SiteVisitDraftPolicy.leadIdentity(id: selectedLead?.id, coreLeadId: selectedLead?.coreLeadId)
         return CreateSiteVisitRequest(
             requestId: requestId, routing: routing.rawValue, origin: origin,
-            leadId: selectedLead?.id, clientName: selectedLead == nil ? clientName.nilIfBlank : nil,
+            leadId: identity.leadId, clientName: selectedLead == nil ? clientName.nilIfBlank : nil,
             mobileNumber: digits, projectId: project.id,
             scheduledDate: dateFormatter.string(from: scheduledAt), scheduledTime: timeFormatter.string(from: scheduledAt),
             pickupTime: requiresPickup ? timeFormatter.string(from: pickupAt) : nil,
@@ -2880,12 +2930,12 @@ private struct CreateSiteVisitSheet: View {
             pickupGoogleMapsLink: pin.googleMapsLink,
             expectedAttendeeCount: attendeeRequests.isEmpty ? nil : attendeeRequests.count,
             attendees: attendeeRequests.isEmpty ? nil : attendeeRequests,
-            notes: notes.nilIfBlank
+            notes: notes.nilIfBlank, coreLeadId: identity.coreLeadId
         )
     }
 
     private func isSalesMarketing(_ item: ConvexStaffListItem) -> Bool {
-        SiteVisitStaffRules.salesMarketing(status: item.status, department: item.department)
+        SiteVisitStaffRules.salesMarketing(status: item.status, department: item.department, designation: item.designation, role: item.role)
     }
 
     private func isEligibleLmo(_ item: ConvexStaffListItem) -> Bool {

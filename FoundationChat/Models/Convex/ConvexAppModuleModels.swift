@@ -555,12 +555,14 @@ struct TelecallerLeadSearchData: Decodable, Identifiable, Hashable, Sendable {
     let latestAnalysisProfile: LeadAnalysisProfile?
     let clientPlaceProfile: LeadLocationProfile?
     let manualProfile: LeadLocationProfile?
+    var coreLeadId: String? = nil
 
     enum CodingKeys: String, CodingKey {
         case id = "_id"
         case contactName, mobileNumber, emailId, projectId, assignedToStaffId, clientCity, locationPreferred
         case suggestedVisitAddress, suggestedVisitLat, suggestedVisitLng, suggestedGoogleMapsLink
         case latestAnalysisProfile, clientPlaceProfile, manualProfile
+        case coreLeadId
     }
 
     var displayName: String {
@@ -1615,7 +1617,7 @@ struct CreateCpVisitRequest: Encodable, Sendable {
 }
 
 struct CreateSiteVisitRequest: Encodable, Sendable {
-    let requestId: String
+    var requestId: String
     let routing: String
     let origin: String
     let leadId: String?
@@ -1641,6 +1643,7 @@ struct CreateSiteVisitRequest: Encodable, Sendable {
     let expectedAttendeeCount: Int?
     let attendees: [SiteVisitAttendeeRequest]?
     let notes: String?
+    var coreLeadId: String? = nil
 }
 
 struct CreateSiteVisitResponse: Decodable, Sendable {

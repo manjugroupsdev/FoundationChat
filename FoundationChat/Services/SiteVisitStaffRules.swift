@@ -6,9 +6,11 @@ enum SiteVisitStaffRules {
         return value.isEmpty || value == "active"
     }
 
-    static func salesMarketing(status: String?, department: String?) -> Bool {
+    static func salesMarketing(status: String?, department: String?, designation: String? = nil, role: String? = nil) -> Bool {
         let value = normalize(department)
-        return isActive(status) && value.contains("sales") && value.contains("marketing")
+        let roleText = normalize("\(designation ?? "") \(role ?? "")")
+        return isActive(status) && ((value.contains("sales") && value.contains("marketing"))
+            || (roleText.contains("sales") && roleText.contains("marketing")))
     }
 
     // Sales & Marketing accepts every designation; other departments retain

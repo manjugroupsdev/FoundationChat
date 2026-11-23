@@ -1038,10 +1038,11 @@ enum MarketingConvexAPIService {
         var mutationFailure: Error?
         do {
             let data = try await post(path: "/api/marketing/siteVisits/setOutcome", token: token, body: request)
-            let wrapper = try await decode(BaseMutationResponse.self, from: data)
+            let wrapper = try await decode(SiteVisitOutcomeReceipt.self, from: data)
             guard wrapper.success else {
                 throw MarketingAPIError.server(wrapper.error ?? "Failed to set site visit outcome")
             }
+            if wrapper.confirms(request.outcome) { return }
         } catch is CancellationError {
             throw CancellationError()
         } catch {
@@ -1053,23 +1054,19 @@ enum MarketingConvexAPIService {
         }
 
         var confirmationFailure: Error?
-        for attempt in 0..<3 {
-            do {
-                let detail = try await getCpVisitDetail(token: token, id: request.id)
-                if siteVisitOutcomeWasConfirmed(detail: detail, expectedOutcome: request.outcome) {
-                    return
-                }
-                confirmationFailure = MarketingAPIError.server(
-                    "The outcome was received, but the site visit was not finalized. Refresh the visit and try again."
-                )
-            } catch is CancellationError {
-                throw CancellationError()
-            } catch {
-                confirmationFailure = error
+        // Legacy/ambiguous replies get one authoritative read, never a poll loop.
+        do {
+            let detail = try await getCpVisitDetail(token: token, id: request.id)
+            if siteVisitOutcomeWasConfirmed(detail: detail, expectedOutcome: request.outcome) {
+                return
             }
-            if attempt < 2 {
-                try await Task.sleep(for: .milliseconds(attempt == 0 ? 250 : 750))
-            }
+            confirmationFailure = MarketingAPIError.server(
+                "The outcome was received, but the site visit was not finalized. Refresh the visit and try again."
+            )
+        } catch is CancellationError {
+            throw CancellationError()
+        } catch {
+            confirmationFailure = error
         }
         if let mutationFailure { throw mutationFailure }
         throw confirmationFailure ?? MarketingAPIError.server("Unable to confirm the saved site visit outcome")

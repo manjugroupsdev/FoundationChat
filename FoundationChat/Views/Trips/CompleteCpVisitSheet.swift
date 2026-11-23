@@ -88,6 +88,8 @@ struct CompleteCpVisitSheet: View {
     @State private var selectedSeniorManager: ConvexStaffListItem?
     @State private var siteVisitDate = Date()
     @State private var siteVisitTime = Date()
+    @State private var initialSiteVisitDate: Date?
+    @State private var initialSiteVisitTime: Date?
     // Must be chosen (server requires it); no silent cab default.
     @State private var travelMode: TravelMode?
     @State private var cabPickupTime: Date = Date()
@@ -177,6 +179,8 @@ struct CompleteCpVisitSheet: View {
             .interactiveDismissDisabled(isSaving)
             .toolbar(.hidden, for: .navigationBar)
             .task {
+                if initialSiteVisitDate == nil { initialSiteVisitDate = siteVisitDate }
+                if initialSiteVisitTime == nil { initialSiteVisitTime = siteVisitTime }
                 let startingOutcome = CpVisitOutcome(rawValue: normalizedServerValue(initialOutcome))
                 // Nothing pre-selected unless the caller (or locked-SV mode) supplies one.
                 selectedOutcome = startingOutcome
@@ -1382,40 +1386,46 @@ struct CompleteCpVisitSheet: View {
     @MainActor
     private func applyLockedSvMode(visit: CpVisitDetail, proposed: ProposedSiteVisit?) {
         hasFixedSiteVisit = true
+        // Keep the chosen action and user edits; only fill untouched defaults.
+        if selectedOutcome == .siteVisit { isLockedSvMode = true }
         errorMessage = nil
 
-        if let projectId = proposed?.projectId?.nilIfBlank {
+        if selectedProject == nil, let projectId = proposed?.projectId?.nilIfBlank ?? visit.projectId?.nilIfBlank {
             selectedProject = projects.first { $0.id == projectId }
         }
-        if let date = parseServerDate(proposed?.scheduledDate ?? visit.scheduledDate) {
+        if siteVisitDate == initialSiteVisitDate, let date = parseServerDate(proposed?.scheduledDate ?? visit.scheduledDate) {
             siteVisitDate = date
         }
-        if let mode = proposed?.travelMode?.nilIfBlank {
+        let hadTravelMode = travelMode != nil
+        if travelMode == nil, let mode = proposed?.travelMode?.nilIfBlank {
             travelMode = TravelMode(rawValue: mode)
         }
-        if let pickup = parseServerTime(proposed?.pickupTime) {
+        if !hadTravelMode, let pickup = parseServerTime(proposed?.pickupTime) {
             cabPickupTime = pickup
         }
-        if let time = parseServerTime(proposed?.scheduledTime ?? visit.scheduledTime) {
+        if siteVisitTime == initialSiteVisitTime, let time = parseServerTime(proposed?.scheduledTime ?? visit.scheduledTime) {
             siteVisitTime = time
         }
 
-        selectedIncharge = staff(with: proposed?.inchargeStaffId)
+        selectedIncharge = selectedIncharge ?? staff(with: proposed?.inchargeStaffId)
             ?? staff(with: visit.assignedStaffId)
-        selectedHod = staff(with: proposed?.hodStaffId)
-        selectedAvp = staff(with: proposed?.avpStaffId)
-        selectedGm = staff(with: proposed?.gmStaffId)
-        selectedSeniorManager = staff(with: proposed?.seniorManagerStaffId)
+        selectedHod = selectedHod ?? staff(with: proposed?.hodStaffId)
+        selectedAvp = selectedAvp ?? staff(with: proposed?.avpStaffId)
+        selectedGm = selectedGm ?? staff(with: proposed?.gmStaffId)
+        selectedSeniorManager = selectedSeniorManager ?? staff(with: proposed?.seniorManagerStaffId)
 
-        let count = max(visit.expectedAttendeeCount ?? visit.attendees?.count ?? 0, 1)
-        visitorCount = "\(count)"
-        syncVisitorRows(count: count)
+        let seededVisitors = visitors.isEmpty && visitorCount.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
+        if seededVisitors {
+            let count = max(visit.expectedAttendeeCount ?? visit.attendees?.count ?? 0, 1)
+            visitorCount = "\(count)"
+            syncVisitorRows(count: count)
+        }
         if let attendees = visit.attendees, !attendees.isEmpty {
             for (index, attendee) in attendees.prefix(visitors.count).enumerated() {
-                visitors[index].name = attendee.name ?? ""
-                visitors[index].relation = attendee.relation ?? ""
-                visitors[index].age = attendee.age ?? ""
-                visitors[index].isVeg = attendee.isVeg ?? true
+                if visitors[index].name.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty { visitors[index].name = attendee.name ?? "" }
+                if visitors[index].relation.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty { visitors[index].relation = attendee.relation ?? "" }
+                if visitors[index].age.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty { visitors[index].age = attendee.age ?? "" }
+                if seededVisitors { visitors[index].isVeg = attendee.isVeg ?? true }
             }
         } else if let first = visitors.indices.first {
             let fallbackName = visit.lead?.contactName?.nilIfBlank
@@ -1431,15 +1441,17 @@ struct CompleteCpVisitSheet: View {
                 visitors[first].relation = "Self"
             }
         }
-        foodPreferences = visit.foodPreferences ?? ""
-        pickupAddress = visit.clientPlace?.address?.nilIfBlank
-            ?? visit.clientPlace?.formattedAddress?.nilIfBlank
-            ?? visit.lead?.preferredArea?.nilIfBlank
-            ?? pickupAddress
-        pickupLatitude = visit.clientPlace?.lat
-        pickupLongitude = visit.clientPlace?.lng
-        pickupGoogleMapsLink = visit.clientPlace?.googleMapsLink?.nilIfBlank
-        if let vehicle = visit.vehiclePreference?.nilIfBlank {
+        if foodPreferences.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty { foodPreferences = visit.foodPreferences ?? "" }
+        if pickupAddress.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
+            pickupAddress = visit.clientPlace?.address?.nilIfBlank
+                ?? visit.clientPlace?.formattedAddress?.nilIfBlank
+                ?? visit.lead?.preferredArea?.nilIfBlank
+                ?? pickupAddress
+        }
+        pickupLatitude = pickupLatitude ?? visit.clientPlace?.lat
+        pickupLongitude = pickupLongitude ?? visit.clientPlace?.lng
+        pickupGoogleMapsLink = pickupGoogleMapsLink ?? visit.clientPlace?.googleMapsLink?.nilIfBlank
+        if travelMode == nil, let vehicle = visit.vehiclePreference?.nilIfBlank {
             travelMode = vehicle.lowercased().contains("own") ? .ownVehicle : .cab
         }
     }
@@ -1473,6 +1485,7 @@ struct CompleteCpVisitSheet: View {
     private func restoreBookingDraftIfNeeded() async {
         guard !hasRestoredDraft else { return }
         defer { hasRestoredDraft = true }
+        let draftBeforeLoad = booking
 
         let decoder = JSONDecoder()
 
@@ -1502,7 +1515,7 @@ struct CompleteCpVisitSheet: View {
             restored = localDraft ?? cloudDraft
         }
 
-        guard let restored, !restored.isEmpty else { return }
+        guard booking == draftBeforeLoad, let restored, !restored.isEmpty else { return }
         booking = restored
         if !booking.phone.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
             bookingClientMobile = booking.phone
