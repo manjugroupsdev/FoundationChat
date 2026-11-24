@@ -46,6 +46,21 @@ struct TripNavigationView: View {
     let usesAgencyFleetDriverAPI: Bool
     let requiresOpenAttendance: Bool
     let onTripChanged: (() -> Void)?
+    /// Staff ON this CP (assigned / both Joint CP participants) when the
+    /// caller knows them, so the map can tell at once whether the viewer is
+    /// one of them. The CP detail confirms it later.
+    let involvedStaffIdsArg: [String]?
+
+    // CP map overlay: the CP staff's latest fix, travelled path and distance
+    // (both on a Joint CP). Read-only display state — mirrors Android.
+    // `cpInvolvedStaffIds == nil` means "not known yet": the map keeps its
+    // original viewer-centred behaviour until it is.
+    @State private var cpInvolvedStaffIds: Set<String>?
+    @State private var cpInvolvedStaff: [CpInvolvedStaff] = []
+    @State private var cpStaffTracks: [CpStaffTrack] = []
+    @State private var cpStaffTracksLoaded = false
+    @State private var cpStaffTracksLoading = false
+    @State private var cpStaffTracksHidden = false
 
     @State private var resolvedVisitId: String?
     @State private var visitStarted = false
@@ -152,8 +167,12 @@ struct TripNavigationView: View {
         fleetOnSiteAt: Int64? = nil,
         usesAgencyFleetDriverAPI: Bool = false,
         requiresOpenAttendance: Bool = false,
-        onTripChanged: (() -> Void)? = nil
+        onTripChanged: (() -> Void)? = nil,
+        involvedStaffIds: [String]? = nil
     ) {
+        self.involvedStaffIdsArg = involvedStaffIds
+        let knownInvolved = Set((involvedStaffIds ?? []).filter { !$0.isEmpty })
+        _cpInvolvedStaffIds = State(initialValue: knownInvolved.isEmpty ? nil : knownInvolved)
         self.visitIdArg = visitId
         self.placeIdArg = placeId
         self.placeName = placeName
@@ -207,6 +226,45 @@ struct TripNavigationView: View {
         return distance <= 300_000
     }
 
+    // MARK: - CP staff tracks (display only)
+
+    private var viewerStaffId: String? {
+        authStore.currentSession?.user.staffId?.nilIfBlank
+            ?? authStore.currentSession?.user._id.nilIfBlank
+    }
+
+    /// True only when we KNOW the viewer is not one of the staff on this CP
+    /// (a manager opening it from the CP list). Unknown keeps the original map.
+    private var isViewerObserver: Bool {
+        guard let ids = cpInvolvedStaffIds else { return false }
+        return !CpStaffTrackPolicy.viewerIsInvolved(viewerStaffId: viewerStaffId, involved: ids)
+    }
+
+    /// Observer view: distance / ETA are measured from the CP staff member
+    /// still on the way (primary first), never from the viewer's phone.
+    private var observerStaffOrigin: CLLocationCoordinate2D? {
+        cpStaffTracks
+            .first { $0.tripInProgress && $0.live?.trackingActive == true }?
+            .live?
+            .coordinate
+    }
+
+    private var observerDistanceMeters: Double? {
+        guard let origin = observerStaffOrigin, let dest = effectiveDestination else { return nil }
+        return CLLocation(latitude: origin.latitude, longitude: origin.longitude)
+            .distance(from: CLLocation(latitude: dest.latitude, longitude: dest.longitude))
+    }
+
+    private func cpStaffTrackColor(_ track: CpStaffTrack, index: Int) -> Color {
+        if let hex = track.routeColor?.trimmingCharacters(in: .whitespaces),
+           hex.count == 7, hex.hasPrefix("#"),
+           let value = UInt(hex.dropFirst(), radix: 16) {
+            return Color(hex: value)
+        }
+        let palette: [Color] = [.green, .orange, .purple]
+        return palette[index % palette.count]
+    }
+
     private var isJointCpWorkflow: Bool {
         cpType?
             .trimmingCharacters(in: .whitespacesAndNewlines)
@@ -222,6 +280,7 @@ struct TripNavigationView: View {
                 VStack(spacing: 12) {
                     tripInfoCard
                     mapSection
+                    cpStaffTracksCard
                     tripProgressCard
                     if let arrivalStatusText {
                         HStack(spacing: 8) {
@@ -513,6 +572,16 @@ struct TripNavigationView: View {
             await reconcileCpVisitState()
         }
         .task(id: clientPlaceVisitId) {
+            // CP staff tracks refresh: once a minute while the screen is up,
+            // only while someone on the CP is still moving.
+            while !Task.isCancelled {
+                try? await Task.sleep(for: .seconds(60))
+                guard !Task.isCancelled, cpStaffTracksLoaded else { continue }
+                guard cpStaffTracks.contains(where: { $0.tripInProgress || $0.live?.trackingActive == true }) else { continue }
+                await loadCpStaffTracks()
+            }
+        }
+        .task(id: clientPlaceVisitId) {
             guard isJointCpWorkflow else { return }
             while !Task.isCancelled {
                 await refreshJointWorkflow()
@@ -585,20 +654,57 @@ struct TripNavigationView: View {
                 }
             }
             if let me = currentLocation {
-                Annotation("You", coordinate: me) {
-                    ZStack {
-                        Circle().fill(.blue.opacity(0.25)).frame(width: 36, height: 36)
-                        Circle().fill(.blue).frame(width: 14, height: 14)
-                            .overlay(Circle().stroke(.white, lineWidth: 2))
+                if isViewerObserver {
+                    // Not on this CP: the viewer's own position is only a
+                    // muted reference, not the point of this map.
+                    Annotation("You", coordinate: me) {
+                        Circle().fill(Color.appTertiaryText).frame(width: 10, height: 10)
+                            .overlay(Circle().stroke(Color.appSurface, lineWidth: 2))
+                            .opacity(0.6)
+                    }
+                } else {
+                    Annotation("You", coordinate: me) {
+                        ZStack {
+                            Circle().fill(.blue.opacity(0.25)).frame(width: 36, height: 36)
+                            Circle().fill(.blue).frame(width: 14, height: 14)
+                                .overlay(Circle().stroke(.white, lineWidth: 2))
+                        }
                     }
                 }
             }
-            if routeInfo?.polyline.isEmpty == false {
-                MapPolyline(coordinates: routeInfo?.polyline ?? [])
-                    .stroke(Color(hex: 0x0B56A8), style: StrokeStyle(lineWidth: 6, lineCap: .round, lineJoin: .round))
-            } else if hasAttemptedRouteFetch, !isRouteLoading, canShowLiveRoute, let dest = effectiveDestination, let me = currentLocation {
-                MapPolyline(coordinates: [me, dest])
-                    .stroke(Color(hex: 0x0B56A8).opacity(0.72), style: StrokeStyle(lineWidth: 5, lineCap: .round, lineJoin: .round, dash: [8, 8]))
+            // The CP staff's travelled paths + latest fixes (both on a Joint CP).
+            ForEach(Array(cpStaffTracks.enumerated()), id: \.element.staffId) { index, track in
+                if track.path.count >= 2 {
+                    MapPolyline(coordinates: track.path.map(\.coordinate))
+                        .stroke(
+                            cpStaffTrackColor(track, index: index).opacity(0.85),
+                            style: StrokeStyle(lineWidth: 5, lineCap: .round, lineJoin: .round)
+                        )
+                }
+            }
+            ForEach(Array(cpStaffTracks.enumerated()), id: \.element.staffId) { index, track in
+                // The involved viewer's own fix is already the blue "You" dot.
+                if let live = track.live, isViewerObserver || track.staffId != viewerStaffId {
+                    Annotation(track.name, coordinate: live.coordinate) {
+                        Circle().fill(cpStaffTrackColor(track, index: index)).frame(width: 16, height: 16)
+                            .overlay(Circle().stroke(Color.appSurface, lineWidth: 3))
+                            .shadow(radius: 1)
+                    }
+                }
+            }
+            if !isViewerObserver {
+                if routeInfo?.polyline.isEmpty == false {
+                    MapPolyline(coordinates: routeInfo?.polyline ?? [])
+                        .stroke(Color(hex: 0x0B56A8), style: StrokeStyle(lineWidth: 6, lineCap: .round, lineJoin: .round))
+                } else if hasAttemptedRouteFetch, !isRouteLoading, canShowLiveRoute, let dest = effectiveDestination, let me = currentLocation {
+                    MapPolyline(coordinates: [me, dest])
+                        .stroke(Color(hex: 0x0B56A8).opacity(0.72), style: StrokeStyle(lineWidth: 5, lineCap: .round, lineJoin: .round, dash: [8, 8]))
+                }
+            } else if let origin = observerStaffOrigin, let dest = effectiveDestination {
+                // Observer: a straight guide from the staff member still on the
+                // way to the client (distance / ETA below use the same origin).
+                MapPolyline(coordinates: [origin, dest])
+                    .stroke(Color(hex: 0x0B56A8).opacity(0.6), style: StrokeStyle(lineWidth: 4, lineCap: .round, lineJoin: .round, dash: [6, 6]))
             }
         }
         .frame(height: 180)
@@ -1222,6 +1328,16 @@ struct TripNavigationView: View {
         resolvedJointSummary = detail.joint ?? resolvedJointSummary
         if let workflow = detail.joint?.workflow {
             jointWorkflow = workflow
+        }
+        // Read-only CP map overlay: who is on this CP, then their tracks.
+        // Runs detached so it never delays the trip-state reconcile below.
+        let involved = CpStaffTrackPolicy.involvedStaff(detail)
+        if !involved.isEmpty, cpVisitCategory?.lowercased() != "site_visit", !usesAgencyFleetDriverAPI {
+            cpInvolvedStaff = involved
+            cpInvolvedStaffIds = Set(involved.map(\.staffId))
+            if !cpStaffTracksLoaded {
+                Task { await loadCpStaffTracks() }
+            }
         }
         let actorStaffId = authStore.currentSession?.user.staffId?.nilIfBlank
             ?? authStore.currentSession?.user._id.nilIfBlank
@@ -2544,7 +2660,153 @@ struct TripNavigationView: View {
         ])
     }
 
+    @MainActor
+    private func loadCpStaffTracks() async {
+        guard let cpId = clientPlaceVisitId?.nilIfBlank,
+              let token = authStore.currentSession?.token,
+              !cpInvolvedStaff.isEmpty,
+              !cpStaffTracksLoading
+        else { return }
+        cpStaffTracksLoading = true
+        defer { cpStaffTracksLoading = false }
+        geoAPI.tokenProvider = { token }
+        let previousOrigin = observerStaffOrigin
+        let result = await CpStaffTracksLoader.load(
+            token: token,
+            cpId: cpId,
+            involved: cpInvolvedStaff,
+            viewerStaffId: viewerStaffId,
+            viewerCanViewAllTracking: authStore.hasPermission("attendance.liveTracking"),
+            geoAPI: geoAPI
+        )
+        switch result {
+        case .loaded(let tracks):
+            let firstLoad = !cpStaffTracksLoaded
+            cpStaffTracks = tracks
+            cpStaffTracksLoaded = true
+            cpStaffTracksHidden = tracks.isEmpty
+            if isViewerObserver && (firstLoad || previousOrigin?.latitude != observerStaffOrigin?.latitude
+                || previousOrigin?.longitude != observerStaffOrigin?.longitude) {
+                frameCpStaffTracks()
+            }
+        case .forbidden:
+            cpStaffTracks = []
+            cpStaffTracksLoaded = true
+            cpStaffTracksHidden = true
+        case .unavailable:
+            if !cpStaffTracksLoaded { cpStaffTracksHidden = true }
+        }
+    }
+
+    /// Legend under the map: each CP staff member with their latest location
+    /// and distance travelled, plus a muted "You" row for an observer.
+    @ViewBuilder
+    private var cpStaffTracksCard: some View {
+        if !cpInvolvedStaff.isEmpty, !cpStaffTracksHidden {
+            VStack(alignment: .leading, spacing: 10) {
+                Text("Staff on this CP")
+                    .font(.subheadline.weight(.semibold))
+                    .foregroundStyle(Color.appPrimaryText)
+                if !cpStaffTracksLoaded {
+                    // Skeleton while the first load runs.
+                    ForEach(0..<min(max(cpInvolvedStaff.count, 1), 2), id: \.self) { _ in
+                        HStack(spacing: 10) {
+                            Circle().fill(Color.appFieldBackground).frame(width: 10, height: 10)
+                            VStack(alignment: .leading, spacing: 6) {
+                                RoundedRectangle(cornerRadius: 4).fill(Color.appFieldBackground).frame(width: 120, height: 10)
+                                RoundedRectangle(cornerRadius: 4).fill(Color.appFieldBackground).frame(width: 190, height: 8)
+                            }
+                        }
+                        .redacted(reason: .placeholder)
+                    }
+                } else {
+                    let now = Date().timeIntervalSince1970 * 1000
+                    ForEach(Array(cpStaffTracks.enumerated()), id: \.element.staffId) { index, track in
+                        cpStaffLegendRow(
+                            color: cpStaffTrackColor(track, index: index),
+                            title: track.staffId == viewerStaffId ? "\(track.name) (you)" : track.name,
+                            detail: CpStaffTrackPolicy.locationLabel(track.live, now: now) + " · " + cpStaffTravelText(track),
+                            muted: false
+                        )
+                    }
+                    if isViewerObserver {
+                        cpStaffLegendRow(
+                            color: Color.appTertiaryText,
+                            title: "You",
+                            detail: currentLocation != nil ? "Your location, shown faded for reference" : "Your location is not shown",
+                            muted: true
+                        )
+                    }
+                }
+            }
+            .padding(16)
+            .frame(maxWidth: .infinity, alignment: .leading)
+            .background(Color.appSurface, in: RoundedRectangle(cornerRadius: 18))
+            .overlay(
+                RoundedRectangle(cornerRadius: 18)
+                    .stroke(Color.adaptiveTint(0xEEF0F5), lineWidth: 1)
+            )
+        }
+    }
+
+    private func cpStaffTravelText(_ track: CpStaffTrack) -> String {
+        switch track.pathState {
+        case .shown:
+            return CpStaffTrackPolicy.distanceLabel(track.distanceMeters)
+        case .notStarted:
+            return "Trip not started"
+        case .noPoints:
+            return track.distanceMeters.map { CpStaffTrackPolicy.distanceLabel($0) } ?? "No path recorded"
+        case .notAvailable:
+            return track.distanceMeters.map { CpStaffTrackPolicy.distanceLabel($0) + " · path not available" }
+                ?? "Path not available"
+        }
+    }
+
+    private func cpStaffLegendRow(color: Color, title: String, detail: String, muted: Bool) -> some View {
+        HStack(alignment: .center, spacing: 10) {
+            Circle().fill(color).frame(width: 10, height: 10)
+            VStack(alignment: .leading, spacing: 3) {
+                Text(title)
+                    .font(.subheadline.weight(.medium))
+                    .foregroundStyle(muted ? Color.appTertiaryText : Color.appPrimaryText)
+                Text(detail)
+                    .font(.caption)
+                    .foregroundStyle(muted ? Color.appTertiaryText : Color.appSecondaryText)
+            }
+            Spacer(minLength: 0)
+        }
+        .opacity(muted ? 0.75 : 1)
+    }
+
+    /// Observer view: frame the CP staff (paths + fixes) and the client, not
+    /// the viewer's own position.
+    private func frameCpStaffTracks() {
+        var points: [CLLocationCoordinate2D] = cpStaffTracks.flatMap { track in
+            track.path.map(\.coordinate) + (track.live.map { [$0.coordinate] } ?? [])
+        }
+        if let dest = effectiveDestination { points.append(dest) }
+        guard let first = points.first else { return }
+        var minLat = first.latitude, maxLat = first.latitude
+        var minLng = first.longitude, maxLng = first.longitude
+        for point in points {
+            minLat = min(minLat, point.latitude); maxLat = max(maxLat, point.latitude)
+            minLng = min(minLng, point.longitude); maxLng = max(maxLng, point.longitude)
+        }
+        mapPosition = .region(MKCoordinateRegion(
+            center: CLLocationCoordinate2D(latitude: (minLat + maxLat) / 2, longitude: (minLng + maxLng) / 2),
+            span: MKCoordinateSpan(
+                latitudeDelta: (maxLat - minLat) * 1.6 + 0.005,
+                longitudeDelta: (maxLng - minLng) * 1.6 + 0.005
+            )
+        ))
+    }
+
     private func updateMapBounds(currentCoord: CLLocationCoordinate2D) {
+        if isViewerObserver {
+            frameCpStaffTracks()
+            return
+        }
         guard let dest = effectiveDestination else {
             mapPosition = .camera(MapCamera(centerCoordinate: currentCoord, distance: 1500))
             return
@@ -2571,6 +2833,10 @@ struct TripNavigationView: View {
     }
 
     private var distanceText: String {
+        if isViewerObserver {
+            guard let m = observerDistanceMeters else { return "—" }
+            return formatDistance(m)
+        }
         if let routeInfo { return routeInfo.distanceText }
         guard let m = distanceMeters else { return "—" }
         if m >= 1000 { return String(format: "%.1f km", m / 1000) }
@@ -2578,6 +2844,11 @@ struct TripNavigationView: View {
     }
 
     private var etaText: String {
+        if isViewerObserver {
+            guard let m = observerDistanceMeters else { return "—" }
+            let minutes = Int((m / 500.0).rounded())
+            return minutes < 1 ? "<1 min" : "\(minutes) min"
+        }
         if let routeInfo { return routeInfo.durationText }
         guard let m = distanceMeters else { return "—" }
         // Rough urban-driving ETA: 30 km/h average (matches Android fallback).

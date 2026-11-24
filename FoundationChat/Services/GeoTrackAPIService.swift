@@ -634,6 +634,22 @@ final class GeoTrackAPIService {
         return result.data?.segments ?? []
     }
 
+    /// GET /api/tracking/live?staffIds=a,b — latest heartbeat rows for the
+    /// staff on one CP (CP trip map). Rows keep `trackingActive` separate
+    /// from `isOnline` so only an active duty reads as live.
+    func liveStatus(forStaffIds staffIds: [String]) async throws -> [CpLiveStatusRow] {
+        let ids = staffIds.filter { !$0.isEmpty }
+        guard !ids.isEmpty else { return [] }
+        let request = try makeGETRequest(
+            path: "/api/tracking/live",
+            queryItems: [URLQueryItem(name: "staffIds", value: ids.joined(separator: ","))],
+            directGeoTrack: true
+        )
+        let result: CpLiveStatusRowsResponse = try await perform(request)
+        if let err = result.error { throw GeoTrackAPIError.serverError(err) }
+        return result.data ?? []
+    }
+
     /// GET /api/tracking/live
     func liveStatus() async throws -> [GeoTrackLiveStatusEntry] {
         let request = try makeGETRequest(path: "/api/tracking/live", directGeoTrack: true)

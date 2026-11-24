@@ -1018,6 +1018,39 @@ enum MarketingConvexAPIService {
         return route
     }
 
+    enum CpStaffTracksFetch: Sendable {
+        case loaded([CpStaffTrackDTO])
+        case forbidden
+        /// The server predates the route (404).
+        case notDeployed
+        case failed
+    }
+
+    /// GET /api/marketing/cp-visits/staff-tracks?id=... — read-only CP trip
+    /// map data (each involved staff member's path, distance, live fix).
+    /// Reads the status itself so a 403 / 404 can be told apart from a
+    /// transient failure; never throws.
+    static func getCpStaffTracks(token: String, id: String) async -> CpStaffTracksFetch {
+        var components = URLComponents(string: "\(baseURL)/api/marketing/cp-visits/staff-tracks")
+        components?.queryItems = [URLQueryItem(name: "id", value: id)]
+        guard let url = components?.url else { return .failed }
+        var request = URLRequest(url: url)
+        request.httpMethod = "GET"
+        request.setValue("Bearer \(token)", forHTTPHeaderField: "Authorization")
+        do {
+            let (data, response) = try await IssueReporter.data(for: request)
+            let status = (response as? HTTPURLResponse)?.statusCode ?? 0
+            if status == 403 { return .forbidden }
+            if status == 404 { return .notDeployed }
+            guard (200..<300).contains(status) else { return .failed }
+            let wrapper = try JSONDecoder().decode(CpStaffTracksResponse.self, from: data)
+            guard wrapper.success == true, let staff = wrapper.data?.staff else { return .failed }
+            return .loaded(staff)
+        } catch {
+            return .failed
+        }
+    }
+
     static func approveCpCompletion(token: String, id: String) async throws {
         let data = try await post(path: "/api/marketing/cp-visits/approve", token: token, body: IdRequest(id: id))
         let wrapper = try await decode(BaseMutationResponse.self, from: data)

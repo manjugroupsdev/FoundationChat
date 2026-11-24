@@ -354,7 +354,13 @@ struct CpVisitsView: View {
             deadline: visit.deadlineText,
             onTripChanged: {
                 Task { await load() }
-            }
+            },
+            // Who is ON this CP, so the trip map knows at once whether the
+            // viewer is one of them (a manager sees them, not self).
+            involvedStaffIds: ([visit.detail.assignedStaffId]
+                + (visit.detail.joint?.participants ?? []).map(\.staffId))
+                .compactMap { $0?.trimmingCharacters(in: .whitespacesAndNewlines) }
+                .filter { !$0.isEmpty }
         )
     }
 
