@@ -44,6 +44,12 @@ struct CpVisitsView: View {
     @State private var nextCursor: String?
     @State private var hasMoreServerVisits = false
     @State private var isLoadingMore = false
+    /// Server-busy (429/5xx) handling: one quiet automatic retry at a time.
+    @State private var busyRetryTask: Task<Void, Never>?
+    @State private var busyRetryAttempt = 0
+    /// Which scope/dates `filterOptions` belongs to and when it was read.
+    @State private var filterOptionsKey: String?
+    @State private var filterOptionsLoadedAt: Date?
 
     private var filteredVisits: [CpListVisit] {
         let currentServerSearch = Self.cpServerSearchQuery(searchText)
@@ -90,6 +96,8 @@ struct CpVisitsView: View {
             }
             .onDisappear {
                 searchTask?.cancel()
+                busyRetryTask?.cancel()
+                busyRetryTask = nil
             }
             .sheet(isPresented: $showCreateSheet) {
                 CreateCpVisitSheet(onCreated: {
@@ -534,7 +542,12 @@ struct CpVisitsView: View {
     }
 
     @MainActor
-    private func load(searchOverride: String? = nil) async {
+    private func load(searchOverride: String? = nil, fromBusyRetry: Bool = false) async {
+        // Any load supersedes a pending busy-retry; a load the user started
+        // (pull, filter, return) also starts a fresh retry budget.
+        busyRetryTask?.cancel()
+        busyRetryTask = nil
+        if !fromBusyRetry { busyRetryAttempt = 0 }
         guard let token = authStore.currentSession?.token else {
             errorMessage = "Not signed in."
             hasLoaded = true
@@ -571,15 +584,6 @@ struct CpVisitsView: View {
                 // A failed read keeps the last known answer.
                 if let clockedIn { clockInState = clockedIn }
             }
-            Task {
-                let options = await fetchCpFilterOptions(
-                    token: token,
-                    fromDate: fromDate,
-                    toDate: toDate
-                )
-                guard generation == loadGeneration, let options else { return }
-                filterOptions = options
-            }
             let page = try await fetchCpVisits(
                 token: token,
                 fromDate: fromDate,
@@ -601,8 +605,53 @@ struct CpVisitsView: View {
             hasMoreServerVisits = page.hasMore == true && page.nextCursor?.isEmpty == false
             LocalCache.put(cacheKey, scoped)
             errorMessage = nil
+            busyRetryAttempt = 0
+            // Filter options are read after the list, not alongside it, and only
+            // when the scope or dates changed or they are 10+ min old: the MMS
+            // server runs only a few requests at once for everyone.
+            let optionsKey = CpListBusyRules.filterOptionsKey(
+                scope: listScope.apiValue, fromDate: fromDate, toDate: toDate
+            )
+            if CpListBusyRules.filterOptionsStale(
+                loadedKey: filterOptionsKey, loadedAt: filterOptionsLoadedAt, wantedKey: optionsKey, now: Date()
+            ) {
+                Task {
+                    let options = await fetchCpFilterOptions(
+                        token: token,
+                        fromDate: fromDate,
+                        toDate: toDate
+                    )
+                    guard generation == loadGeneration, let options else { return }
+                    filterOptions = options
+                    filterOptionsKey = optionsKey
+                    filterOptionsLoadedAt = Date()
+                }
+            }
+        } catch MarketingAPIError.serverBusy(let retryAfter) {
+            guard generation == loadGeneration else { return }
+            // Full for everyone, not a bad request: keep the (cached) list,
+            // say so, and try again on our own a bit later.
+            let delay = CpListBusyRules.retryDelaySeconds(
+                attempt: busyRetryAttempt, retryAfterSeconds: retryAfter
+            )
+            errorMessage = CpListBusyRules.busyMessage(retryInSeconds: delay)
+            scheduleBusyRetry(after: delay, generation: generation)
         } catch {
             errorMessage = error.localizedDescription
+        }
+    }
+
+    /// One quiet automatic reload after a "server busy" answer, only while no
+    /// newer load has started. `delay` nil = budget spent; pull to refresh.
+    private func scheduleBusyRetry(after delay: Double?, generation: Int) {
+        busyRetryTask?.cancel()
+        busyRetryTask = nil
+        guard let delay else { return }
+        busyRetryAttempt += 1
+        busyRetryTask = Task {
+            try? await Task.sleep(for: .seconds(delay))
+            guard !Task.isCancelled, generation == loadGeneration else { return }
+            await load(fromBusyRetry: true)
         }
     }
 
@@ -631,6 +680,10 @@ struct CpVisitsView: View {
                 )
             } catch is CancellationError {
                 throw CancellationError()
+            } catch MarketingAPIError.serverBusy(let retryAfter) {
+                // A busy server is not helped by asking again at once or by a
+                // second, wider query: surface it and let the list back off.
+                throw MarketingAPIError.serverBusy(retryAfterSeconds: retryAfter)
             } catch {
                 lastError = error
                 guard attempt == 0 else { break }

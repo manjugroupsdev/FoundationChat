@@ -34,10 +34,16 @@ final class MobileAlertCoordinator {
     @ObservationIgnored private var token: String?
     @ObservationIgnored private var isRefreshing = false
     @ObservationIgnored private var refreshAgain = false
-    /// Seconds the foreground poll waits before its next refresh: 5 normally,
-    /// doubling to 60 while fetches fail (429 under load, 5xx, offline), so
+    /// Seconds the foreground poll waits before its next refresh: 30 normally,
+    /// doubling to 300 while fetches fail (429 under load, 5xx, offline), so
     /// open phones stop piling onto a server that is already refusing them.
-    @ObservationIgnored private(set) var pollDelaySeconds: Double = 5
+    /// Alerts arrive by push at once and on every foreground; this poll only
+    /// catches a lost push. It was 5 s: every open phone asked the MMS server
+    /// 12 times a minute, and that server runs only 16 requests at once for all
+    /// users (429 "TooManyConcurrentRequests" on CP Visits and other screens).
+    static let foregroundPollSeconds: Double = 30
+    static let maxPollBackoffSeconds: Double = 300
+    @ObservationIgnored private(set) var pollDelaySeconds: Double = MobileAlertCoordinator.foregroundPollSeconds
     @ObservationIgnored private var acknowledging: Set<String> = []
     @ObservationIgnored private var retryingAcknowledgements = false
     @ObservationIgnored private var viewedIds: [String]
@@ -76,13 +82,13 @@ final class MobileAlertCoordinator {
             Task { await retryAcknowledgements(token: activeToken) }
             do {
                 let pending = try await MobileAlertAPIService.fetchPending(token: activeToken)
-                pollDelaySeconds = 5
+                pollDelaySeconds = Self.foregroundPollSeconds
                 // Signed out or switched user while the request was out.
                 guard token == activeToken else { continue }
                 apply(pending)
                 await clearDeleted(pending: pending, token: activeToken)
             } catch {
-                pollDelaySeconds = min(60, pollDelaySeconds * 2)
+                pollDelaySeconds = min(Self.maxPollBackoffSeconds, pollDelaySeconds * 2)
                 // Keep whatever is queued; the next refresh tries again.
                 print("[mobile-alert] pending fetch failed: \(error.localizedDescription)")
             }

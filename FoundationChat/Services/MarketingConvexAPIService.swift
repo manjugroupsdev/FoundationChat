@@ -1501,6 +1501,11 @@ enum MarketingConvexAPIService {
                 SessionInvalidationBus.emit(for: request, responseData: data)
                 throw MarketingAPIError.unauthorized
             }
+            if [429, 502, 503, 504].contains(http.statusCode) {
+                let retryAfter = (http.value(forHTTPHeaderField: "Retry-After"))
+                    .flatMap { Double($0.trimmingCharacters(in: .whitespaces)) }
+                throw MarketingAPIError.serverBusy(retryAfterSeconds: retryAfter)
+            }
             if http.statusCode >= 400 {
                 if http.statusCode == 409,
                    let duplicate = try? JSONDecoder().decode(NewClientDuplicateResponse.self, from: data),
@@ -1710,6 +1715,9 @@ enum MarketingAPIError: LocalizedError {
     case structuredServer(code: String?, message: String, fieldErrors: [String: String]?, correlationId: String?)
     case server(String)
     case decoding(Error)
+    /// The MMS server is full for everyone (429 "TooManyConcurrentRequests",
+    /// 502/503/504): the same request works a little later.
+    case serverBusy(retryAfterSeconds: Double?)
 
     var errorDescription: String? {
         switch self {
@@ -1724,6 +1732,7 @@ enum MarketingAPIError: LocalizedError {
             return "Request failed"
         case .server(let message): return message
         case .decoding(let error): return "Failed to decode response: \(error.localizedDescription)"
+        case .serverBusy: return "The server is busy right now. Please try again shortly."
         }
     }
 }
