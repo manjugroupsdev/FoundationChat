@@ -2742,7 +2742,7 @@ struct TripNavigationView: View {
                                 lastSeenMs: track.live?.lastSeenMs,
                                 trackingActive: track.live?.trackingActive == true,
                                 now: now
-                            ) + " · " + cpStaffTravelText(track, now: now),
+                            ) + (track.travelLabel.map { " · " + $0 } ?? ""),
                             muted: false,
                             motion: track.motionToShow(now: now)
                         )
@@ -2765,31 +2765,6 @@ struct TripNavigationView: View {
                     .stroke(Color.adaptiveTint(0xEEF0F5), lineWidth: 1)
             )
         }
-    }
-
-    private func cpStaffTravelText(_ track: CpStaffTrack, now: Double) -> String {
-        // "since 22 Nov" when the window began on an earlier day.
-        let distance = { (meters: Double?) in
-            CpStaffTrackRules.distanceLabel(meters, since: track.windowStartMs, now: now)
-        }
-        let text: String
-        switch track.pathState {
-        case .shown:
-            text = distance(track.distanceMeters)
-        case .notStarted:
-            text = "Trip not started"
-        case .startUnknown:
-            text = "Start time not recorded"
-        case .noPoints:
-            text = track.distanceMeters.map { distance($0) } ?? "No path recorded"
-        case .notAvailable:
-            text = track.distanceMeters.map { distance($0) + " · path not available" } ?? "Path not available"
-        }
-        // Running with no recorded start: the path is today's duty window only.
-        if !track.startKnown && track.pathState != .startUnknown {
-            return text + " today · start time not recorded"
-        }
-        return text
     }
 
     private struct CpStaffSegmentItem {

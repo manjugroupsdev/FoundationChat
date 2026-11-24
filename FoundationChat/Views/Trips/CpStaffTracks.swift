@@ -48,10 +48,14 @@ struct CpStaffTrack: Identifiable, Sendable {
     var pathState: PathState
     /// This staff member's trip on this CP is running (by its status).
     let tripInProgress: Bool
+    /// The whole trip window (live-fix visibility uses all of it).
     let windowStartMs: Double?
     let windowEndMs: Double?
     /// False when running with no recorded start (window = today's IST day).
     let startKnown: Bool
+    /// Open since an earlier day (or no recorded start): only today's travel
+    /// is drawn and counted, never days of unrelated driving.
+    var todayOnly: Bool = false
 
     var hasPath: Bool { segments.contains { $0.points.count >= 2 } }
 
@@ -73,6 +77,39 @@ struct CpStaffTrack: Identifiable, Sendable {
     var window: CpStaffTrackRules.Window? {
         guard let windowStartMs, let windowEndMs else { return nil }
         return CpStaffTrackRules.Window(start: windowStartMs, end: windowEndMs, open: tripInProgress, startKnown: startKnown)
+    }
+
+    /// The part of the window whose path is drawn: today only when `todayOnly`.
+    var pathWindow: CpStaffTrackRules.Window? {
+        guard let window else { return nil }
+        guard todayOnly else { return window }
+        return CpStaffTrackRules.Window(
+            start: max(window.start, CpStaffTrackRules.istStartOfDay(window.end)),
+            end: window.end, open: window.open, startKnown: window.startKnown
+        )
+    }
+
+    /// Legend travel text, or nil when there is nothing worth saying.
+    var travelLabel: String? {
+        let text: String?
+        switch pathState {
+        case .shown:
+            text = CpStaffTrackRules.distanceLabel(distanceMeters) + (todayOnly ? " today" : "")
+        case .notStarted:
+            text = "Trip not started"
+        case .startUnknown:
+            text = "Start time not recorded"
+        case .noPoints:
+            text = todayOnly ? nil : (distanceMeters.map { CpStaffTrackRules.distanceLabel($0) } ?? "No path recorded")
+        case .notAvailable:
+            text = todayOnly
+                ? "Path not available"
+                : (distanceMeters.map { CpStaffTrackRules.distanceLabel($0) + " · path not available" } ?? "Path not available")
+        }
+        if !startKnown && pathState != .startUnknown {
+            return [text, "start time not recorded"].compactMap { $0 }.joined(separator: " · ")
+        }
+        return text
     }
 }
 
@@ -269,7 +306,13 @@ enum CpStaffTrackPolicy {
             status: involved?.status,
             now: now
         )
-        let segments: [CpStaffTrack.Segment] = window.map { w in
+        let todayOnly = CpStaffTrackRules.isTodayOnly(window, now: now)
+        let pathWindow = window.map { w in
+            todayOnly
+                ? CpStaffTrackRules.Window(start: max(w.start, CpStaffTrackRules.istStartOfDay(now)), end: w.end, open: w.open, startKnown: w.startKnown)
+                : w
+        }
+        let segments: [CpStaffTrack.Segment] = pathWindow.map { w in
             rawSegments((dto.routePoints ?? []).map {
                 GeoTrackTrackCleaner.Fix(lat: $0.lat, lng: $0.lng, accuracy: nil, atMs: $0.recordedAt)
             }, window: w)
@@ -285,13 +328,14 @@ enum CpStaffTrackPolicy {
             isPrimary: dto.isPrimary == true,
             routeColor: dto.routeColor ?? involved?.routeColor,
             segments: segments,
-            distanceMeters: drawn ?? dto.recordedDistanceMeters ?? involved?.recordedDistanceMeters,
+            distanceMeters: drawn ?? (todayOnly ? nil : (dto.recordedDistanceMeters ?? involved?.recordedDistanceMeters)),
             live: live,
             pathState: drawn != nil ? .shown : initialPathState(window: window, status: involved?.status),
             tripInProgress: window?.open == true,
             windowStartMs: window?.start,
             windowEndMs: window?.end,
-            startKnown: window?.startKnown ?? true
+            startKnown: window?.startKnown ?? true,
+            todayOnly: todayOnly
         )
     }
 }
@@ -354,7 +398,7 @@ enum CpStaffTracksLoader {
     private static func withPath(
         _ track: CpStaffTrack, viewerStaffId: String?, viewerCanViewAllTracking: Bool, geoAPI: GeoTrackAPIService
     ) async -> CpStaffTrack {
-        guard let window = track.window, !track.hasPath else { return track }
+        guard let window = track.pathWindow, !track.hasPath else { return track }
         var result = track
         guard CpStaffTrackRules.canReadRouteDirectly(
             staffId: track.staffId, viewerStaffId: viewerStaffId, viewerCanViewAllTracking: viewerCanViewAllTracking
@@ -433,13 +477,15 @@ enum CpStaffTracksLoader {
                 startedAt: staff.startedAt, completedAt: staff.completedAt, status: staff.status, now: now
             )
             let row = latest[staff.staffId]
+            let todayOnly = CpStaffTrackRules.isTodayOnly(window, now: now)
             return CpStaffTrack(
                 staffId: staff.staffId,
                 name: staff.name.flatMap(cpNonBlank) ?? "Staff",
                 isPrimary: staff.isPrimary,
                 routeColor: staff.routeColor,
                 segments: [],
-                distanceMeters: staff.recordedDistanceMeters,
+                // A trip open for days: only today's path counts (filled later).
+                distanceMeters: todayOnly ? nil : staff.recordedDistanceMeters,
                 live: row.flatMap {
                     CpStaffTrackPolicy.liveFix(
                         lat: $0.lat, lng: $0.lng, lastSeenMs: $0.lastSeenMs, trackingActive: $0.trackingActive == true,
@@ -450,7 +496,8 @@ enum CpStaffTracksLoader {
                 tripInProgress: window?.open == true,
                 windowStartMs: window?.start,
                 windowEndMs: window?.end,
-                startKnown: window?.startKnown ?? true
+                startKnown: window?.startKnown ?? true,
+                todayOnly: todayOnly
             )
         }
     }

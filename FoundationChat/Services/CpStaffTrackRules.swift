@@ -187,17 +187,23 @@ nonisolated enum CpStaffTrackRules {
         }
     }
 
+    /// Only today's travel is drawn for a trip still open since an earlier
+    /// IST day (or with no recorded start): days of driving are not "the trip".
+    static func isTodayOnly(_ window: Window?, now: Double) -> Bool {
+        guard let window, window.open else { return false }
+        return !window.startKnown || !sameIstDay(window.start, now)
+    }
+
     static func sameIstDay(_ a: Double, _ b: Double) -> Bool {
         istStartOfDay(a) == istStartOfDay(b)
     }
 
-    static func distanceLabel(_ meters: Double?, since: Double? = nil, now: Double) -> String {
+    /// "850 m travelled" / "3.4 km travelled".
+    static func distanceLabel(_ meters: Double?) -> String {
         guard let meters, meters.isFinite, meters >= 0 else { return "Distance —" }
-        let base = meters < 1000
+        return meters < 1000
             ? "\(Int(meters.rounded())) m travelled"
             : String(format: "%.1f km travelled", meters / 1000)
-        guard let since, since > 0, !sameIstDay(since, now) else { return base }
-        return "\(base) since \(format(since, "d MMM"))"
     }
 
     static func clockLabel(_ ms: Double, now: Double) -> String {

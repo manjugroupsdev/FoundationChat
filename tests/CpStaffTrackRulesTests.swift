@@ -43,9 +43,15 @@ struct CpStaffTrackRulesTests {
         check(meters > 2000 && meters < 2500, "overnight hop not counted")
 
         // Labels.
-        check(R.distanceLabel(82_000, since: nov22, now: nov22 + 37 * 60 * min) == "82.0 km travelled since 22 Nov", "since label")
-        check(R.distanceLabel(3_420, since: now - 60 * min, now: now) == "3.4 km travelled", "same-day label")
-        check(R.distanceLabel(nil, now: now) == "Distance —", "no distance")
+        check(R.distanceLabel(3_420) == "3.4 km travelled", "km label")
+        check(R.distanceLabel(850) == "850 m travelled", "m label")
+        check(R.distanceLabel(nil) == "Distance —", "no distance")
+        // Open since an earlier day (or no recorded start) → today's travel only.
+        let openSince22 = R.Window(start: nov22, end: now, open: true)
+        check(R.isTodayOnly(openSince22, now: now), "open since 22 Nov is today-only")
+        check(!R.isTodayOnly(R.Window(start: now - 60 * min, end: now, open: true), now: now), "same-day trip unchanged")
+        check(!R.isTodayOnly(R.Window(start: nov22, end: now, open: false), now: now), "finished trip unchanged")
+        check(R.isTodayOnly(unknownStart, now: now), "no recorded start is today-only")
         check(R.clockLabel(nov22, now: nov22 + 60 * min) == "05:54 PM", "clock today")
         check(R.clockLabel(nov22, now: nov22 + 48 * 60 * min) == "22 Nov, 05:54 PM", "clock other day")
         check(R.locationLabel(lastSeenMs: nil, trackingActive: false, now: now) == "No recent location", "no fix")
