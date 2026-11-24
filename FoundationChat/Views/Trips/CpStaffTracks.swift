@@ -3,7 +3,8 @@ import Foundation
 
 // CP trip map: the staff who are ON a CP (both on a Joint CP), their latest
 // heartbeat fix, and the path + distance they travelled for this trip.
-// Read-only display data — mirrors Android's ui/home/CpStaffTracks.kt.
+// Read-only display data — mirrors Android's ui/home/CpStaffTracks.kt. The
+// pure rules live in Services/CpStaffTrackRules.swift (helper-tested).
 // Nothing here touches the trip, outcome, punch or tracking service flows.
 
 struct CpStaffTrack: Identifiable, Sendable {
@@ -12,17 +13,26 @@ struct CpStaffTrack: Identifiable, Sendable {
         let lng: Double
         let lastSeenMs: Double
         let trackingActive: Bool
+        /// Shown only through `CpStaffTrack.motionToShow(now:)`.
+        let motion: CpTrackMotion?
         var coordinate: CLLocationCoordinate2D { CLLocationCoordinate2D(latitude: lat, longitude: lng) }
     }
 
+    /// One piece of the path, drawn as its own polyline (never joined to the next).
+    struct Segment: Sendable {
+        let points: [CpTrackPoint]
+        var dashed: Bool = false
+        var coordinates: [CLLocationCoordinate2D] {
+            points.map { CLLocationCoordinate2D(latitude: $0.lat, longitude: $0.lng) }
+        }
+    }
+
     enum PathState: Sendable {
-        /// A path with at least two fixes is drawn.
         case shown
-        /// The trip has not started, so there is no trip path yet.
         case notStarted
-        /// Started, but no fixes were recorded in the trip window.
+        /// The trip started (by its status) but no start time was recorded.
+        case startUnknown
         case noPoints
-        /// This viewer may not read the path on this server version.
         case notAvailable
     }
 
@@ -32,12 +42,38 @@ struct CpStaffTrack: Identifiable, Sendable {
     let isPrimary: Bool
     /// Server-assigned Joint CP route colour ("#RRGGBB"), when there is one.
     let routeColor: String?
-    let path: [GeoTrackTrackCleaner.Point]
-    let distanceMeters: Double?
+    var segments: [Segment]
+    var distanceMeters: Double?
     let live: LiveFix?
-    let pathState: PathState
-    /// The trip has started and is not completed yet.
+    var pathState: PathState
+    /// This staff member's trip on this CP is running (by its status).
     let tripInProgress: Bool
+    let windowStartMs: Double?
+    let windowEndMs: Double?
+    /// False when running with no recorded start (window = today's IST day).
+    let startKnown: Bool
+
+    var hasPath: Bool { segments.contains { $0.points.count >= 2 } }
+
+    func isStale(now: Double) -> Bool {
+        guard let live else { return true }
+        return CpStaffTrackRules.isStale(lastSeenMs: live.lastSeenMs, trackingActive: live.trackingActive, now: now)
+    }
+
+    func motionToShow(now: Double) -> CpTrackMotion? {
+        CpStaffTrackRules.motionToShow(
+            motion: live?.motion,
+            tripInProgress: tripInProgress,
+            lastSeenMs: live?.lastSeenMs,
+            trackingActive: live?.trackingActive == true,
+            now: now
+        )
+    }
+
+    var window: CpStaffTrackRules.Window? {
+        guard let windowStartMs, let windowEndMs else { return nil }
+        return CpStaffTrackRules.Window(start: windowStartMs, end: windowEndMs, open: tripInProgress, startKnown: startKnown)
+    }
 }
 
 /// A staff member known to be on the CP, from the CP detail payload.
@@ -49,6 +85,8 @@ struct CpInvolvedStaff: Sendable {
     let startedAt: Double?
     let completedAt: Double?
     let recordedDistanceMeters: Double?
+    /// This staff member's trip status (their Joint CP leg, else the CP's).
+    let status: String?
 }
 
 // MARK: - Wire models (every field optional: one odd value must not fail the parse)
@@ -86,6 +124,9 @@ struct CpStaffLiveFixDTO: Decodable, Sendable {
     let lng: Double?
     let lastSeen: Double?
     let trackingActive: Bool?
+    let movementMode: String?
+    let activity: String?
+    let speed: Double?
 }
 
 /// One geo-service live row, decoded for the CP map (RFC 3339 lastSeen,
@@ -96,9 +137,12 @@ struct CpLiveStatusRow: Decodable, Sendable {
     let lng: Double?
     let lastSeenMs: Double?
     let trackingActive: Bool?
+    let movementMode: String?
+    let activity: String?
+    let speed: Double?
 
     private enum CodingKeys: String, CodingKey {
-        case staffId, lat, lng, lastSeen, lastSeenAt, trackingActive
+        case staffId, lat, lng, lastSeen, lastSeenAt, trackingActive, movementMode, activity, speed
     }
 
     init(from decoder: Decoder) throws {
@@ -108,6 +152,9 @@ struct CpLiveStatusRow: Decodable, Sendable {
         lng = c.geoDoubleIfPresent(.lng)
         lastSeenMs = c.geoMillisIfPresent(.lastSeen, .lastSeenAt)
         trackingActive = c.geoBoolIfPresent(.trackingActive)
+        movementMode = c.geoStringIfPresent(.movementMode)
+        activity = c.geoStringIfPresent(.activity)
+        speed = c.geoDoubleIfPresent(.speed)
     }
 }
 
@@ -123,115 +170,37 @@ private func cpNonBlank(_ text: String) -> String? {
     return trimmed.isEmpty ? nil : trimmed
 }
 
-// MARK: - Pure rules
+// MARK: - App glue
 
 enum CpStaffTrackPolicy {
-    /// A heartbeat this old is shown as "last seen", not live.
-    static let liveFreshMs: Double = 10 * 60_000
-
-    struct Window: Equatable, Sendable {
-        let start: Double
-        let end: Double
-        let open: Bool
-    }
-
-    /// Trip window: trip start to completion, or to `now` while it runs. Nil before the trip starts.
-    static func window(startedAt: Double?, completedAt: Double?, now: Double) -> Window? {
-        guard let startedAt, startedAt > 0 else { return nil }
-        if let completedAt, completedAt >= startedAt {
-            return Window(start: startedAt, end: completedAt, open: false)
-        }
-        return Window(start: startedAt, end: max(startedAt, now), open: true)
-    }
-
-    /// A heartbeat fix belongs on the map only while tracking runs (inside the
-    /// staff member's clock-in → clock-out window) or when it was recorded
-    /// during this trip. An old fix from another duty is never shown.
-    static func liveFixVisible(lat: Double?, lng: Double?, lastSeenMs: Double?, trackingActive: Bool, window: Window?) -> Bool {
-        guard let lat, let lng, lat.isFinite, lng.isFinite else { return false }
-        if lat == 0, lng == 0 { return false }
-        guard (-90...90).contains(lat), (-180...180).contains(lng) else { return false }
-        guard let lastSeenMs, lastSeenMs > 0 else { return false }
-        if trackingActive { return true }
-        guard let window else { return false }
-        return lastSeenMs >= window.start && lastSeenMs <= window.end
-    }
-
-    /// The geo service lets only admins / attendance.liveTracking holders read
-    /// another staff member's route; everyone else silently gets their OWN
-    /// route back. So the direct read is only used where it is safe.
-    static func canReadRouteDirectly(staffId: String, viewerStaffId: String?, viewerCanViewAllTracking: Bool) -> Bool {
-        if viewerCanViewAllTracking { return true }
-        guard let viewerStaffId, !viewerStaffId.isEmpty else { return false }
-        return staffId == viewerStaffId
-    }
-
-    static func viewerIsInvolved(viewerStaffId: String?, involved: Set<String>) -> Bool {
-        guard let viewerStaffId, !viewerStaffId.isEmpty else { return false }
-        return involved.contains(viewerStaffId)
-    }
-
-    static func cleanPath(_ fixes: [GeoTrackTrackCleaner.Fix], window: Window) -> [GeoTrackTrackCleaner.Point] {
-        let inside = fixes
-            .filter { fix in
-                guard let at = fix.atMs else { return false }
-                return at >= window.start && at <= window.end
-            }
-            .sorted { ($0.atMs ?? 0) < ($1.atMs ?? 0) }
-        return GeoTrackTrackCleaner.clean(inside)
-    }
-
-    static func pathDistanceMeters(_ path: [GeoTrackTrackCleaner.Point]) -> Double? {
-        guard path.count >= 2 else { return nil }
-        var total = 0.0
-        for index in 1..<path.count {
-            total += GeoTrackTrackCleaner.distanceM(path[index - 1].lat, path[index - 1].lng, path[index].lat, path[index].lng)
-        }
-        return total
-    }
-
-    static func distanceLabel(_ meters: Double?) -> String {
-        guard let meters, meters.isFinite, meters >= 0 else { return "Distance —" }
-        if meters < 1000 { return "\(Int(meters.rounded())) m travelled" }
-        return String(format: "%.1f km travelled", meters / 1000)
-    }
-
-    static func locationLabel(_ live: CpStaffTrack.LiveFix?, now: Double) -> String {
-        guard let live else { return "No recent location" }
-        let age = max(0, now - live.lastSeenMs)
-        if live.trackingActive && age <= liveFreshMs {
-            let minutes = Int(age / 60_000)
-            return minutes < 1 ? "Live · just now" : "Live · \(minutes) min ago"
-        }
-        let formatter = DateFormatter()
-        formatter.dateFormat = "hh:mm a"
-        return "Last seen \(formatter.string(from: Date(timeIntervalSince1970: live.lastSeenMs / 1000)))"
+    private static func cpTripStatus(_ cp: CpVisitDetail) -> String? {
+        cp.effectiveStatus.flatMap(cpNonBlank) ?? cp.fieldVisit?.status.flatMap(cpNonBlank) ?? cp.status
     }
 
     /// Staff on the CP: Joint participants (primary first), else the assigned field staff.
     static func involvedStaff(_ cp: CpVisitDetail) -> [CpInvolvedStaff] {
         var seen = Set<String>()
-        let participants = (cp.joint?.participants ?? [])
-            .filter { participant in
-                guard let id = participant.staffId?.trimmingCharacters(in: .whitespaces), !id.isEmpty else { return false }
-                return seen.insert(id).inserted
-            }
+        let participants = (cp.joint?.participants ?? []).filter { participant in
+            guard let id = participant.staffId.flatMap(cpNonBlank) else { return false }
+            return seen.insert(id).inserted
+        }
         if !participants.isEmpty {
             return participants
                 .sorted { ($0.isPrimary ?? false) && !($1.isPrimary ?? false) }
                 .map {
                     CpInvolvedStaff(
-                        staffId: $0.staffId ?? "",
+                        staffId: $0.staffId.flatMap(cpNonBlank) ?? "",
                         name: $0.staffName,
                         isPrimary: $0.isPrimary ?? false,
                         routeColor: $0.routeColor,
                         startedAt: $0.startedAt.map(Double.init),
                         completedAt: $0.completedAt.map(Double.init),
-                        recordedDistanceMeters: $0.distanceMeters
+                        recordedDistanceMeters: $0.distanceMeters,
+                        status: $0.status.flatMap(cpNonBlank) ?? cpTripStatus(cp)
                     )
                 }
         }
-        guard let staffId = cp.assignedStaffId?.trimmingCharacters(in: .whitespaces), !staffId.isEmpty else { return [] }
+        guard let staffId = cp.assignedStaffId.flatMap(cpNonBlank) else { return [] }
         return [
             CpInvolvedStaff(
                 staffId: staffId,
@@ -240,43 +209,89 @@ enum CpStaffTrackPolicy {
                 routeColor: nil,
                 startedAt: cp.fieldVisit?.startedAt.map(Double.init),
                 completedAt: cp.fieldVisit?.completedAt.map(Double.init),
-                recordedDistanceMeters: cp.fieldVisit?.distanceMeters
+                recordedDistanceMeters: cp.fieldVisit?.distanceMeters,
+                status: cpTripStatus(cp)
             )
         ]
     }
 
-    static func fromServer(_ dto: CpStaffTrackDTO, now: Double) -> CpStaffTrack? {
-        guard let staffId = dto.staffId?.trimmingCharacters(in: .whitespaces), !staffId.isEmpty else { return nil }
-        let window = window(startedAt: dto.startedAt, completedAt: dto.completedAt, now: now)
-        let path: [GeoTrackTrackCleaner.Point] = window.map { w in
-            cleanPath((dto.routePoints ?? []).map { GeoTrackTrackCleaner.Fix(lat: $0.lat, lng: $0.lng, accuracy: nil, atMs: $0.recordedAt) }, window: w)
+    /// The trip's real start: the viewer's own Joint CP leg, else the field
+    /// visit, else the primary participant. Nil when unknown.
+    static func tripStartedAt(_ cp: CpVisitDetail, viewerStaffId: String?) -> Double? {
+        let participants = cp.joint?.participants ?? []
+        let own = participants.first { viewerStaffId != nil && $0.staffId == viewerStaffId }?.startedAt
+        return [own, cp.fieldVisit?.startedAt, participants.first { $0.isPrimary == true }?.startedAt]
+            .compactMap { $0 }
+            .first { $0 > 0 }
+            .map(Double.init)
+    }
+
+    static func initialPathState(window: CpStaffTrackRules.Window?, status: String?) -> CpStaffTrack.PathState {
+        if window != nil { return .notAvailable }
+        return CpStaffTrackRules.isFinishedStatus(status) ? .startUnknown : .notStarted
+    }
+
+    static func liveFix(
+        lat: Double?, lng: Double?, lastSeenMs: Double?, trackingActive: Bool,
+        movementMode: String?, activity: String?, speed: Double?, window: CpStaffTrackRules.Window?
+    ) -> CpStaffTrack.LiveFix? {
+        guard CpStaffTrackRules.liveFixVisible(lat: lat, lng: lng, lastSeenMs: lastSeenMs, trackingActive: trackingActive, window: window),
+              let lat, let lng, let lastSeenMs
+        else { return nil }
+        return CpStaffTrack.LiveFix(
+            lat: lat, lng: lng, lastSeenMs: lastSeenMs, trackingActive: trackingActive,
+            motion: CpStaffTrackRules.motion(movementMode: movementMode, activity: activity, speedMps: speed)
+        )
+    }
+
+    /// Fixes inside the window → cleaned (spikes, jumps, stays) → split at gaps.
+    static func rawSegments(_ fixes: [GeoTrackTrackCleaner.Fix], window: CpStaffTrackRules.Window) -> [CpStaffTrack.Segment] {
+        var seen = Set<String>()
+        let inside = fixes
+            .filter { fix in
+                guard let at = fix.atMs, at >= window.start, at <= window.end else { return false }
+                return seen.insert("\(at)|\(fix.lat)|\(fix.lng)").inserted
+            }
+            .sorted { ($0.atMs ?? 0) < ($1.atMs ?? 0) }
+        let cleaned = GeoTrackTrackCleaner.clean(inside).map { CpTrackPoint(lat: $0.lat, lng: $0.lng, atMs: $0.atMs) }
+        return CpStaffTrackRules.splitAtGaps(cleaned).map { CpStaffTrack.Segment(points: $0) }
+    }
+
+    static func distance(_ segments: [CpStaffTrack.Segment]) -> Double? {
+        CpStaffTrackRules.segmentsDistance(segments.map(\.points))
+    }
+
+    static func fromServer(_ dto: CpStaffTrackDTO, now: Double, involved: CpInvolvedStaff?) -> CpStaffTrack? {
+        guard let staffId = dto.staffId.flatMap(cpNonBlank) else { return nil }
+        let window = CpStaffTrackRules.tripWindow(
+            startedAt: dto.startedAt ?? involved?.startedAt,
+            completedAt: dto.completedAt ?? involved?.completedAt,
+            status: involved?.status,
+            now: now
+        )
+        let segments: [CpStaffTrack.Segment] = window.map { w in
+            rawSegments((dto.routePoints ?? []).map {
+                GeoTrackTrackCleaner.Fix(lat: $0.lat, lng: $0.lng, accuracy: nil, atMs: $0.recordedAt)
+            }, window: w)
         } ?? []
-        var live: CpStaffTrack.LiveFix?
-        if let fix = dto.live,
-           liveFixVisible(lat: fix.lat, lng: fix.lng, lastSeenMs: fix.lastSeen, trackingActive: fix.trackingActive == true, window: window),
-           let lat = fix.lat, let lng = fix.lng, let seen = fix.lastSeen {
-            live = CpStaffTrack.LiveFix(lat: lat, lng: lng, lastSeenMs: seen, trackingActive: fix.trackingActive == true)
+        let live = dto.live.flatMap {
+            liveFix(lat: $0.lat, lng: $0.lng, lastSeenMs: $0.lastSeen, trackingActive: $0.trackingActive == true,
+                    movementMode: $0.movementMode, activity: $0.activity, speed: $0.speed, window: window)
         }
-        let state: CpStaffTrack.PathState
-        if path.count >= 2 {
-            state = .shown
-        } else if window == nil {
-            state = .notStarted
-        } else if dto.routeAvailable == false {
-            state = .notAvailable
-        } else {
-            state = .noPoints
-        }
+        let drawn = distance(segments)
         return CpStaffTrack(
             staffId: staffId,
-            name: dto.staffName.flatMap(cpNonBlank) ?? "Staff",
+            name: dto.staffName.flatMap(cpNonBlank) ?? involved?.name.flatMap(cpNonBlank) ?? "Staff",
             isPrimary: dto.isPrimary == true,
-            routeColor: dto.routeColor,
-            path: path,
-            distanceMeters: pathDistanceMeters(path) ?? dto.distanceMeters ?? dto.recordedDistanceMeters,
+            routeColor: dto.routeColor ?? involved?.routeColor,
+            segments: segments,
+            distanceMeters: drawn ?? dto.recordedDistanceMeters ?? involved?.recordedDistanceMeters,
             live: live,
-            pathState: state,
-            tripInProgress: window?.open == true
+            pathState: drawn != nil ? .shown : initialPathState(window: window, status: involved?.status),
+            tripInProgress: window?.open == true,
+            windowStartMs: window?.start,
+            windowEndMs: window?.end,
+            startKnown: window?.startKnown ?? true
         )
     }
 }
@@ -284,8 +299,9 @@ enum CpStaffTrackPolicy {
 // MARK: - Loader
 
 /// Prefers the server's scoped `staff-tracks` route; while that route is not
-/// deployed it falls back to the direct geo reads, reading another staff
-/// member's path only where the geo service will return THAT staff member's rows.
+/// deployed it falls back to the direct geo reads. Paths, where the viewer may
+/// read them directly: road-matched snapped-route first, else session-route
+/// one IST day at a time (geo refuses ranges over 48 h), split at gaps.
 enum CpStaffTracksLoader {
     enum Result: Sendable {
         case loaded([CpStaffTrack])
@@ -294,8 +310,8 @@ enum CpStaffTracksLoader {
         case unavailable
     }
 
-    /// Set after a 404 so an older server is not asked again this app session.
     nonisolated(unsafe) private static var serverRouteMissing = false
+    nonisolated(unsafe) private static var snappedRouteMissing = false
 
     static func load(
         token: String,
@@ -306,11 +322,14 @@ enum CpStaffTracksLoader {
         geoAPI: GeoTrackAPIService
     ) async -> Result {
         let now = Date().timeIntervalSince1970 * 1000
+        var byId: [String: CpInvolvedStaff] = [:]
+        for staff in involved { byId[staff.staffId] = staff }
+        var tracks: [CpStaffTrack]?
         if !serverRouteMissing {
             switch await MarketingConvexAPIService.getCpStaffTracks(token: token, id: cpId) {
             case .loaded(let rows):
-                let tracks = rows.compactMap { CpStaffTrackPolicy.fromServer($0, now: now) }
-                if !tracks.isEmpty || involved.isEmpty { return .loaded(tracks) }
+                let parsed = rows.compactMap { CpStaffTrackPolicy.fromServer($0, now: now, involved: byId[$0.staffId ?? ""]) }
+                if !parsed.isEmpty || involved.isEmpty { tracks = parsed }
             case .forbidden:
                 return .forbidden
             case .notDeployed:
@@ -319,69 +338,120 @@ enum CpStaffTracksLoader {
                 break
             }
         }
-        guard !involved.isEmpty else { return .unavailable }
-
-        let liveRows = (try? await geoAPI.liveStatus(forStaffIds: involved.map(\.staffId))) ?? []
-        var liveByStaff: [String: CpLiveStatusRow] = [:]
-        for row in liveRows {
-            if let id = row.staffId, !id.isEmpty { liveByStaff[id] = row }
+        if tracks == nil {
+            guard !involved.isEmpty else { return .unavailable }
+            tracks = await loadLive(involved: involved, now: now, geoAPI: geoAPI)
         }
+        // One row (and one marker) per staff member.
+        var seen = Set<String>()
+        var filled: [CpStaffTrack] = []
+        for track in tracks ?? [] where seen.insert(track.staffId).inserted {
+            filled.append(await withPath(track, viewerStaffId: viewerStaffId, viewerCanViewAllTracking: viewerCanViewAllTracking, geoAPI: geoAPI))
+        }
+        return .loaded(filled)
+    }
 
-        var tracks: [CpStaffTrack] = []
-        for staff in involved {
-            let window = CpStaffTrackPolicy.window(startedAt: staff.startedAt, completedAt: staff.completedAt, now: now)
-            let canRead = CpStaffTrackPolicy.canReadRouteDirectly(
-                staffId: staff.staffId,
-                viewerStaffId: viewerStaffId,
-                viewerCanViewAllTracking: viewerCanViewAllTracking
+    private static func withPath(
+        _ track: CpStaffTrack, viewerStaffId: String?, viewerCanViewAllTracking: Bool, geoAPI: GeoTrackAPIService
+    ) async -> CpStaffTrack {
+        guard let window = track.window, !track.hasPath else { return track }
+        var result = track
+        guard CpStaffTrackRules.canReadRouteDirectly(
+            staffId: track.staffId, viewerStaffId: viewerStaffId, viewerCanViewAllTracking: viewerCanViewAllTracking
+        ) else {
+            result.pathState = .notAvailable
+            return result
+        }
+        // Road-matched first.
+        let snapped = await snappedSegments(staffId: track.staffId, window: window, geoAPI: geoAPI)
+        if let drawn = CpStaffTrackPolicy.distance(snapped) {
+            result.segments = snapped
+            result.distanceMeters = drawn
+            result.pathState = .shown
+            return result
+        }
+        // Raw session-route, one IST day (≤ 24 h) per read.
+        var fixes: [GeoTrackTrackCleaner.Fix] = []
+        var anyRead = false
+        for chunk in CpStaffTrackRules.dayChunks(window) {
+            if let data = try? await geoAPI.sessionRoute(
+                staffId: track.staffId, dayStart: Int64(chunk.start), dayEnd: Int64(chunk.end)
+            ) {
+                anyRead = true
+                fixes += data.timeline.map {
+                    GeoTrackTrackCleaner.Fix(lat: $0.lat, lng: $0.lng, accuracy: $0.accuracy, atMs: $0.recordedAt, isMock: $0.isMock == true)
+                }
+            }
+        }
+        let segments = CpStaffTrackPolicy.rawSegments(fixes, window: window)
+        let drawn = CpStaffTrackPolicy.distance(segments)
+        result.segments = segments
+        result.distanceMeters = drawn ?? track.distanceMeters
+        result.pathState = drawn != nil ? .shown : (anyRead ? .noPoints : .notAvailable)
+        return result
+    }
+
+    private static func snappedSegments(
+        staffId: String, window: CpStaffTrackRules.Window, geoAPI: GeoTrackAPIService
+    ) async -> [CpStaffTrack.Segment] {
+        guard !snappedRouteMissing else { return [] }
+        var segments: [(start: Double, segment: CpStaffTrack.Segment)] = []
+        for date in CpStaffTrackRules.istDates(window) {
+            do {
+                for piece in try await geoAPI.snappedRoute(staffId: staffId, date: date) {
+                    guard piece.kind != "gap" else { continue }
+                    let start = piece.startedAt.flatMap { GeoTrackWire.millis(from: $0) }
+                    let end = piece.endedAt.flatMap { GeoTrackWire.millis(from: $0) }
+                    guard (start ?? -.infinity) <= window.end, (end ?? .infinity) >= window.start else { continue }
+                    let points = piece.coordinates.map { CpTrackPoint(lat: $0.latitude, lng: $0.longitude, atMs: nil) }
+                    guard points.count >= 2 else { continue }
+                    segments.append((start ?? 0, CpStaffTrack.Segment(points: points, dashed: piece.kind == "estimated")))
+                }
+            } catch GeoTrackAPIError.badStatus(404) {
+                snappedRouteMissing = true
+                return []
+            } catch GeoTrackAPIError.notFound {
+                snappedRouteMissing = true
+                return []
+            } catch {
+                continue
+            }
+        }
+        return segments.sorted { $0.start < $1.start }.map(\.segment)
+    }
+
+    /// Tracks from the CP detail + each staff member's own live row (no path yet).
+    private static func loadLive(involved: [CpInvolvedStaff], now: Double, geoAPI: GeoTrackAPIService) async -> [CpStaffTrack] {
+        let rows = (try? await geoAPI.liveStatus(forStaffIds: involved.map(\.staffId))) ?? []
+        var latest: [String: CpLiveStatusRow] = [:]
+        for row in rows {
+            guard let id = row.staffId.flatMap(cpNonBlank) else { continue }
+            if (row.lastSeenMs ?? 0) >= (latest[id]?.lastSeenMs ?? -1) { latest[id] = row }
+        }
+        return involved.map { staff in
+            let window = CpStaffTrackRules.tripWindow(
+                startedAt: staff.startedAt, completedAt: staff.completedAt, status: staff.status, now: now
             )
-            var routeRead = false
-            var path: [GeoTrackTrackCleaner.Point] = []
-            if let window, canRead,
-               let data = try? await geoAPI.sessionRoute(
-                   staffId: staff.staffId,
-                   dayStart: Int64(window.start),
-                   dayEnd: Int64(window.end)
-               ) {
-                routeRead = true
-                path = CpStaffTrackPolicy.cleanPath(
-                    data.timeline.map {
-                        GeoTrackTrackCleaner.Fix(lat: $0.lat, lng: $0.lng, accuracy: $0.accuracy, atMs: $0.recordedAt, isMock: $0.isMock == true)
-                    },
-                    window: window
-                )
-            }
-            var live: CpStaffTrack.LiveFix?
-            if let row = liveByStaff[staff.staffId],
-               CpStaffTrackPolicy.liveFixVisible(
-                   lat: row.lat, lng: row.lng, lastSeenMs: row.lastSeenMs,
-                   trackingActive: row.trackingActive == true, window: window
-               ),
-               let lat = row.lat, let lng = row.lng, let seen = row.lastSeenMs {
-                live = CpStaffTrack.LiveFix(lat: lat, lng: lng, lastSeenMs: seen, trackingActive: row.trackingActive == true)
-            }
-            let state: CpStaffTrack.PathState
-            if path.count >= 2 {
-                state = .shown
-            } else if window == nil {
-                state = .notStarted
-            } else if !canRead || !routeRead {
-                state = .notAvailable
-            } else {
-                state = .noPoints
-            }
-            tracks.append(CpStaffTrack(
+            let row = latest[staff.staffId]
+            return CpStaffTrack(
                 staffId: staff.staffId,
                 name: staff.name.flatMap(cpNonBlank) ?? "Staff",
                 isPrimary: staff.isPrimary,
                 routeColor: staff.routeColor,
-                path: path,
-                distanceMeters: CpStaffTrackPolicy.pathDistanceMeters(path) ?? staff.recordedDistanceMeters,
-                live: live,
-                pathState: state,
-                tripInProgress: window?.open == true
-            ))
+                segments: [],
+                distanceMeters: staff.recordedDistanceMeters,
+                live: row.flatMap {
+                    CpStaffTrackPolicy.liveFix(
+                        lat: $0.lat, lng: $0.lng, lastSeenMs: $0.lastSeenMs, trackingActive: $0.trackingActive == true,
+                        movementMode: $0.movementMode, activity: $0.activity, speed: $0.speed, window: window
+                    )
+                },
+                pathState: CpStaffTrackPolicy.initialPathState(window: window, status: staff.status),
+                tripInProgress: window?.open == true,
+                windowStartMs: window?.start,
+                windowEndMs: window?.end,
+                startKnown: window?.startKnown ?? true
+            )
         }
-        return .loaded(tracks)
     }
 }

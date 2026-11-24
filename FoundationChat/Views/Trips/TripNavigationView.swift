@@ -61,6 +61,8 @@ struct TripNavigationView: View {
     @State private var cpStaffTracksLoaded = false
     @State private var cpStaffTracksLoading = false
     @State private var cpStaffTracksHidden = false
+    /// The trip's real start (CP detail), for the Trip Progress caption.
+    @State private var cpTripStartedAt: Double?
 
     @State private var resolvedVisitId: String?
     @State private var visitStarted = false
@@ -237,7 +239,7 @@ struct TripNavigationView: View {
     /// (a manager opening it from the CP list). Unknown keeps the original map.
     private var isViewerObserver: Bool {
         guard let ids = cpInvolvedStaffIds else { return false }
-        return !CpStaffTrackPolicy.viewerIsInvolved(viewerStaffId: viewerStaffId, involved: ids)
+        return !CpStaffTrackRules.viewerIsInvolved(viewerStaffId: viewerStaffId, involved: ids)
     }
 
     /// Observer view: distance / ETA are measured from the CP staff member
@@ -673,20 +675,24 @@ struct TripNavigationView: View {
                 }
             }
             // The CP staff's travelled paths + latest fixes (both on a Joint CP).
-            ForEach(Array(cpStaffTracks.enumerated()), id: \.element.staffId) { index, track in
-                if track.path.count >= 2 {
-                    MapPolyline(coordinates: track.path.map(\.coordinate))
-                        .stroke(
-                            cpStaffTrackColor(track, index: index).opacity(0.85),
-                            style: StrokeStyle(lineWidth: 5, lineCap: .round, lineJoin: .round)
-                        )
-                }
+            // One polyline per segment: a gap (overnight, no signal, a jump)
+            // stays open instead of being bridged by a straight line.
+            ForEach(cpStaffSegmentItems, id: \.id) { item in
+                MapPolyline(coordinates: item.coordinates)
+                    .stroke(
+                        item.color.opacity(0.85),
+                        style: StrokeStyle(lineWidth: 5, lineCap: .round, lineJoin: .round, dash: item.dashed ? [8, 6] : [])
+                    )
             }
-            ForEach(Array(cpStaffTracks.enumerated()), id: \.element.staffId) { index, track in
-                // The involved viewer's own fix is already the blue "You" dot.
-                if let live = track.live, isViewerObserver || track.staffId != viewerStaffId {
-                    Annotation(track.name, coordinate: live.coordinate) {
-                        Circle().fill(cpStaffTrackColor(track, index: index)).frame(width: 16, height: 16)
+            ForEach(cpStaffMarkerItems, id: \.id) { item in
+                Annotation(item.title, coordinate: item.coordinate) {
+                    if item.stale {
+                        // Not live now: hollow, faded, at their OWN last fix.
+                        Circle().fill(Color.appSurface).frame(width: 14, height: 14)
+                            .overlay(Circle().stroke(item.color, lineWidth: 3))
+                            .opacity(0.6)
+                    } else {
+                        Circle().fill(item.color).frame(width: 16, height: 16)
                             .overlay(Circle().stroke(Color.appSurface, lineWidth: 3))
                             .shadow(radius: 1)
                     }
@@ -873,6 +879,12 @@ struct TripNavigationView: View {
                 Text(tripProgressStage.stateLabel)
                     .font(.system(size: 13, weight: .medium))
                     .foregroundStyle(tripProgressStage.stateColor)
+            }
+            // The real start time from the visit (never the time the screen opened).
+            if visitStarted, let startedAt = cpTripStartedAt {
+                Text("Started \(CpStaffTrackRules.clockLabel(startedAt, now: Date().timeIntervalSince1970 * 1000))")
+                    .font(.caption)
+                    .foregroundStyle(Color.appSecondaryText)
             }
 
             HStack(spacing: 8) {
@@ -1331,6 +1343,7 @@ struct TripNavigationView: View {
         }
         // Read-only CP map overlay: who is on this CP, then their tracks.
         // Runs detached so it never delays the trip-state reconcile below.
+        cpTripStartedAt = CpStaffTrackPolicy.tripStartedAt(detail, viewerStaffId: viewerStaffId)
         let involved = CpStaffTrackPolicy.involvedStaff(detail)
         if !involved.isEmpty, cpVisitCategory?.lowercased() != "site_visit", !usesAgencyFleetDriverAPI {
             cpInvolvedStaff = involved
@@ -2725,8 +2738,13 @@ struct TripNavigationView: View {
                         cpStaffLegendRow(
                             color: cpStaffTrackColor(track, index: index),
                             title: track.staffId == viewerStaffId ? "\(track.name) (you)" : track.name,
-                            detail: CpStaffTrackPolicy.locationLabel(track.live, now: now) + " · " + cpStaffTravelText(track),
-                            muted: false
+                            detail: CpStaffTrackRules.locationLabel(
+                                lastSeenMs: track.live?.lastSeenMs,
+                                trackingActive: track.live?.trackingActive == true,
+                                now: now
+                            ) + " · " + cpStaffTravelText(track, now: now),
+                            muted: false,
+                            motion: track.motionToShow(now: now)
                         )
                     }
                     if isViewerObserver {
@@ -2749,21 +2767,90 @@ struct TripNavigationView: View {
         }
     }
 
-    private func cpStaffTravelText(_ track: CpStaffTrack) -> String {
+    private func cpStaffTravelText(_ track: CpStaffTrack, now: Double) -> String {
+        // "since 22 Nov" when the window began on an earlier day.
+        let distance = { (meters: Double?) in
+            CpStaffTrackRules.distanceLabel(meters, since: track.windowStartMs, now: now)
+        }
+        let text: String
         switch track.pathState {
         case .shown:
-            return CpStaffTrackPolicy.distanceLabel(track.distanceMeters)
+            text = distance(track.distanceMeters)
         case .notStarted:
-            return "Trip not started"
+            text = "Trip not started"
+        case .startUnknown:
+            text = "Start time not recorded"
         case .noPoints:
-            return track.distanceMeters.map { CpStaffTrackPolicy.distanceLabel($0) } ?? "No path recorded"
+            text = track.distanceMeters.map { distance($0) } ?? "No path recorded"
         case .notAvailable:
-            return track.distanceMeters.map { CpStaffTrackPolicy.distanceLabel($0) + " · path not available" }
-                ?? "Path not available"
+            text = track.distanceMeters.map { distance($0) + " · path not available" } ?? "Path not available"
+        }
+        // Running with no recorded start: the path is today's duty window only.
+        if !track.startKnown && track.pathState != .startUnknown {
+            return text + " today · start time not recorded"
+        }
+        return text
+    }
+
+    private struct CpStaffSegmentItem {
+        let id: String
+        let coordinates: [CLLocationCoordinate2D]
+        let color: Color
+        let dashed: Bool
+    }
+
+    private var cpStaffSegmentItems: [CpStaffSegmentItem] {
+        var items: [CpStaffSegmentItem] = []
+        for (index, track) in cpStaffTracks.enumerated() {
+            for (segmentIndex, segment) in track.segments.enumerated() where segment.points.count >= 2 {
+                items.append(CpStaffSegmentItem(
+                    id: "\(track.staffId)-\(segmentIndex)",
+                    coordinates: segment.coordinates,
+                    color: cpStaffTrackColor(track, index: index),
+                    dashed: segment.dashed
+                ))
+            }
+        }
+        return items
+    }
+
+    private struct CpStaffMarkerItem {
+        let id: String
+        let title: String
+        let coordinate: CLLocationCoordinate2D
+        let color: Color
+        let stale: Bool
+    }
+
+    /// One marker per staff member, at their OWN latest fix. The involved
+    /// viewer's own fix is skipped: the blue "You" dot already shows them.
+    private var cpStaffMarkerItems: [CpStaffMarkerItem] {
+        let now = Date().timeIntervalSince1970 * 1000
+        var items: [CpStaffMarkerItem] = []
+        for (index, track) in cpStaffTracks.enumerated() {
+            guard let live = track.live, isViewerObserver || track.staffId != viewerStaffId else { continue }
+            items.append(CpStaffMarkerItem(
+                id: track.staffId,
+                title: track.name,
+                coordinate: live.coordinate,
+                color: cpStaffTrackColor(track, index: index),
+                stale: track.isStale(now: now)
+            ))
+        }
+        return items
+    }
+
+    private func cpStaffMotionColor(_ motion: CpTrackMotion) -> Color {
+        switch motion {
+        case .moving: return .green
+        case .walking: return .blue
+        case .idle: return Color.appTertiaryText
         }
     }
 
-    private func cpStaffLegendRow(color: Color, title: String, detail: String, muted: Bool) -> some View {
+    private func cpStaffLegendRow(
+        color: Color, title: String, detail: String, muted: Bool, motion: CpTrackMotion? = nil
+    ) -> some View {
         HStack(alignment: .center, spacing: 10) {
             Circle().fill(color).frame(width: 10, height: 10)
             VStack(alignment: .leading, spacing: 3) {
@@ -2775,6 +2862,15 @@ struct TripNavigationView: View {
                     .foregroundStyle(muted ? Color.appTertiaryText : Color.appSecondaryText)
             }
             Spacer(minLength: 0)
+            // Moving / Walking / Idle, only while this staff member's trip runs.
+            if let motion {
+                Text(motion.rawValue)
+                    .font(.caption2.weight(.semibold))
+                    .foregroundStyle(cpStaffMotionColor(motion))
+                    .padding(.horizontal, 8)
+                    .padding(.vertical, 3)
+                    .background(cpStaffMotionColor(motion).opacity(0.14), in: Capsule())
+            }
         }
         .opacity(muted ? 0.75 : 1)
     }
@@ -2783,7 +2879,7 @@ struct TripNavigationView: View {
     /// the viewer's own position.
     private func frameCpStaffTracks() {
         var points: [CLLocationCoordinate2D] = cpStaffTracks.flatMap { track in
-            track.path.map(\.coordinate) + (track.live.map { [$0.coordinate] } ?? [])
+            track.segments.flatMap(\.coordinates) + (track.live.map { [$0.coordinate] } ?? [])
         }
         if let dest = effectiveDestination { points.append(dest) }
         guard let first = points.first else { return }
