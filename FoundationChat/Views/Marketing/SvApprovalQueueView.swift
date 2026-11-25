@@ -27,27 +27,54 @@ struct SvApprovalQueueView: View {
     @State private var rejectTarget: DailyTask?
 
     /// Open SV approvals assigned to the signed-in GM (App Library badge).
+    /// A fresh read; the queue screen opened right after shares it.
     @MainActor
     static func loadPending(authStore: AuthStore) async throws -> [DailyTask] {
-        try await loadQueue(authStore: authStore)?.mine ?? []
+        try await loadQueue(authStore: authStore, reuse: false)?.mine ?? []
+    }
+
+    // One task-list read at a time, shared by the badge and this screen: a
+    // caller arriving while a read runs awaits it instead of firing a second
+    // heavy read (the server refused the duplicate with 429 under load).
+    @MainActor private static var inFlightRead: (key: String, task: Task<DailyTaskManagerPayload, Error>)?
+    @MainActor private static var lastRead: (key: String, at: Date, payload: DailyTaskManagerPayload)?
+
+    @MainActor
+    private static func readTasks(token: String, me: String, reuse: Bool) async throws -> DailyTaskManagerPayload {
+        let today = AppModuleFormatters.ymd.string(from: Date())
+        let key = "\(me)|\(today)"
+        if let running = inFlightRead, running.key == key {
+            return try await running.task.value
+        }
+        if reuse, let last = lastRead, last.key == key, SvApprovalLoadRules.isFresh(fetchedAt: last.at, now: Date()) {
+            return last.payload
+        }
+        // The queue is filtered from the task list on the phone, so read the
+        // largest page the server allows (500); the 200 default dropped older
+        // approvals on busy days.
+        let task = Task { @MainActor in
+            try await TasksConvexAPIService.getTaskManagerTasks(
+                token: token,
+                today: today,
+                limit: SvCpFlowRules.svApprovalTaskListLimit
+            )
+        }
+        inFlightRead = (key, task)
+        defer { if inFlightRead?.key == key { inFlightRead = nil } }
+        let payload = try await task.value
+        lastRead = (key, Date(), payload)
+        return payload
     }
 
     /// Mine / Team / All from one task-list call, earliest visit first.
+    /// `reuse`: accept a read from moments ago (the App Library badge's).
     @MainActor
-    static func loadQueue(authStore: AuthStore) async throws -> SvApprovalQueue? {
+    static func loadQueue(authStore: AuthStore, reuse: Bool = false) async throws -> SvApprovalQueue? {
         guard let token = authStore.currentSession?.token,
               let me = authStore.currentSession?.user.staffId?.nonBlank
                 ?? authStore.currentSession?.user._id.nonBlank
         else { return nil }
-        let today = AppModuleFormatters.ymd.string(from: Date())
-        // The queue is filtered from the task list on the phone, so read the
-        // largest page the server allows (500); the 200 default dropped older
-        // approvals on busy days.
-        let payload = try await TasksConvexAPIService.getTaskManagerTasks(
-            token: token,
-            today: today,
-            limit: SvCpFlowRules.svApprovalTaskListLimit
-        )
+        let payload = try await readTasks(token: token, me: me, reuse: reuse)
         let open = payload.tasks
             .filter {
                 $0.sourceReferenceType == "out_of_station_handoff"
@@ -140,7 +167,7 @@ struct SvApprovalQueueView: View {
                 .padding(.bottom, 32)
             }
         }
-        .refreshable { await load() }
+        .refreshable { await load(reuse: false) }
         .background(Color.appScreenBackground.ignoresSafeArea())
         .navigationTitle("SV Approvals")
         .navigationBarTitleDisplayMode(.inline)
@@ -153,7 +180,8 @@ struct SvApprovalQueueView: View {
                     .foregroundStyle(Color.appPrimaryText)
             }
         }
-        .task { if queue == nil { await load() } }
+        // First open shares the task list the App Library badge just read.
+        .task { if queue == nil { await load(reuse: true) } }
         // Same as the web handoff dialog: a rejection needs a reason. Shared
         // ActionReasonSheet, as on the CP outcome sheet's Reject SV.
         .sheet(item: $rejectTarget) { target in
@@ -194,7 +222,7 @@ struct SvApprovalQueueView: View {
                     .multilineTextAlignment(.center)
                     .padding(.horizontal, 32)
                     .padding(.top, 6)
-                Button("Try again") { Task { await load() } }
+                Button("Try again") { Task { await load(reuse: false) } }
                     .font(.system(size: 14, weight: .semibold))
                     .padding(.top, 12)
             }
@@ -227,24 +255,44 @@ struct SvApprovalQueueView: View {
     }
 
     @MainActor
-    private func load() async {
+    private func load(reuse: Bool) async {
         isLoading = queue == nil
         defer { isLoading = false }
-        do {
-            let next = try await Self.loadQueue(authStore: authStore)
-            let first = queue == nil
-            queue = next
-            errorMessage = nil
-            if first, let next {
-                tab = !next.mine.isEmpty ? .mine
-                    : (next.showTeam && !next.team.isEmpty) ? .team
-                    : (next.isAll && !next.all.isEmpty) ? .all
-                    : .mine
+        var attempt = 0
+        while true {
+            do {
+                try await apply(Self.loadQueue(authStore: authStore, reuse: reuse && attempt == 0))
+                return
+            } catch HRConvexAPIError.httpStatus(let status, _) where SvApprovalLoadRules.isServerBusy(httpStatus: status) {
+                // Server busy: the same read works a moment later. Keep the
+                // skeleton (or the list) up and ask again quietly; show
+                // "Couldn't load" only once the automatic retries run out.
+                guard let wait = SvApprovalLoadRules.retryDelaySeconds(attempt: attempt), !Task.isCancelled else {
+                    if queue == nil { errorMessage = "The server is busy right now. Try again in a moment." }
+                    return
+                }
+                attempt += 1
+                try? await Task.sleep(for: .seconds(wait))
+                if Task.isCancelled { return }
+            } catch {
+                if queue == nil { errorMessage = FloaterText.notice(for: error)?.text ?? error.localizedDescription }
+                return
             }
-            if !tabs.contains(tab) { tab = .mine }
-        } catch {
-            if queue == nil { errorMessage = FloaterText.notice(for: error)?.text ?? error.localizedDescription }
         }
+    }
+
+    @MainActor
+    private func apply(_ next: SvApprovalQueue?) {
+        let first = queue == nil
+        queue = next
+        errorMessage = nil
+        if first, let next {
+            tab = !next.mine.isEmpty ? .mine
+                : (next.showTeam && !next.team.isEmpty) ? .team
+                : (next.isAll && !next.all.isEmpty) ? .all
+                : .mine
+        }
+        if !tabs.contains(tab) { tab = .mine }
     }
 
     @MainActor

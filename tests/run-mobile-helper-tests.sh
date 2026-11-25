@@ -39,6 +39,7 @@ run SiteVisitDraftPolicyTests FoundationChat/Services/SiteVisitDraftPolicy.swift
 run RequiredReasonTests FoundationChat/Services/RequiredReason.swift
 run SvCpFlowRulesTests FoundationChat/Utilities/SvCpFlowRules.swift
 run CpStaffTrackRulesTests FoundationChat/Services/CpStaffTrackRules.swift
+run SvApprovalLoadRulesTests FoundationChat/Services/SvApprovalLoadRules.swift
 run CpListBusyRulesTests FoundationChat/Services/CpListBusyRules.swift
 run PunchPlaceLabelTests FoundationChat/Services/PunchPlaceLabel.swift
-echo "All 22 standalone mobile helper harnesses passed. Not a native archive or iPhone UI test."
+echo "All 23 standalone mobile helper harnesses passed. Not a native archive or iPhone UI test."
