@@ -21,6 +21,9 @@ struct PunchFlowView: View {
     @State private var showConfirmation = false
     @State private var location: CLLocation?
     @State private var address: String?
+    /// Short "Area, City" name for the selfie confirm screen (display only;
+    /// the punch still sends `address` and the raw coordinates).
+    @State private var placeName: String?
     @State private var mapPosition: MapCameraPosition = .automatic
     @State private var isSubmitting = false
     @State private var isStatusLoading = false
@@ -90,6 +93,7 @@ struct PunchFlowView: View {
                         selfie: capturedImage,
                         location: location,
                         address: address,
+                        placeName: placeName,
                         timestamp: captureTimestamp,
                         isSubmitting: isSubmitting,
                         statusText: statusText,
@@ -145,6 +149,11 @@ struct PunchFlowView: View {
                        let place = placemarks.first {
                         let parts = [place.name, place.locality, place.administrativeArea].compactMap { $0 }
                         address = parts.joined(separator: ", ")
+                        placeName = PunchPlaceLabel.shortName(
+                            subLocality: place.subLocality,
+                            locality: place.locality,
+                            subAdminArea: place.subAdministrativeArea
+                        )
                     }
                 }
             }

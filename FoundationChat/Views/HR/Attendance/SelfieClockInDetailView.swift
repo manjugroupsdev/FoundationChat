@@ -7,6 +7,9 @@ struct SelfieClockInDetailView: View {
     let selfie: UIImage
     let location: CLLocation
     let address: String?
+    /// Short "Area, City" name; compact coordinates show until (or unless)
+    /// it resolves. Display only, never holds up the punch.
+    var placeName: String? = nil
     let timestamp: Date
     let isSubmitting: Bool
     let statusText: String?
@@ -97,19 +100,13 @@ struct SelfieClockInDetailView: View {
             Divider()
 
             row(icon: "location.fill", tint: .blue, title: "Location") {
-                VStack(alignment: .leading, spacing: 2) {
-                    if let address, !address.isEmpty {
-                        Text(address)
-                            .font(.subheadline)
-                    } else {
-                        Text("Address unavailable")
-                            .font(.subheadline)
-                            .foregroundStyle(.secondary)
-                    }
-                    Text("\(location.coordinate.latitude, specifier: "%.5f"), \(location.coordinate.longitude, specifier: "%.5f")")
-                        .font(.caption)
-                        .foregroundStyle(.secondary)
-                }
+                Text(PunchPlaceLabel.overlayText(
+                    placeName: placeName,
+                    latitude: location.coordinate.latitude,
+                    longitude: location.coordinate.longitude
+                ))
+                .font(.subheadline)
+                .lineLimit(1)
             }
 
             Divider()
