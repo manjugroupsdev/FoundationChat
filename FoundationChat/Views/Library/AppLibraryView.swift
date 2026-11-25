@@ -563,6 +563,16 @@ private struct AppLibrarySection: Identifiable {
                 : nil,
             canAny(["marketing.bookings.view", "marketing.bookings.create"])
                 ? .init(title: "Booking", icon: "AppLibraryIconAppsDealer", destination: .bookings)
+                : nil,
+            // Same gate as the web's Marketing > Layout Maps route.
+            canAny([
+                "marketing.dashboard.viewOwn", "marketing.dashboard.viewTeam",
+                "marketing.dashboard.viewAll", "marketing.dashboard.view",
+                "marketing.bookings.viewOwn", "marketing.bookings.viewTeam",
+                "marketing.bookings.viewAll", "marketing.bookings.viewTelesalesHead",
+                "marketing.bookings.view", "marketing.siteVisits.view"
+            ])
+                ? .init(title: "3D Layout Maps", icon: "sf:map", destination: .layoutMaps)
                 : nil
         ].compactMap(\.self)
 
@@ -854,6 +864,7 @@ private enum AppLibraryDestination: String {
     case dialer
     case inventory
     case bookings
+    case layoutMaps
     case taskManager
     case projectTasks
     case dailyLog
@@ -903,6 +914,8 @@ private enum AppLibraryDestination: String {
                 InventoryProjectsListView()
             case .bookings:
                 BookingsListView()
+            case .layoutMaps:
+                LayoutMapProjectsView()
             case .taskManager:
                 TasksListView()
             case .projectTasks:

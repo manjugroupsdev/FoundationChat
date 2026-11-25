@@ -411,6 +411,17 @@ struct LayoutPoint: Decodable, Hashable, Sendable {
     let y: Double
 }
 
+/// A project that has a 3D layout map (GET /api/projects/layout-maps).
+struct LayoutMapProject: Decodable, Identifiable, Hashable, Sendable {
+    let projectId: String
+    let name: String?
+    let location: String?
+    let status: String?
+    let plotCount: Int?
+
+    var id: String { projectId }
+}
+
 struct InventoryUnit: Decodable, Identifiable, Hashable, Sendable {
     let id: String
     let projectId: String?

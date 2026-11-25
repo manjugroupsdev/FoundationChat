@@ -65,6 +65,12 @@ enum MarketingConvexAPIService {
         let error: String?
     }
 
+    private struct LayoutMapsResponse: Decodable {
+        let success: Bool
+        let maps: [LayoutMapProject]?
+        let error: String?
+    }
+
     private struct MarketingProjectResponse: Decodable {
         let success: Bool
         let project: MarketingProject?
@@ -547,6 +553,18 @@ enum MarketingConvexAPIService {
         let wrapper = try await decode(InventoryUnitsResponse.self, from: data)
         guard wrapper.success else { throw MarketingAPIError.server(wrapper.error ?? "Failed to load units") }
         return wrapper.units ?? []
+    }
+
+    /// Projects that have a 3D layout map and that this staff member can open.
+    static func listLayoutMaps(token: String) async throws -> [LayoutMapProject] {
+        let data = try await get(
+            path: "/api/projects/layout-maps",
+            token: token,
+            cachePolicy: .reloadIgnoringLocalCacheData
+        )
+        let wrapper = try await decode(LayoutMapsResponse.self, from: data)
+        guard wrapper.success else { throw MarketingAPIError.server(wrapper.error ?? "Failed to load layout maps") }
+        return wrapper.maps ?? []
     }
 
     static func getInventoryUnit(token: String, id: String) async throws -> InventoryUnit {
