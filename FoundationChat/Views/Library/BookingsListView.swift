@@ -157,6 +157,7 @@ struct BookingsListView: View {
                 LazyVStack(spacing: 12) {
                     ForEach(filteredBookings) { booking in
                         Button {
+                            Keyboard.dismiss() // MMS-288
                             selectedBooking = booking
                         } label: {
                             BookingRow(booking: booking)

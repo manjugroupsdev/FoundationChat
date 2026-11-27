@@ -99,6 +99,7 @@ struct GeoTrackLiveStatusView: View {
                                     GeoTrackEmployeeDetailView(staffId: entry.staffId, staffName: entry.staffName)
                                 } label: {
                                     LiveStatusRow(entry: entry)
+                                        .dismissKeyboardOnTap() // MMS-288
                                 }
                             }
                         }
@@ -111,6 +112,7 @@ struct GeoTrackLiveStatusView: View {
                                     GeoTrackEmployeeDetailView(staffId: entry.staffId, staffName: entry.staffName)
                                 } label: {
                                     LiveStatusRow(entry: entry)
+                                        .dismissKeyboardOnTap() // MMS-288
                                 }
                             }
                         }

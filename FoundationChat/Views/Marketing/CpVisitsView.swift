@@ -4592,6 +4592,7 @@ private struct ReferralClientPickerSheet: View {
                 } else {
                     List(clients) { client in
                         Button {
+                            Keyboard.dismiss() // MMS-288
                             onSelect(client)
                         } label: {
                             HStack(spacing: 12) {

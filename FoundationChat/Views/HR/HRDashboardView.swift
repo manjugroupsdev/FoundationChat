@@ -1632,6 +1632,7 @@ private struct OnDutyStartSheet: View {
                     VStack(spacing: 12) {
                         ForEach(filteredTargets) { target in
                             OnDutyTargetRow(target: target, isSelected: selectedTarget?.id == target.id) {
+                                Keyboard.dismiss() // MMS-288
                                 selectedTarget = target
                             }
                         }

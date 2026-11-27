@@ -293,6 +293,7 @@ struct LandInspectionView: View {
     }
 
     private func handleCardTap(_ inspection: LandInspection) {
+        Keyboard.dismiss() // MMS-288
         viewingInspection = inspection
     }
 
@@ -1823,6 +1824,7 @@ struct LandQueriesView: View {
                 LazyVStack(spacing: 0) {
                     ForEach(filteredQueries) { query in
                         Button {
+                            Keyboard.dismiss() // MMS-288
                             selectedQuery = query
                         } label: {
                             LandQueryRow(query: query)

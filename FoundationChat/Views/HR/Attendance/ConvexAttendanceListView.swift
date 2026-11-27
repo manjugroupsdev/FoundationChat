@@ -565,6 +565,7 @@ struct ConvexAttendanceListView: View {
                             AttendanceHistoryCard(record: record)
                             .contentShape(Rectangle())
                             .onTapGesture {
+                                Keyboard.dismiss() // MMS-288
                                 selectedRecord = record
                             }
                         case .team, .all:
@@ -584,6 +585,7 @@ struct ConvexAttendanceListView: View {
                                 )
                                 .contentShape(Rectangle())
                                 .onTapGesture {
+                                    Keyboard.dismiss() // MMS-288
                                     requestReviewRecord = record
                                 }
                             } else {
@@ -602,6 +604,7 @@ struct ConvexAttendanceListView: View {
                                 )
                                 .contentShape(Rectangle())
                                 .onTapGesture {
+                                    Keyboard.dismiss() // MMS-288
                                     requestReviewRecord = record
                                 }
                             } else {
@@ -617,6 +620,7 @@ struct ConvexAttendanceListView: View {
                                 )
                                 .contentShape(Rectangle())
                                 .onTapGesture {
+                                    Keyboard.dismiss() // MMS-288
                                     approvalReviewRecord = record
                                 }
                             }
@@ -652,6 +656,7 @@ struct ConvexAttendanceListView: View {
         )
         .contentShape(Rectangle())
         .onTapGesture {
+            Keyboard.dismiss() // MMS-288
             approvalReviewRecord = record
         }
     }

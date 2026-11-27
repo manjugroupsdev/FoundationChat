@@ -52,10 +52,11 @@ struct GeoTrackAssignedPlacesView: View {
                                 PlaceRow(
                                     place: place,
                                     onScheduleVisit: {
+                                        Keyboard.dismiss() // MMS-288
                                         selectedPlace = place
                                         showCreateSheet = true
                                     },
-                                    onVisitNow: { placeToNavigate = place }
+                                    onVisitNow: { Keyboard.dismiss(); placeToNavigate = place }
                                 )
                             }
                         }
@@ -75,7 +76,7 @@ struct GeoTrackAssignedPlacesView: View {
                             ForEach(serverSearchResults) { suggestion in
                                 PlaceSuggestionRow(
                                     suggestion: suggestion,
-                                    onVisitNow: { suggestionToNavigate = suggestion }
+                                    onVisitNow: { Keyboard.dismiss(); suggestionToNavigate = suggestion }
                                 )
                             }
                         }

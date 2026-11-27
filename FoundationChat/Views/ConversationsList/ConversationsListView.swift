@@ -930,6 +930,7 @@ struct ConversationsListView: View {
   }
 
   private func handlePrimaryTap(on item: HomeItem) {
+    Keyboard.dismiss() // MMS-288: opening a chat from search
     let id = item.selectionID
     if longPressSelectionGuards.contains(id) {
       longPressSelectionGuards.remove(id)

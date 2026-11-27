@@ -658,6 +658,7 @@ private struct AdminFleetDriversView: View {
             } else {
                 List(filteredDrivers) { driver in
                     Button {
+                        Keyboard.dismiss() // MMS-288
                         editingDriver = driver
                     } label: {
                         AdminFleetDriverRow(driver: driver)

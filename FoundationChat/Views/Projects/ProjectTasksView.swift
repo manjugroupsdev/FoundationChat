@@ -173,6 +173,7 @@ struct ProjectTasksView: View {
                         }
                     } label: {
                         ProjectTaskCard(task: task)
+                            .dismissKeyboardOnTap() // MMS-288
                     }
                     .buttonStyle(.plain)
                 }

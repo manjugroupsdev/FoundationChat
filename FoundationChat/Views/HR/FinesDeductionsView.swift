@@ -51,6 +51,7 @@ struct FinesDeductionsView: View {
                         LazyVStack(spacing: 12) {
                             ForEach(filteredFines) { fine in
                                 FineDeductionCard(fine: fine) {
+                                    Keyboard.dismiss() // MMS-288
                                     selectedFine = fine
                                 }
                             }

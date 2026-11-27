@@ -244,6 +244,7 @@ struct StaffSecurityView: View {
                     HStack(spacing: 12) {
                         Button {
                             guard !isSelf else { return }
+                            Keyboard.dismiss() // MMS-288
                             selectedStaff = row
                         } label: {
                             HStack(spacing: 12) {
@@ -355,7 +356,7 @@ struct StaffSecurityView: View {
         } else {
             Section("Active sessions") {
                 ForEach(visibleLogins) { row in
-                    Button { selectedLogin = row } label: {
+                    Button { Keyboard.dismiss(); selectedLogin = row } label: {
                       VStack(alignment: .leading, spacing: 10) {
                         HStack(spacing: 12) {
                             StaffSecurityAvatar(name: row.name ?? "Staff", photo: row.photo)

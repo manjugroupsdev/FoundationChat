@@ -46,6 +46,7 @@ struct AuthRootView: View {
                     geoTrackBootstrap.handleConsentDeclined()
                 }
             )
+            .onAppear { Keyboard.dismiss() } // MMS-288
         }
         .sheet(isPresented: Binding(
             get: { geoTrackBootstrap.shouldPresentPermissionHelp },
@@ -65,6 +66,7 @@ struct AuthRootView: View {
                 },
                 tracked: geoTrackBootstrap.permissionHelpTracked
             )
+            .onAppear { Keyboard.dismiss() } // MMS-288
         }
         .fullScreenCover(item: Binding(
             get: { mobileAlertToPresent },
@@ -73,6 +75,9 @@ struct AuthRootView: View {
             MobileAlertView(alert: alert, token: authStore.currentSession?.token) {
                 mobileAlerts.close(alert)
             }
+            // MMS-288: resign the field underneath, so closing the alert
+            // doesn't bring the keyboard back up on the screen behind it.
+            .onAppear { Keyboard.dismiss() }
         }
         .onReceive(NotificationCenter.default.publisher(for: .didRegisterForRemoteNotificationsToken)) {
             notification in

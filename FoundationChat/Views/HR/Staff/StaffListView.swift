@@ -35,6 +35,7 @@ struct StaffListView: View {
             ForEach(displayedStaff) { item in
                 NavigationLink(value: item._id) {
                     StaffRow(item: item)
+                        .dismissKeyboardOnTap() // MMS-288
                 }
             }
 

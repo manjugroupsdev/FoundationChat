@@ -46,6 +46,7 @@ struct LayoutMapProjectsView: View {
                         LayoutMapView(project: project)
                     } label: {
                         LayoutMapProjectRow(project: project)
+                            .dismissKeyboardOnTap() // MMS-288
                     }
                 }
             }

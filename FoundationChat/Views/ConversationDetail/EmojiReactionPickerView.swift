@@ -272,6 +272,7 @@ struct EmojiReactionPickerSheet: View {
   private func select(_ emoji: String) {
     ChatEmojiCatalog.addFavorite(emoji)
     favorites = ChatEmojiCatalog.favorites()
+    Keyboard.dismiss() // MMS-288
     onSelect(emoji)
     dismiss()
   }

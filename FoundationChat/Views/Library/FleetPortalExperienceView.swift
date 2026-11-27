@@ -1240,7 +1240,7 @@ private struct FleetPortalVehiclesView: View {
             ScrollView(showsIndicators: false) {
                 LazyVStack(spacing: 12) {
                     ForEach(filteredVehicles) { vehicle in
-                        Button { selectedVehicle = vehicle } label: {
+                        Button { Keyboard.dismiss(); selectedVehicle = vehicle } label: {
                             FleetPortalVehicleRow(vehicle: vehicle)
                         }
                         .buttonStyle(.plain)
@@ -1410,7 +1410,7 @@ private struct FleetPortalDriversView: View {
             ScrollView(showsIndicators: false) {
                 LazyVStack(spacing: 12) {
                     ForEach(filteredDrivers) { driver in
-                        Button { editingDriver = driver } label: {
+                        Button { Keyboard.dismiss(); editingDriver = driver } label: {
                             FleetPortalDriverRow(driver: driver)
                         }
                         .buttonStyle(.plain)

@@ -61,6 +61,7 @@ struct NativeSearchableSelectionSheet<Item: Identifiable, RowContent: View>: Vie
                 }
             }
             .listStyle(.insetGrouped)
+            .dismissKeyboardOnScroll()
             .searchable(
                 text: $query,
                 placement: .navigationBarDrawer(displayMode: .always),
@@ -77,6 +78,9 @@ struct NativeSearchableSelectionSheet<Item: Identifiable, RowContent: View>: Vie
     }
 
     private func select(_ item: Item) {
+        // MMS-288: close the keyboard before handing the pick back, so it
+        // doesn't stay up over the form this sheet returns to.
+        Keyboard.dismiss()
         onSelect(item)
         dismiss()
     }

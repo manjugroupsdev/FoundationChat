@@ -57,6 +57,7 @@ struct ConversationSearchView: View {
         } else {
           List(results) { message in
             Button {
+              Keyboard.dismiss() // MMS-288
               onSelectMessage?(message)
               dismiss()
             } label: {

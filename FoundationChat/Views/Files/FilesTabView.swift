@@ -418,6 +418,7 @@ private struct SharePrivateFileSheet: View {
         } else {
           List(users) { user in
             Button {
+              Keyboard.dismiss() // MMS-288
               Task { await share(file, with: user) }
             } label: {
               HStack {

@@ -213,6 +213,7 @@ struct FleetMyTripsView: View {
 
     @MainActor
     private func open(_ visit: GeoTrackTodayVisit) {
+        Keyboard.dismiss() // MMS-288
         if visit.scheduledDate > Self.todayString(), !visit.fleetIsCompleted {
             futureTripMessage = "This trip is scheduled for a future date."
             return

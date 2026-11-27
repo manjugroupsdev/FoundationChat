@@ -979,6 +979,7 @@ private struct LoanNomineePickerSheet: View {
                     LazyVStack(spacing: 0) {
                         ForEach(filteredStaff) { item in
                             Button {
+                                Keyboard.dismiss() // MMS-288
                                 onSelect(item)
                             } label: {
                                 HStack(spacing: 12) {

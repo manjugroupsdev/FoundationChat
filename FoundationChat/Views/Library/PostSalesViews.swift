@@ -1725,6 +1725,7 @@ private struct CollectionBookingSelectionSheet: View {
         NavigationStack {
             List(filteredCases) { item in
                 Button {
+                    Keyboard.dismiss() // MMS-288
                     onSelect(item)
                     dismiss()
                 } label: {

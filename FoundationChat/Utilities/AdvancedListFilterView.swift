@@ -98,7 +98,7 @@ struct AdvancedListFilterView: View {
             .navigationBarTitleDisplayMode(.inline)
             .toolbar {
                 ToolbarItem(placement: .topBarLeading) {
-                    Button { dismiss() } label: {
+                    Button { Keyboard.dismiss(); dismiss() } label: {
                         Image(systemName: "chevron.left")
                     }
                     .accessibilityLabel("Close filters")
@@ -304,6 +304,7 @@ struct AdvancedListFilterView: View {
             .frame(maxWidth: .infinity, alignment: .leading)
 
             Button {
+                Keyboard.dismiss() // MMS-288
                 onApply(normalized(draft))
                 dismiss()
             } label: {
