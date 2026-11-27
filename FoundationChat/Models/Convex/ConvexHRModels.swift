@@ -64,6 +64,13 @@ struct ConvexLeaveBalance: Codable, Equatable, Sendable {
     let earned: Double?
     let earnedUsed: Double?
     let year: Int?
+    // MMS-290: the unpaid-leave limit configured on web. All optional: missing
+    // (old server / not deployed) or null limit = unlimited, never blocks.
+    var unpaidLimit: Double? = nil
+    var unpaidPeriod: String? = nil
+    var unpaidUsed: Double? = nil
+    var unpaidPending: Double? = nil
+    var unpaidRemaining: Double? = nil
 
     var casualRemaining: Double { (casual ?? 0) - (casualUsed ?? 0) }
     var sickRemaining: Double { (sick ?? 0) - (sickUsed ?? 0) }
@@ -137,6 +144,10 @@ struct ConvexPermissionUsage: Codable, Equatable, Sendable {
     let usedHours: Double?
     let limitHours: Double?
     let remainingHours: Double?
+    // MMS-290: monthly request-count cap. Optional so an older backend (or an
+    // older cached snapshot) reads as "unknown" and never blocks Apply.
+    var requestLimit: Int? = nil
+    var remainingRequests: Int? = nil
 }
 
 // MARK: - Fines & Deductions

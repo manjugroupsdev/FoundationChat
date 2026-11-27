@@ -82,24 +82,19 @@ struct LeavesListView: View {
             }
         }
         .safeAreaInset(edge: .bottom) {
-            Button {
+            // MMS-290: grey "Unavailable" + reason when the unpaid-leave limit
+            // set on web is used up (never when unlimited/unknown/loading).
+            HRApplyBottomButton(
+                title: "Apply Leave",
+                height: 52,
+                state: HRApplyAvailability.leave(
+                    loaded: balance != nil,
+                    unpaidLimit: balance?.unpaidLimit,
+                    unpaidRemaining: balance?.unpaidRemaining
+                )
+            ) {
                 showApplySheet = true
-            } label: {
-                Text("Apply Leave")
-                    .font(.system(size: 17, weight: .bold))
-                    .foregroundStyle(.white)
-                    .frame(maxWidth: .infinity)
-                    .frame(height: 52)
-                    .background(
-                        LinearGradient(
-                            colors: [Color(hex: 0x1BCB0B), Color(hex: 0x3DA302)],
-                            startPoint: .leading,
-                            endPoint: .trailing
-                        ),
-                        in: Capsule()
-                    )
             }
-            .buttonStyle(.plain)
             .blur(radius: cancelingLeave == nil ? 0 : 2)
             .disabled(cancelingLeave != nil)
             .padding(.horizontal, 16)

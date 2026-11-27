@@ -381,6 +381,7 @@ enum HRConvexAPIService {
     private struct PermissionUsageResponse: Decodable, Sendable {
         let success: Bool
         let usedHours: Double?; let limitHours: Double?; let remainingHours: Double?
+        let requestLimit: Int?; let remainingRequests: Int?; let usedRequests: Int?
         let error: String?
     }
 
@@ -467,7 +468,10 @@ enum HRConvexAPIService {
         return ConvexPermissionUsage(
             usedHours: wrapper.usedHours,
             limitHours: wrapper.limitHours,
-            remainingHours: wrapper.remainingHours
+            remainingHours: wrapper.remainingHours,
+            requestLimit: wrapper.requestLimit,
+            remainingRequests: wrapper.remainingRequests
+                ?? wrapper.requestLimit.map { max($0 - (wrapper.usedRequests ?? 0), 0) }
         )
     }
 

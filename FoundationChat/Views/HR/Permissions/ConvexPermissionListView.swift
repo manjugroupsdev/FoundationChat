@@ -118,24 +118,21 @@ struct ConvexPermissionListView: View {
             }
         }
         .safeAreaInset(edge: .bottom) {
-            Button {
+            // MMS-290: grey "Unavailable" + reason once this month's hours or
+            // requests are used up (never while loading/failed/unknown).
+            HRApplyBottomButton(
+                title: "Apply Permission",
+                height: 48,
+                state: HRApplyAvailability.permission(
+                    loaded: usage != nil,
+                    remainingHours: usage.flatMap { u in
+                        u.remainingHours ?? u.limitHours.map { max($0 - (u.usedHours ?? 0), 0) }
+                    },
+                    remainingRequests: usage?.remainingRequests
+                )
+            ) {
                 showApplySheet = true
-            } label: {
-                Text("Apply Permission")
-                    .font(.system(size: 17, weight: .bold))
-                    .foregroundStyle(.white)
-                    .frame(maxWidth: .infinity)
-                    .frame(height: 48)
-                    .background(
-                        LinearGradient(
-                            colors: [Color(hex: 0x1BCB0B), Color(hex: 0x3DA302)],
-                            startPoint: .leading,
-                            endPoint: .trailing
-                        ),
-                        in: Capsule()
-                    )
             }
-            .buttonStyle(.plain)
             .blur(radius: cancelingPermission == nil ? 0 : 2)
             .disabled(cancelingPermission != nil)
             .padding(.horizontal, 16)

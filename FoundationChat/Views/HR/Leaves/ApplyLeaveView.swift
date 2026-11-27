@@ -81,6 +81,9 @@ struct ApplyLeaveView: View {
     @State private var compOffCredits: [ConvexCompOffCredit] = []
     @State private var selectedCompOffCredit: ConvexCompOffCredit?
     @State private var compOffCreditsLoaded = false
+    /// MMS-290: true only once the credit list actually came back; a failed
+    /// fetch leaves it false so Comp Off stays pickable (unknown != empty).
+    @State private var compOffCreditsFetched = false
     @State private var isLoadingCompOffCredits = false
     @State private var isSubmitting = false
     @State private var errorMessage: String?
@@ -214,7 +217,12 @@ struct ApplyLeaveView: View {
         }
         .background(Color.appSurface)
         .appCompactSheetCTAContainer()
-        .task { await loadLeaveTypes() }
+        .task {
+            await loadLeaveTypes()
+            // MMS-290: know up front whether Comp Off has any credits, so the
+            // category sheet can mark it "· Unavailable".
+            await loadCompOffCreditsIfNeeded()
+        }
         .onDisappear {
             dismissKeyboard()
         }
@@ -222,6 +230,10 @@ struct ApplyLeaveView: View {
             LeaveCategorySheet(
                 leaveTypes: leaveTypes,
                 selectedType: selectedLeaveCategory,
+                unavailableCodes: HRApplyAvailability.compOffAvailable(
+                    creditsFetched: compOffCreditsFetched,
+                    creditCount: compOffCredits.count
+                ) ? [] : ["compensatory"],
                 onClose: { showCategorySheet = false },
                 onSubmit: { category in
                     applySelectedCategory(category)
@@ -563,6 +575,7 @@ struct ApplyLeaveView: View {
         }
         do {
             compOffCredits = try await HRConvexAPIService.getCompOffCredits(token: token)
+            compOffCreditsFetched = true
             if let cacheKey = compOffCreditsCacheKey {
                 LocalCache.put(cacheKey, compOffCredits)
             }
@@ -619,14 +632,17 @@ struct ApplyLeaveView: View {
 private struct LeaveCategorySheet: View {
     let leaveTypes: [LeaveCategoryOption]
     let selectedType: LeaveCategoryOption
+    /// MMS-290: backend codes that have nothing to spend ("<Type> · Unavailable").
+    let unavailableCodes: Set<String>
     let onClose: () -> Void
     let onSubmit: (LeaveCategoryOption) -> Void
 
     @State private var draftType: LeaveCategoryOption
 
-    init(leaveTypes: [LeaveCategoryOption], selectedType: LeaveCategoryOption, onClose: @escaping () -> Void, onSubmit: @escaping (LeaveCategoryOption) -> Void) {
+    init(leaveTypes: [LeaveCategoryOption], selectedType: LeaveCategoryOption, unavailableCodes: Set<String> = [], onClose: @escaping () -> Void, onSubmit: @escaping (LeaveCategoryOption) -> Void) {
         self.leaveTypes = leaveTypes
         self.selectedType = selectedType
+        self.unavailableCodes = unavailableCodes
         self.onClose = onClose
         self.onSubmit = onSubmit
         _draftType = State(initialValue: selectedType)
@@ -646,11 +662,12 @@ private struct LeaveCategorySheet: View {
 
             VStack(spacing: 8) {
                 ForEach(leaveTypes) { type in
+                    let isUnavailable = unavailableCodes.contains(type.backendCode)
                     Button {
                         draftType = type
                     } label: {
                         HStack {
-                            Text(type.label)
+                            Text(isUnavailable ? "\(type.label) · \(HRApplyAvailability.unavailableLabel)" : type.label)
                                 .font(.system(size: 14, weight: .medium))
                                 .foregroundStyle(Color.appPrimaryText)
                                 .lineLimit(2)
@@ -669,6 +686,8 @@ private struct LeaveCategorySheet: View {
                         }
                     }
                     .buttonStyle(.plain)
+                    .disabled(isUnavailable)
+                    .opacity(isUnavailable ? 0.5 : 1)
                 }
             }
             .padding(.top, 16)
