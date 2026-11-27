@@ -457,34 +457,21 @@ struct LeavesListView: View {
                     .padding(.top, 12)
 
                 HStack(spacing: 12) {
+                    // MMS-289: dialog pair on the shared button system.
                     Button {
                         cancelingLeave = nil
                     } label: {
                         Text("No, Go Back")
-                            .font(.system(size: 14, weight: .semibold))
-                            .foregroundStyle(Color.appPrimaryText)
-                            .frame(maxWidth: .infinity)
-                            .frame(height: 48)
-                            .background(Color.appSurface, in: RoundedRectangle(cornerRadius: 12, style: .continuous))
-                            .overlay {
-                                RoundedRectangle(cornerRadius: 12, style: .continuous)
-                                    .stroke(Color.appSeparator, lineWidth: 1)
-                            }
                     }
-                    .buttonStyle(.plain)
+                    .buttonStyle(.mconnect(.secondary, size: .medium))
                     .disabled(actionInFlightId != nil)
 
                     Button {
                         cancelLeave(leave)
                     } label: {
                         Text(actionInFlightId == leave._id ? "Cancelling..." : "Confirm")
-                            .font(.system(size: 14, weight: .semibold))
-                            .foregroundStyle(.white)
-                            .frame(maxWidth: .infinity)
-                            .frame(height: 48)
-                            .background(Color(hex: 0xEF4444), in: RoundedRectangle(cornerRadius: 12, style: .continuous))
                     }
-                    .buttonStyle(.plain)
+                    .buttonStyle(.mconnect(.danger, size: .medium))
                     .disabled(actionInFlightId != nil)
                 }
                 .padding(.top, 24)

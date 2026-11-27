@@ -83,21 +83,10 @@ struct ApplyPermissionView: View {
             Button {
                 submit()
             } label: {
-                ZStack {
-                    Text("Submit Now")
-                        .font(.system(size: 15, weight: .semibold))
-                        .opacity(isSubmitting ? 0 : 1)
-                    if isSubmitting {
-                        ProgressView()
-                            .tint(.white)
-                    }
-                }
-                .foregroundStyle(.white)
-                .frame(maxWidth: .infinity)
-                .frame(height: 46)
-                .background(submitEnabled ? enabledButtonFill : disabledButtonFill, in: Capsule())
+                // MMS-289: the shared CTA button (spinner keeps the width).
+                MconnectButtonLabel("Submit Now", isLoading: isSubmitting)
             }
-            .buttonStyle(.plain)
+            .buttonStyle(.mconnect(.cta))
             .disabled(!submitEnabled || isSubmitting)
             .padding(.horizontal, 20)
             .padding(.bottom, 20)

@@ -2421,24 +2421,12 @@ private struct CreateCpVisitSheet: View {
                     Button {
                         Task { await searchLead() }
                     } label: {
-                        HStack(spacing: 8) {
-                            if isSearchingLead {
-                                ProgressView()
-                            } else {
-                                Image(systemName: "magnifyingglass")
-                                    .font(.system(size: 15, weight: .semibold))
-                            }
-                            Text("Search existing client")
-                                .font(.system(size: 13, weight: .semibold))
-                        }
-                        .foregroundStyle(.secondary)
-                        .frame(maxWidth: .infinity)
-                        .frame(height: 44)
-                        .background(Color.appFieldBackground, in: Capsule())
+                        // MMS-289: in-form action = Medium secondary with icon.
+                        MconnectButtonLabel("Search existing client", systemImage: "magnifyingglass",
+                                            isLoading: isSearchingLead, spinnerTint: .appPrimaryText)
                     }
-                    .buttonStyle(.plain)
+                    .buttonStyle(.mconnect(.secondary, size: .medium))
                     .disabled(isSearchingLead || AppModuleFormatters.normalizePhone(phone).count != 10)
-                    .opacity(AppModuleFormatters.normalizePhone(phone).count == 10 ? 1 : 0.55)
                     .padding(.top, 12)
 
                     if let selectedLead {
@@ -2562,34 +2550,18 @@ private struct CreateCpVisitSheet: View {
                     .overlay(Color.appSeparator)
 
                 HStack(spacing: 12) {
+                    // MMS-289: footer pair on the shared button system.
                     Button("Cancel") {
                         dismiss()
                     }
-                    .font(.system(size: 15, weight: .bold))
-                    .foregroundStyle(.secondary)
-                    .frame(maxWidth: .infinity)
-                    .frame(height: 54)
-                    .background(Color.appSurface, in: Capsule())
-                    .overlay(
-                        Capsule()
-                            .stroke(Color.appSeparator, lineWidth: 1)
-                    )
+                    .buttonStyle(.mconnect(.secondary))
 
                     Button {
                         Task { await submit() }
                     } label: {
-                        if isSubmitting {
-                            ProgressView()
-                                .tint(.white)
-                        } else {
-                            Text(isOutOfStationHandoff ? "Send to GM" : "Create visit")
-                        }
+                        MconnectButtonLabel(isOutOfStationHandoff ? "Send to GM" : "Create visit", isLoading: isSubmitting)
                     }
-                    .font(.system(size: 15, weight: .bold))
-                    .foregroundStyle(.white)
-                    .frame(maxWidth: .infinity)
-                    .frame(height: 54)
-                    .background(Color(hex: 0x1BCA0B), in: Capsule())
+                    .buttonStyle(.mconnect(.cta))
                     .disabled(isSubmitting)
                 }
                 .buttonStyle(.plain)
@@ -4405,13 +4377,10 @@ struct CpMapPinPicker: View {
                 ))
                 dismiss()
             } label: {
-                Label("Use this location", systemImage: "checkmark.circle.fill")
-                    .frame(maxWidth: .infinity)
+                MconnectButtonLabel("Use this location", systemImage: "checkmark.circle.fill")
             }
-            .buttonStyle(.borderedProminent)
-            .buttonBorderShape(.capsule)
-            .controlSize(.large)
-            .tint(Color(hex: 0x1BCA0B))
+            // MMS-289: footer CTA on the shared button system.
+            .buttonStyle(.mconnect(.cta))
             .disabled(selectedCoordinate == nil)
         }
         .padding(16)

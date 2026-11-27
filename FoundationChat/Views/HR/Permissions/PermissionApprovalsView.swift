@@ -97,24 +97,21 @@ struct PermissionApprovalsView: View {
                 Button {
                     approvePermission(permission)
                 } label: {
-                    Label(actionInFlightId == permission._id ? "Working..." : "Approve", systemImage: "checkmark")
-                        .font(.subheadline.weight(.medium))
+                    MconnectButtonLabel(actionInFlightId == permission._id ? "Working..." : "Approve", systemImage: "checkmark", spacing: 6)
                         .frame(maxWidth: .infinity)
                 }
-                .buttonStyle(.borderedProminent)
-                .tint(.green)
+                // MMS-289: compact row action on the shared button system.
+                .buttonStyle(.mconnect(.primary, size: .compact))
                 .disabled(actionInFlightId != nil)
 
                 Button {
                     rejectingPermission = permission
                     rejectReason = ""
                 } label: {
-                    Label("Reject", systemImage: "xmark")
-                        .font(.subheadline.weight(.medium))
+                    MconnectButtonLabel("Reject", systemImage: "xmark", spacing: 6)
                         .frame(maxWidth: .infinity)
                 }
-                .buttonStyle(.borderedProminent)
-                .tint(.red)
+                .buttonStyle(.mconnect(.dangerOutline, size: .compact))
                 .disabled(actionInFlightId != nil)
             }
             .padding(.top, 4)

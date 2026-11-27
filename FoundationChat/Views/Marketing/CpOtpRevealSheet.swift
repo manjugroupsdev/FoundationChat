@@ -67,10 +67,9 @@ struct CpOtpRevealSheet: View {
                 .foregroundStyle(.tertiary)
                 .frame(maxWidth: .infinity, alignment: .center)
 
+            // MMS-289: shared button system.
             Button("Close") { dismiss() }
-                .frame(maxWidth: .infinity)
-                .padding(.vertical, 12)
-                .background(Color.secondary.opacity(0.12), in: RoundedRectangle(cornerRadius: 12))
+                .buttonStyle(.mconnect(.secondary))
                 .padding(.bottom, 8)
         }
         .padding(.horizontal, 20)
@@ -107,10 +106,7 @@ struct CpOtpRevealSheet: View {
             }
 
             Button(didCopy ? "Copied" : "Copy OTP") { copy(code) }
-                .frame(maxWidth: .infinity)
-                .padding(.vertical, 12)
-                .background(Color.accentColor, in: RoundedRectangle(cornerRadius: 12))
-                .foregroundStyle(.white)
+                .buttonStyle(.mconnect(.primary))
         }
     }
 

@@ -949,14 +949,10 @@ struct TripNavigationView: View {
                             Task { await completeVisitUsingCorrectFlow(visitId: id) }
                         }
                     } label: {
-                        Label("Finish saved visit", systemImage: "checkmark.circle.fill")
-                            .font(.system(size: 14, weight: .semibold))
-                            .frame(maxWidth: .infinity)
-                            .frame(height: 48)
+                        MconnectButtonLabel("Finish saved visit", systemImage: "checkmark.circle.fill")
                     }
-                    .buttonStyle(.borderedProminent)
-                    .buttonBorderShape(.capsule)
-                    .tint(Color(hex: 0x1BCA0B))
+                    // MMS-289: trip actions = Medium CTA with a leading icon.
+                    .buttonStyle(.mconnect(.cta, size: .medium))
                     .disabled(arrivalInProgress)
                 } else if let workflow = jointWorkflow {
                     jointWorkflowAction(workflow)
@@ -964,58 +960,29 @@ struct TripNavigationView: View {
                     Button {
                         Task { await markFleetDriverPickedFromSite() }
                     } label: {
-                        Label(
+                        MconnectButtonLabel(
                             fleetPickupSecondsRemaining > 0
                                 ? "Picked from Site in \(fleetPickupSecondsRemaining)s"
                                 : "Picked from Site",
                             systemImage: "person.2.fill"
                         )
-                            .font(.system(size: 14, weight: .semibold))
-                            .frame(maxWidth: .infinity)
-                            .frame(height: 48)
                     }
-                    .buttonStyle(.borderedProminent)
-                    .buttonBorderShape(.capsule)
-                    .tint(Color(hex: 0x1BCA0B))
+                    .buttonStyle(.mconnect(.cta, size: .medium))
                     .disabled(arrivalInProgress || fleetPickupSecondsRemaining > 0)
                 } else if isFleetDriverMode && !isCpVisit && fleetDriverPhase == "picked_from_site" {
                     Button {
                         if let id = resolvedVisitId { requestDriverEndProofThenComplete(visitId: id) }
                     } label: {
-                        Label("End Trip", systemImage: "flag.checkered")
-                            .font(.system(size: 14, weight: .semibold))
-                            .frame(maxWidth: .infinity)
-                            .frame(height: 48)
+                        MconnectButtonLabel("End Trip", systemImage: "flag.checkered")
                     }
-                    .buttonStyle(.borderedProminent)
-                    .buttonBorderShape(.capsule)
-                    .tint(Color(hex: 0x1BCA0B))
+                    .buttonStyle(.mconnect(.cta, size: .medium))
                 } else if isCpVisit && tripProgressStage == .reached && shouldCollectCpOutcome {
                     Button {
                         Task { await completeVisitAfterOtp(otp: "") }
                     } label: {
-                        HStack {
-                            if arrivalInProgress {
-                                ProgressView().tint(.white)
-                            } else {
-                                Image(systemName: "checkmark.circle.fill")
-                            }
-                            Text(primaryActionTitle)
-                                .font(.system(size: 14, weight: .semibold))
-                        }
-                        .frame(maxWidth: .infinity)
-                        .frame(height: 48)
+                        MconnectButtonLabel(primaryActionTitle, systemImage: "checkmark.circle.fill", isLoading: arrivalInProgress)
                     }
-                    .buttonStyle(.plain)
-                    .foregroundStyle(.white)
-                    .background(
-                        LinearGradient(
-                            colors: [Color(hex: 0x1BCA0B), Color(hex: 0x3D9D02)],
-                            startPoint: .top,
-                            endPoint: .bottom
-                        ),
-                        in: Capsule()
-                    )
+                    .buttonStyle(.mconnect(.cta, size: .medium))
                     .disabled(arrivalInProgress)
                 } else {
                     SwipeToConfirmTripButton(
@@ -4297,7 +4264,8 @@ private struct SpecialCpCompletionSheet: View {
                     Text(submitTitle)
                 }
             }
-            .buttonStyle(.mconnect(.success))
+            // MMS-289: the screen's main action = CTA (brand blue).
+            .buttonStyle(.mconnect(.cta))
             .disabled(
                 isSaving || isLoading || isUploadingCollectionProof ||
                     (kind == .collection && !collectionNotCollected && selectedCaseId.isEmpty) ||

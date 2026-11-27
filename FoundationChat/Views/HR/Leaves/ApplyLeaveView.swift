@@ -299,21 +299,10 @@ struct ApplyLeaveView: View {
         Button {
             promptSubmitConfirmation()
         } label: {
-            ZStack {
-                if isSubmitting {
-                    ProgressView()
-                        .tint(.white)
-                } else {
-                    Text("Submit Now")
-                        .font(.system(size: 15, weight: .semibold))
-                        .foregroundStyle(.white)
-                }
-            }
-            .frame(maxWidth: .infinity)
-            .frame(height: 50)
-            .background(submitBackground, in: Capsule())
+            // MMS-289: the shared CTA button (spinner keeps the width).
+            MconnectButtonLabel("Submit Now", isLoading: isSubmitting)
         }
-        .buttonStyle(.plain)
+        .buttonStyle(.mconnect(.cta))
         .disabled(!canSubmit)
     }
 

@@ -111,23 +111,16 @@ struct ArrivalOtpSheet: View {
             }
 
             HStack(spacing: 10) {
+                // MMS-289: footer pair on the shared button system.
                 Button("Cancel") { dismiss() }
-                    .buttonStyle(.bordered)
-                    .controlSize(.large)
-                    .frame(maxWidth: .infinity)
+                    .buttonStyle(.mconnect(.secondary))
 
                 Button {
                     Task { await performVerify() }
                 } label: {
-                    HStack {
-                        if isVerifying { ProgressView().tint(.white) }
-                        Text("Verify OTP").font(.headline)
-                    }
-                    .frame(maxWidth: .infinity)
+                    MconnectButtonLabel("Verify OTP", isLoading: isVerifying)
                 }
-                .buttonStyle(.borderedProminent)
-                .controlSize(.large)
-                .tint(Color(hex: 0x2DAE12))
+                .buttonStyle(.mconnect(.cta))
                 .disabled(otp.count != 4 || isVerifying)
             }
 
@@ -136,17 +129,10 @@ struct ArrivalOtpSheet: View {
                     fieldFocused = false
                     showAssistancePrompt = true
                 } label: {
-                    HStack(spacing: 7) {
-                        if isRequestingAssistance {
-                            ProgressView().controlSize(.small)
-                        } else {
-                            Image(systemName: "person.crop.circle.badge.questionmark")
-                        }
-                        Text("Request GM for OTP")
-                    }
-                    .font(.subheadline.weight(.semibold))
+                    MconnectButtonLabel("Request GM for OTP", systemImage: "person.crop.circle.badge.questionmark",
+                                        isLoading: isRequestingAssistance, spacing: 6, spinnerTint: .appPrimaryText)
                 }
-                .buttonStyle(.bordered)
+                .buttonStyle(.mconnect(.secondary, size: .compact))
                 .disabled(isRequestingAssistance)
             }
             Spacer(minLength: 8)

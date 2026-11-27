@@ -405,27 +405,10 @@ private struct CreateFineDeductionSheet: View {
             Button {
                 Task { await submitFine() }
             } label: {
-                HStack(spacing: 10) {
-                    if isSubmitting {
-                        ProgressView()
-                            .tint(.white)
-                    }
-                    Text(isSubmitting ? "Creating..." : "Create It")
-                        .font(.system(size: 17, weight: .bold))
-                }
-                .foregroundStyle(.white)
-                .frame(maxWidth: .infinity)
-                .frame(height: 56)
-                .background(
-                    LinearGradient(
-                        colors: canSubmit ? [Color(hex: 0x18D20B), Color(hex: 0x29A800)] : [Color.appSeparator, Color.appSeparator],
-                        startPoint: .leading,
-                        endPoint: .trailing
-                    ),
-                    in: Capsule()
-                )
+                // MMS-289: the shared CTA button (spinner keeps the width).
+                MconnectButtonLabel("Create It", isLoading: isSubmitting)
             }
-            .buttonStyle(.plain)
+            .buttonStyle(.mconnect(.cta))
             .disabled(!canSubmit)
             .padding(.horizontal, 20)
             .padding(.top, 12)

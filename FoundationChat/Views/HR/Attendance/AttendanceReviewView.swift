@@ -228,13 +228,9 @@ struct AttendanceReviewView: View {
                     approvingRecord = record
                 } label: {
                     Text(actionInFlightId == record.reviewId ? "Working..." : "Approve")
-                        .font(.system(size: 12, weight: .semibold))
-                        .foregroundStyle(.white)
-                        .padding(.horizontal, 14)
-                        .padding(.vertical, 8)
-                        .background(Color(hex: 0x0B61CA), in: Capsule())
                 }
-                .buttonStyle(.plain)
+                // MMS-289: compact row actions on the shared button system.
+                .buttonStyle(.mconnect(.primary, size: .compact))
                 .disabled(actionInFlightId != nil)
 
                 Button {
@@ -242,13 +238,8 @@ struct AttendanceReviewView: View {
                     rejectReason = ""
                 } label: {
                     Text("Reject")
-                        .font(.system(size: 12, weight: .semibold))
-                        .foregroundStyle(Color(hex: 0xDC2626))
-                        .padding(.horizontal, 14)
-                        .padding(.vertical, 8)
-                        .background(Color(hex: 0xFEE2E2), in: Capsule())
                 }
-                .buttonStyle(.plain)
+                .buttonStyle(.mconnect(.dangerOutline, size: .compact))
                 .disabled(actionInFlightId != nil)
             }
         }

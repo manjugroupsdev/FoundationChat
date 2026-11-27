@@ -71,24 +71,21 @@ struct LeaveApprovalsView: View {
                         Button {
                             approveLeave(leave)
                         } label: {
-                            Label(actionInFlightId == leave._id ? "Working..." : "Approve", systemImage: "checkmark")
-                                .font(.subheadline.weight(.medium))
+                            MconnectButtonLabel(actionInFlightId == leave._id ? "Working..." : "Approve", systemImage: "checkmark", spacing: 6)
                                 .frame(maxWidth: .infinity)
                         }
-                        .buttonStyle(.borderedProminent)
-                        .tint(.green)
+                        // MMS-289: compact row action on the shared button system.
+                        .buttonStyle(.mconnect(.primary, size: .compact))
                         .disabled(actionInFlightId != nil)
 
                         Button {
                             rejectingLeave = leave
                             rejectReason = ""
                         } label: {
-                            Label("Reject", systemImage: "xmark")
-                                .font(.subheadline.weight(.medium))
+                            MconnectButtonLabel("Reject", systemImage: "xmark", spacing: 6)
                                 .frame(maxWidth: .infinity)
                         }
-                        .buttonStyle(.borderedProminent)
-                        .tint(.red)
+                        .buttonStyle(.mconnect(.dangerOutline, size: .compact))
                         .disabled(actionInFlightId != nil)
                     }
                     .padding(.top, 4)

@@ -331,14 +331,10 @@ private struct CpApprovalCard: View {
             }
 
             Button(action: onViewRoute) {
-                Label("View travelled path", systemImage: "map")
-                    .font(.system(size: 13, weight: .semibold))
-                    .foregroundStyle(Color(hex: 0x0B61CA))
-                    .frame(maxWidth: .infinity)
-                    .frame(height: 44)
-                    .background(Color.adaptiveTint(0xEFF6FF), in: RoundedRectangle(cornerRadius: 10))
+                MconnectButtonLabel("View travelled path", systemImage: "map")
             }
-            .buttonStyle(.plain)
+            // MMS-289: in-card action = Medium secondary with icon.
+            .buttonStyle(.mconnect(.secondary, size: .medium))
             .padding(.top, 8)
 
             if !canApprove {
@@ -371,7 +367,8 @@ private struct CpApprovalCard: View {
                         }
                     }
                 }
-                .buttonStyle(.mconnect(.success))
+                // MMS-289: main actions are brand blue (user decision).
+                .buttonStyle(.mconnect(.primary))
                 .disabled(isBusy)
             }
             .padding(.top, 12)

@@ -1622,26 +1622,19 @@ private struct TeamAttendanceCard: View {
                         onPrimary?()
                     } label: {
                         Text(primaryActionTitle)
-                            .font(.system(size: 13, weight: .semibold))
-                            .foregroundStyle(.white)
                             .frame(maxWidth: .infinity)
-                            .frame(height: 38)
-                            .background(primaryActionColor, in: RoundedRectangle(cornerRadius: 8, style: .continuous))
                     }
-                    .buttonStyle(.plain)
+                    // MMS-289: row actions on the shared button system
+                    .buttonStyle(.mconnect(.primary, size: .compact))
 
                     if actionStyle == .reviewReject {
                         Button {
                             onSecondary?()
                         } label: {
                             Text("Reject")
-                                .font(.system(size: 13, weight: .semibold))
-                                .foregroundStyle(Color(hex: 0xB42318))
                                 .frame(maxWidth: .infinity)
-                                .frame(height: 38)
-                                .background(Color.adaptiveTint(0xFEF3F2), in: RoundedRectangle(cornerRadius: 8, style: .continuous))
                         }
-                        .buttonStyle(.plain)
+                        .buttonStyle(.mconnect(.dangerOutline, size: .compact))
                     }
                 }
             }
@@ -2811,29 +2804,20 @@ private struct AttendanceRequestReviewSheet: View {
                 Button(role: .destructive) {
                     showRejectReason = true
                 } label: {
-                    Label("Reject", systemImage: "xmark.circle")
+                    MconnectButtonLabel("Reject", systemImage: "xmark.circle")
                         .frame(maxWidth: .infinity)
                 }
-                .buttonStyle(.bordered)
+                // MMS-289: footer pair on the shared button system.
+                .buttonStyle(.mconnect(.dangerOutline))
 
                 Button {
                     showApprovalOptions = true
                 } label: {
-                    HStack(spacing: 6) {
-                        if isSubmitting {
-                            ProgressView()
-                                .tint(.white)
-                        } else {
-                            Image(systemName: "checkmark.circle")
-                        }
-                        Text(isSubmitting ? "Saving" : "Approve")
-                    }
-                    .frame(maxWidth: .infinity)
+                    MconnectButtonLabel(isSubmitting ? "Saving" : "Approve", systemImage: "checkmark.circle", isLoading: isSubmitting)
+                        .frame(maxWidth: .infinity)
                 }
-                .buttonStyle(.borderedProminent)
-                .tint(.green)
+                .buttonStyle(.mconnect(.primary))
             }
-            .controlSize(.large)
         }
         .padding(.horizontal, 16)
         .padding(.top, 10)
